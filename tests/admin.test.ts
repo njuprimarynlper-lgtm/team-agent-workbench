@@ -1,0 +1,84 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { generateKeyPairSync } from 'node:crypto';
+import { Server, utils } from 'ssh2';
+import { AdminConnection } from '../src/admin/connection';
+import { adminOperationSchema, adminProfileSchema } from '../src/admin/types';
+const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
+
+test('admin schemas reject privilege and content operations; secrets are not profile fields', () => {
+  assert.equal(adminOperationSchema.safeParse({ op: 'write', path: '/etc/passwd' }).success, false);
+  assert.equal(adminOperationSchema.safeParse({ op: 'user_create', username: '-R /', password: 'abcdefgh', name: 'bad' }).success, false);
+  const profile = adminProfileSchema.parse({ host: 'host', port: 22, username: 'admin', password: 'secret', sudoPassword: 'secret', root: '/srv/teamspace' });
+  assert.equal('password' in profile, false); assert.equal('sudoPassword' in profile, false);
+});
+
+async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false) {
+  const requests: any[] = [], commands: string[] = [], clients: any[] = [];
+  const state = { initialized: true, users: {}, groups: {}, sftpConfigured: true };
+  const server = new Server({ hostKeys: [key] }, client => {
+    clients.push(client); client.on('error', () => {});
+    client.on('authentication', context => context.method === 'password' && context.password === 'login-secret' ? context.accept() : context.reject());
+    client.on('ready', () => client.on('session', accept => {
+      const session = accept();
+      session.on('sftp', (accept, reject) => {
+        if (role !== 'project') { reject(); return; }
+        const sftp = accept(), content = Buffer.from(JSON.stringify({ version: 1, root: '/srv/teamspace', users: { worker: { contentGroups: [{ id: 'wb_test_ocr', name: 'OCR' }] } } }));
+        sftp.on('LSTAT', (id, target) => sftp.attrs(id, { mode: target.endsWith('.json') ? (writableManifest ? 0o100666 : 0o100644) : 0o40755, uid: 0, gid: 0, size: content.length, atime: 0, mtime: 0 }));
+        sftp.on('OPEN', id => sftp.handle(id, Buffer.from('roles')));
+        sftp.on('FSTAT', id => sftp.attrs(id, { mode: 0o100644, uid: 0, gid: 0, size: content.length, atime: 0, mtime: 0 }));
+        sftp.on('READ', (id, _handle, offset, length) => offset >= content.length ? sftp.status(id, utils.sftp.STATUS_CODE.EOF) : sftp.data(id, content.subarray(offset, offset + length)));
+        sftp.on('CLOSE', id => sftp.status(id, utils.sftp.STATUS_CODE.OK));
+      });
+      session.on('exec', (accept, _reject, info) => {
+        commands.push(info.command); const channel = accept();
+        if (info.command === 'id -u') { channel.write(role === 'root' ? '0\n' : '1001\n'); channel.exit(0); channel.end(); return; }
+        if (role === 'project') { channel.stderr.write('not in sudoers'); channel.exit(1); channel.end(); return; }
+        const encoded = info.command.match(/b64decode\("([A-Za-z0-9+/=]+)"/); assert(encoded);
+        assert.match(Buffer.from(encoded[1], 'base64').toString(), /def main\(request\)/);
+        let buffer = '', authorized = role === 'root';
+        channel.on('data', (data: Buffer) => {
+          buffer += data.toString(); let n: number;
+          while ((n = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, n); buffer = buffer.slice(n + 1);
+            if (!authorized) { assert.equal(line, 'sudo-secret'); authorized = true; channel.write('WORKBENCH_READY\n'); continue; }
+            const input = JSON.parse(line); requests.push(input);
+            const result = input.op === 'probe' ? { administrator: true, actor: role, missingCommands: [] } : input.op === 'status' ? state : { state };
+            channel.write(JSON.stringify({ ok: true, value: result }) + '\n'); channel.exit(0); channel.end();
+          }
+        });
+        if (authorized) channel.write('WORKBENCH_READY\n'); else { channel.stderr.write('WORKBENCH_'); setTimeout(() => channel.stderr.write('SUDO'), 5); }
+      });
+    }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as { port: number };
+  return { requests, commands, port: address.port, close: async () => { clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); } };
+}
+for (const role of ['root', 'sudo'] as const) test(role + ': SSH verifies privilege and sends passwords only over stdin', async () => {
+  const f = await fixture(role), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  try {
+    await remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', 'sudo-secret', async () => true);
+    assert.equal(remote.snapshot.role, 'administrator');
+    await remote.operation({ op: 'user_create', username: 'alice', name: '测试成员', password: 'new-secret' });
+    assert.equal(f.requests.at(-1).password, 'new-secret');
+    assert(!JSON.stringify(remote.snapshot).includes('secret')); assert(!f.commands.some(c => c.includes('secret')));
+  } finally { remote.disconnect(); await f.close(); }
+});
+test('project subadmin authenticates through protected server assignment and cannot manage users', async () => {
+  const f = await fixture('project'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  try {
+    await remote.connect({ host: '127.0.0.1', port: f.port, username: 'worker', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true);
+    assert.equal(remote.snapshot.role, 'project_admin'); assert.deepEqual(remote.snapshot.contentGroups, [{ id: 'wb_test_ocr', name: 'OCR' }]);
+    await assert.rejects(remote.operation({ op: 'user_create', username: 'bad', name: 'bad', password: 'new-secret' }), /只有总管理员/);
+    assert.equal(f.commands.length, 0);
+  } finally { remote.disconnect(); await f.close(); }
+});
+test('writable role manifest cannot grant a project admin entry', async () => {
+  const f = await fixture('project', true), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  try {
+    await assert.rejects(remote.connect({ host: '127.0.0.1', port: f.port, username: 'worker', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true));
+    assert.equal(remote.snapshot.verified, false);
+  } finally { remote.disconnect(); await f.close(); }
+});

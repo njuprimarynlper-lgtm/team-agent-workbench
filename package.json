@@ -1,0 +1,42 @@
+{
+  "name": "team-agent-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows team workspace for local Codex and Cursor agents with Linux SFTP sharing",
+  "main": "dist/user/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron dist/user",
+    "dev": "npm run start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:ui": "node scripts/smoke.mjs",
+    "package": "npm run build && node scripts/package.mjs",
+    "check": "npm run typecheck && npm test && npm run build",
+    "start:admin": "npm run build && electron dist/admin"
+  },
+  "dependencies": {
+    "@openai/codex": "^0.154.0",
+    "archiver": "^8.0.0",
+    "lucide-react": "^1.46.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "ssh2": "^1.17.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/archiver": "^8.0.0",
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ssh2": "^1.15.6",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

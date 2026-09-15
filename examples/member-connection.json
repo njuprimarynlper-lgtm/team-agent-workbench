@@ -1,0 +1,18 @@
+{
+  "id": "company-team",
+  "name": "团队共享空间",
+  "host": "10.0.0.20",
+  "port": 22,
+  "username": "alice",
+  "fingerprint": "",
+  "manifestPath": "",
+  "projects": [
+    {
+      "id": "ocr",
+      "name": "OCR",
+      "remoteRoot": "/projects/ocr",
+      "uploadPath": "/projects/ocr/submissions/alice",
+      "historyPath": "/projects/ocr/sessions/alice"
+    }
+  ]
+}

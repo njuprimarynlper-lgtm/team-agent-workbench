@@ -1,0 +1,61 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import readline from 'node:readline';
+import fs from 'node:fs';
+import path from 'node:path';
+export type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { code: number; message: string } };
+export function childEnv() {
+  const env = { ...process.env };
+  for (const key of ['ELECTRON_RUN_AS_NODE', 'CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'NODE_TLS_REJECT_UNAUTHORIZED']) delete env[key];
+  return env;
+}
+export function spawnCLI(executable: string, args: string[], cwd: string) {
+  const dir = path.dirname(executable);
+  if (/cursor-agent\.(cmd|ps1)$/i.test(executable) && fs.existsSync(path.join(dir, 'node.exe')) && fs.existsSync(path.join(dir, 'index.js'))) {
+    return spawn(path.join(dir, 'node.exe'), [path.join(dir, 'index.js'), ...args], { cwd, env: childEnv(), windowsHide: true, stdio: 'pipe' });
+  }
+  if (process.platform === 'win32' && /\.(cmd|bat|ps1)$/i.test(executable)) {
+    const quote = (s: string) => "'" + s.replace(/'/g, "''") + "'";
+    return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [System.Text.UTF8Encoding]::new(); & ' + [executable, ...args].map(quote).join(' ')], { cwd, env: childEnv(), windowsHide: true, stdio: 'pipe' });
+  }
+  return spawn(executable, args, { cwd, env: childEnv(), windowsHide: true, stdio: 'pipe' });
+}
+export class JsonRpc extends EventEmitter {
+  private seq = 0;
+  private pending = new Map<number, { resolve: (x: any) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
+  readonly process: ChildProcessWithoutNullStreams;
+  private closed = false;
+  constructor(executable: string, args: string[], cwd: string, private envelope = true) {
+    super();
+    this.process = spawnCLI(executable, args, cwd);
+    const lines = readline.createInterface({ input: this.process.stdout });
+    lines.on('line', line => {
+      let message: RpcMessage;
+      try { message = JSON.parse(line); } catch { this.emit('diagnostic', line); return; }
+      if (message.method) this.emit('message', message);
+      else if (typeof message.id === 'number') {
+        const call = this.pending.get(message.id); if (!call) return;
+        this.pending.delete(message.id); clearTimeout(call.timer);
+        message.error ? call.reject(new Error(message.error.message)) : call.resolve(message.result);
+      }
+    });
+    this.process.stderr.on('data', data => this.emit('diagnostic', data.toString()));
+    this.process.on('error', e => this.finish(e));
+    this.process.on('exit', code => this.finish(new Error('CLI 进程已退出（' + code + '）')));
+    this.process.stdin.on('error', e => this.finish(e));
+  }
+  private finish(error: Error) { if (this.closed) return; this.closed = true; for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error); } this.pending.clear(); this.emit('closed', error); }
+  private write(value: RpcMessage) { if (this.closed) throw new Error('CLI 连接已关闭'); this.process.stdin.write(JSON.stringify(this.envelope ? { jsonrpc: '2.0', ...value } : value) + '\n'); }
+  request(method: string, params: unknown = {}, timeout = 60000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const id = ++this.seq;
+      const timer = timeout ? setTimeout(() => { this.pending.delete(id); reject(new Error(method + ' 超时')); }, timeout) : undefined;
+      this.pending.set(id, { resolve, reject, timer });
+      try { this.write({ id, method, params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); reject(e); }
+    });
+  }
+  notify(method: string, params: unknown = {}) { this.write({ method, params }); }
+  respond(id: number | string, result: unknown) { this.write({ id, result }); }
+  reject(id: number | string, message = '客户端暂不支持此请求') { this.write({ id, error: { code: -32601, message } }); }
+  close() { this.finish(new Error('连接已关闭')); this.process.stdin.end(); if (process.platform === 'win32' && this.process.pid) { const killer = spawn('taskkill.exe', ['/PID', String(this.process.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); killer.on('error', () => this.process.kill()); } else this.process.kill(); }
+}

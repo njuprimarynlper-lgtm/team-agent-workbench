@@ -1,0 +1,36 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import type { AgentSession, Draft, Settings, Transfer } from '../shared/types';
+import { settingsSchema } from './config';
+export async function atomicJson(file: string, data: unknown) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const temp = file + '.' + randomUUID() + '.tmp';
+  await fs.writeFile(temp, JSON.stringify(data, null, 2), { mode: 0o600 });
+  await fs.rename(temp, file);
+}
+export class Store {
+  settings: Settings = { connections: [], providerPaths: { codex: '', cursor: '' }, lastWorkspace: '' };
+  sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = [];
+  private writes: Promise<void> = Promise.resolve();
+  constructor(public root: string) {}
+  async init() {
+    await fs.mkdir(this.root, { recursive: true });
+    try { this.settings = settingsSchema.parse(JSON.parse(await fs.readFile(path.join(this.root, 'settings.json'), 'utf8'))); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地设置损坏，请保留文件并检查：' + path.join(this.root, 'settings.json')); }
+    for (const key of ['sessions', 'transfers', 'drafts'] as const) {
+      try { const data = JSON.parse(await fs.readFile(path.join(this.root, key + '.json'), 'utf8')); if (!Array.isArray(data)) throw new Error('Invalid array'); (this[key] as unknown[]) = data; } catch (e: any) { if (e.code !== 'ENOENT') throw new Error(`本地 ${key}.json 无法读取`); }
+    }
+    this.sessions.forEach(s => { s.status = 'idle'; s.approvals = []; });
+    this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
+  }
+  save() {
+    const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, transfers: this.transfers, drafts: this.drafts }));
+    const next = this.writes.catch(() => {}).then(async () => { for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value); });
+    this.writes = next; return next;
+  }
+  sessionDir(id: string) { if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('无效会话 ID'); return path.join(this.root, 'sessions', id); }
+  async event(id: string, event: unknown) {
+    const dir = this.sessionDir(id); await fs.mkdir(dir, { recursive: true });
+    await fs.appendFile(path.join(dir, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), event }) + '\n', { mode: 0o600 });
+  }
+}

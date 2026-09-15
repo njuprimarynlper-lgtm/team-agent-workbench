@@ -1,0 +1,22 @@
+import { build } from 'esbuild';
+import { mkdir, copyFile, cp, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+async function copyDependency(name, dest, sourceRequire = require, seen = new Set()) {
+  if (seen.has(name)) return; seen.add(name);
+  const jsonPath = sourceRequire.resolve(name + '/package.json'), dir = path.dirname(jsonPath), pkg = JSON.parse(await readFile(jsonPath, 'utf8'));
+  await cp(dir, path.join(dest, 'node_modules', name), { recursive: true });
+  for (const dependency of Object.keys(pkg.dependencies || {})) await copyDependency(dependency, dest, createRequire(jsonPath), seen);
+}
+for (const edition of ['user', 'admin']) {
+  const out = 'dist/' + edition; await mkdir(out, { recursive: true });
+  await build({ entryPoints: [edition === 'user' ? 'src/main/index.ts' : 'src/admin/main.ts'], outfile: out + '/main.cjs', bundle: true, platform: 'node', format: 'cjs', target: 'node22', external: ['electron', 'ssh2'], sourcemap: false });
+  await build({ entryPoints: [edition === 'user' ? 'src/main/preload.ts' : 'src/admin/preload.ts'], outfile: out + '/preload.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['electron'], target: 'node22' });
+  await build({ entryPoints: [edition === 'user' ? 'src/renderer/main.tsx' : 'src/admin/renderer.tsx'], outfile: out + '/renderer.js', bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'chrome130', loader: { '.css': 'css' } });
+  await copyFile('src/renderer/index.html', out + '/index.html');
+  if (edition === 'admin') await copyFile('server/admin.py', out + '/admin.py');
+  await copyDependency('ssh2', out);
+  await writeFile(out + '/package.json', JSON.stringify({ name: 'team-agent-' + edition, version: '0.1.0', description: 'Team Agent ' + edition, author: 'Team Agent Workbench', main: 'main.cjs', dependencies: { ssh2: '^1.17.0' } }, null, 2));
+}
+console.log('Built isolated User and Admin applications.');

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+.tools/
+.test-data/
+.workbench/
+*.log
+*.local.json
+.env
+.env.*
+!.env.example
+artifacts/
+__pycache__/
+*.pyc

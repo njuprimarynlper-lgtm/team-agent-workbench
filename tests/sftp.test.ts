@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { Server, utils } from 'ssh2';
+import { SftpConnection } from '../src/core/sftp';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
+test('real SFTP transport preserves UTF-8, stages uploads, propagates permission denial and blocks escaping symlinks', async () => {
+  const CODE = utils.sftp.STATUS_CODE, files = new Map([['/project/readme.md', Buffer.from('项目说明：中文')]]), clients: any[] = [], renames: string[][] = [];
+  const server = new Server({ hostKeys: [key] }, client => {
+    clients.push(client); client.on('error', () => {}); client.on('authentication', c => c.method === 'password' && c.password === 'secret' ? c.accept() : c.reject());
+    client.on('ready', () => client.on('session', accept => accept().on('sftp', accept => {
+      const s = accept(), handles = new Map<string, string>(); let seq = 0;
+      const stat = (target: string) => ({ mode: files.has(target) ? 0o100644 : 0o40755, uid: 1001, gid: 1001, size: files.get(target)?.length || 0, atime: 0, mtime: 0 });
+      s.on('REALPATH', (id, target) => s.name(id, [{ filename: target === '/project/escape' ? '/outside' : target, longname: '', attrs: stat(target) }]));
+      s.on('LSTAT', (id, target) => s.attrs(id, stat(target)));
+      s.on('FSTAT', (id, handle) => s.attrs(id, stat(handles.get(handle.toString())!)));
+      s.on('OPEN', (id, target, flags) => {
+        if (target.includes('/denied/')) { s.status(id, CODE.PERMISSION_DENIED); return; }
+        if (flags & utils.sftp.OPEN_MODE.WRITE) files.set(target, Buffer.alloc(0));
+        if (!files.has(target)) { s.status(id, CODE.NO_SUCH_FILE); return; }
+        const handle = String(++seq); handles.set(handle, target); s.handle(id, Buffer.from(handle));
+      });
+      s.on('READ', (id, handle, offset, length) => { const data = files.get(handles.get(handle.toString())!)!; offset >= data.length ? s.status(id, CODE.EOF) : s.data(id, data.subarray(offset, offset + length)); });
+      s.on('WRITE', (id, handle, offset, data) => { const target = handles.get(handle.toString())!, before = files.get(target)!; const next = Buffer.alloc(Math.max(before.length, offset + data.length)); before.copy(next); data.copy(next, offset); files.set(target, next); s.status(id, CODE.OK); });
+      s.on('CLOSE', id => s.status(id, CODE.OK));
+      s.on('RENAME', (id, from, to) => { renames.push([from, to]); files.set(to, files.get(from)!); files.delete(from); s.status(id, CODE.OK); });
+      s.on('REMOVE', (id, target) => { files.delete(target); s.status(id, CODE.OK); });
+    })));
+  });
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as { port: number }).port, remote = new SftpConnection(), dir = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-sftp-'));
+  try {
+    const profile = { id: 'test', name: 'fixture', host: '127.0.0.1', port, username: 'alice', fingerprint: '', manifestPath: '', projects: [{ id: 'p', name: 'p', remoteRoot: '/project', uploadPath: '/project', historyPath: '/project' }] };
+    await remote.connect(profile, 'secret', async () => true); const binding = remote.binding('p');
+    const preview = await remote.preview(binding, '/project/readme.md'); assert.equal(preview.content, '项目说明：中文');
+    const local = path.join(dir, 'readme.md'); await remote.download(binding, '/project/readme.md', local); assert.equal(await fs.readFile(local, 'utf8'), preview.content);
+    await remote.upload(binding, local, '/project/new.md', () => {}); assert.equal(files.get('/project/new.md')?.toString(), preview.content); assert.match(renames[0][0], /\.uploading$/);
+    await assert.rejects(remote.upload(binding, local, '/project/denied/file.md', () => {}), /Linux 拒绝访问/);
+    await assert.rejects(remote.download(binding, '/project/escape', local), /符号链接/);
+    assert.throws(() => remote.channel({ ...binding, username: 'bob' }), /身份不一致/);
+  } finally { remote.disconnect(); clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 }); }
+});
