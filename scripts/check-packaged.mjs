@@ -20,7 +20,6 @@ try {
       assert.equal(await page.evaluate(() => typeof window.workbench), 'undefined');
       await assert.rejects(page.evaluate(() => window.admin.call('operation', { op: 'user_create', username: 'alice', name: 'test', password: '12345678' })));
     }
-    await page.screenshot({ path: path.join(data, edition + '.png') });
     console.log(edition, 'packaged executable starts, first-use connection dialog and edition isolation verified');
   }
   assert.notEqual(apps[0].process().pid, apps[1].process().pid);

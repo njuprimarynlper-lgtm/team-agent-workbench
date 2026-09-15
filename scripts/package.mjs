@@ -24,7 +24,7 @@ for (const edition of requested ? [requested] : ['admin', 'user']) {
     ] : [],
     win: { target: [{ target: 'nsis', arch: ['x64'] }, { target: 'zip', arch: ['x64'] }], signAndEditExecutable: false,
       artifactName: 'TeamAgent-' + edition + '-${version}-${arch}.${ext}' },
-    nsis: { oneClick: false, perMachine: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false, createDesktopShortcut: true,
+    nsis: { oneClick: false, perMachine: false, differentialPackage: false, allowToChangeInstallationDirectory: true, deleteAppDataOnUninstall: false, createDesktopShortcut: true,
       shortcutName: edition === 'admin' ? '团队工作台-管理员版' : '团队工作台-用户版', uninstallDisplayName: product },
   }});
 }
