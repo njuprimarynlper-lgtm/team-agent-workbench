@@ -1,5 +1,6 @@
 import { build } from 'electron-builder';
 import path from 'node:path';
+import { cp, copyFile } from 'node:fs/promises';
 const requested = process.argv[2];
 for (const edition of requested ? [requested] : ['admin', 'user']) {
   if (!['admin', 'user'].includes(edition)) throw new Error('Unknown edition');
@@ -8,10 +9,16 @@ for (const edition of requested ? [requested] : ['admin', 'user']) {
     appId: 'local.teamagent.' + edition, productName: product,
     directories: { app: path.resolve('dist', edition), output: path.resolve('release', edition) },
     electronVersion: '44.3.0', electronDist: path.resolve('node_modules/electron/dist'),
-    asar: true, npmRebuild: false, nodeGypRebuild: false, compression: 'normal',
+    asar: true, npmRebuild: false, nodeGypRebuild: false, compression: 'store',
     files: ['**/*'],
+    afterPack: async ({ appOutDir }) => {
+      // Electron-builder excludes nested node_modules from extraResources. These
+      // are the CLI's own native dependencies, so copy the official directory verbatim.
+      if (edition === 'user') await cp('.tools/cursor/dist-package', path.join(appOutDir, 'resources/providers/cursor'), { recursive: true });
+      await copyFile('README.md', path.join(appOutDir, '使用说明.md'));
+      await copyFile('THIRD_PARTY.md', path.join(appOutDir, 'THIRD_PARTY.md'));
+    },
     extraResources: edition === 'user' ? [
-      { from: '.tools/cursor/dist-package', to: 'providers/cursor', filter: ['**/*'] },
       { from: 'node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc', to: 'providers/codex', filter: ['**/*'] },
       { from: 'third-party/Codex-LICENSE', to: 'providers/codex/LICENSE' },
     ] : [],

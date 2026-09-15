@@ -12,7 +12,7 @@ import type { WorkbenchEvent } from '../shared/types';
 let window: BrowserWindow; let workbench: Workbench; let quitting = false;
 const entry = path.join(__dirname, 'index.html');
 app.setName('Team Agent User');
-app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser')); 
+app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
 function emit(event: WorkbenchEvent) { if (window && !window.isDestroyed()) window.webContents.send('workbench:event', event); }
 let emitTimer: NodeJS.Timeout | undefined;
 function broadcast() { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); }
