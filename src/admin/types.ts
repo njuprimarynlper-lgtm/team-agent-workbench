@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export const adminProfileSchema = z.object({
+  mode: z.enum(['sftp', 'local']).optional(), localRoot: z.string().optional(),
   host: z.string().trim().min(1).max(255), port: z.number().int().min(1).max(65535),
   username: z.string().min(1).max(64), fingerprint: z.string().default(''),
   root: z.string().regex(/^\/(?:[^\x00\r\n\\/]+\/)+[^\x00\r\n\\/]+$/).default('/srv/teamspace'),

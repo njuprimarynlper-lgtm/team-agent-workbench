@@ -16,6 +16,7 @@ for (const edition of requested ? [requested] : ['admin', 'user']) {
       // are the CLI's own native dependencies, so copy the official directory verbatim.
       if (edition === 'user') await cp('.tools/cursor/dist-package', path.join(appOutDir, 'resources/providers/cursor'), { recursive: true });
       await copyFile('README.md', path.join(appOutDir, '使用说明.md'));
+      await cp('docs', path.join(appOutDir, 'docs'), { recursive: true, filter: source => !/SHA256SUMS/.test(source) });
       await copyFile('THIRD_PARTY.md', path.join(appOutDir, 'THIRD_PARTY.md'));
     },
     extraResources: edition === 'user' ? [

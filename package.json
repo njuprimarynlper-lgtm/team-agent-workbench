@@ -1,6 +1,6 @@
 {
   "name": "team-agent-workbench",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Windows team workspace for local Codex and Cursor agents with Linux SFTP sharing",
   "main": "dist/user/main.cjs",
@@ -13,7 +13,9 @@
     "test:ui": "node scripts/smoke.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "start:admin": "npm run build && electron dist/admin"
+    "start:admin": "npm run build && electron dist/admin",
+    "test:local-ui": "node scripts/local-smoke.mjs",
+    "test:competition": "tsx scripts/competition-pilot.ts"
   },
   "dependencies": {
     "@openai/codex": "^0.154.0",

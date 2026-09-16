@@ -1,6 +1,6 @@
 export type Provider = 'codex' | 'cursor';
 export interface Project { id: string; name: string; remoteRoot: string; uploadPath: string; historyPath: string; managed?: boolean }
-export interface ConnectionProfile { id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
+export interface ConnectionProfile { mode?: 'sftp' | 'local'; localRoot?: string; id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
 export interface Settings { connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
 export interface SessionInput { text: string; sourceIds: string[]; answers: Record<string, string> }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; groupName?: string }

@@ -1,6 +1,12 @@
 # 团队工作台
 
-Windows 本地 Agent 工作台与独立的团队管理应用。远端使用 Linux 账号、SSH/SFTP 和文件系统，无常驻业务服务。当前版本 **0.3.0**。
+Windows 本地 Agent 工作台与独立的团队管理应用。远端使用 Linux 账号、SSH/SFTP 和文件系统，无常驻业务服务。当前版本 **0.4.0**。
+
+## 本地文件系统联调
+
+0.4.0 增加可在两个窗口中选择的 **本地文件系统（模拟权限）**。管理员在专用空目录初始化模拟账号，创建组和成员；用户版连接同一共享区，使用模拟账号检查访问权。项目资料、成果和轨迹都写入真实本地文件。本地模式不需要 Linux、SSH 或对象服务。
+
+操作步骤见 [本地模式使用说明](docs/local-filesystem.md)。正式 Linux 模式继续使用下文的系统账号和 SFTP 流程。权限桩仅用于功能验证，不替代 Windows/Linux ACL；直接使用资源管理器或终端仍受当前系统用户本身的权限控制。
 
 ## 两个应用
 
@@ -22,8 +28,8 @@ Windows 本地 Agent 工作台与独立的团队管理应用。远端使用 Linu
 
 产物位于 `release/admin` 和 `release/user`：
 
-- `TeamAgent-admin-0.3.0-x64.exe`：管理员版安装程序。
-- `TeamAgent-user-0.3.0-x64.exe`：用户版安装程序。
+- `TeamAgent-admin-0.4.0-x64.exe`：管理员版安装程序。
+- `TeamAgent-user-0.4.0-x64.exe`：用户版安装程序。
 - 同名 `.zip`：免安装目录压缩包，**解压全部文件**后运行 `Team Agent Admin.exe` 或 `Team Agent User.exe`。
 
 支持 Windows x64；当前在 Windows 11 验证。安装包未配置企业代码签名证书。安装程序可选择安装位置，卸载默认保留用户数据。两版运行都无需预先安装 Node.js；用户版包含 Cursor Agent 与 Codex CLI 运行文件，管理员版不包含模型运行文件。
@@ -132,6 +138,6 @@ npm run package
 
 实现参考：[Codex App Server](https://developers.openai.com/codex/app-server)、[Cursor ACP](https://cursor.com/docs/cli/acp)、[OpenSSH sshd_config](https://man.openbsd.org/sshd_config)、[Linux ACL](https://man7.org/linux/man-pages/man5/acl.5.html)。
 
-## 0.3.0 验收与已知限制
+## 0.4.0 验收与已知限制
 
-按问题组织的测试见 [验收用例](docs/acceptance-0.3.0.md)。问题 4 的并发认证调度本版按要求只提供 [改造方案](docs/auth-concurrency-plan.md)，尚未改造；同一家 CLI 在不同目录同时检测仍可能互相取消，可在另一检测完成后重试。
+按问题组织的测试见 [验收用例](docs/acceptance-0.4.0.md)。问题 4 的并发认证调度本版按要求只提供 [改造方案](docs/auth-concurrency-plan.md)，尚未改造；同一家 CLI 在不同目录同时检测仍可能互相取消，可在另一检测完成后重试。

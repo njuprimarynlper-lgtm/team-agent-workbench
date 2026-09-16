@@ -1,0 +1,68 @@
+# 本地文件系统联调
+
+本地模式让管理员版和用户版直接读写同一个 Windows 目录，使用模拟账号验证操作权限。模型调用仍通过个人登录的真实 Codex CLI；权限桩不负责模型账户认证。
+
+## 管理员首次设置
+
+1. 创建一个专用空目录，例如 `D:\TeamAgentDemo\shared`。代码工作目录应另选位置。
+2. 打开管理员版，在连接框的“共享区类型”选择“本地文件系统（模拟权限）”。
+3. 选择共享目录，填写测试管理员账号及至少八位的测试密码。首次点击“初始化账号管理”后，这个账号成为该目录的模拟管理员；后续连接需要同一账号和密码。
+4. 创建组，例如 `competition`，自动建立 `shared\projects\competition`。本地模式无需配置 SSH。
+5. 创建 `alice`、`bob` 两名成员，将两人加入该组，为 Alice 勾选“内容子管理员”。成员密码由管理员设置，可重置、启停或调整分组。
+6. 分别导出成员连接配置。JSON 不含密码；测试密码另行交给使用者。
+
+账号仅存在于 `.workbench-local/registry.json`，密码保存为加盐哈希。不会创建 Windows/Linux 系统账号或修改系统 ACL。管理员丢失测试密码时，本版没有找回入口；应使用新的专用目录重新创建联调环境。
+
+## 用户首次设置
+
+1. 打开用户版，导入管理员提供的配置；也可选择本地模式后手动填写。
+2. “本机工作路径”填代码目录；“本地共享区根目录”填管理员选择的共享目录；“共享工作路径”填 `/projects/competition`。后者是逻辑路径，不是 Windows 绝对路径。
+3. 输入成员测试密码，连接并验证。子管理员可输入项目名创建项目，普通成员可刷新并发现项目。
+4. 新建会话时选择 Codex。CLI 未登录会显示登录入口；完成个人账号登录后才可发送任务。
+5. 左侧浏览共享文件，预览后可加入当前会话。引用保存为本机快照，并记录来源和哈希。
+6. 每个会话使用独立交接文件。成果整理后由用户编辑并提交，成果包仍只包含 **GitHub 仓库链接、修改说明与元数据**，不包含代码。
+7. 会话轨迹默认手动归档，也可为指定会话启用自动上传。其他成员不能经工作台读取你的轨迹。
+
+## 文件布局与模拟权限
+
+```text
+shared/
+  .workbench-local/registry.json
+  projects/competition/项目名/
+    .workbench-project.json
+    submissions/alice/       同组可读，仅 Alice 可写
+    submissions/bob/         同组可读，仅 Bob 可写
+    trajectories/alice/      仅 Alice 可经工作台访问
+    trajectories/bob/        仅 Bob 可经工作台访问
+```
+
+权限在每次共享操作时重新读取。停用、移除项目组、撤销子管理员都会使后续相应操作被拒绝；改密码后原连接凭据失效，需要重新登录。本地 Agent 的工作进程可以继续运行。
+
+项目外路径、`..`、Windows 保留名称、ADS、符号链接/目录联接及大小写别名被拒绝。已有上传文件不会被覆盖。任务始终绑定创建时的账号、共享区身份和项目，切换连接不能把待上传成果送到另一个身份下。
+
+这是应用层权限模拟。拥有共享目录操作系统权限的人或 CLI 可直接访问文件，不受权限桩保护；不能据此声称生产权限隔离已经验证。正式部署仍使用 Linux 系统权限。
+
+## 两个用户在同一电脑演练
+
+正常安装使用 `%APPDATA%\TeamAgentUser` 保存本机状态。联调两个成员时，为两个启动进程分别设置 `WORKBENCH_DATA_DIR`；管理员用 `WORKBENCH_ADMIN_DATA_DIR`。不同状态目录保证输入、会话和草稿不串用。
+
+```powershell
+$env:WORKBENCH_DATA_DIR = 'D:\TeamAgentDemo\alice-data'
+& '安装目录\Team Agent User.exe'
+```
+
+另一个启动环境改成 `bob-data`。两人选择同一共享目录，各自选择独立代码工作目录。不同数据目录不等于不同模型账户；同一 Windows 用户默认仍复用此人的 Codex 登录。其他电脑需要各自登录。
+
+## 自动验证
+
+```powershell
+npm run check
+python -m unittest discover -s tests -p test_admin.py
+npm run test:local-ui
+node scripts/local-smoke.mjs --packaged
+npm run test:ui
+```
+
+`tests/local-space.test.ts` 使用真实磁盘文件验证管理员操作、密码、角色、撤权、共享与私有轨迹、路径边界及重启。`scripts/local-smoke.mjs` 同时启动管理员、Alice、Bob 三个 Electron 窗口，执行界面流程；该回归脚本使用模拟 CLI，不消耗模型调用。
+
+`scripts/competition-pilot.ts` 是需显式 `--run-real-codex` 的真实模型演练，固定两用户各两轮。输入目录需要任务书文字 `task.txt`、`solution-template.py`、`self_check.py`、`environment.md` 和官方 `mini_sample/`。参数 `--input`、`--output`、`--python` 必填，`--model` 可为本次演练单独指定 CLI 模型，不修改个人全局配置。结果包含会话 ID、原生 CLI ID、Git 提交、说明、轨迹和数据哈希。算法版本通过本地 Git 仓库交换，共享区上传每轮说明；不冒充 GitHub 仓库，不自动向比赛平台提交。

@@ -4,11 +4,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { AdminConnection } from './connection';
+import { LocalAdminConnection } from './local-connection';
 import { adminProfileSchema, adminOperationSchema } from './types';
 import { memberConfig } from './member-config';
 app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
-let window: BrowserWindow; let remote: AdminConnection;
+let window: BrowserWindow; let remote: AdminConnection | LocalAdminConnection;
 const entry = path.join(__dirname, 'index.html');
 app.whenReady().then(async () => {
   const config = path.join(app.getPath('userData'), 'connection.json');
@@ -25,9 +26,13 @@ app.whenReady().then(async () => {
       else if (action === 'connect') {
         if (remote.snapshot.busy) throw new Error('请等待当前管理操作完成后更换连接');
         const input = z.object({ profile: adminProfileSchema, password: z.string().min(1).max(4096), sudoPassword: z.string().max(4096).default('') }).parse(payload);
+        remote.disconnect();
+        const changed = () => { if (window && !window.isDestroyed()) window.webContents.send('admin:changed'); };
+        remote = input.profile.mode === 'local' ? new LocalAdminConnection(changed) : new AdminConnection(path.join(__dirname, 'admin.py'), changed);
         value = await remote.connect(input.profile, input.password, input.sudoPassword, async fingerprint => (await dialog.showMessageBox(window, { type: 'question', title: '核对服务器身份', message: input.profile.host, detail: '请与运维提供的 SSH 主机指纹核对：\n\n' + fingerprint, buttons: ['取消', '指纹一致，连接'], defaultId: 0, cancelId: 0 })).response === 1);
         await fs.mkdir(path.dirname(config), { recursive: true }); await fs.writeFile(config, JSON.stringify(value, null, 2));
-      } else if (action === 'disconnect') { if (remote.snapshot.busy) throw new Error('请等待操作完成'); remote.disconnect(); value = true; }
+      } else if (action === 'choose.directory') value = (await dialog.showOpenDialog(window, { properties: ['openDirectory', 'createDirectory'] })).filePaths[0] || '';
+      else if (action === 'disconnect') { if (remote.snapshot.busy) throw new Error('请等待操作完成'); remote.disconnect(); value = true; }
       else if (action === 'operation') value = await remote.operation(adminOperationSchema.parse(payload));
       else if (action === 'member.export') {
         const input = z.object({ username: z.string(), group: z.string() }).parse(payload);

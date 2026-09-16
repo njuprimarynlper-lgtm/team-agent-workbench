@@ -3,11 +3,11 @@ import fsp from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { RemoteBinding, Transfer } from '../shared/types';
 import { childRemote, assertRemote, safeFilename } from './paths';
-import { SftpConnection } from './sftp';
+import { SharedFiles } from './shared-files';
 import { Store } from './store';
 export class TransferQueue {
   private active = false;
-  constructor(private store: Store, private remote: SftpConnection, private changed: () => void) {}
+  constructor(private store: Store, private remote: SharedFiles, private changed: () => void) {}
   async enqueue(local: string, binding: RemoteBinding, folder: string, kind: Transfer['kind'], sessionId?: string) {
     assertRemote(binding.project.remoteRoot, folder);
     const id = randomUUID();

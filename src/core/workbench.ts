@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentSession, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
 import { Store, atomicJson } from './store';
-import { SftpConnection } from './sftp';
+import { SharedFiles } from './shared-files';
 import { TransferQueue } from './transfers';
 import { AgentRuntime } from './agents';
 import { resolveProvider, inspectProvider } from './providers';
@@ -11,7 +11,7 @@ import { freezeFile, packageDraft, packageHistory, hashFile } from './artifacts'
 import { safeFilename, localWithin } from './paths';
 import { ProviderAccounts, authReady } from './provider-auth';
 export class Workbench {
-  store: Store; remote: SftpConnection; queue: TransferQueue; providers: ProviderInfo[] = [];
+  store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
   private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
   private edits: Promise<unknown> = Promise.resolve();
@@ -26,7 +26,7 @@ export class Workbench {
   private configuring = false;
   accounts: ProviderAccounts;
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void) {
-    this.store = new Store(root); this.remote = new SftpConnection(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
+    this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.accounts = new ProviderAccounts(p => this.store.settings.providerPaths[p], broadcast, provider => {
       for (const [id, runtime] of this.runtimes) if (runtime.session.provider === provider && !['running', 'approval', 'starting'].includes(runtime.session.status)) { runtime.close(); this.runtimes.delete(id); }
     });
@@ -52,13 +52,13 @@ export class Workbench {
     const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
     if (!authReady(auth)) throw new Error(auth.detail);
   }
-  assertWorkspace() { if (!this.workspaceReady) throw new Error('请先填写本机与 Linux 工作路径，并通过远端访问权限验证'); }
+  assertWorkspace() { if (!this.workspaceReady) throw new Error('请先填写本机与共享工作路径，并通过远端访问权限验证'); }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
     if (this.configuring) throw new Error('正在验证工作路径，请等待结果');
     this.configuring = true; this.broadcast();
     try {
       if (!path.isAbsolute(localPath) || !(await fs.stat(localPath)).isDirectory()) throw new Error('请选择已存在的本机工作目录');
-      if (!profile.workPath) throw new Error('请输入 Linux 工作路径');
+      if (!profile.workPath) throw new Error(profile.mode === 'local' ? '请输入共享工作路径' : '请输入 Linux 工作路径');
       const canonicalLocal = await fs.realpath(localPath);
       const result = await this.remote.connect(profile, password, trust);
       await this.remote.verifyWorkspace(profile.workPath);
