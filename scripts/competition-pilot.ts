@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
+import { sourceDigest, completedRound } from './pilot-evidence';
 import { resolveProvider } from '../src/core/providers';
 import { Workbench } from '../src/core/workbench';
 import { LocalAdminConnection } from '../src/admin/local-connection';
@@ -13,6 +14,7 @@ import type { AgentSession, Transfer } from '../src/shared/types';
 
 const exec = promisify(execFile), args = process.argv.slice(2);
 function arg(name: string) { const i = args.indexOf(name); if (i < 0 || !args[i + 1]) throw new Error('Missing ' + name); return path.resolve(args[i + 1]); }
+const resume = args.includes('--resume');
 const model = args.includes('--model') ? args[args.indexOf('--model') + 1] : undefined;
 if (model && !/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error('Invalid model');
 const input = arg('--input'), output = arg('--output'), python = arg('--python');
@@ -28,12 +30,16 @@ async function shareNotes(wb: Workbench, session: AgentSession, file: string) {
   const t = wb.store.transfers.find(t => !before.has(t.id))!; await waitTransfer(t); return t;
 }
 async function runTurn(wb: Workbench, session: AgentSession, round: number, task: string, sources: string[] = []) {
-  const startedAt = new Date().toISOString(), before = session.messages.length;
+  const existing = records.find(r => r.user === session.binding!.username && r.round === round); if (existing) return existing;
+  const report = path.join(session.cwd, 'reports', `${session.binding!.username}-round${round}.md`);
+  const events = await fs.readFile(path.join(wb.store.sessionDir(session.id), 'events.jsonl'), 'utf8').then(s => s.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)), () => []);
+  const alreadyCompleted = resume && !!(await fs.stat(report).catch(() => false)) && completedRound(session.messages, events, round);
+  const startedAt = alreadyCompleted ? events.find(e => e.event?.direction === 'user')?.at : new Date().toISOString(), before = session.messages.length;
   const envInfo = `你是离线协同验证中的参赛用户 ${wb.remote.profile!.username}，这是你的第 ${round}/2 轮。比赛为 NVFP4→HiF4。仅在当前工作目录中开发，不联网、不访问原项目、不提交比赛平台、不操作 Git（测试驱动负责提交）。只读 inputs/ 下的原始任务书摘录、接口模板、自检器和小样本；不得修改它们。候选 solution.py 必须实现全部六个 API，不可在候选代码内执行文件 I/O。测试与报告可以读写文件。使用 Python：${python}，torch 已安装；把 CPU 线程数限为 4，单个本地实验控制在 90 秒内。官方标准量化器未提供，报告绝对 MSE 或明确的本地对照，不得称为官方得分。校准集选参，测试集仅用于比较。该副本从官方接口模板起步，是工作台联调候选，不冒充原项目最优算法。最终必须写 reports/${session.binding!.username}-round${round}.md 和 .json，包含改动、实际执行命令与结果、来源、限制、下轮建议；更新本会话交接文件。不要只给方案，请实际写代码并验证。\n\n`;
   console.log(`START ${session.binding!.username} round ${round}`);
-  await wb.send(session.id, envInfo + task, sources);
-  const deadline = Date.now() + 18 * 60 * 1000; let last = 0;
-  while (!['idle', 'error'].includes(session.status) || session.messages.length === before) {
+  if (!alreadyCompleted) await wb.send(session.id, envInfo + task, sources);
+  const deadline = Date.now() + 28 * 60 * 1000; let last = 0;
+  while (!alreadyCompleted && (!['idle', 'error'].includes(session.status) || session.messages.length === before)) {
     if (Date.now() > deadline) { await wb.stop(session.id); throw new Error('model turn timed out'); }
     if (Date.now() - last > 20000) {
       last = Date.now(); console.log(JSON.stringify({ user: session.binding!.username, round, status: session.status, messages: session.messages.length, approvals: session.approvals.map(a => ({ id: a.id, method: a.method, details: a.details.slice(0, 600) })) }));
@@ -48,10 +54,11 @@ async function runTurn(wb: Workbench, session: AgentSession, round: number, task
     await new Promise(r => setTimeout(r, 500));
   }
   if (session.status === 'error') throw new Error(session.error || 'Codex error');
-  const report = path.join(session.cwd, 'reports', `${session.binding!.username}-round${round}.md`);
   const json = report.replace(/\.md$/, '.json'); JSON.parse(await fs.readFile(json, 'utf8')); await fs.access(report);
-  const dirtyInputs = await git(session.cwd, 'status', '--porcelain', '--', 'inputs'); if (dirtyInputs) throw new Error('Model changed immutable text inputs: ' + dirtyInputs);
-  for (const [name, expected] of Object.entries(sourceHashes)) if (await hash(path.join(session.cwd, 'inputs', name)) !== expected) throw new Error('Model changed source: ' + name);
+  for (const name of Object.keys(sourceHashes)) {
+    const actual = await fs.readFile(path.join(session.cwd, 'inputs', name)), expected = await fs.readFile(path.join(input, name));
+    if (sourceDigest(actual, name) !== sourceDigest(expected, name)) throw new Error('Model changed source: ' + name);
+  }
   await git(session.cwd, 'add', 'solution.py', 'reports');
   for (const dir of ['tests', 'scripts', 'evaluate.py', 'baseline.py']) if (await fs.stat(path.join(session.cwd, dir)).catch(() => false)) await git(session.cwd, 'add', dir);
   await git(session.cwd, 'commit', '-m', `${session.binding!.username}: competition iteration ${round}`);
@@ -61,30 +68,32 @@ async function runTurn(wb: Workbench, session: AgentSession, round: number, task
   records.push(record); await fs.writeFile(path.join(output, 'rounds.json'), JSON.stringify(records, null, 2)); console.log('DONE', record.user, round, revision); return record;
 }
 async function main() {
-  await fs.mkdir(output); await fs.mkdir(shared);
-  const seed = path.join(output, 'seed'); await fs.mkdir(seed); await fs.cp(input, path.join(seed, 'inputs'), { recursive: true });
-  for (const name of ['task.txt', 'solution-template.py', 'self_check.py', 'environment.md', 'mini_sample/linear.pt', 'mini_sample/attn.pt']) sourceHashes[name] = await hash(path.join(input, name));
+  if (!resume) { await fs.mkdir(output); await fs.mkdir(shared); }
+  else { try { records.push(...JSON.parse(await fs.readFile(path.join(output, 'rounds.json'), 'utf8'))); } catch (e: any) { if (e.code !== 'ENOENT') throw e; } }
+  const seed = path.join(output, 'seed'); if (!resume) { await fs.mkdir(seed); await fs.cp(input, path.join(seed, 'inputs'), { recursive: true });
   await fs.copyFile(path.join(input, 'solution-template.py'), path.join(seed, 'solution.py'));
   await fs.writeFile(path.join(seed, '.gitignore'), 'inputs/mini_sample/*.pt\n.workbench/\n__pycache__/\n*.pyc\n');
   await git(seed, 'init', '-b', 'main'); await git(seed, 'config', 'user.name', 'Competition Pilot'); await git(seed, 'config', 'user.email', 'pilot@local.invalid');
   await git(seed, 'add', '.'); await git(seed, 'commit', '-m', 'seed: official interface and immutable competition references');
-  await git(output, 'clone', '--bare', seed, gitRoot);
+  await git(output, 'clone', '--bare', seed, gitRoot); }
+  for (const name of ['task.txt', 'solution-template.py', 'self_check.py', 'environment.md', 'mini_sample/manifest.json', 'mini_sample/linear.pt', 'mini_sample/attn.pt']) sourceHashes[name] = await hash(path.join(input, name));
   await admin.connect({ mode: 'local', localRoot: shared, host: 'local', port: 22, username: 'admin', fingerprint: '', root: '/srv/teamspace' }, 'pilot-admin-2026', '', async () => false);
-  await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'competition' });
+  if (!resume) { await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'competition' });
   for (const username of ['alice', 'bob']) await admin.operation({ op: 'user_create', username, name: username === 'alice' ? '用户 A · 算法实现' : '用户 B · 验证评估', password: 'pilot-member-2026', groups: ['local_competition'], contentAdminGroups: username === 'alice' ? ['local_competition'] : [] });
-  await fs.mkdir(path.join(output, 'admin-data')); await fs.writeFile(path.join(output, 'admin-data', 'connection.json'), JSON.stringify(admin.snapshot.profile, null, 2));
+  await fs.mkdir(path.join(output, 'admin-data')); } await fs.writeFile(path.join(output, 'admin-data', 'connection.json'), JSON.stringify(admin.snapshot.profile, null, 2));
   const clients: Record<string, { wb: Workbench; session: AgentSession }> = {}; let projectId = '';
   for (const username of ['alice', 'bob']) {
-    const cwd = path.join(output, username); await git(output, 'clone', gitRoot, cwd); await git(cwd, 'checkout', '-b', username);
+    const cwd = path.join(output, username); if (!resume) { await git(output, 'clone', gitRoot, cwd); await git(cwd, 'checkout', '-b', username);
     await git(cwd, 'config', 'user.name', username); await git(cwd, 'config', 'user.email', username + '@local.invalid');
     await fs.cp(path.join(input, 'mini_sample'), path.join(cwd, 'inputs', 'mini_sample'), { recursive: true });
+    }
     const wb = new Workbench(path.join(output, username + '-data'), () => {}, message => console.log(username, message)); workbenches.push(wb); await wb.init();
     if (model) { const exe = await resolveProvider('codex'); const launcher = path.join(output, 'codex-' + username + '.ps1'); const quote = (v: string) => "'" + v.replace(/'/g, "''") + "'"; await fs.writeFile(launcher, '\uFEFF& ' + quote(exe) + ' -c ' + quote('model="' + model + '"') + ' -c ' + quote('model_reasoning_effort="high"') + ' @args\n', 'utf8'); wb.store.settings.providerPaths.codex = launcher; await wb.store.save(); }
-    const config = memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_competition'); await wb.configureWorkspace(config, 'pilot-member-2026', cwd, async () => false);
+    const config = resume ? wb.store.settings.connections[0] : memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_competition'); await wb.configureWorkspace(config, 'pilot-member-2026', cwd, async () => false);
     await fs.writeFile(path.join(output, username + '-connection.json'), JSON.stringify(config, null, 2));
-    if (username === 'alice') projectId = (await wb.createProject('华为算法大赛 NVFP4 到 HiF4')).id;
+    if (username === 'alice') projectId = resume ? wb.store.sessions[0].binding!.project.id : (await wb.createProject('华为算法大赛 NVFP4 到 HiF4')).id;
     await wb.remote.loadManifest(); await wb.requireAuth('codex', cwd);
-    const session = await wb.createSession('codex', cwd, projectId); session.title = (username === 'alice' ? '用户 A 算法实现' : '用户 B 验证评估') + ' · 两轮比赛迭代'; clients[username] = { wb, session }; await wb.store.save();
+    const session = resume ? wb.store.sessions[0] : await wb.createSession('codex', cwd, projectId); session.title = (username === 'alice' ? '用户 A 算法实现' : '用户 B 验证评估') + ' · 两轮比赛迭代'; clients[username] = { wb, session }; await wb.store.save();
   }
   await fs.writeFile(path.join(output, 'source-manifest.json'), JSON.stringify({ input, sourceHashes, credentials: '本地测试账号：admin / pilot-admin-2026；alice、bob / pilot-member-2026。CLI 使用当前 Windows 用户已有的个人登录。', git: gitRoot, officialSubmission: false }, null, 2));
   const { alice: a, bob: b } = clients;

@@ -14,6 +14,8 @@
 | 路径与身份 | 拒绝越界、Windows 保留名/ADS、大小写绕过、符号链接与目录联接；拒绝伪造绑定与项目标记变更 | `tests/local-space.test.ts` |
 | 本地持续工作 | 不同 session 输入/交接独立；退出重启可离线恢复；共享操作仍需重连 | `tests/local-space.test.ts`、`scripts/smoke.mjs` |
 | 三个窗口并行 | 同时打开管理员、Alice、Bob；接口隔离、数据目录独立、共享区同一目录；模拟 CLI 登录前置检查 | `scripts/local-smoke.mjs`，支持 `--packaged` |
+| Codex 文件批准 | 请求只含 itemId 时仍呈现此前收到的路径与 diff；不串其他会话或上一轮；界面展开详情并拒绝 | `tests/agents.test.ts`、`scripts/local-smoke.mjs` |
+| 演练续跑 | 原生完成事件及轮次匹配后才能跳过模型调用；文本只容许 LF/CRLF 转换，二进制仍精确校验 | `tests/pilot-evidence.test.ts` |
 | Linux 模式回归 | 原 SSH/SFTP transport、真实权限拒绝响应、用户管理命令替身、失败恢复及原界面流程 | `npm run check`、Python unittest、`scripts/smoke.mjs --packaged` |
 | 安装产物 | 两 EXE 同时运行；ASAR 与构建一致；用户包不含管理脚本；ZIP CRC 完整；官方 Codex/Cursor 文件逐个一致 | `scripts/check-packaged.mjs`、`scripts/verify-release.mjs` |
 

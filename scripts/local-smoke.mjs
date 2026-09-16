@@ -61,6 +61,12 @@ try {
   await alice.page.getByTitle('新建会话', { exact: true }).click(); await alice.page.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor(); await alice.page.getByRole('button', { name: '创建会话', exact: true }).click();
   await alice.page.getByLabel('任务输入', { exact: true }).fill('为算法比赛建立基线');
   await alice.page.getByRole('button', { name: '交接文件', exact: true }).click(); await alice.page.getByLabel('交接文件正文').fill('# 比赛第一轮\n量化接口和数据已就绪'); await alice.page.getByRole('button', { name: '保存交接文件' }).click();
+  await fixture.write({ status: 'ready', fileApproval: true });
+  await alice.page.getByTitle('发送任务', { exact: true }).click();
+  const approval = alice.page.locator('.approval'); await expect(approval).toContainText('Codex 请求修改文件');
+  await approval.getByText('查看请求详情', { exact: true }).click();
+  await expect(approval.locator('pre')).toContainText('solution.py'); await expect(approval.locator('pre')).toContainText('+new_value');
+  await approval.getByRole('button', { name: '拒绝', exact: true }).click(); await expect(approval).toHaveCount(0);
   const session = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).sessions[0];
   await alice.page.evaluate(id => window.workbench.call('session.archive', { id }), session.id);
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0]?.status).toBe('done');
@@ -73,7 +79,7 @@ try {
   assert((await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot })).length);
   assert.equal(await alice.page.evaluate(() => typeof window.admin), 'undefined'); assert.equal(await ap.evaluate(() => typeof window.workbench), 'undefined'); assert.deepEqual(errors, []);
   if (!packaged) { await ap.screenshot({ path: path.join(data, 'admin.png'), timeout: 10000 }); await bob.page.screenshot({ path: path.join(data, 'user-bob.png'), timeout: 10000 }); }
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'handoff editing', 'history archive', 'history privacy', 'live disable/enable', 'edition isolation'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'history privacy', 'live disable/enable', 'edition isolation'] }, null, 2));
   console.log('Local filesystem administrator + two users UI passed:', data);
 } catch (error) { for (const app of apps) await app.evaluate(({ app }) => app.exit(1)).catch(() => {}); throw error; }
 finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

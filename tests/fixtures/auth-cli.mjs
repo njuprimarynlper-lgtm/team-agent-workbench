@@ -43,7 +43,11 @@ else if (command === 'login') {
     else if (m.method === 'turn/start') {
       log('turn/start');
       send({ id: m.id, result: { turn: { id: 'fake-turn' } } });
-      send({ method: 'turn/completed', params: { turn: { id: 'fake-turn', error: { message: '401 Unauthorized: Please log in again' } } } });
+      if (current.fileApproval) {
+        send({ method: 'item/started', params: { threadId: 'fake-thread', turnId: 'fake-turn', item: { id: 'patch-item', type: 'fileChange', changes: [{ path: 'solution.py', kind: { type: 'update' }, diff: '-old_value\n+new_value' }] } } });
+        send({ id: 'patch-approval', method: 'item/fileChange/requestApproval', params: { threadId: 'fake-thread', turnId: 'fake-turn', itemId: 'patch-item', reason: 'fixture file change' } });
+      } else send({ method: 'turn/completed', params: { turn: { id: 'fake-turn', error: { message: '401 Unauthorized: Please log in again' } } } });
     } else if (m.method === 'session/prompt') send({ id: m.id, error: { code: -32000, message: 'Unauthenticated: Please log in again' } });
+    else if (m.id === 'patch-approval' && m.result) send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: 'fake-turn', status: 'completed' } } });
   });
 }

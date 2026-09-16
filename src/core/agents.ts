@@ -7,6 +7,7 @@ const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, nul
 export class AgentRuntime {
   rpc: JsonRpc;
   private requests = new Map<string, RpcMessage>();
+  private fileChanges = new Map<string, { turnId?: string; changes: unknown[] }>();
   private turnId?: string;
   private initialized = false;
   private cursorMessageId = '';
@@ -14,7 +15,7 @@ export class AgentRuntime {
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks) {
     this.rpc = new JsonRpc(executable, session.provider === 'codex' ? ['app-server'] : ['acp'], session.cwd, session.provider === 'cursor');
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
-    this.rpc.on('closed', (e: Error) => { this.initialized = false; if (!this.closing) { session.status = 'error'; session.error = e.message; session.approvals = []; hooks.changed(); } });
+    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); if (!this.closing) { session.status = 'error'; session.error = e.message; session.approvals = []; hooks.changed(); } });
   }
   private message(id: string, role: Message['role'], text: string, append = false) {
     const existing = this.session.messages.find(x => x.id === id);
@@ -59,7 +60,7 @@ export class AgentRuntime {
   private finish(error?: string) {
     if (error) this.hooks.authFailed?.(error);
     this.session.status = error ? 'error' : 'idle'; this.session.error = error; this.session.approvals = [];
-    this.turnId = undefined; this.requests.clear(); this.hooks.changed(); this.hooks.done();
+    this.turnId = undefined; this.requests.clear(); this.fileChanges.clear(); this.hooks.changed(); this.hooks.done();
   }
   private onMessage(m: RpcMessage) {
     const method = m.method!, p = m.params || {}, s = this.session;
@@ -71,8 +72,10 @@ export class AgentRuntime {
       if (method === 'item/agentMessage/delta') this.message(p.itemId, 'assistant', p.delta || '', true);
       if (method === 'item/commandExecution/outputDelta') this.message(p.itemId, 'tool', p.delta || '', true);
       if (method === 'item/started' && p.item?.type === 'commandExecution') this.message(p.item.id, 'tool', '$ ' + p.item.command + '\n');
+      if (method === 'item/started' && p.item?.type === 'fileChange' && Array.isArray(p.item.changes)) this.fileChanges.set(p.item.id, { turnId: p.turnId, changes: p.item.changes });
       if (method === 'item/completed') {
         const i = p.item || {};
+        this.fileChanges.delete(i.id);
         if (i.type === 'agentMessage') this.message(i.id, 'assistant', i.text || '');
         else if (i.type === 'commandExecution') this.message(i.id, 'tool', '$ ' + i.command + '\n' + (i.aggregatedOutput || '') + '\n退出码：' + i.exitCode);
         else if (i.type !== 'userMessage' && i.type !== 'reasoning') this.message(i.id || randomUUID(), 'tool', pretty(i));
@@ -92,12 +95,18 @@ export class AgentRuntime {
   }
   private onRequest(m: RpcMessage) {
     const p = m.params || {}, method = m.method!, id = String(m.id);
+    if (this.session.provider === 'codex' && p.threadId && this.session.nativeId && p.threadId !== this.session.nativeId) { this.rpc.reject(m.id!, '请求不属于当前会话'); return; }
     const approval: Approval = { id, method, title: 'CLI 请求确认', details: pretty(p), options: [] };
     if (method === 'session/request_permission') {
       approval.title = p.toolCall?.title || 'Cursor 工具操作';
       approval.options = (p.options || []).filter((o: any) => o.kind !== 'allow_always').map((o: any) => ({ id: o.optionId, label: o.name || o.optionId, kind: o.kind?.startsWith('allow') ? 'allow' : 'deny' }));
     } else if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval') {
       approval.title = method.includes('commandExecution') ? 'Codex 请求执行命令' : 'Codex 请求修改文件';
+      if (method === 'item/fileChange/requestApproval') {
+        // The approval itself may carry only an itemId; the diff arrives in item/started.
+        const item = this.fileChanges.get(p.itemId);
+        if (item && item.turnId === p.turnId) approval.details = pretty({ ...p, changes: item.changes });
+      }
       approval.options = [{ id: 'accept', label: '允许本次', kind: 'allow' }, { id: 'decline', label: '拒绝', kind: 'deny' }];
     } else if (method === 'item/permissions/requestApproval') {
       approval.title = 'Codex 请求额外权限'; approval.options = [{ id: 'accept', label: '允许本轮', kind: 'allow' }, { id: 'decline', label: '拒绝', kind: 'deny' }];
