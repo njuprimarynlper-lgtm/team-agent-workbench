@@ -1,0 +1,42 @@
+import { expect } from '@playwright/test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { adminServer } from '../tests/fixtures/admin-server.mjs';
+export async function adminCases({ app, page, data }) {
+  const server = await adminServer();
+  try {
+    await page.evaluate(profile => window.admin.call('connect', { profile, password: 'test-password', sudoPassword: '' }), server.profile);
+    await page.getByRole('button', { name: '创建用户组', exact: true }).click();
+    await page.getByLabel('组标识', { exact: true }).fill('nlp');
+    await page.getByRole('button', { name: '确认执行', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: '测试：子管理员组创建失败' }).waitFor();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await page.getByText('待恢复操作', { exact: true }).waitFor();
+    await expect(page.getByText('已完成：成员用户组已创建', { exact: true })).toHaveCount(1);
+    await page.getByRole('button', { name: '继续完成', exact: true }).click();
+    await page.getByRole('button', { name: '确认执行', exact: true }).click();
+    await expect(page.getByText('待恢复操作', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: '创建用户', exact: true }).click();
+    await page.getByLabel('成员姓名', { exact: true }).fill('Alice');
+    await page.getByLabel('Linux 账号', { exact: true }).fill('alice');
+    await page.getByLabel('初始密码', { exact: true }).fill('new-user-password');
+    await page.getByLabel('再次输入密码', { exact: true }).fill('new-user-password');
+    await page.locator('.modal .check-row').filter({ hasText: 'ocr' }).first().locator('input').check();
+    await page.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
+    await page.getByRole('button', { name: '确认执行', exact: true }).click();
+    await page.getByText('开通完成，可导出配置', { exact: true }).waitFor();
+    const created = server.requests.find(r => r.op === 'user_create');
+    assert.deepEqual(created.groups, ['wb_test_ocr']); assert.deepEqual(created.contentAdminGroups, ['wb_test_ocr']);
+    const output = path.join(data, 'member-alice.json');
+    await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, output);
+    await page.getByRole('button', { name: '导出连接配置', exact: true }).click();
+    await expect(page.getByLabel('导出项目组')).toHaveValue('wb_test_ocr');
+    await page.getByRole('button', { name: '确认执行', exact: true }).click();
+    await page.getByText('连接配置已导出，请将初始密码另行交付给成员', { exact: true }).waitFor();
+    const raw = await fs.readFile(output, 'utf8'), config = JSON.parse(raw);
+    assert.equal(config.username, 'alice'); assert.equal(config.workPath, '/projects/ocr'); assert.equal(config.fingerprint, server.profile.fingerprint);
+    assert(!raw.includes('password')); assert(!raw.includes('/srv/teamspace')); assert.equal(server.requests.at(-1).op, 'status');
+    console.log('Admin UI passed: partial operation status/recovery, create with group and subadmin assignment, ready checklist and secret-free member export.');
+  } finally { await server.close(); }
+}

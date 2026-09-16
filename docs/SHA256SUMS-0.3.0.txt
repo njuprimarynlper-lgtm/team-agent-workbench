@@ -1,0 +1,4 @@
+a0c58338e0a2239ebd1a59b90865c55461a21f9737653327191c4dfb5115ebb2  admin/TeamAgent-admin-0.3.0-x64.exe
+dd32aacb7fc99af7f45bc46b6946a710584e3ea76baebd9b2201e34f4ad474aa  admin/TeamAgent-admin-0.3.0-x64.zip
+3310c2d90f3ade2911340f7f7e888092ec557d70f24c11b5cc3e124abd781394  user/TeamAgent-user-0.3.0-x64.exe
+bb73ee6c9ee4822ff587da694166c8b49e0fdc351824573aec75a962b542228f  user/TeamAgent-user-0.3.0-x64.zip

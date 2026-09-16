@@ -7,7 +7,7 @@ import { Workbench } from '../core/workbench';
 import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, packageHistory } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
-let window: BrowserWindow; let workbench: Workbench; let quitting = false;
+let window: BrowserWindow; let workbench: Workbench; let quitting = false; let closing = false;
 const entry = path.join(__dirname, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
@@ -26,7 +26,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     case 'settings.save': {
       const next = settingsSchema.parse(raw);
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
-      workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
+      next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
     case 'providers.detect': return workbench.detect();
     case 'provider.auth': {
@@ -63,6 +63,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
       void workbench.send(p.id, p.text, p.sourceIds).catch(e => notice(e.message)); return true;
     }
+    case 'session.input': { const p = z.object({ id, input: z.object({ text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()) }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
     case 'session.answer': { const p = z.object({ id, requestId: z.string(), option: z.string(), answers: z.record(z.string(), z.string()).optional() }).parse(raw); return workbench.answer(p.id, p.requestId, p.option, p.answers); }
     case 'session.attachLocal': { const p = sessionInput.parse(raw); return workbench.attachLocal(p.id, await chooseFiles()); }
@@ -77,7 +78,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
     case 'draft.prepare': { const p = sessionInput.parse(raw); return workbench.prepare(p.id); }
-    case 'draft.save': { const p = z.object({ id, title: z.string().min(1).max(120), body: text, fileIds: z.array(z.string()) }).parse(raw); return workbench.saveDraft(p.id, p.title, p.body, p.fileIds); }
+    case 'draft.save': { const p = z.object({ id, title: z.string().max(120), body: text, repoUrl: z.string().max(2048), target: z.string().optional() }).parse(raw); return workbench.saveDraft(p.id, p.title, p.body, p.repoUrl, p.target); }
     case 'draft.attach': { const p = sessionInput.parse(raw); return workbench.addDraftFiles(p.id, await chooseFiles()); }
     case 'draft.submit': { const p = z.object({ id, target: z.string().optional() }).parse(raw); return workbench.submitDraft(p.id, p.target); }
     case 'draft.export': {
@@ -100,6 +101,7 @@ app.whenReady().then(async () => {
   workbench = new Workbench(app.getPath('userData'), broadcast, notice); await workbench.init();
   window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   window.setMenuBarVisibility(false);
+  window.on('close', event => { if (!quitting) { event.preventDefault(); void finishQuit(); } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -110,4 +112,10 @@ app.whenReady().then(async () => {
   await window.loadFile(entry);
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', event => { if (!quitting && workbench) { event.preventDefault(); quitting = true; void workbench.close().finally(() => app.quit()); } });
+async function finishQuit() {
+  if (closing) return; closing = true;
+  try { await workbench.close(); quitting = true; app.quit(); }
+  catch (e: any) { if (window && !window.isDestroyed()) await dialog.showMessageBox(window, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试保存或退出。', buttons: ['返回工作台'] }); }
+  finally { closing = false; }
+}
+app.on('before-quit', event => { if (!quitting && workbench) { event.preventDefault(); void finishQuit(); } });

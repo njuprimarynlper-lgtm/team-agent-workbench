@@ -1,7 +1,8 @@
 export type Provider = 'codex' | 'cursor';
 export interface Project { id: string; name: string; remoteRoot: string; uploadPath: string; historyPath: string; managed?: boolean }
 export interface ConnectionProfile { id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
-export interface Settings { connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string }
+export interface Settings { connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
+export interface SessionInput { text: string; sourceIds: string[]; answers: Record<string, string> }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; groupName?: string }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
@@ -18,10 +19,10 @@ export interface AgentSession {
   autoUpload: boolean; lastArchiveAt?: string; handoffPath: string;
 }
 export interface Transfer { id: string; kind: 'upload' | 'history' | 'download'; name: string; status: 'queued' | 'running' | 'done' | 'error'; bytes: number; total: number; target: string; projectName: string; createdAt: string; error?: string; sessionId?: string; localPath: string; binding: RemoteBinding }
-export interface Draft { id: string; sessionId: string; prepareSessionId?: string; title: string; body: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
+export interface Draft { id: string; sessionId: string; prepareSessionId?: string; title: string; body: string; repoUrl?: string; target?: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
 export interface ProviderInfo { provider: Provider; path: string; available: boolean; version: string; detail: string }
 export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated' | 'configured' | 'unauthenticated' | 'error' | 'not-required' | 'logging-in'; detail: string; cwd?: string; checkedAt?: string; loginUrl?: string }
-export interface Snapshot { settings: Settings; sessions: AgentSession[]; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean }
+export interface Snapshot { settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

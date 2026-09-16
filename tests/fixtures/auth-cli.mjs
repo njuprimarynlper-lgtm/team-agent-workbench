@@ -32,7 +32,10 @@ else if (command === 'login') {
     else if (m.method === 'account/read') {
       log('account/read');
       if (current.status === 'hang') return;
-      if (current.status === 'network') send({ id: m.id, error: { code: -32000, message: 'fetch failed ECONNRESET DO_NOT_FORWARD_THIS_SECRET' } });
+      if (current.status === 'network') {
+        const reply = () => send({ id: m.id, error: { code: -32000, message: 'fetch failed ECONNRESET DO_NOT_FORWARD_THIS_SECRET' } });
+        if (current.delay) setTimeout(reply, current.delay); else reply();
+      }
       else if (current.status === 'expired') send({ id: m.id, error: { code: -32000, message: 'refresh_token_expired' } });
       else send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', account: current.status === 'ready' ? { type: 'chatgpt', email: 'fake@example.com' } : null } });
     } else if (m.method === 'thread/start' || m.method === 'thread/resume') send({ id: m.id, result: { thread: { id: 'fake-thread' } } });

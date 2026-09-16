@@ -43,6 +43,7 @@ test('mandatory paths, remote access checks, scoped project creation, discovery 
     assert.equal(alice.remote.workspace!.canCreateProject, false);
     const before = alice.store.settings.localWorkspace;
     await assert.rejects(alice.configureWorkspace({ ...server.profile('alice'), workPath: '/missing' }, 'test-password', root, async () => true));
-    assert.equal(alice.workspaceReady, false); assert.equal(alice.store.settings.localWorkspace, before);
+    assert.equal(alice.workspaceReady, true); assert.equal(alice.store.settings.localWorkspace, before);
+    const offline = await alice.createSession('cursor', root); assert.equal(offline.binding, undefined);
   } finally { await alice.close(); await bob.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

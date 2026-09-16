@@ -139,7 +139,13 @@ export class SftpConnection {
     }
     if (this.channel() !== s) throw new Error('刷新期间连接已改变');
     const legacy = this.profile!.projects.filter(p => !p.managed && withinRemote(root, p.remoteRoot) && !discovered.some(d => d.remoteRoot === p.remoteRoot));
-    this.profile!.projects = [...discovered, ...legacy]; this.changed(); return this.profile!.projects;
+    this.profile!.projects = [...discovered, ...legacy];
+    for (const project of discovered) {
+      let exists = false;
+      try { await this.stat(s, project.uploadPath); exists = true; } catch (e: any) { if (!/不存在/.test(e.message)) throw e; }
+      if (exists) await this.ensurePersonalFolder(this.binding(project.id), project.uploadPath);
+    }
+    this.changed(); return this.profile!.projects;
   }
   async createProject(name: string): Promise<Project> {
     const s = this.channel(), base = this.workspace?.canonicalPath;
@@ -171,8 +177,20 @@ export class SftpConnection {
     const s = this.channel(binding);
     if (!binding.project.managed || ![binding.project.uploadPath, binding.project.historyPath].includes(target)) return;
     await this.checked(binding, target, true);
-    try { await new Promise<void>((resolve, reject) => s.mkdir(target, { mode: 0o700 }, e => e ? reject(e) : resolve())); }
+    try { await new Promise<void>((resolve, reject) => s.mkdir(target, { mode: target === binding.project.uploadPath ? 0o2750 : 0o700 }, e => e ? reject(e) : resolve())); }
     catch (error) { try { const info = await this.stat(s, target); if (!info.isDirectory() || info.isSymbolicLink()) throw error; } catch { throw friendlySftp(error); } }
+    // Repair the current user's legacy 0700 submissions directory on the next upload.
+    // chmod also limits inherited ACL masks; trajectories retain their private mask.
+    await new Promise<void>((resolve, reject) => s.chmod(target, target === binding.project.uploadPath ? 0o2750 : 0o700, e => e ? reject(friendlySftp(e)) : resolve()));
+    if (target === binding.project.uploadPath) {
+      const owner = (await this.stat(s, target)).uid;
+      const files = await new Promise<import('ssh2').FileEntry[]>((resolve, reject) => s.readdir(target, (e, files) => e ? reject(e) : resolve(files)));
+      for (const file of files) {
+        if (file.filename === '.' || file.filename === '..') continue;
+        const filename = childRemote(target, file.filename), info = await this.stat(s, filename);
+        if (info.isFile() && !info.isSymbolicLink() && info.uid === owner) await new Promise<void>((resolve, reject) => s.chmod(filename, 0o640, e => e ? reject(e) : resolve()));
+      }
+    }
     await this.verifyDirectory(target); this.channel(binding);
   }
   private real(s: SFTPWrapper, target: string): Promise<string> { return new Promise((resolve, reject) => s.realpath(target, (e, result) => e ? reject(friendlySftp(e)) : resolve(result))); }
@@ -232,7 +250,7 @@ export class SftpConnection {
     const temporary = childRemote(path.posix.dirname(c.target), '.' + path.posix.basename(c.target) + '.' + randomUUID() + '.uploading');
     let count = 0;
     try {
-      await pipeline(fs.createReadStream(local), new Transform({ transform(chunk, _encoding, done) { count += chunk.length; progress(count, size); done(null, chunk); } }), c.s.createWriteStream(temporary, { flags: 'wx', mode: 0o660 }));
+      await pipeline(fs.createReadStream(local), new Transform({ transform(chunk, _encoding, done) { count += chunk.length; progress(count, size); done(null, chunk); } }), c.s.createWriteStream(temporary, { flags: 'wx', mode: binding.project.managed && withinRemote(path.posix.join(binding.project.remoteRoot, 'trajectories'), target) ? 0o600 : binding.project.managed && withinRemote(path.posix.join(binding.project.remoteRoot, 'submissions'), target) ? 0o640 : 0o660 }));
       // Revalidate identity and project binding at the commit boundary.
       this.channel(binding);
       await this.checked(binding, target, true);

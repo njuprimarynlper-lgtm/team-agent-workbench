@@ -119,6 +119,11 @@ export class AdminConnection {
     if (this.snapshot.busy) throw new Error('已有管理操作正在执行，请等待结果');
     this.snapshot.busy = true; this.changed();
     try { const result = await this.execute(payload, this.useSudo); this.snapshot.state = payload.op === 'status' ? result : result.state; return result; }
+    catch (error) {
+      // The server may have completed only some steps. Refresh before offering recovery.
+      try { this.snapshot.state = await this.execute({ op: 'status' }, this.useSudo); } catch { this.snapshot.state = undefined; }
+      throw error;
+    }
     finally { this.snapshot.busy = false; this.changed(); }
   }
 }

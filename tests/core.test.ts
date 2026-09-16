@@ -6,8 +6,8 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { assertRemote, childRemote, safeFilename, withinRemote } from '../src/core/paths';
 import { manifestSchema, profileSchema } from '../src/core/config';
-import { freezeFile, packageDraft, hashFile } from '../src/core/artifacts';
-import { Store } from '../src/core/store';
+import { freezeFile, packageDraft, hashFile, githubRepository } from '../src/core/artifacts';
+import { Store, atomicJson } from '../src/core/store';
 import { sameEndpoint } from '../src/core/sftp';
 import type { ConnectionProfile, Draft, RemoteBinding } from '../src/shared/types';
 const project = { id: 'alpha', name: 'Alpha', remoteRoot: '/projects/alpha', uploadPath: '/projects/alpha/inbox', historyPath: '/projects/alpha/history' };
@@ -31,16 +31,17 @@ test('queued work is bound to endpoint, identity and server fingerprint', () => 
   const parsed = profileSchema.parse({ ...profile, password: 'should-not-persist' });
   assert.equal('password' in parsed, false);
 });
-test('selected files are frozen, changed snapshots are rejected, and archives are reproducible inputs', async () => {
+test('local references stay frozen; reference-only contribution never reads or uploads their contents', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-artifact-'));
   try {
     const file = path.join(root, 'source.txt'); await fs.writeFile(file, 'version A');
     const frozen = await freezeFile(file, path.join(root, 'inputs'));
     await fs.writeFile(file, 'version B'); assert.equal(await fs.readFile(frozen.localPath, 'utf8'), 'version A');
-    const draft: Draft = { id: randomUUID(), sessionId: randomUUID(), title: '提交', body: '# Result\nVersion A', files: [frozen], inputDir: path.join(root, 'inputs'), outputPath: path.join(root, 'draft.md'), createdAt: new Date().toISOString() };
+    const draft: Draft = { id: randomUUID(), sessionId: randomUUID(), title: '提交', repoUrl: 'https://github.com/team/repo', body: '# Result\nVersion A', files: [frozen], inputDir: path.join(root, 'inputs'), outputPath: path.join(root, 'draft.md'), createdAt: new Date().toISOString() };
     const archive = await packageDraft(draft, root); const archiveHash = await hashFile(archive);
     await fs.writeFile(frozen.localPath, 'tampered');
-    await assert.rejects(() => packageDraft(draft, root), /快照已改变/);
+    await fs.rm(frozen.localPath); await packageDraft(draft, root); // Source files are no longer outbound attachments.
+    for (const url of ['file:///tmp/repo', 'https://evil.example/a/b', 'https://token@github.com/a/b', 'https://github.com/a/b?token=x', 'https://github.com/a/b/tree/main']) assert.throws(() => githubRepository(url));
     assert.equal(await hashFile(archive), archiveHash);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
@@ -54,4 +55,18 @@ test('restart marks unfinished uploads retryable and does not auto resume', asyn
     assert.equal(restored.transfers[0].status, 'error');
     assert.match(restored.transfers[0].error!, /重试/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('autosave tolerates a transient Windows file lock; permanent failure preserves the previous file', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-atomic-')), file = path.join(root, 'data.json');
+  const original = fs.rename;
+  try {
+    await atomicJson(file, { version: 'old' });
+    let attempts = 0;
+    const mock = t.mock.method(fs, 'rename', async (from: any, to: any) => { if (++attempts < 3) throw Object.assign(new Error('scanner lock'), { code: 'EPERM' }); return original(from, to); });
+    await atomicJson(file, { version: 'new' }); assert.equal(attempts, 3); assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).version, 'new');
+    mock.mock.mockImplementation(async () => { throw Object.assign(new Error('permanent lock'), { code: 'EACCES' }); });
+    await assert.rejects(atomicJson(file, { version: 'lost' }), /permanent lock/);
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')).version, 'new'); assert.deepEqual(await fs.readdir(root), ['data.json']);
+  } finally { t.mock.restoreAll(); await fs.rm(root, { recursive: true, force: true }); }
 });

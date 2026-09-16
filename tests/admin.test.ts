@@ -16,7 +16,8 @@ test('admin schemas reject privilege and content operations; secrets are not pro
 
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
-  const state = { initialized: true, users: {}, groups: {}, sftpConfigured: true };
+  const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true };
+  const control = { failNext: false };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
     client.on('authentication', context => context.method === 'password' && context.password === 'login-secret' ? context.accept() : context.reject());
@@ -44,6 +45,11 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
             const line = buffer.slice(0, n); buffer = buffer.slice(n + 1);
             if (!authorized) { assert.equal(line, 'sudo-secret'); authorized = true; channel.write('WORKBENCH_READY\n'); continue; }
             const input = JSON.parse(line); requests.push(input);
+            if (control.failNext && !['probe', 'status'].includes(input.op)) {
+              control.failNext = false;
+              state.operations = { 'group_create:ocr': { id: 'group_create:ocr', op: 'group_create', request: { op: 'group_create', label: 'ocr' }, status: 'failed', completed: ['成员用户组已创建'], error: 'injected failure' } };
+              channel.write(JSON.stringify({ ok: false, error: 'injected failure' }) + '\n'); channel.exit(1); channel.end(); continue;
+            }
             const result = input.op === 'probe' ? { administrator: true, actor: role, missingCommands: [] } : input.op === 'status' ? state : { state };
             channel.write(JSON.stringify({ ok: true, value: result }) + '\n'); channel.exit(0); channel.end();
           }
@@ -54,7 +60,7 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
-  return { requests, commands, port: address.port, close: async () => { clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); } };
+  return { requests, commands, control, port: address.port, close: async () => { clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); } };
 }
 for (const role of ['root', 'sudo'] as const) test(role + ': SSH verifies privilege and sends passwords only over stdin', async () => {
   const f = await fixture(role), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
@@ -80,5 +86,16 @@ test('writable role manifest cannot grant a project admin entry', async () => {
   try {
     await assert.rejects(remote.connect({ host: '127.0.0.1', port: f.port, username: 'worker', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true));
     assert.equal(remote.snapshot.verified, false);
+  } finally { remote.disconnect(); await f.close(); }
+});
+
+test('#7 remote operation failure automatically refreshes partial state for recovery', async () => {
+  const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  try {
+    await remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true);
+    f.control.failNext = true;
+    await assert.rejects(remote.operation({ op: 'group_create', label: 'ocr' }), /injected failure/);
+    assert.equal(remote.snapshot.busy, false); assert.equal(f.requests.at(-1).op, 'status');
+    assert.deepEqual(remote.snapshot.state!.operations!['group_create:ocr'].completed, ['成员用户组已创建']);
   } finally { remote.disconnect(); await f.close(); }
 });

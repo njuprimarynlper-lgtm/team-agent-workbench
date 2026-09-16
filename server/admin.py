@@ -16,7 +16,7 @@ import sys
 import uuid
 import contextlib
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "configure_sftp", "workspace_prepare"}
+OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "configure_sftp", "workspace_prepare", "recover"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -69,12 +69,122 @@ def root_directory(request):
         raise ValueError("共享根路径及其上级不得包含符号链接或不规范路径")
     return root
 
-def group_create(name):
+def allocate_id(records, field, reserved=()):
+    used = {getattr(r, field) for r in records} | set(reserved)
+    for value in range(1000, 60000):
+        if value not in used:
+            return value
+    raise ValueError("没有可用的专用 UID/GID")
+
+def checkpoint(root, state, step):
+    job = state.get("operations", {}).get(state.get("activeOperation"))
+    if job and step not in job["completed"]:
+        job["completed"].append(step)
+    save(root, state)
+
+def provision_group(root, state, record, field, name, step):
     import grp
+    if field not in record:
+        try:
+            grp.getgrnam(name)
+        except KeyError:
+            pass
+        else:
+            raise ValueError("同名 Linux 用户组已存在，不能接管：" + name)
+        reserved = [state.get("loginGid")] + [g.get(k) for g in state["groups"].values() for k in ["gid", "adminGid"]]
+        record[field] = allocate_id(grp.getgrall(), "gr_gid", reserved)
+        save(root, state)  # Reserve identity before the mutating command.
     try:
-        grp.getgrnam(name)
+        existing = grp.getgrnam(name)
     except KeyError:
-        run(["groupadd", name])
+        run(["groupadd", "-g", str(record[field]), name])
+        existing = grp.getgrnam(name)
+    if existing.gr_gid != record[field]:
+        raise ValueError("用户组 GID 已变化，拒绝恢复：" + name)
+    checkpoint(root, state, step)
+
+BOOTSTRAP_DIR = pathlib.Path("/var/lib/team-agent-workbench/bootstrap")
+
+def bootstrap_file(root):
+    BOOTSTRAP_DIR.mkdir(parents=True, mode=0o700, exist_ok=True)
+    for directory in [BOOTSTRAP_DIR, BOOTSTRAP_DIR.parent]:
+        info = directory.stat()
+        if directory.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError("初始化恢复记录目录权限不安全")
+    return BOOTSTRAP_DIR / (hashlib.sha256(str(root).encode()).hexdigest() + ".json")
+
+def initialize(root, request):
+    journal = bootstrap_file(root)
+    if journal.exists():
+        state = json.loads(journal.read_text(encoding="utf-8"))
+        if state.get("root") != str(root):
+            raise ValueError("初始化恢复记录与路径不一致")
+    else:
+        if root.exists() and any(root.iterdir()):
+            raise ValueError("初始化只接受不存在或空的专用目录；不会接管已有非空目录")
+        team_id = uuid.uuid4().hex[:8]
+        state = {"version": 1, "root": str(root), "teamId": team_id, "name": "团队空间", "loginGroup": "wb_" + team_id + "_members", "users": {}, "initialized": False, "groups": {}, "sftpConfigured": False}
+        atomic_json(journal, state)
+    root.mkdir(parents=True, exist_ok=True)
+    for parent in [root] + list(root.parents)[:-1]:
+        info = parent.stat()
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError("SFTP 根路径及上级必须由 root 拥有且不可被组或其他用户写入")
+    os.chmod(root, 0o755)
+    for relative in ["projects", ".workbench", ".workbench/users", ".workbench/admin"]:
+        directory = child(root, relative)
+        directory.mkdir(exist_ok=True)
+        os.chmod(directory, 0o700 if relative.endswith("/admin") else 0o711)
+    # Once the ordinary registry exists it is the authoritative recovery record.
+    if child(root, ".workbench/admin/state.json").exists():
+        state = load(root)
+        if state.get("initialized"):
+            return state
+    state.setdefault("operations", {})["initialize"] = {"id": "initialize", "op": "initialize", "request": {"op": "initialize"}, "status": "running", "completed": ["专用目录已建立"]}
+    state["activeOperation"] = "initialize"
+    save(root, state)
+    provision_group(root, state, state, "loginGid", state["loginGroup"], "成员登录组已建立")
+    state["initialized"] = True
+    state["operations"]["initialize"]["status"] = "done"
+    checkpoint(root, state, "团队登记已完成")
+    journal.unlink(missing_ok=True)
+    return state
+
+def operation_key(request):
+    return request["op"] + (":" + str(request.get("username") or request.get("label") or request.get("group")) if any(request.get(k) for k in ["username", "label", "group"]) else "")
+
+def start_operation(root, state, request):
+    key = operation_key(request)
+    previous = state.setdefault("operations", {}).get(key)
+    if previous and previous.get("status") == "done" and request["op"] in ["user_create", "group_create"]:
+        raise ValueError("创建已经完成，请刷新查看已有资源")
+    sanitized = {k: request[k] for k in ["op", "username", "name", "groups", "contentAdminGroups", "label", "group", "enabled"] if k in request}
+    state["operations"][key] = {"id": key, "op": request["op"], "request": sanitized, "status": "running", "completed": previous.get("completed", []) if previous and previous.get("status") != "done" else []}
+    state["activeOperation"] = key
+    save(root, state)
+
+def assign_groups(root, state, request):
+    username = request.get("username")
+    ensure_user(state, username)
+    groups = request.get("groups", [])
+    if not isinstance(groups, list) or any(g not in state["groups"] or not state["groups"][g].get("workspace") for g in groups):
+        raise ValueError("仅可分配已准备好工作目录的团队用户组")
+    content_admin_groups = request.get("contentAdminGroups", [])
+    if not isinstance(content_admin_groups, list) or any(g not in groups for g in content_admin_groups):
+        raise ValueError("子管理员必须是对应项目组成员")
+    desired = set(groups) | {state["groups"][g]["adminGroup"] for g in content_admin_groups}
+    managed = set(state["groups"]) | {g["adminGroup"] for g in state["groups"].values()}
+    import grp
+    current = {g.gr_name for g in grp.getgrall() if username in g.gr_mem}
+    for group in managed & current - desired:
+        run(["gpasswd", "-d", username, group])
+    if desired:
+        run(["usermod", "-a", "-G", ",".join(sorted(desired)), username])
+    state["users"][username]["contentAdminGroups"] = content_admin_groups
+    checkpoint(root, state, "成员组与子管理员角色已设置")
+    terminate_connections(username)
+    checkpoint(root, state, "旧连接已失效")
+
 
 def load(root):
     file = child(root, ".workbench/admin/state.json")
@@ -112,7 +222,7 @@ def prepare_workspace(root, state, group_name):
     # Members can enter/list this parent; only the content-admin group can create projects.
     run(["setfacl", "-b", "-k", str(target)])
     run(["setfacl", "-m", "u::rwx,g::r-x,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
-    # New project content is collaborative, while per-user upload folders use mode 0700.
+    # New project content is collaborative, submissions are group-readable and trajectories remain private.
     run(["setfacl", "-d", "-m", "u::rwx,g::rwx,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
     group["workspace"] = "/projects/" + group["label"]
 
@@ -161,7 +271,7 @@ def state_lock(request):
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield
 
-def execute(request):
+def _execute(request):
     validate_request(request)
     if sys.platform != "linux" or os.geteuid() != 0:
         raise PermissionError("需要已有的 Linux root 或 sudo 管理权限；安装管理员版不赋予服务器权限")
@@ -172,55 +282,57 @@ def execute(request):
     if request["op"] == "probe":
         return {"administrator": True, "actor": actor, "root": str(root), "missingCommands": missing, "initialized": (root / ".workbench/admin/state.json").is_file()}
     if request["op"] == "status" and not (root / ".workbench/admin/state.json").is_file():
-        return {"initialized": False, "users": {}, "groups": {}}
+        journal = bootstrap_file(root)
+        return {"initialized": False, "users": {}, "groups": {}, "bootstrapPending": journal.exists()}
     if missing:
         raise ValueError("服务器缺少命令：" + ", ".join(missing) + "。请先安装发行版的 OpenSSH、shadow/passwd、procps 软件包。")
     op = request["op"]
     if op == "initialize":
-        if root.exists() and any(root.iterdir()):
-            raise ValueError("初始化只接受不存在或空的专用目录；不会接管已有非空目录")
-        root.mkdir(parents=True, exist_ok=True)
-        for parent in [root] + list(root.parents)[:-1]:
-            info = parent.stat()
-            if parent != root and (info.st_uid != 0 or info.st_mode & 0o022):
-                raise ValueError("SFTP 根路径的上级必须由 root 拥有且不可被组或其他用户写入")
-        os.chown(root, 0, 0)
-        os.chmod(root, 0o755)
-        for relative in ["projects", ".workbench", ".workbench/users"]:
-            directory = child(root, relative)
-            directory.mkdir(exist_ok=True)
-            os.chmod(directory, 0o711)
-        admin = child(root, ".workbench/admin")
-        admin.mkdir()
-        os.chmod(admin, 0o700)
-        team_id = uuid.uuid4().hex[:8]
-        login_group = "wb_" + team_id + "_members"
-        group_create(login_group)
-        state = {"version": 1, "teamId": team_id, "name": str(request.get("name", "团队空间"))[:120], "loginGroup": login_group, "users": {}, "initialized": True, "groups": {}, "sftpConfigured": False}
-        save(root, state)
+        state = initialize(root, request)
     else:
         state = load(root)
+        if op != "status":
+            if not state.get("initialized"):
+                raise ValueError("请先恢复并完成初始化")
+            start_operation(root, state, request)
     result = None
     if op == "status":
         return actual_state(state)
     if op == "user_create":
-        import pwd
+        import pwd, grp
         username = identifier(request.get("username"), 32)
         password = request.get("password", "")
         if not isinstance(password, str) or len(password) < 8 or any(c in password for c in "\r\n\x00:"):
-            raise ValueError("初始密码至少 8 位，不能含换行、冒号或空字符")
-        try:
-            pwd.getpwnam(username)
-        except KeyError:
-            pass
-        else:
-            raise ValueError("Linux 账号已存在，工具不会接管已有系统账号")
+            raise ValueError("初始密码至少 8 位，不能含换行、冒号或空字符；恢复时请重新输入")
+        groups = request.get("groups", [])
+        if any(g not in state["groups"] or not state["groups"][g].get("workspace") for g in groups) or any(g not in groups for g in request.get("contentAdminGroups", [])):
+            raise ValueError("请选择已准备好的用户组，子管理员须属于对应组")
+        record = state["users"].get(username)
+        if not record:
+            try:
+                pwd.getpwnam(username)
+            except KeyError:
+                pass
+            else:
+                raise ValueError("Linux 账号已存在，工具不会接管已有系统账号")
+            record = {"username": username, "uid": allocate_id(pwd.getpwall(), "pw_uid", [u.get("uid") for u in state["users"].values()]), "name": str(request.get("name", username))[:120], "enabled": True, "provisioning": True, "marker": "workbench-" + state["teamId"] + "-" + username}
+            state["users"][username] = record
+            save(root, state)
+        elif not record.get("provisioning"):
+            raise ValueError("账号已创建完成，请使用重置密码或组管理入口")
         shell = shutil.which("nologin") or "/usr/sbin/nologin"
-        run(["useradd", "-M", "-d", "/", "-s", shell, "-g", state["loginGroup"], username])
-        # Record before setting password so a failed password step can be retried via user_password.
-        state["users"][username] = {"username": username, "uid": pwd.getpwnam(username).pw_uid, "name": str(request.get("name", username))[:120], "enabled": True}
-        save(root, state)
+        try:
+            current = pwd.getpwnam(username)
+        except KeyError:
+            run(["useradd", "-M", "-u", str(record["uid"]), "-c", record["marker"], "-d", "/", "-s", shell, "-g", state["loginGroup"], username])
+            current = pwd.getpwnam(username)
+        if current.pw_uid != record["uid"] or current.pw_gecos != record["marker"] or current.pw_gid != grp.getgrnam(state["loginGroup"]).gr_gid:
+            raise ValueError("账号身份与创建记录不符，拒绝恢复")
+        checkpoint(root, state, "专用账号已创建")
         run(["chpasswd"], username + ":" + password + "\n")
+        checkpoint(root, state, "初始密码已设置")
+        assign_groups(root, state, request)
+        record["provisioning"] = False
     elif op == "user_password":
         username = request.get("username")
         ensure_user(state, username)
@@ -240,48 +352,35 @@ def execute(request):
     elif op == "group_create":
         label = identifier(request.get("label"), 14)
         name = "wb_" + state["teamId"] + "_" + label
-        if name in state["groups"]:
-            raise ValueError("用户组已存在")
         import grp
         if not shutil.which("setfacl"):
             raise ValueError("创建项目组工作目录需要 setfacl，请先安装发行版的 acl 软件包")
-        target = child(root, "projects/" + label)
-        if target.exists() and any(target.iterdir()):
-            raise ValueError("同名工作目录已存在且非空，不能自动接管")
-        admin_group = name + "_admin"
-        for candidate in [name, admin_group]:
-            try:
-                grp.getgrnam(candidate)
-            except KeyError:
-                continue
-            raise ValueError("同名 Linux 用户组已存在，不能接管：" + candidate)
-        run(["groupadd", name])
-        run(["groupadd", admin_group])
-        state["groups"][name] = {"name": name, "label": label, "adminGroup": admin_group}
-        save(root, state)
+        record = state["groups"].get(name)
+        if not record:
+            target = child(root, "projects/" + label)
+            if target.exists() and any(target.iterdir()):
+                raise ValueError("同名工作目录已存在且非空，不能自动接管")
+            for candidate in [name, name + "_admin"]:
+                try:
+                    grp.getgrnam(candidate)
+                except KeyError:
+                    continue
+                raise ValueError("同名 Linux 用户组已存在，不能接管：" + candidate)
+            record = {"name": name, "label": label, "adminGroup": name + "_admin", "provisioning": True}
+            state["groups"][name] = record
+            save(root, state)
+        elif not record.get("provisioning"):
+            raise ValueError("用户组已存在且创建完成")
+        provision_group(root, state, record, "gid", name, "成员用户组已创建")
+        provision_group(root, state, record, "adminGid", record["adminGroup"], "子管理员用户组已创建")
         prepare_workspace(root, state, name)
+        record["provisioning"] = False
+        checkpoint(root, state, "工作目录与 ACL 已配置")
     elif op == "workspace_prepare":
         prepare_workspace(root, state, request.get("group"))
+        checkpoint(root, state, "工作目录与 ACL 已配置")
     elif op == "user_groups":
-        username = request.get("username")
-        ensure_user(state, username)
-        groups = request.get("groups", [])
-        if not isinstance(groups, list) or any(g not in state["groups"] for g in groups):
-            raise ValueError("仅可分配当前团队创建的用户组")
-        content_admin_groups = request.get("contentAdminGroups", [])
-        if not isinstance(content_admin_groups, list) or any(g not in groups for g in content_admin_groups):
-            raise ValueError("子管理员必须是对应项目组成员")
-        desired = set(groups) | {state["groups"][g]["adminGroup"] for g in content_admin_groups}
-        managed = set(state["groups"]) | {g["adminGroup"] for g in state["groups"].values()}
-        import grp
-        current = {g.gr_name for g in grp.getgrall() if username in g.gr_mem}
-        for group in managed & current - desired:
-            run(["gpasswd", "-d", username, group])
-        if desired:
-            run(["usermod", "-a", "-G", ",".join(sorted(desired)), username])
-        state["users"][username]["contentAdminGroups"] = content_admin_groups
-        save(root, state)
-        terminate_connections(username)
+        assign_groups(root, state, request)
     elif op == "configure_sftp":
         config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
         config_dir.mkdir(exist_ok=True)
@@ -303,11 +402,42 @@ def execute(request):
             raise
         state["sftpConfigured"] = True
     if op != "status":
+        job = state.get("operations", {}).get(state.get("activeOperation"))
+        if job:
+            job["status"] = "done"
+            job.pop("error", None)
         save(root, state)
         with child(root, ".workbench/admin/audit.jsonl").open("a", encoding="utf-8") as audit:
             json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label"), "group": request.get("group")}, audit, ensure_ascii=False)
             audit.write("\n")
     return {"state": actual_state(state), "value": result}
+
+def execute(request):
+    validate_request(request)
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise PermissionError("需要已有 Linux root 或 sudo 管理权限")
+    root = root_directory(request)
+    if request["op"] == "recover":
+        state = load(root)
+        job = state.get("operations", {}).get(request.get("operationId"))
+        if not job or job.get("status") == "done":
+            raise ValueError("没有可恢复的未完成操作")
+        request = {**job["request"], "root": request["root"], "password": request.get("password", "")}
+    try:
+        return _execute(request)
+    except Exception as error:
+        if request["op"] not in ["status", "probe"]:
+            try:
+                state = load(root)
+                key = operation_key(request)
+                job = state.get("operations", {}).get(key)
+                if job and job.get("status") != "done":
+                    job["status"] = "failed"
+                    job["error"] = str(error)[:1500]
+                    save(root, state)
+            except Exception:
+                pass
+        raise
 
 def main(request):
     validate_request(request)

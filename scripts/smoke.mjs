@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { teamServer } from '../tests/fixtures/team-server.mjs';
+import { adminCases } from './admin-cases.mjs';
+import { usabilityCases, restoredCases } from './usability-cases.mjs';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 const root = process.cwd();
 const packaged = process.argv.includes('--packaged');
@@ -14,6 +16,7 @@ const auth = await authLauncher(path.join(data, 'fake-cli'));
 await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: auth.launcher, cursor: auth.launcher }, lastWorkspace: '' }));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data };
 delete env.ELECTRON_RUN_AS_NODE;
+let expected;
 const app = await electron.launch({ ...launch('user'), cwd: root, env, timeout: 60000 });
 try {
   const page = await app.firstWindow();
@@ -32,6 +35,7 @@ try {
     const adminData = await admin.evaluate(({ app }) => app.getPath('userData'));
     assert.notEqual(userData, adminData);
     console.log('Concurrent windows, isolated APIs and independent data paths verified.');
+    await adminCases({ app: admin, page: adminPage, data });
   } finally { await admin.close(); }
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.getByText('连接与工作路径', { exact: true }).waitFor();
@@ -112,4 +116,12 @@ try {
   assert.equal(state.sessions[0].nativeId, undefined);
   assert.deepEqual(errors, []);
   console.log(packaged ? 'Packaged EXE:' : 'Development build:', 'UI smoke passed: workspace/project setup, provider selection, login gating and recovery, network errors, preserved input, handoff and history defaults.');
+  expected = await usabilityCases({ page, app, data, auth, profile });
+} catch (error) {
+  console.error('UI case failed:', error);
+  // A deliberately failed save can correctly block normal quit. Force only this test instance closed.
+  await app.evaluate(({ app }) => app.exit(1)).catch(() => {});
+  throw error;
 } finally { await app.close(); await server.close(); }
+const restored = await electron.launch({ ...launch('user'), cwd: root, env, timeout: 60000 });
+try { await restoredCases(await restored.firstWindow(), expected); } finally { await restored.close(); }

@@ -34,7 +34,7 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertNotIn('shell',run.call_args.kwargs)
 
     def test_removing_subadmin_revokes_only_managed_group_and_existing_connections(self):
-        state = {'users': {'alice': {'uid': 1001}}, 'groups': {'wb_t_ocr': {'adminGroup': 'wb_t_ocr_admin'}}}
+        state = {'initialized': True, 'users': {'alice': {'uid': 1001}}, 'groups': {'wb_t_ocr': {'adminGroup': 'wb_t_ocr_admin', 'workspace': '/projects/ocr'}}}
         fake_grp = types.SimpleNamespace(getgrall=lambda: [types.SimpleNamespace(gr_name=g, gr_mem=['alice']) for g in ['wb_t_ocr','wb_t_ocr_admin','external']])
         fake_pwd = types.SimpleNamespace(getpwnam=lambda name: types.SimpleNamespace(pw_uid=1001))
         import tempfile
@@ -69,5 +69,174 @@ class AdminSafetyTests(unittest.TestCase):
             (root/'projects/ocr/existing.txt').write_text('preserve')
             with self.assertRaisesRegex(ValueError,'非空'): admin.prepare_workspace(root,state,'wb_test_ocr')
             self.assertEqual((root/'projects/ocr/existing.txt').read_text(),'preserve')
+
+class AdminRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        import contextlib, tempfile, copy
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.root = pathlib.Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
+        (self.root/'.workbench/admin').mkdir(parents=True)
+        (self.root/'projects').mkdir()
+        self.groups = {'wb_test_members': types.SimpleNamespace(gr_name='wb_test_members', gr_gid=1000, gr_mem=[])}
+        self.users = {}
+        self.calls = []
+        self.fail = None
+        def lookup(mapping, name):
+            if name not in mapping: raise KeyError(name)
+            return mapping[name]
+        self.stack.enter_context(patch.dict(sys.modules, {
+            'grp': types.SimpleNamespace(getgrnam=lambda n:lookup(self.groups,n),getgrall=lambda:list(self.groups.values())),
+            'pwd': types.SimpleNamespace(getpwnam=lambda n:lookup(self.users,n),getpwall=lambda:list(self.users.values()))}))
+        self.stack.enter_context(patch.object(admin.sys,'platform','linux'))
+        self.stack.enter_context(patch.object(admin.os,'geteuid',return_value=0,create=True))
+        self.stack.enter_context(patch.object(admin.os,'chown',create=True))
+        self.stack.enter_context(patch.object(admin.shutil,'which',side_effect=lambda n:n))
+        self.stack.enter_context(patch.object(admin,'root_directory',return_value=self.root))
+        self.stack.enter_context(patch.object(admin,'actual_state',side_effect=copy.deepcopy))
+        self.stack.enter_context(patch.object(admin,'run',side_effect=self.command))
+        admin.save(self.root, {'version':1,'teamId':'test','initialized':True,'loginGroup':'wb_test_members','users':{},'groups':{},'sftpConfigured':True})
+
+    def command(self, args, data=None, allowed=(0,)):
+        self.calls.append(args)
+        if self.fail and self.fail(args): raise RuntimeError('injected command failure')
+        if args[0]=='groupadd':
+            name=args[-1]; gid=int(args[args.index('-g')+1]); self.groups[name]=types.SimpleNamespace(gr_name=name,gr_gid=gid,gr_mem=[])
+        if args[0]=='useradd':
+            name=args[-1]; self.users[name]=types.SimpleNamespace(pw_uid=int(args[args.index('-u')+1]),pw_gid=self.groups[args[args.index('-g')+1]].gr_gid,pw_gecos=args[args.index('-c')+1])
+        if args[0]=='usermod' and '-G' in args:
+            for name in args[args.index('-G')+1].split(','):
+                if args[-1] not in self.groups[name].gr_mem: self.groups[name].gr_mem.append(args[-1])
+        if args[0]=='gpasswd': self.groups[args[-1]].gr_mem.remove(args[2])
+        return ''
+
+    def execute(self, op, **kwargs):
+        return admin.execute({'root':'/srv/teamspace','op':op,**kwargs})
+
+    def test_group_second_command_failure_recovers_without_duplicate_creation(self):
+        self.fail=lambda a:a[0]=='groupadd' and a[-1].endswith('_admin')
+        with self.assertRaises(RuntimeError): self.execute('group_create',label='ocr')
+        state=admin.load(self.root); job=state['operations']['group_create:ocr']
+        self.assertEqual(job['status'],'failed'); self.assertEqual(job['completed'],['成员用户组已创建'])
+        self.assertIn('wb_test_ocr',self.groups)
+        self.fail=None
+        self.execute('recover',operationId=job['id'])
+        state=admin.load(self.root)
+        self.assertEqual(state['operations'][job['id']]['status'],'done')
+        self.assertEqual(state['groups']['wb_test_ocr']['workspace'],'/projects/ocr')
+        self.assertEqual(sum(a[0]=='groupadd' and a[-1]=='wb_test_ocr' for a in self.calls),1)
+
+    def test_acl_failure_recovers_and_preserves_unrelated_existing_files(self):
+        self.fail=lambda a:a[0]=='setfacl'
+        with self.assertRaises(RuntimeError): self.execute('group_create',label='ocr')
+        self.assertTrue((self.root/'projects/ocr').exists())
+        self.fail=None; self.execute('recover',operationId='group_create:ocr')
+        self.assertEqual(admin.load(self.root)['operations']['group_create:ocr']['status'],'done')
+        self.assertEqual(sum(a[0]=='groupadd' for a in self.calls),2)
+        (self.root/'projects/old').mkdir(); (self.root/'projects/old/keep.txt').write_text('keep')
+        with self.assertRaisesRegex(ValueError,'非空'): self.execute('group_create',label='old')
+        self.assertEqual((self.root/'projects/old/keep.txt').read_text(),'keep')
+
+    def test_gid_replacement_is_rejected_and_foreign_group_is_not_adopted(self):
+        self.fail=lambda a:a[0]=='groupadd' and a[-1].endswith('_admin')
+        with self.assertRaises(RuntimeError): self.execute('group_create',label='ocr')
+        self.fail=None; self.groups['wb_test_ocr'].gr_gid=9876
+        with self.assertRaisesRegex(ValueError,'GID'): self.execute('recover',operationId='group_create:ocr')
+        self.groups['wb_test_foreign']=types.SimpleNamespace(gr_name='wb_test_foreign',gr_gid=1234,gr_mem=[])
+        with self.assertRaisesRegex(ValueError,'不能接管'): self.execute('group_create',label='foreign')
+
+    def test_command_completed_before_connection_failure_is_recognized_on_retry(self):
+        original = self.command
+        once = [True]
+        def interrupted(args, data=None, allowed=(0,)):
+            result = original(args, data, allowed)
+            if args[0] == 'groupadd' and once[0]:
+                once[0] = False
+                raise RuntimeError('connection lost after command completed')
+            return result
+        with patch.object(admin, 'run', side_effect=interrupted):
+            with self.assertRaises(RuntimeError): self.execute('group_create',label='ocr')
+            self.execute('recover',operationId='group_create:ocr')
+        self.assertEqual(sum(a[0]=='groupadd' and a[-1]=='wb_test_ocr' for a in self.calls),1)
+        self.assertEqual(admin.load(self.root)['operations']['group_create:ocr']['status'],'done')
+
+    def test_password_failure_has_resumable_account_without_persisting_password(self):
+        self.execute('group_create',label='ocr')
+        self.fail=lambda a:a[0]=='chpasswd'
+        with self.assertRaises(RuntimeError): self.execute('user_create',username='alice',name='Alice',password='sensitive-secret',groups=['wb_test_ocr'],contentAdminGroups=['wb_test_ocr'])
+        state=admin.load(self.root)
+        self.assertTrue(state['users']['alice']['provisioning'])
+        self.assertNotIn('sensitive-secret',(self.root/'.workbench/admin/state.json').read_text(encoding='utf-8'))
+        self.fail=None
+        with self.assertRaisesRegex(ValueError,'重新输入'): self.execute('recover',operationId='user_create:alice')
+        self.execute('recover',operationId='user_create:alice',password='replacement-secret')
+        state=admin.load(self.root)
+        self.assertFalse(state['users']['alice']['provisioning'])
+        self.assertEqual(state['users']['alice']['contentAdminGroups'],['wb_test_ocr'])
+        self.assertEqual(sum(a[0]=='useradd' for a in self.calls),1)
+        self.assertNotIn('replacement-secret',(self.root/'.workbench/admin/state.json').read_text(encoding='utf-8'))
+
+    def test_uid_replacement_during_recovery_is_rejected(self):
+        self.fail=lambda a:a[0]=='chpasswd'
+        with self.assertRaises(RuntimeError): self.execute('user_create',username='alice',name='Alice',password='test-password')
+        self.fail=None; self.users['alice'].pw_uid=5555
+        with self.assertRaisesRegex(ValueError,'身份'): self.execute('recover',operationId='user_create:alice',password='test-password')
+
+    def test_member_group_partial_failure_can_be_reapplied(self):
+        self.execute('group_create',label='ocr'); self.execute('user_create',username='alice',name='Alice',password='test-password')
+        self.fail=lambda a:a[0]=='pkill'
+        with self.assertRaises(RuntimeError): self.execute('user_groups',username='alice',groups=['wb_test_ocr'],contentAdminGroups=['wb_test_ocr'])
+        self.fail=None; self.execute('recover',operationId='user_groups:alice')
+        state=admin.load(self.root)
+        self.assertEqual(state['operations']['user_groups:alice']['status'],'done')
+        self.assertEqual(self.groups['wb_test_ocr_admin'].gr_mem,['alice'])
+
+    def test_bootstrap_failure_before_registry_has_recovery_record(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            base=pathlib.Path(temp); root=base/'team'; journal=base/'bootstrap.json'
+            # Inject failure immediately after the durable reservation, before directories.
+            original=pathlib.Path.mkdir
+            def mkdir(p,*args,**kwargs):
+                if p==root: raise OSError('injected mkdir failure')
+                return original(p,*args,**kwargs)
+            with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'mkdir',mkdir):
+                with self.assertRaises(OSError): admin.initialize(root,{})
+            self.assertTrue(journal.exists())
+            import json
+            reservation=json.loads(journal.read_text(encoding='utf-8'))
+            self.assertEqual(reservation['root'],str(root)); self.assertFalse(reservation['initialized'])
+            self.assertNotIn('password',reservation)
+            original_stat=pathlib.Path.stat
+            def safe_stat(p,*args,**kwargs):
+                info=original_stat(p,*args,**kwargs)
+                if p==root or p in root.parents:
+                    values=list(info); values[0]=0o40755; values[4]=0
+                    return admin.os.stat_result(values)
+                return info
+            with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',safe_stat):
+                restored=admin.initialize(root,{})
+            self.assertTrue(restored['initialized'])
+            self.assertEqual(restored['teamId'],reservation['teamId'])
+            self.assertFalse(journal.exists())
+
+    def test_bootstrap_failure_after_directories_resumes_existing_registry(self):
+        # The initial registry was persisted before groupadd failed. The root is now nonempty.
+        import json
+        state=admin.load(self.root); state['initialized']=False; state['loginGid']=1000
+        admin.save(self.root,state)
+        journal=self.root.parent/(self.root.name+'-bootstrap.json'); journal.write_text(json.dumps({**state,'root':str(self.root)}))
+        self.addCleanup(lambda:journal.unlink(missing_ok=True))
+        original=pathlib.Path.stat
+        def stat(p,*args,**kwargs):
+            info=original(p,*args,**kwargs)
+            if p==self.root or p in self.root.parents:
+                values=list(info); values[0]=0o40755; values[4]=0
+                return admin.os.stat_result(values)
+            return info
+        with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',stat):
+            state=admin.initialize(self.root,{})
+        self.assertTrue(state['initialized']); self.assertFalse(journal.exists())
+        self.assertEqual(state['operations']['initialize']['status'],'done')
 
 if __name__ == '__main__': unittest.main()

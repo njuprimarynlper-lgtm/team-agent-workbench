@@ -1,17 +1,27 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentSession, Draft, Settings, Transfer } from '../shared/types';
+import type { AgentSession, Draft, Settings, Transfer, SessionInput } from '../shared/types';
 import { settingsSchema } from './config';
 export async function atomicJson(file: string, data: unknown) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = file + '.' + randomUUID() + '.tmp';
-  await fs.writeFile(temp, JSON.stringify(data, null, 2), { mode: 0o600 });
-  await fs.rename(temp, file);
+  try {
+    await fs.writeFile(temp, JSON.stringify(data, null, 2), { mode: 0o600 });
+    // Windows scanners may briefly hold the destination. Never unlink the old file to replace it.
+    for (let attempt = 0; ; attempt++) {
+      try { await fs.rename(temp, file); break; }
+      catch (e: any) {
+        if (attempt >= 6 || !['EPERM', 'EACCES', 'EBUSY'].includes(e.code)) throw e;
+        await new Promise(resolve => setTimeout(resolve, 10 * 2 ** attempt));
+      }
+    }
+  } finally { await fs.rm(temp, { force: true }).catch(() => {}); }
 }
 export class Store {
   settings: Settings = { connections: [], providerPaths: { codex: '', cursor: '' }, lastWorkspace: '' };
   sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = [];
+  inputs: Record<string, SessionInput> = {};
   private writes: Promise<void> = Promise.resolve();
   constructor(public root: string) {}
   async init() {
@@ -20,11 +30,12 @@ export class Store {
     for (const key of ['sessions', 'transfers', 'drafts'] as const) {
       try { const data = JSON.parse(await fs.readFile(path.join(this.root, key + '.json'), 'utf8')); if (!Array.isArray(data)) throw new Error('Invalid array'); (this[key] as unknown[]) = data; } catch (e: any) { if (e.code !== 'ENOENT') throw new Error(`本地 ${key}.json 无法读取`); }
     }
+    try { this.inputs = JSON.parse(await fs.readFile(path.join(this.root, 'inputs.json'), 'utf8')); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地 inputs.json 无法读取'); }
     this.sessions.forEach(s => { s.status = 'idle'; s.approvals = []; });
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
   }
   save() {
-    const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, transfers: this.transfers, drafts: this.drafts }));
+    const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts }));
     const next = this.writes.catch(() => {}).then(async () => { for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value); });
     this.writes = next; return next;
   }

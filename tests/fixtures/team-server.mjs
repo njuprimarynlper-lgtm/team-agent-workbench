@@ -17,17 +17,18 @@ export async function teamServer() {
   const updateRoles = () => { const node = nodes.get('/.workbench/roles.json'); node.mode = state.writableRoles ? 0o100666 : 0o100644; node.data = Buffer.from(JSON.stringify({ version: 1, root: '/srv/teamspace', users: Object.fromEntries(state.admins.map(username => [username, { contentGroups: [{ id: 'wb_test_ocr', name: 'OCR', workspace: '/projects/ocr' }] }])) })); };
   const server = new Server({ hostKeys: [key] }, client => {
     let username = '', uid = 0; clients.push(client); client.on('error', () => {});
-    client.on('authentication', ctx => { if (ctx.method === 'password' && ctx.password === 'test-password' && ['alice', 'bob'].includes(ctx.username)) { username = ctx.username; uid = username === 'alice' ? 1001 : 1002; ctx.accept(); } else ctx.reject(); });
+    client.on('authentication', ctx => { if (ctx.method === 'password' && ctx.password === 'test-password' && ['alice', 'bob', 'carol'].includes(ctx.username)) { username = ctx.username; uid = username === 'alice' ? 1001 : username === 'bob' ? 1002 : 1003; ctx.accept(); } else ctx.reject(); });
     client.on('ready', () => client.on('session', accept => accept().on('sftp', accept => {
       const sftp = accept(), handles = new Map(); let seq = 0;
       const attrs = node => ({ mode: node.mode, uid: node.uid, gid: node.gid, size: node.data.length, atime: 1, mtime: 1 });
       const error = (id, code) => sftp.status(id, code);
+      const bits = node => uid === node.uid ? (node.mode >> 6) & 7 : node.gid === (username === 'carol' ? 200 : 100) ? (node.mode >> 3) & 7 : node.mode & 7;
       const canRead = target => {
         if (target === '/projects/denied' || target.startsWith('/projects/denied/')) return false;
-        for (let p = target; p !== '/'; p = path.posix.dirname(p)) { const n = nodes.get(p); if (n && n.uid !== 0 && n.uid !== uid && !(n.mode & 0o070)) return false; }
+        for (let p = target; p !== '/'; p = path.posix.dirname(p)) { const n = nodes.get(p); if (n && !(bits(n) & (n.mode & 0o040000 ? 1 : 4))) return false; }
         return true;
       };
-      const canWrite = parent => canRead(parent) && (parent !== '/projects/ocr' || state.admins.includes(username));
+      const canWrite = parent => canRead(parent) && (parent === '/projects/ocr' ? state.admins.includes(username) : !!(bits(nodes.get(parent)) & 2));
       const get = (id, raw, callback) => { updateRoles(); const target = normalize(raw), node = nodes.get(target); if (!canRead(target)) error(id, codes.PERMISSION_DENIED); else if (!node) error(id, codes.NO_SUCH_FILE); else callback(node, target); };
       sftp.on('REALPATH', (id, target) => get(id, target, (node, canonical) => sftp.name(id, [{ filename: canonical, longname: '', attrs: attrs(node) }])));
       for (const method of ['STAT', 'LSTAT']) sftp.on(method, (id, target) => get(id, target, node => sftp.attrs(id, attrs(node))));
@@ -50,7 +51,7 @@ export async function teamServer() {
       });
       sftp.on('OPEN', (id, raw, flags, input) => {
         updateRoles(); const target = normalize(raw), writing = flags & utils.sftp.OPEN_MODE.WRITE;
-        if (!canRead(target) || (writing && !canWrite(path.posix.dirname(target)))) { error(id, codes.PERMISSION_DENIED); return; }
+        if (!canRead(target) || (writing && (!canWrite(path.posix.dirname(target)) || (nodes.has(target) && !(bits(nodes.get(target)) & 2))))) { error(id, codes.PERMISSION_DENIED); return; }
         if (writing) {
           if ((flags & utils.sftp.OPEN_MODE.EXCL) && nodes.has(target)) { error(id, codes.FAILURE); return; }
           nodes.set(target, { mode: 0o100000 | (input.mode ?? 0o644), uid, gid: 100, data: Buffer.alloc(0) });
@@ -59,7 +60,7 @@ export async function teamServer() {
         const key = String(++seq); handles.set(key, { target }); sftp.handle(id, Buffer.from(key));
       });
       sftp.on('FSTAT', (id, handle) => sftp.attrs(id, attrs(nodes.get(handles.get(handle.toString()).target))));
-      sftp.on('SETSTAT', (id, raw, input) => get(id, raw, node => { if (input.mode !== undefined) node.mode = (node.mode & 0o170000) | (input.mode & 0o7777); sftp.status(id, codes.OK); }));
+      sftp.on('SETSTAT', (id, raw, input) => get(id, raw, node => { if (node.uid !== uid) { error(id, codes.PERMISSION_DENIED); return; } if (input.mode !== undefined) node.mode = (node.mode & 0o170000) | (input.mode & 0o7777); sftp.status(id, codes.OK); }));
       sftp.on('FSETSTAT', (id, handle, input) => { const node = nodes.get(handles.get(handle.toString()).target); if (input.mode !== undefined) node.mode = (node.mode & 0o170000) | (input.mode & 0o7777); sftp.status(id, codes.OK); });
       sftp.on('WRITE', (id, handle, offset, data) => { const node = nodes.get(handles.get(handle.toString()).target), next = Buffer.alloc(Math.max(node.data.length, offset + data.length)); node.data.copy(next); data.copy(next, offset); node.data = next; sftp.status(id, codes.OK); });
       sftp.on('READ', (id, handle, offset, length) => { const node = nodes.get(handles.get(handle.toString()).target); offset >= node.data.length ? error(id, codes.EOF) : sftp.data(id, node.data.subarray(offset, offset + length)); });

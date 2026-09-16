@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { AdminConnection } from './connection';
 import { adminProfileSchema, adminOperationSchema } from './types';
+import { memberConfig } from './member-config';
 app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
 let window: BrowserWindow; let remote: AdminConnection;
@@ -28,6 +29,14 @@ app.whenReady().then(async () => {
         await fs.mkdir(path.dirname(config), { recursive: true }); await fs.writeFile(config, JSON.stringify(value, null, 2));
       } else if (action === 'disconnect') { if (remote.snapshot.busy) throw new Error('请等待操作完成'); remote.disconnect(); value = true; }
       else if (action === 'operation') value = await remote.operation(adminOperationSchema.parse(payload));
+      else if (action === 'member.export') {
+        const input = z.object({ username: z.string(), group: z.string() }).parse(payload);
+        await remote.operation({ op: 'status' });
+        const profile = memberConfig(remote.snapshot.profile!, remote.snapshot.state!, input.username, input.group);
+        const result = await dialog.showSaveDialog(window, { defaultPath: `${input.username}-${input.group}.json`, filters: [{ name: '成员连接配置（不含密码）', extensions: ['json'] }] });
+        if (result.filePath) await fs.writeFile(result.filePath, JSON.stringify(profile, null, 2), { mode: 0o600 });
+        value = !!result.filePath;
+      }
       else throw new Error('管理员版不支持此操作');
       return { ok: true, value };
     } catch (error: any) { return { ok: false, error: error.message }; }

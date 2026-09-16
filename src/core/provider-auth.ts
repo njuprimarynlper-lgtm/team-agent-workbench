@@ -40,7 +40,7 @@ export async function inspectAuth(provider: Provider, executable: string, cwd: s
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; abort(); }, timeout);
     try {
-      await rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench_auth', version: '0.2.1' } }, timeout);
+      await rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench_auth', version: '0.3.0' } }, timeout);
       rpc.notify('initialized');
       return codexAuth(await rpc.request('account/read', { refreshToken: true }, timeout));
     } catch (error) { return authFailure(timedOut ? 'timeout' : error); }
