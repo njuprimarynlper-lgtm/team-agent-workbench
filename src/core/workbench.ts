@@ -9,18 +9,28 @@ import { AgentRuntime } from './agents';
 import { resolveProvider, inspectProvider } from './providers';
 import { freezeFile, packageDraft, packageHistory, hashFile } from './artifacts';
 import { safeFilename, localWithin } from './paths';
+import { ProviderAccounts, authReady } from './provider-auth';
 export class Workbench {
   store: Store; remote: SftpConnection; queue: TransferQueue; providers: ProviderInfo[] = [];
   private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
   workspaceReady = false;
   private configuring = false;
+  accounts: ProviderAccounts;
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void) {
     this.store = new Store(root); this.remote = new SftpConnection(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
+    this.accounts = new ProviderAccounts(p => this.store.settings.providerPaths[p], broadcast, provider => {
+      for (const [id, runtime] of this.runtimes) if (runtime.session.provider === provider && !['running', 'approval', 'starting'].includes(runtime.session.status)) { runtime.close(); this.runtimes.delete(id); }
+    });
   }
   async init() { await this.store.init(); await this.detect(); }
   async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
-  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace } : undefined }; }
+  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace } : undefined }; }
+  async requireAuth(provider: Provider, cwd: string) {
+    const prior = this.accounts.states[provider];
+    const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
+    if (!authReady(auth)) throw new Error(auth.detail);
+  }
   assertWorkspace() { if (!this.workspaceReady) throw new Error('请先填写本机与 Linux 工作路径，并通过远端访问权限验证'); }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
     if (this.configuring) throw new Error('正在验证工作路径，请等待结果');
@@ -67,10 +77,11 @@ export class Workbench {
     if (this.sending.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     this.sending.add(id); s.status = 'starting'; this.changed();
     try {
+      await this.requireAuth(s.provider, s.cwd);
       let runtime = this.runtimes.get(id);
       if (!runtime) {
         const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
-        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id) });
+        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id), authFailed: error => this.accounts.failed(s.provider, error, s.cwd) });
         this.runtimes.set(id, runtime); runtime.rpc.on('closed', () => this.runtimes.delete(id));
       }
       let prompt = userText;
@@ -147,5 +158,5 @@ export class Workbench {
   }
   async readHandoff(id: string) { return fs.readFile(this.session(id).handoffPath, 'utf8'); }
   async saveHandoff(id: string, text: string) { const s = this.session(id); if (!localWithin(s.cwd, s.handoffPath)) throw new Error('交接文件路径越界'); await fs.writeFile(s.handoffPath, text, 'utf8'); }
-  async close() { clearTimeout(this.timer); for (const runtime of this.runtimes.values()) runtime.close(); this.remote.disconnect(); await Promise.all(this.eventWrites.values()); await this.store.save(); }
+  async close() { clearTimeout(this.timer); await this.accounts.close(); for (const runtime of this.runtimes.values()) runtime.close(); this.remote.disconnect(); await Promise.all(this.eventWrites.values()); await this.store.save(); }
 }

@@ -6,8 +6,6 @@ import { z } from 'zod';
 import { Workbench } from '../core/workbench';
 import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, packageHistory } from '../core/artifacts';
-import { resolveProvider } from '../core/providers';
-import { spawnCLI } from '../core/rpc';
 import type { WorkbenchEvent } from '../shared/types';
 let window: BrowserWindow; let workbench: Workbench; let quitting = false;
 const entry = path.join(__dirname, 'index.html');
@@ -21,12 +19,21 @@ const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider =
 const sessionInput = z.object({ id });
 async function chooseFiles() { return (await dialog.showOpenDialog(window, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
 async function dispatch(action: string, raw: unknown): Promise<unknown> {
-  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'choose.directory', 'choose.executable', 'profile.import', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop']);
+  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'profile.import', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'snapshot': return workbench.snapshot();
-    case 'settings.save': workbench.store.settings = settingsSchema.parse(raw); await workbench.store.save(); broadcast(); return true;
+    case 'settings.save': {
+      const next = settingsSchema.parse(raw);
+      for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
+      workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
+    }
     case 'providers.detect': return workbench.detect();
+    case 'provider.auth': {
+      const p = z.object({ provider, cwd: z.string().optional() }).parse(raw);
+      return workbench.accounts.check(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'));
+    }
+    case 'provider.login.cancel': workbench.accounts.cancel(z.object({ provider }).parse(raw).provider); return true;
     case 'choose.directory': return (await dialog.showOpenDialog(window, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(window, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
     case 'profile.import': {
@@ -49,9 +56,10 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       await workbench.remote.download(binding, p.path, result.filePath); notice('已下载到 ' + result.filePath); return true;
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
-    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional() }).parse(raw); return workbench.createSession(p.provider, p.cwd, p.projectId); }
+    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional() }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId); }
     case 'session.send': {
       const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]) }).parse(raw); const s = workbench.session(p.id);
+      await workbench.requireAuth(s.provider, s.cwd);
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
       void workbench.send(p.id, p.text, p.sourceIds).catch(e => notice(e.message)); return true;
     }
@@ -78,11 +86,8 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     }
     case 'transfer.retry': return workbench.queue.retry(sessionInput.parse(raw).id);
     case 'provider.login': {
-      const p = z.object({ provider }).parse(raw); const executable = await resolveProvider(p.provider, workbench.store.settings.providerPaths[p.provider]);
-      const process = spawnCLI(executable, ['login'], app.getPath('home')); let output = '';
-      process.stdout.on('data', data => { output = (output + data.toString()).slice(-4000); notice(output); });
-      process.stderr.on('data', data => { output = (output + data.toString()).slice(-4000); notice(output); });
-      process.on('error', error => notice(error.message)); process.on('exit', code => notice(code === 0 ? 'CLI 登录完成，可返回创建会话' : '登录未完成，请在本机终端运行 ' + p.provider + ' login'));
+      const p = z.object({ provider, cwd: z.string().optional() }).parse(raw);
+      await workbench.accounts.login(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'));
       return true;
     }
     case 'copy': clipboard.writeText(text.parse(raw)); return true;

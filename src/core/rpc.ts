@@ -4,6 +4,18 @@ import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
 export type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { code: number; message: string } };
+const stopping = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
+export function stopCLI(child: ChildProcessWithoutNullStreams): Promise<void> {
+  const pending = stopping.get(child); if (pending) return pending;
+  const operation = new Promise<void>(resolve => {
+    if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+    if (process.platform === 'win32' && child.pid) {
+      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      killer.on('error', () => { child.kill(); resolve(); }); killer.on('close', () => resolve());
+    } else { child.kill(); resolve(); }
+  });
+  stopping.set(child, operation); return operation;
+}
 export function childEnv() {
   const env = { ...process.env };
   for (const key of ['ELECTRON_RUN_AS_NODE', 'CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'NODE_TLS_REJECT_UNAUTHORIZED']) delete env[key];
@@ -57,5 +69,5 @@ export class JsonRpc extends EventEmitter {
   notify(method: string, params: unknown = {}) { this.write({ method, params }); }
   respond(id: number | string, result: unknown) { this.write({ id, result }); }
   reject(id: number | string, message = '客户端暂不支持此请求') { this.write({ id, error: { code: -32601, message } }); }
-  close() { this.finish(new Error('连接已关闭')); this.process.stdin.end(); if (process.platform === 'win32' && this.process.pid) { const killer = spawn('taskkill.exe', ['/PID', String(this.process.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }); killer.on('error', () => this.process.kill()); } else this.process.kill(); }
+  close() { this.finish(new Error('连接已关闭')); this.process.stdin.end(); return stopCLI(this.process); }
 }

@@ -20,7 +20,8 @@ export interface AgentSession {
 export interface Transfer { id: string; kind: 'upload' | 'history' | 'download'; name: string; status: 'queued' | 'running' | 'done' | 'error'; bytes: number; total: number; target: string; projectName: string; createdAt: string; error?: string; sessionId?: string; localPath: string; binding: RemoteBinding }
 export interface Draft { id: string; sessionId: string; prepareSessionId?: string; title: string; body: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
 export interface ProviderInfo { provider: Provider; path: string; available: boolean; version: string; detail: string }
-export interface Snapshot { settings: Settings; sessions: AgentSession[]; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess }; providers: ProviderInfo[]; workspaceReady: boolean }
+export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated' | 'configured' | 'unauthenticated' | 'error' | 'not-required' | 'logging-in'; detail: string; cwd?: string; checkedAt?: string; loginUrl?: string }
+export interface Snapshot { settings: Settings; sessions: AgentSession[]; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

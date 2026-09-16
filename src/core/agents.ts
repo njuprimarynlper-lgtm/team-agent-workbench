@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentSession, Approval, Message } from '../shared/types';
 import { JsonRpc, type RpcMessage } from './rpc';
-export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; }
+export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; }
 const now = () => new Date().toISOString();
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
 export class AgentRuntime {
@@ -26,13 +26,13 @@ export class AgentRuntime {
     if (this.initialized) return;
     const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
     if (s.provider === 'codex') {
-      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.2.0' } });
+      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.2.1' } });
       this.rpc.notify('initialized');
       const params = { cwd: s.cwd, approvalPolicy: 'on-request', sandbox: s.purpose === 'prepare' ? 'read-only' : 'workspace-write' };
       const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId }) : await this.rpc.request('thread/start', params);
       s.nativeId = result.thread.id; s.nativePath = result.thread.path || undefined;
     } else {
-      await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.2.0' } });
+      await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.2.1' } });
       await this.rpc.request('authenticate', { methodId: 'cursor_login' }, 120000);
       const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
       s.nativeId = result.sessionId || s.nativeId;
@@ -43,7 +43,7 @@ export class AgentRuntime {
   async prompt(text: string) {
     if (!text.trim()) throw new Error('请输入任务内容');
     if (this.session.status === 'running' || this.session.status === 'approval') throw new Error('当前会话仍在运行，可以新建独立会话继续工作');
-    await this.start();
+    try { await this.start(); } catch (error) { this.hooks.authFailed?.(error); throw error; }
     this.message(randomUUID(), 'user', text); this.hooks.event({ direction: 'user', text });
     this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
     try {
@@ -54,9 +54,10 @@ export class AgentRuntime {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text }] }, 0);
         this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
       }
-    } catch (e: any) { this.session.status = 'error'; this.session.error = e.message; this.hooks.changed(); }
+    } catch (e: any) { this.hooks.authFailed?.(e); this.session.status = 'error'; this.session.error = e.message; this.hooks.changed(); }
   }
   private finish(error?: string) {
+    if (error) this.hooks.authFailed?.(error);
     this.session.status = error ? 'error' : 'idle'; this.session.error = error; this.session.approvals = [];
     this.turnId = undefined; this.requests.clear(); this.hooks.changed(); this.hooks.done();
   }
