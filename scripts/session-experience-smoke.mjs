@@ -1,3 +1,4 @@
+import { releaseRoot } from './release-paths.mjs';
 import { _electron as electron, expect as baseExpect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -10,7 +11,8 @@ await fs.mkdir(data, { recursive: true });
 const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
 await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data }; delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
+const packaged = process.argv.includes('--packaged');
+const app = await electron.launch({ ...(packaged ? { executablePath: path.join(releaseRoot, 'user/win-unpacked/Team Agent User.exe'), args: [] } : { args: ['dist/user'] }), cwd: root, env, timeout: 60000 });
 const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
@@ -23,7 +25,7 @@ try {
   await expect(page.getByText('剩余 77%', { exact: true })).toBeVisible();
   await expect(page.getByText('剩余 52%', { exact: true })).toBeVisible();
   await page.getByLabel('会话模型', { exact: true }).selectOption('gpt-fixture-2');
-  await page.screenshot({ path: path.join(artifacts, 'session-model-quota.png') });
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'session-model-quota.png') });
   await page.getByRole('button', { name: '创建会话', exact: true }).click();
   const gpt = (await snap()).sessions.find(s => s.purpose === 'work'); assert.equal(gpt.model, 'gpt-fixture-2');
   await page.getByLabel('任务输入', { exact: true }).fill('GPT 模型验证'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
@@ -47,7 +49,7 @@ try {
   await expect(page.locator('.session-row')).toHaveCount(1);
   await expect(page.getByRole('button', { name: '查看整理会话' })).toHaveCount(0);
   await page.getByLabel('补充说明（可选）', { exact: true }).fill('我已经编辑过的说明');
-  await page.screenshot({ path: path.join(artifacts, 'preparation-failure.png') });
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-failure.png') });
   await fixture.write({ status: 'ready', turn: 'success', turnDelay: 5000 });
   await page.getByRole('button', { name: '重试整理', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('正在整理');
@@ -55,7 +57,7 @@ try {
   await expect(page.getByRole('button', { name: '确认上传', exact: true })).toBeDisabled();
   await expect(page.getByLabel('成果提醒')).toHaveText('整理中');
   const preparingId = (await snap()).drafts[0].id;
-  await page.screenshot({ path: path.join(artifacts, 'preparation-waiting.png') });
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-waiting.png') });
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
   await expect(page.getByLabel('任务输入')).toBeVisible();
   await page.getByLabel('任务输入').fill('整理期间继续准备下一项任务');
@@ -74,12 +76,12 @@ try {
   await expect(page.getByRole('button', { name: '采用草稿作为修改说明', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('上传目标目录', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('补充说明（可选）')).toHaveJSProperty('rows', 3);
-  await page.screenshot({ path: path.join(artifacts, 'preparation-ready.png') });
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-ready.png') });
   await page.setViewportSize({ width: 1100, height: 760 });
   await page.getByRole('button', { name: '确认上传', exact: true }).scrollIntoViewIfNeeded();
   const smallBox = await page.getByLabel('补充说明（可选）').boundingBox(); assert(smallBox && smallBox.height < 150);
   const submitBox = await page.getByRole('button', { name: '确认上传', exact: true }).boundingBox(); assert(submitBox && submitBox.y >= 0 && submitBox.y + submitBox.height <= 760);
-  await page.screenshot({ path: path.join(artifacts, 'preparation-compact.png') });
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-compact.png') });
   await page.setViewportSize({ width: 1520, height: 980 });
   await fixture.write({ status: 'ready', turn: 'hang' });
   await page.getByRole('button', { name: '重新整理', exact: true }).click();
@@ -117,7 +119,7 @@ try {
   await expect(page.getByLabel('模型与额度')).toContainText('未提供个人套餐额度查询');
   await expect(page.getByText('剩余 77%', { exact: true })).toHaveCount(0);
   await page.getByLabel('会话模型', { exact: true }).selectOption('other-fixture');
-  await page.screenshot({ path: path.join(artifacts, 'cursor-model-quota.png') });
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'cursor-model-quota.png') });
   await page.getByRole('button', { name: '创建会话', exact: true }).click();
   const cursor = (await snap()).sessions.find(s => s.provider === 'cursor' && s.purpose === 'work'); assert.equal(cursor.model, 'other-fixture');
   await page.getByLabel('任务输入', { exact: true }).fill('Cursor 模型验证'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
@@ -135,5 +137,5 @@ try {
   assert(calls.some(m => m.method === 'session/set_model' && m.params.modelId === 'other-fixture'));
   assert.deepEqual(errors, []);
   console.log('Session UX passed: identities, disabled login, both model adapters, quota/fallback, hidden preparation, failure/retry, preserved edits, approval, close/reopen, trajectory-only entry.');
-} catch (e) { await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'session-experience-failed.png') }).catch(() => {}); throw e; }
+} catch (e) { if (!packaged) await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'session-experience-failed.png') }).catch(() => {}); throw e; }
 finally { await app.close(); }

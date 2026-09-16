@@ -17,6 +17,8 @@ for (const edition of ['admin', 'user']) {
   else assert(!files.some(f => f === '/admin.py'));
   assert.equal(sha(await fs.readFile(path.join(base, 'docs/local-filesystem.md'))), sha(await fs.readFile('docs/local-filesystem.md')));
   assert.equal(sha(await fs.readFile(path.join(base, 'docs/admin-management.md'))), sha(await fs.readFile('docs/admin-management.md')));
+  assert.equal(sha(await fs.readFile(path.join(base, 'docs/session-experience.md'))), sha(await fs.readFile('docs/session-experience.md')));
+  assert(!files.some(f => /(?:^|\/)(?:auth\.json|settings\.json|sessions\.json|drafts\.json|registry\.json|\.env)$/.test(f)), 'Application archive must not contain local account or work data');
   assert.equal(sha(await fs.readFile(path.join(base, '使用说明.md'))), sha(await fs.readFile('README.md')));
   for (const ext of ['exe', 'zip']) {
     const file = path.join(releaseRoot, edition, `TeamAgent-${edition}-${version}-x64.${ext}`);

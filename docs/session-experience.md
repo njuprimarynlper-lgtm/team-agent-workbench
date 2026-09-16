@@ -1,6 +1,6 @@
 # 会话、成果整理与轨迹上传
 
-本次为开发版更新，没有构建安装包或改动已发布的 0.5.0 EXE。运行仓库根目录 `start-user-dev.cmd` 查看已编译的用户界面；源码修改后先运行 `npm run build`。默认继续使用 `%APPDATA%\TeamAgentUser`；若设置 `WORKBENCH_DATA_DIR`，沿用指定数据目录。不要同时启动两个使用同一数据目录的用户进程。
+本页描述的功能已包含在 0.6.0 用户版和管理员版安装包中，产物位于 release/0.6.0。旧版 0.5.0 产物保留。运行仓库根目录 `start-user-dev.cmd` 查看已编译的用户界面；源码修改后先运行 `npm run build`。默认继续使用 `%APPDATA%\TeamAgentUser`；若设置 `WORKBENCH_DATA_DIR`，沿用指定数据目录。不要同时启动两个使用同一数据目录的用户进程。
 
 ## 用户操作
 

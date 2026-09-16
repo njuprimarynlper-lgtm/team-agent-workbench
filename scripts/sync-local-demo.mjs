@@ -25,7 +25,7 @@ for (const [name, edition, variable, directory] of launchers) {
   await fs.writeFile(path.join(demo, name), lines.join('\r\n'), 'utf8');
 }
 const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8', windowsHide: true }).trim();
-await fs.writeFile(path.join(demo, '开发版同步.md'), `# 当前打桩入口\n\n三个“打开”启动文件已同步到当前开发构建（同步时源码提交 ${commit}）。\n\n- 程序目录：${path.join(repo, 'dist')}\n- 管理员数据：本目录 admin-data\n- Alice / Bob 数据：本目录 alice-data、bob-data\n- 共享目录：本目录 shared\n\n此次不生成安装包。原有账号、组、项目、成果与轨迹继续使用。后续在源码目录执行 npm run build，以上入口即使用最新构建。密码仍需在连接时输入，不写入启动文件。\n`, 'utf8');
+await fs.writeFile(path.join(demo, '开发版同步.md'), `# 当前打桩入口\n\n三个“打开”启动文件已同步到当前开发构建（同步时源码提交 ${commit}）。\n\n- 程序目录：${path.join(repo, 'dist')}\n- 管理员数据：本目录 admin-data\n- Alice / Bob 数据：本目录 alice-data、bob-data\n- 共享目录：本目录 shared\n\n本页仅记录打桩开发入口；安装包单独保存在仓库 release/版本号/ 下。原有账号、组、项目、成果与轨迹继续使用。后续在源码目录执行 npm run build，以上入口即使用最新构建。密码仍需在连接时输入，不写入启动文件。\n`, 'utf8');
 const guide = path.join(demo, '使用说明.md');
 const original = await fs.readFile(guide, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
 if (original) {
