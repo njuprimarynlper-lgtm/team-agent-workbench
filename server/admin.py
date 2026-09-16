@@ -16,7 +16,7 @@ import sys
 import uuid
 import contextlib
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "configure_sftp", "workspace_prepare", "recover"}
+OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -151,6 +151,8 @@ def initialize(root, request):
     return state
 
 def operation_key(request):
+    if request['op'] == 'group_member':
+        return 'group_member:' + str(request.get('username')) + ':' + str(request.get('group'))
     return request["op"] + (":" + str(request.get("username") or request.get("label") or request.get("group")) if any(request.get(k) for k in ["username", "label", "group"]) else "")
 
 def start_operation(root, state, request):
@@ -158,7 +160,7 @@ def start_operation(root, state, request):
     previous = state.setdefault("operations", {}).get(key)
     if previous and previous.get("status") == "done" and request["op"] in ["user_create", "group_create"]:
         raise ValueError("创建已经完成，请刷新查看已有资源")
-    sanitized = {k: request[k] for k in ["op", "username", "name", "groups", "contentAdminGroups", "label", "group", "enabled"] if k in request}
+    sanitized = {k: request[k] for k in ["op", "username", "name", "groups", "contentAdminGroups", "label", "group", "enabled", "role"] if k in request}
     state["operations"][key] = {"id": key, "op": request["op"], "request": sanitized, "status": "running", "completed": previous.get("completed", []) if previous and previous.get("status") != "done" else []}
     state["activeOperation"] = key
     save(root, state)
@@ -381,6 +383,29 @@ def _execute(request):
         checkpoint(root, state, "工作目录与 ACL 已配置")
     elif op == "user_groups":
         assign_groups(root, state, request)
+    elif op == "group_member":
+        username = request.get('username')
+        ensure_user(state, username)
+        group = request.get('group')
+        record = state['groups'].get(group)
+        role = request.get('role')
+        if not record or not record.get('workspace') or record.get('provisioning'):
+            raise ValueError('项目组不存在或工作目录尚未准备好')
+        if role not in ['member', 'admin', 'remove']:
+            raise ValueError('无效成员操作')
+        if state['users'][username].get('provisioning'):
+            raise ValueError('请先完成用户开通')
+        import grp
+        # Read current OS membership while holding the team lock. A group-level
+        # change must not overwrite assignments made from another admin window.
+        current = {g.gr_name for g in grp.getgrall() if username in g.gr_mem}
+        groups = set(state['groups']) & current
+        admins = {name for name, g in state['groups'].items() if g['adminGroup'] in current and name in groups}
+        if role == 'remove': groups.discard(group)
+        else: groups.add(group)
+        if role == 'admin': admins.add(group)
+        else: admins.discard(group)
+        assign_groups(root, state, {**request, 'groups': sorted(groups), 'contentAdminGroups': sorted(admins)})
     elif op == "configure_sftp":
         config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
         config_dir.mkdir(exist_ok=True)
@@ -408,7 +433,7 @@ def _execute(request):
             job.pop("error", None)
         save(root, state)
         with child(root, ".workbench/admin/audit.jsonl").open("a", encoding="utf-8") as audit:
-            json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label"), "group": request.get("group")}, audit, ensure_ascii=False)
+            json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label"), "group": request.get("group"), "role": request.get("role")}, audit, ensure_ascii=False)
             audit.write("\n")
     return {"state": actual_state(state), "value": result}
 

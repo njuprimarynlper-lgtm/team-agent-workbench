@@ -1,3 +1,4 @@
+import { releaseRoot } from './release-paths.mjs';
 import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -13,7 +14,7 @@ async function launch(edition, name) {
   const store = path.join(data, name); await fs.mkdir(store);
   if (edition === 'user') await fs.writeFile(path.join(store, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: '' }));
   const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: store, WORKBENCH_ADMIN_DATA_DIR: store }; delete env.ELECTRON_RUN_AS_NODE;
-  const config = packaged ? { executablePath: path.join(root, 'release', edition, 'win-unpacked', 'Team Agent ' + (edition === 'user' ? 'User' : 'Admin') + '.exe'), args: [] } : { args: ['dist/' + edition] };
+  const config = packaged ? { executablePath: path.join(releaseRoot, edition, 'win-unpacked', 'Team Agent ' + (edition === 'user' ? 'User' : 'Admin') + '.exe'), args: [] } : { args: ['dist/' + edition] };
   const app = await electron.launch({ ...config, cwd: root, env, timeout: 60000 }); apps.push(app);
   const page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message)); pages.push(page); return { app, page };
 }

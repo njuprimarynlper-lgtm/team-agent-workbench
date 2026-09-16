@@ -37,6 +37,17 @@ export async function adminCases({ app, page, data }) {
     const raw = await fs.readFile(output, 'utf8'), config = JSON.parse(raw);
     assert.equal(config.username, 'alice'); assert.equal(config.workPath, '/projects/ocr'); assert.equal(config.fingerprint, server.profile.fingerprint);
     assert(!raw.includes('password')); assert(!raw.includes('/srv/teamspace')); assert.equal(server.requests.at(-1).op, 'status');
+    await page.getByRole('button', { name: '加入用户组', exact: true }).click();
+    await page.getByLabel('选择已有用户组').selectOption('wb_test_nlp');
+    await page.getByLabel('成员身份').selectOption('admin');
+    await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+    assert.equal(server.requests.at(-1).op, 'group_member');
+    assert.deepEqual(new Set(server.state.users.alice.contentAdminGroups), new Set(['wb_test_ocr', 'wb_test_nlp']));
+    await page.getByRole('tab', { name: '按组查看', exact: true }).click();
+    await page.locator('[data-group="wb_test_nlp"] [data-user="alice"]').getByRole('button', { name: '移出本组', exact: true }).click();
+    await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+    assert.deepEqual(server.state.users.alice.groups, ['wb_test_ocr']);
+    assert.deepEqual(server.state.users.alice.contentAdminGroups, ['wb_test_ocr']);
     console.log('Admin UI passed: partial operation status/recovery, create with group and subadmin assignment, ready checklist and secret-free member export.');
   } finally { await server.close(); }
 }

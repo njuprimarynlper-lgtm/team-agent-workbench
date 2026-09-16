@@ -71,6 +71,38 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertEqual((root/'projects/ocr/existing.txt').read_text(),'preserve')
 
 class AdminRecoveryTests(unittest.TestCase):
+    def test_group_member_preserves_other_roles_and_external_membership(self):
+        for label in ['ocr', 'nlp']: self.execute('group_create', label=label)
+        self.execute('user_create', username='alice', name='Alice', password='test-password')
+        self.groups['external'] = types.SimpleNamespace(gr_name='external', gr_gid=9999, gr_mem=['alice'])
+        self.execute('group_member', username='alice', group='wb_test_ocr', role='admin')
+        self.execute('group_member', username='alice', group='wb_test_nlp', role='admin')
+        self.execute('group_member', username='alice', group='wb_test_ocr', role='remove')
+        state = admin.load(self.root)
+        self.assertEqual(state['users']['alice']['contentAdminGroups'], ['wb_test_nlp'])
+        self.assertNotIn('alice', self.groups['wb_test_ocr'].gr_mem)
+        self.assertNotIn('alice', self.groups['wb_test_ocr_admin'].gr_mem)
+        self.assertIn('alice', self.groups['wb_test_nlp'].gr_mem)
+        self.assertIn('alice', self.groups['external'].gr_mem)
+        self.execute('group_member', username='alice', group='wb_test_ocr', role='member')
+        self.execute('group_member', username='alice', group='wb_test_nlp', role='member')
+        self.assertEqual(admin.load(self.root)['users']['alice']['contentAdminGroups'], [])
+        self.assertIn('alice', self.groups['wb_test_nlp'].gr_mem)
+
+    def test_group_member_recovery_preserves_newer_assignment_and_rejects_bad_roles(self):
+        for label in ['ocr', 'nlp']: self.execute('group_create', label=label)
+        self.execute('user_create', username='alice', name='Alice', password='test-password')
+        self.fail = lambda args: args[0] == 'pkill'
+        with self.assertRaises(RuntimeError): self.execute('group_member', username='alice', group='wb_test_ocr', role='admin')
+        self.fail = None
+        self.execute('group_member', username='alice', group='wb_test_nlp', role='admin')
+        self.execute('recover', operationId='group_member:alice:wb_test_ocr')
+        state = admin.load(self.root)
+        self.assertEqual(set(state['users']['alice']['contentAdminGroups']), {'wb_test_ocr', 'wb_test_nlp'})
+        self.assertEqual(state['operations']['group_member:alice:wb_test_ocr']['status'], 'done')
+        with self.assertRaisesRegex(ValueError, '无效成员操作'): self.execute('group_member', username='alice', group='wb_test_ocr', role='root')
+        with self.assertRaisesRegex(ValueError, '项目组不存在'): self.execute('group_member', username='alice', group='missing', role='member')
+
     def setUp(self):
         import contextlib, tempfile, copy
         self.stack = contextlib.ExitStack()

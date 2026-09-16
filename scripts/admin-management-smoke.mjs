@@ -1,0 +1,121 @@
+import { releaseRoot } from './release-paths.mjs';
+import { _electron as electron, expect } from '@playwright/test';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+
+const packaged = process.argv.includes('--packaged');
+const data = path.resolve('.test-data', 'admin-management-' + Date.now()), shared = path.join(data, 'share'), store = path.join(data, 'admin');
+await fs.mkdir(shared, { recursive: true }); await fs.mkdir(store);
+const errors = [], checks = [];
+let app, page;
+async function launch() {
+  const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_ADMIN_DATA_DIR: store }; delete env.ELECTRON_RUN_AS_NODE;
+  app = await electron.launch({ ...(packaged ? { executablePath: path.join(releaseRoot, 'admin/win-unpacked/Team Agent Admin.exe'), args: [] } : { args: ['dist/admin'] }), cwd: process.cwd(), env });
+  page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message));
+}
+const confirm = async () => { await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0); };
+const state = async () => (await page.evaluate(() => window.admin.call('snapshot'))).state;
+const userRow = username => page.locator('.people-global [data-user="' + username + '"]');
+const group = label => page.locator('[data-group="local_' + label + '"]');
+async function fields(username) {
+  await page.getByLabel('成员姓名', { exact: true }).fill(username === 'solo' ? '独立用户' : username);
+  await page.getByLabel('模拟账号', { exact: true }).fill(username);
+  await page.getByLabel('初始密码', { exact: true }).fill('member-test-password');
+  await page.getByLabel('再次输入密码', { exact: true }).fill('member-test-password');
+}
+async function createGroup(label) {
+  await page.getByRole('button', { name: '创建用户组', exact: true }).click();
+  await page.getByLabel('组标识').fill(label); await confirm();
+}
+async function membership(select) {
+  if (select) await select(); await confirm();
+}
+try {
+  await launch();
+  await page.getByLabel('共享区类型').selectOption('local');
+  await page.getByLabel('本地共享区根目录').fill(shared);
+  await page.getByLabel('管理账号', { exact: true }).fill('admin'); await page.getByLabel('登录密码', { exact: true }).fill('admin-test-password');
+  await page.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  await page.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm();
+  await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('solo'); await confirm();
+  await expect(userRow('solo')).toContainText('未分组'); assert.deepEqual((await state()).users.solo.groups, []);
+  checks.push('create independent user before any groups exist');
+  await createGroup('nlp'); await createGroup('ocr');
+  await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('alice');
+  for (const label of ['nlp', 'ocr']) await page.locator('.modal .check-row').filter({ hasText: 'local_' + label }).locator('input').check();
+  await page.locator('.modal .check-row').filter({ hasText: 'nlp · 内容子管理员' }).locator('input').check(); await confirm();
+  await expect(userRow('alice').locator('.group-chip.subadmin')).toContainText('nlp');
+  await expect(userRow('alice').locator('.group-chip')).toHaveCount(2);
+  checks.push('global creation selects multiple groups and per-group subadmin');
+  await page.getByRole('tab', { name: '按组查看', exact: true }).click();
+  await expect(group('nlp').locator('[data-user="alice"]')).toContainText('本组子管理员');
+  await expect(group('ocr').locator('[data-user="alice"]')).toContainText('本组普通成员');
+  await group('nlp').getByRole('button', { name: '组内创建用户', exact: true }).click();
+  await expect(page.locator('.modal .check-row').filter({ hasText: 'local_nlp' }).locator('input')).toBeChecked();
+  await expect(page.locator('.modal .check-row').filter({ hasText: 'local_ocr' }).locator('input')).not.toBeChecked();
+  await fields('bob'); await confirm(); assert.deepEqual((await state()).users.bob.groups, ['local_nlp']);
+  checks.push('group creation preselects its group and updates hierarchy');
+  await group('nlp').locator('[data-user="bob"]').getByRole('button', { name: '设为子管理员', exact: true }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  assert.deepEqual((await state()).users.bob.contentAdminGroups, []);
+  checks.push('cancel role change leaves membership and permissions unchanged');
+  await group('ocr').getByRole('button', { name: '添加已有用户', exact: true }).click();
+  await expect(page.getByLabel('选择用户 alice', { exact: true })).toHaveCount(0);
+  await page.getByLabel('查找已有用户').fill('独立');
+  await page.getByLabel('选择用户 solo', { exact: true }).check(); await page.getByLabel('成员身份').selectOption('admin'); await confirm();
+  assert.deepEqual((await state()).users.solo.contentAdminGroups, ['local_ocr']);
+  checks.push('group adds searchable existing user with subadmin role; existing members excluded');
+  await page.getByRole('tab', { name: '全部用户', exact: true }).click();
+  await userRow('solo').getByRole('button', { name: '加入用户组', exact: true }).click();
+  await expect(page.getByLabel('选择已有用户组').locator('option[value="local_ocr"]')).toHaveCount(0);
+  await page.getByLabel('选择已有用户组').selectOption('local_nlp'); await confirm();
+  assert.deepEqual(new Set((await state()).users.solo.groups), new Set(['local_ocr', 'local_nlp']));
+  assert.deepEqual((await state()).users.solo.contentAdminGroups, ['local_ocr']);
+  checks.push('user adds an existing group without losing other memberships or roles');
+  await userRow('alice').locator('.person-link').click();
+  await expect(page.locator('.modal .check-row').filter({ hasText: 'local_nlp' }).locator('input')).toBeChecked();
+  await page.locator('.modal .check-row').filter({ hasText: 'local_ocr' }).locator('input').uncheck(); await confirm();
+  assert.deepEqual((await state()).users.alice.groups, ['local_nlp']);
+  assert.deepEqual((await state()).users.alice.contentAdminGroups, ['local_nlp']);
+  checks.push('click user to inspect and edit all memberships, removing one group preserves another role');
+  await userRow('solo').locator('.group-chip').filter({ hasText: 'ocr' }).click();
+  await page.getByLabel('成员身份').selectOption('remove'); await expect(page.locator('.membership-removal')).toContainText('保留用户账号'); await confirm();
+  assert.deepEqual((await state()).users.solo.groups, ['local_nlp']); assert.deepEqual((await state()).users.solo.contentAdminGroups, []);
+  checks.push('user-side removal revokes only that group and its subadmin role');
+  await page.getByRole('tab', { name: '按组查看', exact: true }).click();
+  await group('nlp').locator('[data-user="bob"]').getByRole('button', { name: '设为子管理员', exact: true }).click(); await confirm();
+  await expect(group('nlp').locator('[data-user="bob"]')).toContainText('本组子管理员');
+  await group('nlp').locator('[data-user="bob"]').getByRole('button', { name: '取消子管理员', exact: true }).click(); await confirm();
+  assert.deepEqual((await state()).users.bob.groups, ['local_nlp']); assert.deepEqual((await state()).users.bob.contentAdminGroups, []);
+  await group('nlp').locator('[data-user="solo"]').getByRole('button', { name: '移出本组', exact: true }).click(); await confirm();
+  assert((await state()).users.solo.enabled); await expect(page.locator('[data-group="unassigned"] [data-user="solo"]')).toBeVisible();
+  checks.push('group-side promotion/demotion and removal; user remains enabled and appears unassigned');
+  await group('nlp').locator('.group-heading').click(); await expect(group('nlp').locator('table')).toHaveCount(0);
+  await group('nlp').locator('.group-heading').click(); await expect(group('nlp').locator('table')).toBeVisible();
+  await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('empty');
+  await expect(page.locator('.modal .check-row input:checked')).toHaveCount(0); await confirm();
+  checks.push('hierarchy expands/collapses; global creation from grouped view starts with no groups');
+  await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('bob');
+  await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal [role="alert"]')).toContainText('已存在');
+  await page.getByRole('button', { name: '取消', exact: true }).click(); assert.equal(Object.keys((await state()).users).length, 4);
+  checks.push('duplicate creation surfaces error and leaves users unchanged');
+  if (!packaged) await page.screenshot({ path: path.join(data, '按组查看.png') });
+  await page.getByRole('tab', { name: '全部用户', exact: true }).click();
+  await page.getByLabel('成员筛选').selectOption('unassigned'); await expect(page.locator('.people-global tbody tr')).toHaveCount(2);
+  await page.getByLabel('成员筛选').selectOption('admins'); await expect(page.locator('.people-global tbody tr')).toHaveCount(1);
+  await page.getByRole('button', { name: '清除筛选', exact: true }).click();
+  await page.getByLabel('查找成员或用户组').fill('nlp'); await expect(page.locator('.people-global tbody tr')).toHaveCount(2);
+  await page.getByLabel('查找成员或用户组').fill('no-such-member'); await expect(page.getByText('没有符合筛选条件的成员', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '清除筛选', exact: true }).click();
+  if (!packaged) await page.screenshot({ path: path.join(data, '全部用户.png') });
+  checks.push('search group/user, unassigned/subadmin filters and empty results');
+  const finalState = await state(); await app.close(); await launch();
+  await page.getByLabel('登录密码', { exact: true }).fill('admin-test-password');
+  await page.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  assert.deepEqual((await state()).users, finalState.users); await expect(page.locator('.people-global tbody tr')).toHaveCount(4);
+  assert.deepEqual(errors, []); checks.push('restart keeps memberships and roles; no renderer errors');
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, data, checks }, null, 2));
+  console.log(JSON.stringify({ passed: true, packaged, data, cases: checks.length }, null, 2));
+} catch (error) { if (page) await page.screenshot({ path: path.join(data, 'failure.png'), timeout: 5000 }).catch(() => {}); throw error; }
+finally { await app?.close().catch(() => {}); }

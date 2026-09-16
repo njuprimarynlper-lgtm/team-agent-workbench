@@ -1,13 +1,14 @@
 import { build } from 'electron-builder';
 import path from 'node:path';
 import { cp, copyFile } from 'node:fs/promises';
+import { releaseRoot } from './release-paths.mjs';
 const requested = process.argv[2];
 for (const edition of requested ? [requested] : ['admin', 'user']) {
   if (!['admin', 'user'].includes(edition)) throw new Error('Unknown edition');
   const product = edition === 'admin' ? 'Team Agent Admin' : 'Team Agent User';
   await build({ projectDir: process.cwd(), config: {
     appId: 'local.teamagent.' + edition, productName: product,
-    directories: { app: path.resolve('dist', edition), output: path.resolve('release', edition) },
+    directories: { app: path.resolve('dist', edition), output: path.join(releaseRoot, edition) },
     electronVersion: '44.3.0', electronDist: path.resolve('node_modules/electron/dist'),
     asar: true, npmRebuild: false, nodeGypRebuild: false, compression: 'store',
     files: ['**/*'],

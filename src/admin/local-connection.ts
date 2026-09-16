@@ -49,7 +49,7 @@ export class LocalAdminConnection {
         if (data.administrator !== this.snapshot.profile!.username || data.credentials[data.administrator] !== this.proof || generation !== this.generation) throw new Error('模拟管理员身份已改变，请重新连接');
         const state = data.state;
         const user = 'username' in request ? state.users[request.username] : undefined;
-        if (['user_password', 'user_enabled', 'user_groups'].includes(request.op) && !user) throw new Error('成员不存在');
+        if (['user_password', 'user_enabled', 'user_groups', 'group_member'].includes(request.op) && !user) throw new Error('成员不存在');
         if (request.op === 'user_create' || request.op === 'user_groups') {
           const groups = request.groups || [], admins = request.contentAdminGroups || [];
           if (groups.some(g => !state.groups[g]?.workspace) || admins.some(g => !groups.includes(g))) throw new Error('项目组不存在或子管理员未加入该组');
@@ -73,6 +73,15 @@ export class LocalAdminConnection {
           case 'user_password': data.credentials[request.username] = passwordHash(request.password); break;
           case 'user_enabled': user!.enabled = request.enabled; break;
           case 'user_groups': user!.groups = request.groups; user!.contentAdminGroups = request.contentAdminGroups; break;
+          case 'group_member': {
+            const group = state.groups[request.group];
+            if (!group?.workspace || group.provisioning) throw new Error('项目组不存在或工作目录尚未准备好');
+            if (user!.provisioning || user!.missing) throw new Error('请先完成用户开通或核对账号身份');
+            const groups = new Set(user!.groups || []), admins = new Set(user!.contentAdminGroups || []);
+            if (request.role === 'remove') groups.delete(request.group); else groups.add(request.group);
+            if (request.role === 'admin') admins.add(request.group); else admins.delete(request.group);
+            user!.groups = [...groups]; user!.contentAdminGroups = [...admins]; break;
+          }
           case 'recover': throw new Error('本地权限桩没有 Linux 命令恢复任务');
         }
         if (request.op !== 'status') {

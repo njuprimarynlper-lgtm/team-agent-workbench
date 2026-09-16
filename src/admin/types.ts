@@ -7,6 +7,7 @@ export const adminProfileSchema = z.object({
 });
 export type AdminProfile = z.infer<typeof adminProfileSchema>;
 export type ManagedUser = { username: string; name: string; enabled: boolean; uid?: number; groups?: string[]; contentAdminGroups?: string[]; missing?: boolean; provisioning?: boolean };
+export type ManagedGroup = AdminState['groups'][string];
 export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string };
 export type AdminState = { initialized: boolean; bootstrapPending?: boolean; operations?: Record<string, AdminJob>; teamId?: string; loginGroup?: string; sftpConfigured?: boolean; users: Record<string, ManagedUser>; groups: Record<string, { name: string; label: string; adminGroup: string; workspace?: string; provisioning?: boolean }> };
 export type AdminSnapshot = { profile?: AdminProfile; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[] };
@@ -21,5 +22,6 @@ export const adminOperationSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('workspace_prepare'), group: nameSchema }),
   z.object({ op: z.literal('group_create'), label: z.string().regex(/^[a-z][a-z0-9_-]{0,13}$/) }),
   z.object({ op: z.literal('user_groups'), username: nameSchema, groups: z.array(nameSchema).max(100), contentAdminGroups: z.array(nameSchema).max(100).default([]) }),
+  z.object({ op: z.literal('group_member'), username: nameSchema, group: nameSchema, role: z.enum(['member', 'admin', 'remove']) }),
 ]);
 export type AdminOperation = z.infer<typeof adminOperationSchema>;

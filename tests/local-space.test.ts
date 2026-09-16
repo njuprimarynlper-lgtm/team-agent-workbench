@@ -24,6 +24,48 @@ async function setup() {
   const clean = async () => { admin.disconnect(); if (!base.startsWith(path.join(os.tmpdir(), 'workbench-local-'))) throw new Error('unsafe cleanup'); await fs.rm(base, { recursive: true, force: true, maxRetries: 4 }); };
   return { base, root, admin, profile, config, connect, clean };
 }
+
+test('group member changes preserve other groups and roles even from a stale admin connection', async () => {
+  const x = await setup();
+  const another = new LocalAdminConnection(() => {});
+  try {
+    await another.connect(x.profile, 'admin-test-password', '', async () => false);
+    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_other', role: 'admin' });
+    await another.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'remove' });
+    let user = (await readRegistry(x.root)).state.users.alice;
+    assert.deepEqual(user.groups, ['local_other']); assert.deepEqual(user.contentAdminGroups, ['local_other']);
+    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'admin' });
+    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'member' });
+    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'member' });
+    user = (await readRegistry(x.root)).state.users.alice;
+    assert.deepEqual(new Set(user.groups), new Set(['local_workbench', 'local_other']));
+    assert.equal(user.groups!.length, 2); assert.deepEqual(user.contentAdminGroups, ['local_other']);
+    await assert.rejects(x.admin.operation({ op: 'group_member', username: 'ghost', group: 'local_other', role: 'admin' }), /成员不存在/);
+    await assert.rejects(x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_missing', role: 'admin' }), /项目组不存在/);
+    await assert.rejects(x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_other', role: 'root' } as any));
+  } finally { another.disconnect(); await x.clean(); }
+});
+
+test('unassigned users can join later; removing membership revokes live access and preserves files', async () => {
+  const x = await setup();
+  try {
+    await x.admin.operation({ op: 'user_create', username: 'newuser', name: '未分组', password: 'member-test-password', groups: [] });
+    assert.deepEqual((await readRegistry(x.root)).state.users.newuser.groups, []);
+    const alice = await x.connect('alice'), p = await alice.createProject('保留成果');
+    await x.admin.operation({ op: 'group_member', username: 'newuser', group: 'local_workbench', role: 'member' });
+    const member = await x.connect('newuser'), binding = member.binding(p.id);
+    const source = path.join(x.base, 'history.txt'); await fs.writeFile(source, 'keep-history');
+    await member.ensurePersonalFolder(binding, binding.project.historyPath);
+    const target = binding.project.historyPath + '/history.txt'; await member.upload(binding, source, target, () => {});
+    await x.admin.operation({ op: 'group_member', username: 'newuser', group: 'local_workbench', role: 'remove' });
+    await assert.rejects(member.list(binding, p.remoteRoot), /不属于此项目组/);
+    assert.equal(await fs.readFile(await diskPath(x.root, target), 'utf8'), 'keep-history');
+    assert((await readRegistry(x.root)).state.users.newuser.enabled);
+    await x.admin.operation({ op: 'group_member', username: 'newuser', group: 'local_workbench', role: 'member' });
+    assert.equal((await member.preview(binding, target)).content, 'keep-history');
+    alice.disconnect(); member.disconnect();
+  } finally { await x.clean(); }
+});
 test('local admin: empty-root bootstrap, hashed passwords, registration, group assignment, export and reconnect', async () => {
   const x = await setup();
   try {

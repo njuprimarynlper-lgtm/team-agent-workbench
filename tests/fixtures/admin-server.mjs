@@ -33,6 +33,13 @@ export async function adminServer() {
             state.groups[name] = { name, label, adminGroup: name + '_admin', workspace: '/projects/' + label };
           }
           if (request.op === 'user_create') state.users[request.username] = { username: request.username, name: request.name, enabled: true, uid: 1001, groups: request.groups || [], contentAdminGroups: request.contentAdminGroups || [] };
+          if (request.op === 'group_member') {
+            const user = state.users[request.username];
+            if (request.role === 'remove') user.groups = user.groups.filter(g => g !== request.group);
+            else if (!user.groups.includes(request.group)) user.groups.push(request.group);
+            user.contentAdminGroups = user.contentAdminGroups.filter(g => g !== request.group);
+            if (request.role === 'admin') user.contentAdminGroups.push(request.group);
+          }
           finish(true, { state });
         });
         channel.write('WORKBENCH_READY\n');

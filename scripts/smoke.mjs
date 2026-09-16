@@ -1,3 +1,4 @@
+import { releaseRoot } from './release-paths.mjs';
 import { _electron as electron } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -8,7 +9,7 @@ import { usabilityCases, restoredCases } from './usability-cases.mjs';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 const root = process.cwd();
 const packaged = process.argv.includes('--packaged');
-const launch = edition => packaged ? { executablePath: path.join(root, 'release', edition, 'win-unpacked', edition === 'user' ? 'Team Agent User.exe' : 'Team Agent Admin.exe'), args: [] } : { args: ['dist/' + edition] };
+const launch = edition => packaged ? { executablePath: path.join(releaseRoot, edition, 'win-unpacked', edition === 'user' ? 'Team Agent User.exe' : 'Team Agent Admin.exe'), args: [] } : { args: ['dist/' + edition] };
 const server = await teamServer();
 const data = path.join(root, '.test-data', 'ui-' + Date.now());
 await fs.mkdir(data, { recursive: true });
