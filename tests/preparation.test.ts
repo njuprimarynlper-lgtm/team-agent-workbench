@@ -1,0 +1,115 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { Workbench } from '../src/core/workbench';
+import { Store } from '../src/core/store';
+import { applyPreparation, contributionDirectory, discoverDestinations } from '../src/core/preparation';
+import type { Draft, RemoteBinding } from '../src/shared/types';
+import { LocalAdminConnection } from '../src/admin/local-connection';
+import { memberConfig } from '../src/admin/member-config';
+import { diskPath } from '../src/core/local-space';
+// @ts-expect-error JS protocol fixture.
+import { authLauncher } from './fixtures/auth-launcher.mjs';
+// @ts-expect-error JS SFTP fixture.
+import { teamServer } from './fixtures/team-server.mjs';
+async function until(fn: () => boolean) { const end = Date.now() + 20000; while (!fn()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(r => setTimeout(r, 20)); } }
+const binding: RemoteBinding = { connectionId: 'c', host: 'local', port: 22, username: 'alice', fingerprint: 'f', project: { id: 'p', name: '项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } };
+const result = { title: '更新说明', body: '已完成的验证与限制。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' };
+
+test('structured results select only observed directories; invalid IDs fall back; no fabricated repository or lost supplement', () => {
+  const d = { binding, body: '', supplement: '人补充的说明', repoUrlOverride: 'https://github.com/human/repo', destinations: [{ id: 'default', path: binding.project.uploadPath }, { id: 'notes', path: '/p/方案说明' }] } as Draft;
+  applyPreparation(d, '```json\n' + JSON.stringify({ ...result, destinationId: 'notes' }) + '\n```');
+  assert.equal(d.target, '/p/方案说明'); assert.equal(d.body, result.body); assert.equal(d.supplement, '人补充的说明'); assert.equal(d.repoUrlOverride, 'https://github.com/human/repo');
+  for (const destinationId of ['/outside', '../..', '/p/trajectories/alice', 'unknown']) { applyPreparation(d, JSON.stringify({ ...result, destinationId })); assert.equal(d.target, binding.project.uploadPath); }
+  applyPreparation(d, JSON.stringify({ ...result, repoUrl: 'https://github.com/owner/repo/pull/123' })); assert.equal(d.repoUrl, '');
+  assert.throws(() => applyPreparation(d, 'A partial or malformed answer'), /格式不完整/);
+  for (const p of ['/outside', '/p/../other', '/p/trajectories', '/p/submissions/bob', '/p/.workbench']) assert.throws(() => contributionDirectory(binding, p));
+});
+
+test('local shared filesystem: discover descriptions, auto destination, explicit upload, immutable package, teammate visibility and live permission denial', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-local-')), share = path.join(root, 'share'); await fs.mkdir(share);
+  const admin = new LocalAdminConnection(() => {}), wb = new Workbench(path.join(root, 'alice'), () => {}, () => {}), bob = new Workbench(path.join(root, 'bob'), () => {}, () => {});
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success', turnDelay: 500 });
+  try {
+    await admin.connect({ mode: 'local', localRoot: share, root: '/srv/teamspace', host: 'local', port: 22, username: 'admin', fingerprint: '' }, 'admin-password', '', async () => false);
+    await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'prepare' });
+    for (const username of ['alice', 'bob']) await admin.operation({ op: 'user_create', username, name: username, password: 'member-password', groups: ['local_prepare'], contentAdminGroups: username === 'alice' ? ['local_prepare'] : [] });
+    const profile = (username: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_prepare');
+    await wb.store.init(); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.configureWorkspace(profile('alice'), 'member-password', root, async () => false);
+    const p = await wb.createProject('整理成果测试'), dir = p.remoteRoot + '/方案说明';
+    const diskDir = await diskPath(share, dir, true); await fs.mkdir(diskDir); await fs.writeFile(path.join(diskDir, 'README.md'), '此目录接收设计与方案修改说明。');
+    const candidates = await discoverDestinations(wb.remote, wb.remote.binding(p.id), () => true);
+    const selected = candidates.destinations.find(x => x.path === dir)!; assert(selected); assert.match(selected.description, /设计与方案/);
+    assert(!candidates.destinations.some(x => x.path.includes('trajectories')));
+    await fixture.write({ status: 'ready', turn: 'success', turnDelay: 800, preparationResult: { ...result, destinationId: selected.id } });
+    const s = await wb.createSession('codex', root, p.id);
+    await wb.saveHandoff(s.id, '# 已完成\nhttps://github.com/owner/repo\n材料原始内容');
+    const [d, same] = await Promise.all([wb.prepare(s.id), wb.prepare(s.id)]); assert.equal(d.id, same.id);
+    await wb.saveDraftSupplement(d.id, '人工补充：下轮补充边界用例。', '');
+    await assert.rejects(wb.submitDraft(d.id));
+    await until(() => d.generation === 'ready'); assert.equal(d.target, dir); assert.equal(wb.store.transfers.length, 0); assert(d.generationStartedAt); assert(d.generationFinishedAt);
+    assert.equal((await wb.prepare(s.id)).id, d.id, 'ready contribution opens the same panel');
+    await assert.rejects(wb.submitDraft(d.id, p.remoteRoot + '/trajectories/alice'), /不能在提交时改变/);
+    // Refresh from the latest handoff only when explicitly regenerating completed work.
+    await wb.saveHandoff(s.id, '# 新材料\n用户继续推进后的交接');
+    await wb.retryPreparation(d.id); await until(() => d.generation === 'ready');
+    const index = JSON.parse(await fs.readFile(path.join(d.inputDir, 'source-index.json'), 'utf8'));
+    assert.match(await fs.readFile(index.handoff.localPath, 'utf8'), /继续推进/);
+    assert.match(d.supplement!, /人工补充/);
+    const transfer = await wb.submitDraft(d.id); await until(() => !['queued', 'running'].includes(transfer.status)); assert.equal(transfer.status, 'done', transfer.error || '');
+    assert.equal(path.posix.dirname(transfer.target), dir);
+    const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', transfer.localPath], { encoding: 'utf8' }));
+    assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']); assert.match(zip['README.md'], /已完成的验证/); assert.match(zip['README.md'], /人工补充/); assert(!JSON.stringify(zip).includes('材料原始内容'));
+    assert.throws(() => wb.saveDraftSupplement(d.id, 'late', ''), /已提交/);
+    await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
+    assert((await bob.remote.list(bob.remote.binding(p.id), dir)).some(x => x.path === transfer.target));
+    const next = await wb.prepare(s.id); await until(() => next.generation === 'ready'); assert.notEqual(next.id, d.id);
+    await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove' });
+    const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于/);
+    const original = await diskPath(share, transfer.target); assert((await fs.stat(original)).size > 0);
+  } finally { await Promise.all([wb.close(), bob.close()]); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-prepare-local-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
+
+test('SFTP candidate discovery skips other-member submissions and trajectories; denied directory write remains denied', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-sftp-')), server = await teamServer();
+  const wb = new Workbench(root, () => {}, () => {});
+  try {
+    await wb.store.init(); await wb.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
+    const p = await wb.createProject('分类识别'), b = wb.remote.binding(p.id);
+    server.nodes.set(p.remoteRoot + '/资料', { mode: 0o40550, uid: 0, gid: 100, data: Buffer.alloc(0) });
+    server.nodes.set(p.remoteRoot + '/submissions/bob', { mode: 0o40750, uid: 1002, gid: 100, data: Buffer.alloc(0) });
+    const found = await discoverDestinations(wb.remote, b, () => true);
+    assert(found.destinations.some(x => x.path.endsWith('/资料'))); assert(!found.destinations.some(x => x.path.endsWith('/bob') || x.path.includes('trajectories')));
+    const file = path.join(root, 'notes.txt'); await fs.writeFile(file, 'notes');
+    const transfer = await wb.queue.enqueue(file, b, p.remoteRoot + '/资料', 'upload'); await until(() => transfer.status === 'error'); assert.match(transfer.error!, /拒绝/);
+    wb.remote.disconnect(); const offline = await discoverDestinations(wb.remote, b, () => true); assert.equal(offline.destinations.length, 1); assert(offline.note);
+  } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('hung preparation times out visibly; no duplicate jobs, no automatic upload, supplement survives retry and restart', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-timeout-'));
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, 3000);
+  try {
+    await wb.store.init(); wb.workspaceReady = true; wb.store.settings.providerPaths.cursor = fixture.launcher;
+    const s = await wb.createSession('cursor', root), d = await wb.prepare(s.id);
+    await wb.saveDraftSupplement(d.id, '一直保留的补充', ''); await until(() => d.generation === 'error'); assert.match(d.generationError!, /超时/);
+    assert(wb.session(d.prepareSessionId!).closedAt); assert.equal(s.status, 'idle'); assert.equal(wb.store.transfers.length, 0);
+    await fixture.write({ status: 'ready', turn: 'success', preparationRaw: 'broken response' });
+    await wb.retryPreparation(d.id); await until(() => d.generation === 'error'); assert.match(d.generationError!, /格式不完整/);
+    await fixture.write({ status: 'ready', turn: 'success' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.supplement, '一直保留的补充');
+    await wb.store.save(); const reopened = new Store(wb.store.root); await reopened.init(); assert.equal(reopened.drafts[0].supplement, d.supplement); assert.equal(reopened.drafts[0].body, d.body);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
+
+test('older drafts preserve the reviewed explanation and completed submissions during migration', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-migration-'));
+  try {
+    await fs.writeFile(path.join(root, 'drafts.json'), JSON.stringify([{ id: 'edited', body: 'user edited body', generatedBody: 'old AI body', binding, target: '/p/old', generation: 'ready' }, { id: 'submitted', body: 'frozen body', target: '/p/old', submitted: 'transfer', generation: 'ready' }]));
+    const store = new Store(root); await store.init(); assert.equal(store.drafts[0].body, 'user edited body'); assert.equal(store.drafts[0].target, binding.project.uploadPath); assert.equal(store.drafts[1].target, '/p/old');
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

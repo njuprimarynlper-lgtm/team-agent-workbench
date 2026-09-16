@@ -44,34 +44,34 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await page.getByRole('button', { name: '重试保存', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('已保存');
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
-  // Preparation is independent; login failure doesn't prevent manual editing.
+  // Preparation is independent; AI text and optional human supplement are separate.
+  await auth.write({ status: 'ready', turn: 'success' });
   const draft = await call('draft.prepare', { id: a.id });
   await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await page.getByLabel('成果标题', { exact: true }).fill('UI 验证成果');
-  await page.getByLabel('GitHub 仓库链接').fill('https://github.com/owner/repo');
-  await page.getByLabel('成果正文', { exact: true }).fill('只提交修改说明；验证通过，不附带代码。');
+  await expect(page.getByLabel('整理状态')).toContainText('整理完成', { timeout: 20000 });
+  await page.getByLabel('补充说明（可选）', { exact: true }).fill('只提交修改说明；验证通过，不附带代码。');
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
   await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('成果正文', { exact: true })).toHaveValue('只提交修改说明；验证通过，不附带代码。');
-  await expect(page.getByLabel('GitHub 仓库链接')).toHaveValue('https://github.com/owner/repo');
+  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('只提交修改说明；验证通过，不附带代码。');
+  await expect(page.getByLabel('AI 整理结果')).toContainText('https://github.com/owner/repo');
   await expect(page.getByRole('status')).toHaveText('已保存');
   await fs.rm(draft.outputPath); await fs.mkdir(draft.outputPath);
-  await page.getByLabel('成果正文', { exact: true }).fill('保存失败后仍保留的说明');
+  await page.getByLabel('补充说明（可选）', { exact: true }).fill('保存失败后仍保留的说明');
   await expect(page.getByRole('status')).toContainText('保存失败');
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
   await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('成果正文', { exact: true })).toHaveValue('保存失败后仍保留的说明');
+  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   await app.evaluate(({ dialog, BrowserWindow }) => {
     dialog.showMessageBox = async (_window, options) => { dialog.closeGuardMessage = options.message; return { response: 0, checkboxChecked: false }; };
     BrowserWindow.getAllWindows()[0].close();
   });
   await expect.poll(() => app.evaluate(({ dialog }) => dialog.closeGuardMessage)).toBe('保存失败，已保留窗口和待保存内容。');
-  await expect(page.getByLabel('成果正文', { exact: true })).toHaveValue('保存失败后仍保留的说明');
+  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   await fs.rmdir(draft.outputPath); await page.getByRole('button', { name: '重试保存', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('已保存');
-  await page.getByRole('button', { name: '确认并上传成果', exact: true }).click();
-  await expect(page.getByLabel('成果正文', { exact: true })).toBeDisabled();
-  await expect(page.getByLabel('GitHub 仓库链接')).toBeDisabled();
+  await page.getByRole('button', { name: '确认上传', exact: true }).click();
+  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '确认上传', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
   assert.equal((await call('snapshot')).drafts[0].files.length, 1); // Kept only as preparation evidence locally.
   // A failed connection replacement must leave local sessions usable.
@@ -92,7 +92,7 @@ export async function restoredCases(page, expected) {
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue(text);
   }
   await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('成果正文', { exact: true })).toHaveValue('保存失败后仍保留的说明');
+  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   const snapshot = await page.evaluate(() => window.workbench.call('snapshot'));
   assert.equal(snapshot.connection, undefined); assert.equal(snapshot.workspaceReady, true);
   console.log('Restart without remote connection passed: inputs and drafts restored; local work remains available.');

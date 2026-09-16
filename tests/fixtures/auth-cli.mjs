@@ -33,6 +33,8 @@ else if (command === 'login') {
 } else {
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const m = JSON.parse(line), current = read();
+    const preparation = JSON.stringify(m.params || {}).includes('destinationId');
+    const answer = provider => preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: 'Agent 成果草稿', body: '# Agent 成果草稿\n已根据交接文件整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' }) : provider === 'codex' ? '# Agent 成果草稿\n已根据交接文件整理。测试已通过。' : '# Cursor 成果草稿\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m) + '\n');
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
     else if (m.method === 'model/list') {
@@ -61,7 +63,7 @@ else if (command === 'login') {
       if (current.turn === 'crash') { process.exit(9); return; }
       if (current.turn === 'success') {
         const done = () => {
-          send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'answer', type: 'agentMessage', text: '# Agent 成果草稿\n已根据交接文件整理。测试已通过。' } } });
+          send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'answer', type: 'agentMessage', text: answer('codex') } } });
           send({ method: 'turn/completed', params: { turn: { id: 'fake-turn' } } });
         }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
       } else if (current.turn === 'network') send({ method: 'turn/completed', params: { turn: { id: 'fake-turn', error: { message: 'Network timeout: connection reset' } } } });
@@ -73,8 +75,10 @@ else if (command === 'login') {
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }
       if (current.turn === 'success') {
-        send({ method: 'session/update', params: { sessionId: 'fake-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '# Cursor 成果草稿\n已完成。' } } } });
-        send({ id: m.id, result: { stopReason: 'end_turn' } });
+        const done = () => {
+          send({ method: 'session/update', params: { sessionId: 'fake-session', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer('cursor') } } } });
+          send({ id: m.id, result: { stopReason: 'end_turn' } });
+        }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
       } else send({ id: m.id, error: { code: -32000, message: current.turn === 'network' ? 'Network timeout: connection reset' : 'Unauthenticated: Please log in again' } });
     }
     else if (m.id === 'patch-approval' && m.result) send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: 'fake-turn', status: 'completed' } } });

@@ -33,8 +33,15 @@ export class Store {
     try { this.inputs = JSON.parse(await fs.readFile(path.join(this.root, 'inputs.json'), 'utf8')); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地 inputs.json 无法读取'); }
     this.sessions.forEach(s => { s.status = 'idle'; s.approvals = []; });
     this.drafts.forEach(d => {
-      if (d.generation === 'running') { d.generation = 'error'; d.generationError = '应用关闭后整理已中断，可重试或直接编辑。'; }
-      else if (!d.generation) { const s = this.sessions.find(s => s.id === d.prepareSessionId); d.generation = d.generatedBody ? 'ready' : 'error'; d.generationError = d.generatedBody ? undefined : s?.error || '此前的整理未完成，可重试或直接编辑。'; }
+      if (!d.preparationVersion && !d.submitted) {
+        // Preserve the user's previous final explanation when upgrading older drafts.
+        d.body = d.body || d.generatedBody || ''; d.supplement ??= '';
+        if (d.binding) d.target = d.binding.project.uploadPath;
+        d.preparationVersion = 1;
+        if (d.body && d.generation !== 'running') { d.generation = 'ready'; d.generationError = undefined; }
+      }
+      if (d.generation === 'running') { d.generation = 'error'; d.generationError = '应用关闭后整理已中断，可重试整理，补充说明已保留。'; }
+      else if (!d.generation) { const s = this.sessions.find(s => s.id === d.prepareSessionId); d.generation = d.generatedBody ? 'ready' : 'error'; d.generationError = d.generatedBody ? undefined : s?.error || '此前的整理未完成，可重试整理，补充说明已保留。'; }
     });
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
   }

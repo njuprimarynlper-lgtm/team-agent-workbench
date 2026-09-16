@@ -40,8 +40,9 @@ export function githubRepository(value: string): string {
 }
 export async function packageDraft(draft: Draft, root: string): Promise<string> {
   draft = structuredClone(draft);
-  const repoUrl = githubRepository(draft.repoUrl || '');
+  const repoUrl = githubRepository(draft.repoUrlOverride || draft.repoUrl || '');
   if (!draft.body.trim()) throw new Error('请填写修改说明');
+  draft.body = contributionBody(draft);
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const entries = [
     { name: 'README.md', text: `# ${draft.title}\n\nGitHub 仓库：${repoUrl}\n\n${draft.body}` },
@@ -49,6 +50,9 @@ export async function packageDraft(draft: Draft, root: string): Promise<string> 
   ];
   // Local preparation inputs and legacy attachments are deliberately never included.
   const zip = path.join(dir, safeFilename(draft.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
+}
+export function contributionBody(draft: Draft) {
+  return draft.body + (draft.supplement?.trim() ? '\n\n## 补充说明\n\n' + draft.supplement.trim() : '');
 }
 export function historyMarkdown(session: AgentSession) {
   return `# ${session.title}\n\n提供方：${session.provider}\n原生会话 ID：${session.nativeId || '尚未创建'}\n项目：${session.binding?.project.name || '本地会话'}\n\n> 这是工作台采集的对话与工具事件，不代表厂商隐藏推理或完整训练轨迹。\n\n` + session.messages.map(m => `## ${m.role} · ${m.createdAt}\n\n${m.text}\n`).join('\n');

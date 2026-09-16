@@ -60,10 +60,10 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': model pr
     const [d, same] = await Promise.all([wb.prepare(s.id), wb.prepare(s.id)]); assert.equal(d.id, same.id);
     await until(() => d.generation === 'error'); assert.match(d.generationError!, /Network timeout/);
     assert.equal(d.generatedBody, undefined); assert.equal(s.status, 'idle');
-    await wb.saveDraft(d.id, 'Manual title', 'Human edits stay intact', 'https://github.com/owner/repo');
+    await wb.saveDraftSupplement(d.id, 'Human edits stay intact', 'https://github.com/owner/repo');
     const attempt = d.prepareSessionId;
     await f.write({ status: 'ready', turn: 'success' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'ready');
-    assert.notEqual(d.prepareSessionId, attempt); assert(d.generatedBody); assert.equal(d.body, 'Human edits stay intact');
+    assert.notEqual(d.prepareSessionId, attempt); assert(d.generatedBody); assert.equal(d.supplement, 'Human edits stay intact'); assert.match(d.body, /Agent 成果草稿/);
     assert.equal(wb.session(d.prepareSessionId!).model, 'chosen-model');
     await f.write({ status: 'ready', turn: 'crash' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'error'); assert.match(d.generationError!, /进程已退出/);
     const canceledRetry = wb.retryPreparation(d.id); await wb.cancelPreparation(d.id); await canceledRetry;
@@ -75,7 +75,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': model pr
     await wb.closeSession(s.id); await pending; assert.equal(s.nativeId, native); assert.equal(s.status, 'idle');
     await wb.store.save(); const reopened = new Store(wb.store.root); await reopened.init();
     assert.equal(reopened.sessions.find(x => x.id === s.id)?.model, 'chosen-model'); assert(reopened.sessions.find(x => x.id === s.id)?.closedAt);
-    assert.equal(reopened.drafts[0].body, 'Human edits stay intact');
+    assert.equal(reopened.drafts[0].supplement, 'Human edits stay intact');
     assert(!JSON.stringify(reopened.sessions).includes('fake@example.com'));
   } finally { await wb.close(); await cleanup(root); }
 });
