@@ -1,0 +1,97 @@
+import { _electron as electron, expect as baseExpect } from '@playwright/test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+const expect = baseExpect.configure({ timeout: 20000 });
+
+const root = process.cwd(), data = path.join(root, '.test-data', 'session-experience-' + Date.now());
+await fs.mkdir(data, { recursive: true });
+const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
+await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
+const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data }; delete env.ELECTRON_RUN_AS_NODE;
+const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
+const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
+try {
+  const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
+  const snap = () => call('snapshot');
+  await page.getByRole('button', { name: '新建工作会话', exact: true }).click();
+  const authPanel = page.getByLabel('Codex 登录状态', { exact: true });
+  await expect(authPanel.getByText('fake@example.com')).toBeVisible();
+  await expect(authPanel.getByRole('button', { name: '登录个人账号' })).toBeDisabled();
+  await expect(page.getByText('剩余 77%', { exact: true })).toBeVisible();
+  await expect(page.getByText('剩余 52%', { exact: true })).toBeVisible();
+  await page.getByLabel('会话模型', { exact: true }).selectOption('gpt-fixture-2');
+  await page.screenshot({ path: path.join(artifacts, 'session-model-quota.png') });
+  await page.getByRole('button', { name: '创建会话', exact: true }).click();
+  const gpt = (await snap()).sessions.find(s => s.purpose === 'work'); assert.equal(gpt.model, 'gpt-fixture-2');
+  await page.getByLabel('任务输入', { exact: true }).fill('GPT 模型验证'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === gpt.id)?.messages.some(m => m.role === 'assistant'), { timeout: 20000 }).toBe(true);
+  await page.getByRole('button', { name: '轨迹上传', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '轨迹上传', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '导出到本地' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '确认上传轨迹' })).toBeDisabled();
+  await assert.rejects(call('session.export', { id: gpt.id }), /未知操作/);
+  await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
+  await page.getByRole('button', { name: '关闭会话', exact: true }).click();
+  await expect(page.locator('.session-row')).toHaveCount(0);
+  await page.getByRole('button', { name: '已关闭会话（1）', exact: true }).click();
+  await expect(page.getByLabel('任务输入', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '重新打开会话', exact: true }).click();
+  await expect(page.getByLabel('任务输入', { exact: true })).toBeVisible();
+  // Failed preparations are visible on the draft itself, never in the session list.
+  await fixture.write({ status: 'ready', turn: 'network' });
+  await page.getByRole('button', { name: '整理成果', exact: true }).click();
+  await expect(page.getByLabel('成果整理进度').getByRole('alert')).toContainText('Network timeout', { timeout: 20000 });
+  await expect(page.locator('.session-row')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '查看整理会话' })).toHaveCount(0);
+  await page.getByLabel('成果正文', { exact: true }).fill('我已经编辑过的说明');
+  await page.screenshot({ path: path.join(artifacts, 'preparation-failure.png') });
+  await fixture.write({ status: 'ready', turn: 'success', turnDelay: 1000 });
+  await page.getByRole('button', { name: '重试整理', exact: true }).click();
+  await expect(page.getByLabel('整理状态')).toContainText('正在整理');
+  await page.getByRole('button', { name: '工作会话', exact: true }).click();
+  await expect(page.getByLabel('任务输入')).toBeVisible();
+  await page.getByRole('button', { name: '成果草稿', exact: true }).click();
+  await expect(page.locator('.generated-preview')).toContainText('Agent 成果草稿', { timeout: 20000 });
+  await expect(page.getByLabel('成果正文', { exact: true })).toHaveValue('我已经编辑过的说明');
+  await page.getByRole('button', { name: '采用草稿作为修改说明', exact: true }).click();
+  await expect(page.getByLabel('成果正文', { exact: true })).toContainText('Agent 成果草稿');
+  await page.screenshot({ path: path.join(artifacts, 'preparation-ready.png') });
+  // Approval remains actionable even though the helper is hidden.
+  await fixture.write({ status: 'ready', fileApproval: true });
+  await page.getByRole('button', { name: '重新整理', exact: true }).click();
+  await expect(page.getByLabel('成果整理进度').getByText('Codex 请求修改文件')).toBeVisible({ timeout: 20000 });
+  await page.getByLabel('成果整理进度').getByRole('button', { name: '拒绝', exact: true }).click();
+  await expect(page.getByLabel('整理状态')).toContainText('整理失败'); // no final answer in approval fixture
+  // Cursor uses its own catalog and shows the official usage entry, not invented quota.
+  await fixture.write({ status: 'ready', turn: 'success' });
+  await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await page.getByRole('button', { name: 'Cursor', exact: true }).click();
+  const cursorAuth = page.getByLabel('Cursor 登录状态', { exact: true });
+  await expect(cursorAuth.getByText('fake@example.com')).toBeVisible();
+  await expect(cursorAuth.getByRole('button', { name: '登录个人账号' })).toBeDisabled();
+  await expect(page.getByLabel('模型与额度')).toContainText('未提供个人套餐额度查询');
+  await expect(page.getByText('剩余 77%', { exact: true })).toHaveCount(0);
+  await page.getByLabel('会话模型', { exact: true }).selectOption('other-fixture');
+  await page.screenshot({ path: path.join(artifacts, 'cursor-model-quota.png') });
+  await page.getByRole('button', { name: '创建会话', exact: true }).click();
+  const cursor = (await snap()).sessions.find(s => s.provider === 'cursor' && s.purpose === 'work'); assert.equal(cursor.model, 'other-fixture');
+  await page.getByLabel('任务输入', { exact: true }).fill('Cursor 模型验证'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === cursor.id)?.status, { timeout: 20000 }).toBe('idle');
+  await expect(page.locator('.message.assistant')).toContainText('Cursor 成果草稿');
+  await fixture.write({ status: 'ready', turn: 'hang' });
+  await page.getByLabel('任务输入', { exact: true }).fill('运行中的任务'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
+  await expect(page.getByRole('button', { name: '停止当前任务', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '关闭会话', exact: true }).click();
+  await page.getByRole('button', { name: '停止并关闭', exact: true }).click();
+  await expect.poll(async () => !!(await snap()).sessions.find(s => s.id === cursor.id)?.closedAt).toBe(true);
+  await expect(page.locator(`.session-row[data-session-id="${cursor.id}"]`)).toHaveCount(0);
+  const calls = (await fs.readFile(path.join(data, 'cli', 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(s => JSON.parse(s));
+  assert(calls.some(m => m.method === 'turn/start' && m.params.model === 'gpt-fixture-2'));
+  assert(calls.some(m => m.method === 'session/set_model' && m.params.modelId === 'other-fixture'));
+  assert.deepEqual(errors, []);
+  console.log('Session UX passed: identities, disabled login, both model adapters, quota/fallback, hidden preparation, failure/retry, preserved edits, approval, close/reopen, trajectory-only entry.');
+} catch (e) { await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'session-experience-failed.png') }).catch(() => {}); throw e; }
+finally { await app.close(); }

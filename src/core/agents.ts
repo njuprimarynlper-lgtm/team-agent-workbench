@@ -12,10 +12,11 @@ export class AgentRuntime {
   private initialized = false;
   private cursorMessageId = '';
   private closing = false;
+  private turnActive = false;
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks) {
     this.rpc = new JsonRpc(executable, session.provider === 'codex' ? ['app-server'] : ['acp'], session.cwd, session.provider === 'cursor');
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
-    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); if (!this.closing) { session.status = 'error'; session.error = e.message; session.approvals = []; hooks.changed(); } });
+    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); if (!this.closing) this.finish(e.message); });
   }
   private message(id: string, role: Message['role'], text: string, append = false) {
     const existing = this.session.messages.find(x => x.id === id);
@@ -29,7 +30,7 @@ export class AgentRuntime {
     if (s.provider === 'codex') {
       await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.4.0' } });
       this.rpc.notify('initialized');
-      const params = { cwd: s.cwd, approvalPolicy: 'on-request', sandbox: s.purpose === 'prepare' ? 'read-only' : 'workspace-write' };
+      const params = { cwd: s.cwd, ...(s.model ? { model: s.model } : {}), approvalPolicy: 'on-request', sandbox: s.purpose === 'prepare' ? 'read-only' : 'workspace-write' };
       const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId }) : await this.rpc.request('thread/start', params);
       s.nativeId = result.thread.id; s.nativePath = result.thread.path || undefined;
     } else {
@@ -37,6 +38,7 @@ export class AgentRuntime {
       await this.rpc.request('authenticate', { methodId: 'cursor_login' }, 120000);
       const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
       s.nativeId = result.sessionId || s.nativeId;
+      if (s.model) await this.rpc.request('session/set_model', { sessionId: s.nativeId, modelId: s.model });
       if (s.purpose === 'prepare') await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'ask' });
     }
     this.initialized = true; s.status = 'idle'; this.hooks.changed();
@@ -45,24 +47,27 @@ export class AgentRuntime {
     if (!text.trim()) throw new Error('请输入任务内容');
     if (this.session.status === 'running' || this.session.status === 'approval') throw new Error('当前会话仍在运行，可以新建独立会话继续工作');
     try { await this.start(); } catch (error) { this.hooks.authFailed?.(error); throw error; }
+    if (this.closing) return;
     this.message(randomUUID(), 'user', text); this.hooks.event({ direction: 'user', text });
-    this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
+    this.turnActive = true; this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
     try {
       if (this.session.provider === 'codex') {
-        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, input: [{ type: 'text', text, text_elements: [] }] });
+        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...(this.session.model ? { model: this.session.model } : {}), input: [{ type: 'text', text, text_elements: [] }] });
         this.turnId = result.turn.id;
       } else {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text }] }, 0);
         this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
       }
-    } catch (e: any) { this.hooks.authFailed?.(e); this.session.status = 'error'; this.session.error = e.message; this.hooks.changed(); }
+    } catch (e: any) { if (!this.closing) this.finish(e.message); }
   }
   private finish(error?: string) {
+    const completedTurn = this.turnActive; this.turnActive = false;
     if (error) this.hooks.authFailed?.(error);
     this.session.status = error ? 'error' : 'idle'; this.session.error = error; this.session.approvals = [];
-    this.turnId = undefined; this.requests.clear(); this.fileChanges.clear(); this.hooks.changed(); this.hooks.done();
+    this.turnId = undefined; this.requests.clear(); this.fileChanges.clear(); this.hooks.changed(); if (completedTurn) this.hooks.done();
   }
   private onMessage(m: RpcMessage) {
+    if (this.closing) return;
     const method = m.method!, p = m.params || {}, s = this.session;
     // Only session events are archived. Account/authentication messages are never stored here.
     if (/^(item\/|turn\/|session\/|cursor\/|error$)/.test(method)) this.hooks.event({ method, params: p });
@@ -141,5 +146,5 @@ export class AgentRuntime {
     else if (this.session.provider === 'cursor' && this.session.nativeId) this.rpc.notify('session/cancel', { sessionId: this.session.nativeId });
     else this.close();
   }
-  close() { this.closing = true; this.rpc.close(); this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); }
+  close() { this.closing = true; this.turnActive = false; this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); return this.rpc.close(); }
 }

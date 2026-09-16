@@ -24,5 +24,6 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   } else if (m.id === 'approval-1' && m.result) {
     if (mode.startsWith('codex')) { send({ method: 'item/completed', params: { threadId: nativeId, item: { id: 'answer-1', type: 'agentMessage', text: '中文回复' } } }); send({ method: 'turn/completed', params: { threadId: nativeId, turn: { id: 'turn-' + turn, status: 'completed' } } }); }
     else send({ id: globalThis.promptRequestId, result: { stopReason: 'end_turn' } });
+    if (mode === 'codex-double') send({ method: 'turn/completed', params: { threadId: nativeId, turn: { id: 'turn-' + turn, status: 'completed' } } });
   } else if (m.method === 'turn/interrupt') { send({ id: m.id, result: {} }); }
 });

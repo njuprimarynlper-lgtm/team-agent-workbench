@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { Workbench } from '../core/workbench';
 import { settingsSchema, profileSchema } from '../core/config';
-import { historyMarkdown, packageDraft, packageHistory } from '../core/artifacts';
+import { historyMarkdown, packageDraft } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
 let window: BrowserWindow; let workbench: Workbench; let quitting = false; let closing = false;
 const entry = path.join(__dirname, 'index.html');
@@ -34,6 +34,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       return workbench.accounts.check(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'));
     }
     case 'provider.login.cancel': workbench.accounts.cancel(z.object({ provider }).parse(raw).provider); return true;
+    case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.catalog(p.provider, p.cwd); }
     case 'choose.directory': return (await dialog.showOpenDialog(window, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(window, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
     case 'profile.import': {
@@ -56,7 +57,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       await workbench.remote.download(binding, p.path, result.filePath); notice('已下载到 ' + result.filePath); return true;
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
-    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional() }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId); }
+    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional() }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model); }
     case 'session.send': {
       const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]) }).parse(raw); const s = workbench.session(p.id);
       await workbench.requireAuth(s.provider, s.cwd);
@@ -65,19 +66,19 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     }
     case 'session.input': { const p = z.object({ id, input: z.object({ text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()) }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
+    case 'session.close': return workbench.closeSession(sessionInput.parse(raw).id);
+    case 'session.reopen': return workbench.reopenSession(sessionInput.parse(raw).id);
     case 'session.answer': { const p = z.object({ id, requestId: z.string(), option: z.string(), answers: z.record(z.string(), z.string()).optional() }).parse(raw); return workbench.answer(p.id, p.requestId, p.option, p.answers); }
     case 'session.attachLocal': { const p = sessionInput.parse(raw); return workbench.attachLocal(p.id, await chooseFiles()); }
     case 'session.attachRemote': { const p = z.object({ id, projectId: z.string(), path: text }).parse(raw); return workbench.attachRemote(p.id, p.projectId, p.path); }
     case 'session.autoUpload': { const p = z.object({ id, enabled: z.boolean() }).parse(raw); const s = workbench.session(p.id); if (p.enabled && (!s.binding || s.purpose !== 'work')) throw new Error('只有绑定远端项目的工作会话可开启自动上传'); s.autoUpload = p.enabled; await workbench.store.save(); broadcast(); return true; }
     case 'session.history': return historyMarkdown(workbench.session(sessionInput.parse(raw).id));
-    case 'session.archive': return workbench.archive(sessionInput.parse(raw).id);
-    case 'session.export': {
-      const s = workbench.session(sessionInput.parse(raw).id); const target = await dialog.showSaveDialog(window, { defaultPath: `session-${s.id}.zip`, filters: [{ name: '会话归档', extensions: ['zip'] }] });
-      if (!target.filePath) return false; const zip = await packageHistory(s, workbench.store.sessionDir(s.id), workbench.store.root); await fs.copyFile(zip, target.filePath); return true;
-    }
+    case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
     case 'draft.prepare': { const p = sessionInput.parse(raw); return workbench.prepare(p.id); }
+    case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
+    case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);
     case 'draft.save': { const p = z.object({ id, title: z.string().max(120), body: text, repoUrl: z.string().max(2048), target: z.string().optional() }).parse(raw); return workbench.saveDraft(p.id, p.title, p.body, p.repoUrl, p.target); }
     case 'draft.attach': { const p = sessionInput.parse(raw); return workbench.addDraftFiles(p.id, await chooseFiles()); }
     case 'draft.submit': { const p = z.object({ id, target: z.string().optional() }).parse(raw); return workbench.submitDraft(p.id, p.target); }

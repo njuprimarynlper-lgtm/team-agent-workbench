@@ -100,7 +100,7 @@ try {
   await page.getByRole('button', { name: '交接文件', exact: true }).click();
   await page.locator('.handoff-editor').fill('# 交接\n\n已实现目录浏览。验证：本地 UI 检查通过。\n');
   await page.getByRole('button', { name: '保存交接文件', exact: true }).click();
-  await page.getByRole('button', { name: '会话归档', exact: true }).click();
+  await page.getByRole('button', { name: '轨迹上传', exact: true }).click();
   assert.equal(await page.locator('.check-row input').isChecked(), false);
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.getByRole('button', { name: '设置', exact: true }).click();

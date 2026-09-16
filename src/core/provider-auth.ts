@@ -4,6 +4,7 @@ import { resolveProvider } from './providers';
 
 export const authReady = (auth: ProviderAuth) => ['authenticated', 'configured', 'not-required'].includes(auth.status);
 const state = (status: ProviderAuth['status'], detail: string): ProviderAuth => ({ status, detail });
+const identityText = (value: unknown) => typeof value === 'string' && value.trim() && value.length <= 254 && !/[\x00-\x1f]/.test(value) ? value.trim() : undefined;
 // Network diagnostics take precedence: some CLIs describe a failed network request as invalid auth.
 export function authFailure(error: unknown): ProviderAuth {
   const message = error instanceof Error ? error.message : String(error);
@@ -15,7 +16,7 @@ export function authFailure(error: unknown): ProviderAuth {
 }
 export function codexAuth(result: any): ProviderAuth {
   if (!result || typeof result.requiresOpenaiAuth !== 'boolean') return state('error', 'CLI 返回了无法识别的认证状态，请检查版本后重试。');
-  if (result.account?.type) return state(result.account.type === 'chatgpt' ? 'authenticated' : 'configured', result.account.type === 'chatgpt' ? '已检测到个人 ChatGPT 登录；实际服务可用性以任务结果为准。' : '已检测到 CLI 配置的认证凭据；实际服务可用性以任务结果为准。');
+  if (result.account?.type) return { ...state(result.account.type === 'chatgpt' ? 'authenticated' : 'configured', result.account.type === 'chatgpt' ? '正在使用 CLI 已登录的个人 ChatGPT 账号。' : '沿用 CLI 的认证凭据；此认证方式未提供个人账号身份。'), identity: result.account.type === 'chatgpt' ? identityText(result.account.email) : undefined, plan: identityText(result.account.planType) };
   if (!result.requiresOpenaiAuth) return state('not-required', '当前 CLI 服务配置不要求 OpenAI 登录，将沿用该配置。');
   return state('unauthenticated', '尚未登录 Codex，请先登录个人账号。');
 }
@@ -24,7 +25,7 @@ export function cursorAuth(output: string, code: number | null, environmentCrede
   try { result = JSON.parse(output); } catch { return state('error', '无法读取 Cursor 登录状态，请使用支持 status --format json 的 Cursor Agent CLI。'); }
   if (code !== 0 || result.status === 'error') return authFailure(result.message || 'Status check failed');
   if (result.status === 'authenticated' && result.isAuthenticated === true)
-    return state('authenticated', /unable to fetch/i.test(result.message || '') ? 'CLI 已保存登录凭据，但当前无法读取在线账号信息；可检查网络后重新检测。' : '已检测到个人 Cursor 登录；实际服务可用性以任务结果为准。');
+    return { ...state('authenticated', /unable to fetch/i.test(result.message || '') ? 'CLI 已保存登录凭据，但当前无法读取在线账号信息；可检查网络后重新检测。' : '正在使用 CLI 已登录的个人 Cursor 账号。'), identity: identityText(result.userInfo?.email) };
   if (['unauthenticated', 'partially-authenticated'].includes(result.status) && result.isAuthenticated === false) {
     if (environmentCredential) return state('configured', '已配置 Cursor 环境变量凭据，尚未在线验证；实际服务可用性以任务结果为准。');
     return state('unauthenticated', result.status === 'partially-authenticated' ? 'Cursor 登录凭据不完整，请重新登录个人账号。' : '尚未登录 Cursor，请先登录个人账号。');
@@ -77,7 +78,8 @@ export function loginUrl(provider: Provider, output: string): string | undefined
 
 export class ProviderAccounts {
   states: Record<Provider, ProviderAuth> = { codex: state('unknown', '尚未检测登录状态'), cursor: state('unknown', '尚未检测登录状态') };
-  private jobs = new Map<Provider, { key: string; controller: AbortController; promise: Promise<ProviderAuth> }>();
+  private jobs = new Map<string, { provider: Provider; key: string; controller: AbortController; promise: Promise<ProviderAuth> }>();
+  private latest = new Map<Provider, string>();
   private logins = new Map<Provider, () => void>();
   private stopping = new Set<Promise<void>>();
   private closed = false;
@@ -86,36 +88,38 @@ export class ProviderAccounts {
   async check(provider: Provider, cwd: string): Promise<ProviderAuth> {
     if (this.closed) return state('error', '工作台正在关闭');
     if (this.logins.has(provider)) return this.states[provider];
-    const configured = this.configuredPath(provider), key = JSON.stringify([configured, cwd]);
-    const previous = this.jobs.get(provider); if (previous?.key === key) return previous.promise;
-    previous?.controller.abort();
+    const configured = this.configuredPath(provider), key = JSON.stringify([provider, configured, cwd]);
+    const previous = this.jobs.get(key); if (previous) return previous.promise;
+    // A background preparation has a different cwd. Its check must not cancel a working session.
+    this.latest.set(provider, key);
     const controller = new AbortController();
     this.set(provider, { ...state('checking', '正在检测登录状态…'), cwd });
-    const job = { key, controller, promise: Promise.resolve(this.states[provider]) };
-    this.jobs.set(provider, job);
+    const job = { provider, key, controller, promise: Promise.resolve(this.states[provider]) };
+    this.jobs.set(key, job);
     job.promise = (async () => {
       let result: ProviderAuth;
       try { result = await inspectAuth(provider, await resolveProvider(provider, configured), cwd, controller.signal); }
       catch { result = state('error', '无法启动 CLI，请检查程序路径和安装状态。'); }
       if (controller.signal.aborted || this.configuredPath(provider) !== configured) return state('error', 'CLI 配置或工作目录已改变，请重新检测。');
       result = { ...result, cwd, checkedAt: new Date().toISOString() };
-      if (this.jobs.get(provider) === job && !this.closed && this.configuredPath(provider) === configured) this.set(provider, result);
+      if (this.jobs.get(key) === job && this.latest.get(provider) === key && !this.closed && this.configuredPath(provider) === configured) this.set(provider, result);
       return result;
-    })().finally(() => { if (this.jobs.get(provider) === job) this.jobs.delete(provider); });
+    })().finally(() => { if (this.jobs.get(key) === job) this.jobs.delete(key); });
     return job.promise;
   }
+  private cancelChecks(provider: Provider) { for (const [key, job] of this.jobs) if (job.provider === provider) { job.controller.abort(); this.jobs.delete(key); } this.latest.delete(provider); }
   invalidate(provider: Provider) {
-    this.jobs.get(provider)?.controller.abort(); this.jobs.delete(provider);
+    this.cancelChecks(provider);
     this.logins.get(provider)?.();
     this.set(provider, state('unknown', 'CLI 配置已改变，请重新检测登录状态。'));
   }
   failed(provider: Provider, error: unknown, cwd: string) {
     const auth = authFailure(error);
-    if (auth.status === 'unauthenticated') { this.jobs.get(provider)?.controller.abort(); this.jobs.delete(provider); this.set(provider, { ...auth, cwd, checkedAt: new Date().toISOString() }); }
+    if (auth.status === 'unauthenticated') { this.cancelChecks(provider); this.set(provider, { ...auth, cwd, checkedAt: new Date().toISOString() }); }
   }
   async login(provider: Provider, cwd: string) {
     if (this.closed || this.logins.has(provider)) return;
-    this.jobs.get(provider)?.controller.abort(); this.jobs.delete(provider);
+    this.cancelChecks(provider);
     // Reserve synchronously so repeated clicks cannot start competing browser flows.
     let canceled = false;
     const reservation = () => { canceled = true; this.logins.delete(provider); if (!this.closed) this.set(provider, state('unknown', '登录已取消，可重新登录或检测。')); };

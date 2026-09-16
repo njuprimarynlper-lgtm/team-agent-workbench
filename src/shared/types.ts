@@ -12,16 +12,19 @@ export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'de
 export interface Approval { id: string; method: string; title: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }
 export interface RemoteBinding { connectionId: string; host: string; port: number; username: string; fingerprint: string; project: Project }
 export interface AgentSession {
-  id: string; title: string; provider: Provider; nativeId?: string; nativePath?: string;
+  id: string; title: string; provider: Provider; model?: string; closedAt?: string; nativeId?: string; nativePath?: string;
   cwd: string; purpose: 'work' | 'prepare'; parentId?: string; createdAt: string;
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string;
   messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
   autoUpload: boolean; lastArchiveAt?: string; handoffPath: string;
 }
 export interface Transfer { id: string; kind: 'upload' | 'history' | 'download'; name: string; status: 'queued' | 'running' | 'done' | 'error'; bytes: number; total: number; target: string; projectName: string; createdAt: string; error?: string; sessionId?: string; localPath: string; binding: RemoteBinding }
-export interface Draft { id: string; sessionId: string; prepareSessionId?: string; title: string; body: string; repoUrl?: string; target?: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
+export interface Draft { id: string; sessionId: string; prepareSessionId?: string; generation?: 'running' | 'ready' | 'error' | 'canceled'; generationError?: string; title: string; body: string; repoUrl?: string; target?: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
 export interface ProviderInfo { provider: Provider; path: string; available: boolean; version: string; detail: string }
-export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated' | 'configured' | 'unauthenticated' | 'error' | 'not-required' | 'logging-in'; detail: string; cwd?: string; checkedAt?: string; loginUrl?: string }
+export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated' | 'configured' | 'unauthenticated' | 'error' | 'not-required' | 'logging-in'; detail: string; identity?: string; plan?: string; cwd?: string; checkedAt?: string; loginUrl?: string }
+export interface ModelOption { id: string; name: string; isDefault?: boolean }
+export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
+export interface ProviderCatalog { models: ModelOption[]; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
 export interface Snapshot { settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {

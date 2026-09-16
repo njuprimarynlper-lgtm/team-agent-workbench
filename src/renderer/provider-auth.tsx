@@ -12,7 +12,7 @@ export function ProviderAuthPanel({ provider, auth, cwd, autoCheck = true, stale
 }) {
   const [error, setError] = useState(''), [pending, setPending] = useState(false);
   const name = provider === 'codex' ? 'Codex' : 'Cursor';
-  const current = stale || (auth.status !== 'logging-in' && cwd && auth.cwd !== cwd) ? { status: 'unknown' as const, detail: '请检测当前 CLI 和工作目录的登录状态。' } : auth;
+  const current: ProviderAuth = stale || (auth.status !== 'logging-in' && cwd && auth.cwd !== cwd) ? { status: 'unknown', detail: '请检测当前 CLI 和工作目录的登录状态。' } : auth;
   const busy = pending || ['checking', 'logging-in'].includes(current.status);
   const action = async (kind: 'provider.auth' | 'provider.login' | 'provider.login.cancel') => {
     setError(''); setPending(true);
@@ -28,9 +28,10 @@ export function ProviderAuthPanel({ provider, auth, cwd, autoCheck = true, stale
   return <section className={'provider-auth auth-' + current.status} aria-label={name + ' 登录状态'}>
     <div className="row"><strong>{name} 账号</strong><span className={'badge ' + (canUseProvider(current) ? 'done' : current.status === 'error' || current.status === 'unauthenticated' ? 'error' : 'running')}>{authLabels[current.status]}</span></div>
     <p>{current.detail}</p>
+    {canUseProvider(current) && <p className="account-identity"><strong>{current.identity || 'CLI 未提供账号名称'}</strong>{current.plan && <span className="badge">{current.plan}</span>}</p>}
     {error && <div className="inline-error" role="alert">{error}</div>}
     <div className="row auth-actions">
-      {current.status !== 'logging-in' && <button className="secondary compact" disabled={busy} onClick={() => void action('provider.login')}><ExternalLink size={14}/>登录个人账号</button>}
+      {current.status !== 'logging-in' && <button className="secondary compact" disabled={busy || !!canUseProvider(current)} title={canUseProvider(current) ? '已沿用当前账号，无需重复登录' : undefined} onClick={() => void action('provider.login')}><ExternalLink size={14}/>登录个人账号</button>}
       <button className="secondary compact" disabled={busy} onClick={() => void action('provider.auth')}><RefreshCw size={14} className={current.status === 'checking' ? 'spin' : ''}/>重新检测</button>
       {current.status === 'logging-in' && <>
         {current.loginUrl && <button className="secondary compact" onClick={() => void window.workbench.call('open.link', current.loginUrl).catch(e => setError(e.message))}>打开登录网页</button>}

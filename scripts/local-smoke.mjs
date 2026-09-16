@@ -69,7 +69,7 @@ try {
   await expect(approval.locator('pre')).toContainText('solution.py'); await expect(approval.locator('pre')).toContainText('+new_value');
   await approval.getByRole('button', { name: '拒绝', exact: true }).click(); await expect(approval).toHaveCount(0);
   const session = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).sessions[0];
-  await alice.page.evaluate(id => window.workbench.call('session.archive', { id }), session.id);
+  await alice.page.evaluate(id => window.workbench.call('session.uploadTrajectory', { id }), session.id);
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0]?.status).toBe('done');
   const history = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0];
   await assert.rejects(bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }), /模拟权限拒绝/);

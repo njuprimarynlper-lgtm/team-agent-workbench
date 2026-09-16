@@ -83,3 +83,15 @@ test('session preflight blocks missing auth and runtime expiry enables login rec
     assert(!JSON.stringify(await fs.readdir(wb.store.root)).includes('auth-state'));
   } finally { await wb.close(); await cleanup(root); }
 });
+
+test('simultaneous work and preparation directories do not cancel one another during authentication', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-auth-parallel-'));
+  const second = path.join(root, 'prepare'); await fs.mkdir(second);
+  const fixture = await authLauncher(root, { status: 'ready', delay: 300 });
+  const accounts = new ProviderAccounts(() => fixture.launcher, () => {});
+  try {
+    const results = await Promise.all([accounts.check('codex', root), accounts.check('codex', second)]);
+    assert.deepEqual(results.map(x => x.status), ['authenticated', 'authenticated']);
+    assert.equal(accounts.states.codex.cwd, second);
+  } finally { await accounts.close(); await cleanup(root); }
+});
