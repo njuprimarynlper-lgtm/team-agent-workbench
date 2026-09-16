@@ -31,13 +31,39 @@ async function createGroup(label) {
 async function membership(select) {
   if (select) await select(); await confirm();
 }
+async function creationActions() {
+  const actions = page.getByRole('group', { name: '创建账号与用户组', exact: true });
+  const user = actions.getByRole('button', { name: '创建用户', exact: true }), group = actions.getByRole('button', { name: '创建用户组', exact: true });
+  for (const view of ['全部用户', '按组查看']) {
+    await page.getByRole('tab', { name: view, exact: true }).click();
+    await expect(user).toBeEnabled(); await expect(group).toBeEnabled();
+    await expect.poll(async () => {
+      const a = await user.boundingBox(), b = await group.boundingBox();
+      return !!a && !!b && Math.abs(a.y - b.y) <= 1 && b.x - a.x - a.width >= 0 && b.x - a.x - a.width <= 32;
+    }).toBe(true);
+    await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toHaveCount(1);
+    await user.click(); await expect(page.getByRole('heading', { name: '创建团队用户', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await group.click(); await expect(page.getByRole('heading', { name: '创建团队用户组', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+  }
+  await page.getByRole('tab', { name: '全部用户', exact: true }).click();
+}
 try {
   await launch();
   await page.getByLabel('共享区类型').selectOption('local');
   await page.getByLabel('本地共享区根目录').fill(shared);
   await page.getByLabel('管理账号', { exact: true }).fill('admin'); await page.getByLabel('登录密码', { exact: true }).fill('admin-test-password');
   await page.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
+  await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户组', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm();
+  await creationActions();
+  const initialSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1100, 800));
+  await creationActions();
+  await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), initialSize);
+  checks.push('creation buttons are adjacent in both views and at 1100px; dialogs and initialization gating preserved');
   await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('solo'); await confirm();
   await expect(userRow('solo')).toContainText('未分组'); assert.deepEqual((await state()).users.solo.groups, []);
   checks.push('create independent user before any groups exist');
