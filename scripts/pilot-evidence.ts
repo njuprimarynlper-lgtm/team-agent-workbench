@@ -9,3 +9,9 @@ export function completedRound(messages: { role: string; text: string }[], event
   const event = events.filter(e => e.event?.method === 'turn/completed' || e.event?.direction === 'user' && typeof e.event.text === 'string').at(-1)?.event;
   return !!user?.text.includes(`这是你的第 ${round}/2 轮`) && event?.method === 'turn/completed' && event.params?.turn?.status === 'completed' && !event.params.turn.error;
 }
+export function roundAttempts(messages: { role: string; text: string }[], round: number) {
+  return messages.filter(m => m.role === 'user' && m.text.includes(`这是你的第 ${round}/2 轮`)).length;
+}
+export function canRecoverReportedRound(messages: { role: string; text: string }[], round: number) {
+  return !!messages.filter(m => m.role === 'user').at(-1)?.text.includes(`这是你的第 ${round}/2 轮`);
+}

@@ -1,11 +1,12 @@
-// Opt-in integration run: uses the already logged-in personal Codex CLI (four model turns).
+// Opt-in integration run: four business rounds through the personal Codex CLI.
+// An explicit recovery may add a read-only model turn; actual calls are recorded.
 // No competition-platform submissions or GitHub pushes; algorithm revisions use local Git.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
-import { sourceDigest, completedRound } from './pilot-evidence';
+import { sourceDigest, completedRound, roundAttempts, canRecoverReportedRound } from './pilot-evidence';
 import { resolveProvider } from '../src/core/providers';
 import { Workbench } from '../src/core/workbench';
 import { LocalAdminConnection } from '../src/admin/local-connection';
@@ -15,6 +16,8 @@ import type { AgentSession, Transfer } from '../src/shared/types';
 const exec = promisify(execFile), args = process.argv.slice(2);
 function arg(name: string) { const i = args.indexOf(name); if (i < 0 || !args[i + 1]) throw new Error('Missing ' + name); return path.resolve(args[i + 1]); }
 const resume = args.includes('--resume');
+const recoverReported = args.includes('--recover-reported-round');
+if (recoverReported && !resume) throw new Error('--recover-reported-round requires --resume and operator-verified existing reports.');
 const model = args.includes('--model') ? args[args.indexOf('--model') + 1] : undefined;
 if (model && !/^[a-zA-Z0-9._-]+$/.test(model)) throw new Error('Invalid model');
 const input = arg('--input'), output = arg('--output'), python = arg('--python');
@@ -29,15 +32,22 @@ async function shareNotes(wb: Workbench, session: AgentSession, file: string) {
   const before = new Set(wb.store.transfers.map(t => t.id)); await wb.uploadFiles(session.binding!, session.binding!.project.uploadPath, [file]);
   const t = wb.store.transfers.find(t => !before.has(t.id))!; await waitTransfer(t); return t;
 }
+async function reference(wb: Workbench, session: AgentSession, projectId: string, remotePath: string) {
+  const b = session.binding!, sourcePath = `${b.username}@${b.host}:${b.port}${remotePath}`;
+  const existing = session.sources.find(s => s.sourcePath === sourcePath);
+  if (existing) { if (await hash(existing.localPath) !== existing.sha256) throw new Error('Frozen source changed: ' + existing.localPath); return existing; }
+  return wb.attachRemote(session.id, projectId, remotePath);
+}
 async function runTurn(wb: Workbench, session: AgentSession, round: number, task: string, sources: string[] = []) {
   const existing = records.find(r => r.user === session.binding!.username && r.round === round); if (existing) return existing;
   const report = path.join(session.cwd, 'reports', `${session.binding!.username}-round${round}.md`);
   const events = await fs.readFile(path.join(wb.store.sessionDir(session.id), 'events.jsonl'), 'utf8').then(s => s.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)), () => []);
   const alreadyCompleted = resume && !!(await fs.stat(report).catch(() => false)) && completedRound(session.messages, events, round);
-  const startedAt = alreadyCompleted ? events.find(e => e.event?.direction === 'user')?.at : new Date().toISOString(), before = session.messages.length;
+  const recovery = resume && recoverReported && !alreadyCompleted && !!(await fs.stat(report).catch(() => false)) && canRecoverReportedRound(session.messages, round);
+  const startedAt = events.find(e => e.event?.direction === 'user' && e.event.text?.includes(`这是你的第 ${round}/2 轮`))?.at || new Date().toISOString(), before = session.messages.length;
   const envInfo = `你是离线协同验证中的参赛用户 ${wb.remote.profile!.username}，这是你的第 ${round}/2 轮。比赛为 NVFP4→HiF4。仅在当前工作目录中开发，不联网、不访问原项目、不提交比赛平台、不操作 Git（测试驱动负责提交）。只读 inputs/ 下的原始任务书摘录、接口模板、自检器和小样本；不得修改它们。候选 solution.py 必须实现全部六个 API，不可在候选代码内执行文件 I/O。测试与报告可以读写文件。使用 Python：${python}，torch 已安装；把 CPU 线程数限为 4，单个本地实验控制在 90 秒内。官方标准量化器未提供，报告绝对 MSE 或明确的本地对照，不得称为官方得分。校准集选参，测试集仅用于比较。该副本从官方接口模板起步，是工作台联调候选，不冒充原项目最优算法。最终必须写 reports/${session.binding!.username}-round${round}.md 和 .json，包含改动、实际执行命令与结果、来源、限制、下轮建议；更新本会话交接文件。不要只给方案，请实际写代码并验证。\n\n`;
   console.log(`START ${session.binding!.username} round ${round}`);
-  if (!alreadyCompleted) await wb.send(session.id, envInfo + task, sources);
+  if (!alreadyCompleted) await wb.send(session.id, recovery ? `你是 ${session.binding!.username}，这是你的第 ${round}/2 轮。这是同一业务轮在连接中断后的收尾，不是第三轮算法迭代。当前代码、reports/${session.binding!.username}-round${round}.md/.json 及本轮实验日志已经生成。仅在当前目录只读核对这两份报告存在且内容自洽，然后给一句简短的完成说明；不重新运行实验、不修改代码/报告/交接、不联网、不操作 Git、不扩大任务。若报告不完整或存在矛盾，明确指出。` : envInfo + task, sources);
   const deadline = Date.now() + 28 * 60 * 1000; let last = 0;
   while (!alreadyCompleted && (!['idle', 'error'].includes(session.status) || session.messages.length === before)) {
     if (Date.now() > deadline) { await wb.stop(session.id); throw new Error('model turn timed out'); }
@@ -54,6 +64,11 @@ async function runTurn(wb: Workbench, session: AgentSession, round: number, task
     await new Promise(r => setTimeout(r, 500));
   }
   if (session.status === 'error') throw new Error(session.error || 'Codex error');
+  const completionDeadline = Date.now() + 5000;
+  while (!completedRound(session.messages, await fs.readFile(path.join(wb.store.sessionDir(session.id), 'events.jsonl'), 'utf8').then(s => s.trim().split('\n').filter(Boolean).map(line => JSON.parse(line))), round)) {
+    if (Date.now() > completionDeadline) throw new Error('Native turn did not complete successfully; reports alone are insufficient.');
+    await new Promise(r => setTimeout(r, 100));
+  }
   const json = report.replace(/\.md$/, '.json'); JSON.parse(await fs.readFile(json, 'utf8')); await fs.access(report);
   for (const name of Object.keys(sourceHashes)) {
     const actual = await fs.readFile(path.join(session.cwd, 'inputs', name)), expected = await fs.readFile(path.join(input, name));
@@ -64,7 +79,7 @@ async function runTurn(wb: Workbench, session: AgentSession, round: number, task
   await git(session.cwd, 'commit', '-m', `${session.binding!.username}: competition iteration ${round}`);
   const revision = await git(session.cwd, 'rev-parse', 'HEAD'); await git(session.cwd, 'push', 'origin', 'HEAD:refs/heads/' + session.binding!.username);
   const notes = await shareNotes(wb, session, report), history = await wb.archive(session.id); await waitTransfer(history);
-  const record = { user: session.binding!.username, round, startedAt, completedAt: new Date().toISOString(), sessionId: session.id, nativeId: session.nativeId, nativePath: session.nativePath, revision, localGitRepository: gitRoot, report, reportJson: json, notesPath: notes.target, historyPath: history.target, handoff: session.handoffPath, modelCalls: 1 };
+  const record = { user: session.binding!.username, round, startedAt, completedAt: new Date().toISOString(), sessionId: session.id, nativeId: session.nativeId, nativePath: session.nativePath, revision, localGitRepository: gitRoot, report, reportJson: json, notesPath: notes.target, historyPath: history.target, handoff: session.handoffPath, modelCalls: roundAttempts(session.messages, round), recoveredAfterDisconnect: recovery };
   records.push(record); await fs.writeFile(path.join(output, 'rounds.json'), JSON.stringify(records, null, 2)); console.log('DONE', record.user, round, revision); return record;
 }
 async function main() {
@@ -99,13 +114,13 @@ async function main() {
   const { alice: a, bob: b } = clients;
   const a1 = await runTurn(a.wb, a.session, 1, '实现可运行的朴素 HiF4 基线，保留六个接口签名。可以先用 max-abs 选择合法 E6M2 scale，并以固定二三级 scale、round/clamp mant 构造合法参数；不要使用原项目成熟方案。建立 tests/test_solution.py，用 unittest 验证全零、正负、不同 shape、六接口以及状态合法性。使用 inputs/self_check.py 的校验器并至少执行一次完整公开 mini_sample 自检。无需优化官方分数，先得到真实可用基线。');
   await git(b.session.cwd, 'fetch', 'origin'); await git(b.session.cwd, 'merge', '--ff-only', 'origin/alice');
-  const aNotes = await b.wb.attachRemote(b.session.id, projectId, a1.notesPath);
+  const aNotes = await reference(b.wb, b.session, projectId, a1.notesPath);
   const b1 = await runTurn(b.wb, b.session, 1, '已通过本地 Git 合入用户 A 第一轮代码，所选共享报告是 A 的交接。你负责验证评估：阅读实际 solution.py、官方 self_check.py 和 inputs/mini_sample/manifest.json。实现 evaluate.py，支持 --solution PATH --output PATH，使用全部公开测试用例计算 Linear 与 Attention 的 FP32 输出 MSE/NMSE 和分阶段本机耗时。数据必须用 weights_only=True 读取；GQA 按 q_heads/kv_heads 扩展，明确假设 causal 与 scaled softmax，不把该假设当官方判题器已验证语义。不要改 solution.py，不对 test 调参。增加至少一个手算/小矩阵验证的 evaluator 单元测试，运行全部自检、单元测试和一次基线评估，报告实际结果及 A 第二轮一个低成本改进建议。', [aNotes.id]);
   await git(a.session.cwd, 'fetch', 'origin'); await git(a.session.cwd, 'merge', '--ff-only', 'origin/bob');
-  const bNotes = await a.wb.attachRemote(a.session.id, projectId, b1.notesPath);
+  const bNotes = await reference(a.wb, a.session, projectId, b1.notesPath);
   const a2 = await runTurn(a.wb, a.session, 2, '已合入用户 B 的评估工具，所选共享报告是 B 的第一轮反馈。保留 baseline.py 为第一轮 solution.py 原样副本，然后实现一个小而明确的改进：在每个 block 的合法层级 scale 上选择二三级尺度，以张量重构误差选择且保留基线候选；若更适合则使用有限相邻合法 E6M2 候选，必须保持所有参数合法及输入不变，不在 test 上拟合阈值。用相同 evaluator 分别测 baseline.py 和 solution.py；先写合成用例确认候选选择包含原点和全零稳定，跑 unittest 与官方自检。报告实际输出误差、耗时及回退样本；张量误差下降不能保证最终输出下降，诚实记录。', [bNotes.id]);
   await git(b.session.cwd, 'fetch', 'origin'); await git(b.session.cwd, 'merge', '--ff-only', 'origin/alice');
-  const a2Notes = await b.wb.attachRemote(b.session.id, projectId, a2.notesPath);
+  const a2Notes = await reference(b.wb, b.session, projectId, a2.notesPath);
   await runTurn(b.wb, b.session, 2, '已合入 A 第二轮算法与对照。你完成独立复核：禁止调算法或按测试数据选参。重新执行完整 self_check、所有单元测试以及同环境 baseline.py/solution.py 两次评估，检查报告可复现、逐例 MSE、state 合法与最大深度、输入是否被修改；补充至少一项关键边界测试，必要时修复 evaluator 本身明确的正确性错误并重测两个方案。在 reports/bob-round2.md/.json 给出推荐采用/保留对照/尚不能下结论及理由，明确这里没有官方 Score 和目标鲲鹏服务器耗时。更新交接，完成第 2 轮后停止，不扩展更多轮。', [a2Notes.id]);
   if (a.session.nativeId === b.session.nativeId || records.length !== 4) throw new Error('session/round isolation failure');
   await assertPrivateHistory(b.wb, projectId, a1.historyPath);
