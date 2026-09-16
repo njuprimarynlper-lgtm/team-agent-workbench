@@ -3,6 +3,7 @@ import { mkdir, copyFile, cp, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+const version = JSON.parse(await readFile('package.json', 'utf8')).version;
 async function copyDependency(name, dest, sourceRequire = require, seen = new Set()) {
   if (seen.has(name)) return; seen.add(name);
   const jsonPath = sourceRequire.resolve(name + '/package.json'), dir = path.dirname(jsonPath), pkg = JSON.parse(await readFile(jsonPath, 'utf8'));
@@ -17,6 +18,6 @@ for (const edition of ['user', 'admin']) {
   await copyFile('src/renderer/index.html', out + '/index.html');
   if (edition === 'admin') await copyFile('server/admin.py', out + '/admin.py');
   await copyDependency('ssh2', out);
-  await writeFile(out + '/package.json', JSON.stringify({ name: 'team-agent-' + edition, version: '0.1.0', description: 'Team Agent ' + edition, author: 'Team Agent Workbench', main: 'main.cjs', dependencies: { ssh2: '^1.17.0' } }, null, 2));
+  await writeFile(out + '/package.json', JSON.stringify({ name: 'team-agent-' + edition, version, description: 'Team Agent ' + edition, author: 'Team Agent Workbench', main: 'main.cjs', dependencies: { ssh2: '^1.17.0' } }, null, 2));
 }
 console.log('Built isolated User and Admin applications.');

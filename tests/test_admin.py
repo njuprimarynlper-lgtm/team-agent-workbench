@@ -47,4 +47,27 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertFalse(any('external' in c for c in commands))
             self.assertEqual(state['users']['alice']['contentAdminGroups'],[])
 
+    def test_group_workspace_gives_creation_right_only_to_subadmins(self):
+        import tempfile
+        state = {'groups': {'wb_test_ocr': {'label':'ocr','adminGroup':'wb_test_ocr_admin'}}}
+        fake_grp = types.SimpleNamespace(getgrnam=lambda name: types.SimpleNamespace(gr_gid=1001))
+        with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {'grp':fake_grp}), patch.object(admin.os,'chown',create=True), patch.object(admin.shutil,'which',return_value='/usr/bin/setfacl'), patch.object(admin,'run') as run:
+            root = pathlib.Path(temp)
+            (root/'projects').mkdir()
+            admin.prepare_workspace(root,state,'wb_test_ocr')
+            commands = [c.args[0] for c in run.call_args_list]
+            self.assertTrue(any('u::rwx,g::r-x,g:wb_test_ocr_admin:rwx,m::rwx,o::---' in c for c in commands))
+            self.assertEqual(state['groups']['wb_test_ocr']['workspace'],'/projects/ocr')
+            self.assertTrue((root/'projects/ocr').is_dir())
+
+    def test_workspace_initialization_does_not_take_over_existing_content(self):
+        import tempfile
+        state = {'groups': {'wb_test_ocr': {'label':'ocr','adminGroup':'wb_test_ocr_admin'}}}
+        with tempfile.TemporaryDirectory() as temp, patch.dict(sys.modules, {'grp':types.SimpleNamespace()}), patch.object(admin.shutil,'which',return_value='/usr/bin/setfacl'):
+            root = pathlib.Path(temp)
+            (root/'projects/ocr').mkdir(parents=True)
+            (root/'projects/ocr/existing.txt').write_text('preserve')
+            with self.assertRaisesRegex(ValueError,'非空'): admin.prepare_workspace(root,state,'wb_test_ocr')
+            self.assertEqual((root/'projects/ocr/existing.txt').read_text(),'preserve')
+
 if __name__ == '__main__': unittest.main()

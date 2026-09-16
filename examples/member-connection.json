@@ -14,5 +14,6 @@
       "uploadPath": "/projects/ocr/submissions/alice",
       "historyPath": "/projects/ocr/sessions/alice"
     }
-  ]
+  ],
+  "workPath": "/projects/ocr"
 }

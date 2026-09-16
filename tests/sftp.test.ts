@@ -16,6 +16,8 @@ test('real SFTP transport preserves UTF-8, stages uploads, propagates permission
       const stat = (target: string) => ({ mode: files.has(target) ? 0o100644 : 0o40755, uid: 1001, gid: 1001, size: files.get(target)?.length || 0, atime: 0, mtime: 0 });
       s.on('REALPATH', (id, target) => s.name(id, [{ filename: target === '/project/escape' ? '/outside' : target, longname: '', attrs: stat(target) }]));
       s.on('LSTAT', (id, target) => s.attrs(id, stat(target)));
+      s.on('STAT', (id, target) => s.attrs(id, stat(target)));
+      s.on('OPENDIR', (id, target) => target === '/project/denied' ? s.status(id, CODE.PERMISSION_DENIED) : s.handle(id, Buffer.from('directory')));
       s.on('FSTAT', (id, handle) => s.attrs(id, stat(handles.get(handle.toString())!)));
       s.on('OPEN', (id, target, flags) => {
         if (target.includes('/denied/')) { s.status(id, CODE.PERMISSION_DENIED); return; }
@@ -35,6 +37,9 @@ test('real SFTP transport preserves UTF-8, stages uploads, propagates permission
   try {
     const profile = { id: 'test', name: 'fixture', host: '127.0.0.1', port, username: 'alice', fingerprint: '', manifestPath: '', projects: [{ id: 'p', name: 'p', remoteRoot: '/project', uploadPath: '/project', historyPath: '/project' }] };
     await remote.connect(profile, 'secret', async () => true); const binding = remote.binding('p');
+    assert.deepEqual(await remote.verifyDirectory('/project'), { path: '/project', canonicalPath: '/project' });
+    await assert.rejects(remote.verifyDirectory('/project/denied'), /Linux 拒绝访问/);
+    await assert.rejects(remote.verifyDirectory('/project/readme.md'), /必须是.*目录/);
     const preview = await remote.preview(binding, '/project/readme.md'); assert.equal(preview.content, '项目说明：中文');
     const local = path.join(dir, 'readme.md'); await remote.download(binding, '/project/readme.md', local); assert.equal(await fs.readFile(local, 'utf8'), preview.content);
     await remote.upload(binding, local, '/project/new.md', () => {}); assert.equal(files.get('/project/new.md')?.toString(), preview.content); assert.match(renames[0][0], /\.uploading$/);

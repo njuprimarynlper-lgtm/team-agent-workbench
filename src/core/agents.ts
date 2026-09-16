@@ -26,13 +26,13 @@ export class AgentRuntime {
     if (this.initialized) return;
     const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
     if (s.provider === 'codex') {
-      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.1.0' } });
+      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.2.0' } });
       this.rpc.notify('initialized');
       const params = { cwd: s.cwd, approvalPolicy: 'on-request', sandbox: s.purpose === 'prepare' ? 'read-only' : 'workspace-write' };
       const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId }) : await this.rpc.request('thread/start', params);
       s.nativeId = result.thread.id; s.nativePath = result.thread.path || undefined;
     } else {
-      await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.1.0' } });
+      await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.2.0' } });
       await this.rpc.request('authenticate', { methodId: 'cursor_login' }, 120000);
       const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
       s.nativeId = result.sessionId || s.nativeId;

@@ -5,9 +5,10 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { createHash, randomUUID } from 'node:crypto';
-import type { ConnectionProfile, FilePreview, Project, RemoteBinding, RemoteEntry } from '../shared/types';
+import type { ConnectionProfile, FilePreview, Project, RemoteBinding, RemoteEntry, WorkspaceAccess } from '../shared/types';
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { manifestSchema } from './config';
+import { newProjectLayout, projectName } from './project-layout';
 const MAX_PREVIEW = 512 * 1024;
 export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
   return a.connectionId === b.id && a.host === b.host && a.port === b.port && a.username === b.username && a.fingerprint === b.fingerprint;
@@ -20,6 +21,7 @@ export function friendlySftp(error: any): Error {
 export class SftpConnection {
   private client?: Client; private sftp?: SFTPWrapper;
   profile?: ConnectionProfile;
+  workspace?: WorkspaceAccess;
   constructor(private changed: () => void = () => {}) {}
   get connected() { return !!this.sftp; }
   async connect(profile: ConnectionProfile, password: string, trust: (fingerprint: string) => Promise<boolean>) {
@@ -28,7 +30,7 @@ export class SftpConnection {
     let fingerprint = '';
     await new Promise<void>((resolve, reject) => {
       client.on('error', reject);
-      client.on('close', () => { if (this.client === client) { this.sftp = undefined; this.changed(); } });
+      client.on('close', () => { if (this.client === client) { this.sftp = undefined; this.workspace = undefined; this.changed(); } });
       client.on('ready', () => client.sftp((error, channel) => {
         if (error) { reject(error); return; }
         this.sftp = channel; this.profile = { ...profile, fingerprint }; resolve(); this.changed();
@@ -43,7 +45,7 @@ export class SftpConnection {
     }).catch(e => { client.end(); throw friendlySftp(e); });
     return this.profile!;
   }
-  disconnect() { this.sftp = undefined; this.client?.end(); this.client = undefined; this.changed(); }
+  disconnect() { this.workspace = undefined; this.sftp = undefined; this.client?.end(); this.client = undefined; this.changed(); }
   channel(binding?: RemoteBinding) {
     if (!this.sftp || !this.profile) throw new Error('请先连接共享服务器');
     if (binding && !sameEndpoint(binding, this.profile)) throw new Error('当前服务器或账号与任务绑定的身份不一致，请切回原连接后重试');
@@ -58,6 +60,121 @@ export class SftpConnection {
     const project = p.projects.find(x => x.id === projectId); if (!project) throw new Error('项目入口不存在');
     return { connectionId: p.id, host: p.host, port: p.port, username: p.username, fingerprint: p.fingerprint, project: structuredClone(project) };
   }
+  async verifyDirectory(target: string): Promise<{ path: string; canonicalPath: string }> {
+    const s = this.channel(), requested = remotePath(target);
+    const canonicalPath = await this.real(s, requested);
+    const info = await this.stat(s, canonicalPath);
+    if (!info.isDirectory()) throw new Error('工作路径必须是服务器上已经存在的目录');
+    // Exercise the server's permission checks, including ACLs, instead of
+    // inferring effective access from permission bits supplied by stat.
+    await new Promise<void>((resolve, reject) => s.stat(canonicalPath.replace(/\/$/, '') + '/.', error => error ? reject(friendlySftp(error)) : resolve()));
+    await new Promise<void>((resolve, reject) => s.opendir(canonicalPath, (error, handle) => {
+      if (error) { reject(friendlySftp(error)); return; }
+      s.close(handle, closeError => closeError ? reject(friendlySftp(closeError)) : resolve());
+    }));
+    if (this.channel() !== s) throw new Error('验证期间服务器连接已改变，请重新验证工作路径');
+    return { path: requested, canonicalPath };
+  }
+  private async contentWorkspace(directory: string): Promise<string | undefined> {
+    const s = this.channel(), username = this.profile!.username;
+    const ancestors: string[] = []; let cursor = directory;
+    for (;;) { ancestors.push(cursor); if (cursor === '/') break; cursor = path.posix.dirname(cursor); }
+    for (const base of ancestors) {
+      const control = childRemote(base, '.workbench'), file = childRemote(control, 'roles.json');
+      try {
+        for (const target of [base, control, file]) {
+          const info = await this.stat(s, target);
+          if (info.uid !== 0 || info.mode & 0o022 || info.isSymbolicLink() || (target === file && (!info.isFile() || info.size > 256 * 1024))) throw new Error('不可信的角色记录');
+        }
+        const data = await this.readLimited(s, file, 256 * 1024);
+        if (data.truncated) continue;
+        const roles = JSON.parse(data.buffer.toString('utf8'));
+        if (roles.version !== 1) continue;
+        const groups = roles.users?.[username]?.contentGroups;
+        if (!Array.isArray(groups)) continue;
+        for (const group of groups) {
+          if (typeof group.workspace !== 'string' || !/^\/projects\/[^/]+$/.test(group.workspace)) continue;
+          const expected = remotePath(base.replace(/\/$/, '') + group.workspace);
+          if (expected === directory && typeof group.name === 'string') return group.name;
+        }
+      } catch { /* Missing, inaccessible or writable metadata never grants a role. */ }
+    }
+    return undefined;
+  }
+  async verifyWorkspace(target: string): Promise<WorkspaceAccess> {
+    const s = this.channel(), checked = await this.verifyDirectory(target);
+    const groupName = await this.contentWorkspace(checked.canonicalPath);
+    if (this.channel() !== s) throw new Error('验证期间服务器连接已改变');
+    this.workspace = { ...checked, canCreateProject: !!groupName, groupName };
+    this.profile!.workPath = checked.canonicalPath; this.changed(); return this.workspace;
+  }
+  private projectForUser(project: Project): Project {
+    const username = this.profile!.username;
+    return { ...project, managed: true, uploadPath: childRemote(childRemote(project.remoteRoot, 'submissions'), username), historyPath: childRemote(childRemote(project.remoteRoot, 'trajectories'), username) };
+  }
+  private async readProject(root: string): Promise<Project | undefined> {
+    const s = this.channel();
+    try {
+      const canonical = await this.real(s, root);
+      if (canonical !== root) return undefined;
+      const marker = childRemote(root, '.workbench-project.json');
+      const info = await this.stat(s, marker);
+      if (!info.isFile() || info.isSymbolicLink() || info.size > 16 * 1024) return undefined;
+      const data = await this.readLimited(s, marker, 16 * 1024); if (data.truncated) return undefined;
+      const meta = JSON.parse(data.buffer.toString('utf8'));
+      if (meta.version !== 1 || !/^project_[a-f0-9]{32}$/.test(meta.id)) return undefined;
+      return this.projectForUser({ id: meta.id, name: projectName(meta.name), remoteRoot: root, uploadPath: root, historyPath: childRemote(root, 'trajectories') });
+    } catch (error: any) { if (error instanceof SyntaxError || error.code === 2 || /不存在|拒绝访问|项目名/.test(error.message)) return undefined; throw error; }
+  }
+  async discoverProjects(): Promise<Project[]> {
+    const s = this.channel(), root = this.workspace?.canonicalPath;
+    if (!root) throw new Error('请先验证 Linux 工作路径');
+    const current = await this.readProject(root); const discovered: Project[] = [];
+    if (current) discovered.push(current);
+    else {
+      const entries = await new Promise<import('ssh2').FileEntry[]>((resolve, reject) => s.readdir(root, (e, list) => e ? reject(friendlySftp(e)) : resolve(list)));
+      const directories = entries.filter(e => !e.filename.startsWith('.') && (e.attrs.mode & 0o170000) === 0o040000);
+      if (directories.length > 500) throw new Error('此工作路径包含过多子目录，请选择更具体的项目组目录');
+      for (const entry of directories) { const project = await this.readProject(childRemote(root, entry.filename)); if (project) discovered.push(project); }
+    }
+    if (this.channel() !== s) throw new Error('刷新期间连接已改变');
+    const legacy = this.profile!.projects.filter(p => !p.managed && withinRemote(root, p.remoteRoot) && !discovered.some(d => d.remoteRoot === p.remoteRoot));
+    this.profile!.projects = [...discovered, ...legacy]; this.changed(); return this.profile!.projects;
+  }
+  async createProject(name: string): Promise<Project> {
+    const s = this.channel(), base = this.workspace?.canonicalPath;
+    if (!base) throw new Error('请先验证 Linux 工作路径');
+    const group = await this.contentWorkspace(base);
+    if (!group) { if (this.workspace) this.workspace.canCreateProject = false; this.changed(); throw new Error('当前账号不是此工作路径的项目子管理员'); }
+    if (this.channel() !== s || this.workspace?.canonicalPath !== base) throw new Error('工作路径或连接已改变');
+    const project = newProjectLayout(base, name), directories: string[] = [];
+    const marker = childRemote(project.remoteRoot, '.workbench-project.json'); let markerWritten = false, completed = false;
+    const mkdir = (target: string, mode: number) => new Promise<void>((resolve, reject) => s.mkdir(target, { mode }, e => e ? reject(friendlySftp(e)) : resolve()));
+    try {
+      // Exclusive mkdir reserves the name. Other members cannot enter until the final chmod.
+      await mkdir(project.remoteRoot, 0o2700); directories.push(project.remoteRoot);
+      for (const folder of ['trajectories', 'submissions']) { const dir = childRemote(project.remoteRoot, folder); await mkdir(dir, 0o3770); directories.push(dir); }
+      await new Promise<void>((resolve, reject) => s.writeFile(marker, JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt: new Date().toISOString() }, null, 2), { flag: 'wx', mode: 0o640 }, e => e ? reject(friendlySftp(e)) : resolve())); markerWritten = true;
+      if (this.channel() !== s || this.workspace?.canonicalPath !== base) throw new Error('创建期间连接或工作路径已改变');
+      await new Promise<void>((resolve, reject) => s.chmod(project.remoteRoot, 0o2770, e => e ? reject(friendlySftp(e)) : resolve())); completed = true;
+      const result = this.projectForUser(project); this.profile!.projects.push(result); this.changed(); return result;
+    } catch (error: any) {
+      // Only remove paths reserved by this attempt, and only if still empty.
+      if (!completed) {
+        if (markerWritten) await new Promise<void>(r => s.unlink(marker, () => r()));
+        for (const dir of directories.reverse()) await new Promise<void>(r => s.rmdir(dir, () => r()));
+      }
+      throw new Error('项目未创建成功（同名目录不会覆盖）：' + error.message);
+    }
+  }
+  async ensurePersonalFolder(binding: RemoteBinding, target: string) {
+    const s = this.channel(binding);
+    if (!binding.project.managed || ![binding.project.uploadPath, binding.project.historyPath].includes(target)) return;
+    await this.checked(binding, target, true);
+    try { await new Promise<void>((resolve, reject) => s.mkdir(target, { mode: 0o700 }, e => e ? reject(e) : resolve())); }
+    catch (error) { try { const info = await this.stat(s, target); if (!info.isDirectory() || info.isSymbolicLink()) throw error; } catch { throw friendlySftp(error); } }
+    await this.verifyDirectory(target); this.channel(binding);
+  }
   private real(s: SFTPWrapper, target: string): Promise<string> { return new Promise((resolve, reject) => s.realpath(target, (e, result) => e ? reject(friendlySftp(e)) : resolve(result))); }
   private stat(s: SFTPWrapper, target: string): Promise<Stats> { return new Promise((resolve, reject) => s.lstat(target, (e, result) => e ? reject(friendlySftp(e)) : resolve(result))); }
   async checked(binding: RemoteBinding, target: string, parent = false) {
@@ -68,11 +185,12 @@ export class SftpConnection {
     return { s, target: parent ? childRemote(canonicalTarget, path.posix.basename(p)) : canonicalTarget };
   }
   async loadManifest(): Promise<Project[]> {
-    const s = this.channel(); if (!this.profile!.manifestPath) return this.profile!.projects;
+    const s = this.channel(); if (!this.profile!.manifestPath) return this.workspace ? this.discoverProjects() : this.profile!.projects;
     const data = await this.readLimited(s, remotePath(this.profile!.manifestPath), 256 * 1024);
     if (data.truncated) throw new Error('项目入口清单过大');
     const projects = manifestSchema.parse(JSON.parse(data.buffer.toString('utf8'))).projects;
-    this.profile!.projects = projects; return projects;
+    this.profile!.projects = this.workspace ? projects.filter(p => withinRemote(this.workspace!.canonicalPath, p.remoteRoot)) : projects;
+    return this.workspace ? this.discoverProjects() : projects;
   }
   async list(binding: RemoteBinding, target: string): Promise<RemoteEntry[]> {
     const { s, target: canonical } = await this.checked(binding, target);

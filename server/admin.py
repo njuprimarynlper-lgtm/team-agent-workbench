@@ -16,7 +16,7 @@ import sys
 import uuid
 import contextlib
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "configure_sftp"}
+OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "configure_sftp", "workspace_prepare"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -87,12 +87,34 @@ def save(root, state):
     roles = {"version": 1, "root": str(root), "users": {}}
     for username, user in state["users"].items():
         if user["enabled"]:
-            assigned = [{"id": name, "name": state["groups"][name]["label"]} for name in user.get("contentAdminGroups", []) if name in state["groups"]]
+            assigned = [{"id": name, "name": state["groups"][name]["label"], "workspace": state["groups"][name].get("workspace")} for name in user.get("contentAdminGroups", []) if name in state["groups"]]
             if assigned:
                 roles["users"][username] = {"contentGroups": assigned}
     role_file = child(root, ".workbench/roles.json")
     atomic_json(role_file, roles)
     os.chmod(role_file, 0o644)
+
+def prepare_workspace(root, state, group_name):
+    import grp
+    group = state["groups"].get(group_name)
+    if not group:
+        raise ValueError("用户组不属于此团队")
+    if not shutil.which("setfacl"):
+        raise ValueError("服务器缺少 setfacl，请先安装发行版的 acl 软件包")
+    target = child(root, "projects/" + identifier(group["label"], 14))
+    if target.exists() and not group.get("workspace") and any(target.iterdir()):
+        raise ValueError("工作目录已存在且非空，不会接管，请运维检查：" + str(target))
+    if target.exists() and target.stat().st_uid != 0:
+        raise ValueError("工作目录必须由 root 拥有")
+    target.mkdir(mode=0o700, exist_ok=True)
+    os.chown(target, 0, grp.getgrnam(group_name).gr_gid)
+    os.chmod(target, 0o2770)
+    # Members can enter/list this parent; only the content-admin group can create projects.
+    run(["setfacl", "-b", "-k", str(target)])
+    run(["setfacl", "-m", "u::rwx,g::r-x,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
+    # New project content is collaborative, while per-user upload folders use mode 0700.
+    run(["setfacl", "-d", "-m", "u::rwx,g::rwx,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
+    group["workspace"] = "/projects/" + group["label"]
 
 def ensure_user(state, username):
     identifier(username, 32)
@@ -221,15 +243,25 @@ def execute(request):
         if name in state["groups"]:
             raise ValueError("用户组已存在")
         import grp
-        try:
-            grp.getgrnam(name)
-        except KeyError:
-            run(["groupadd", name])
-        else:
-            raise ValueError("同名 Linux 用户组已存在，不能接管")
+        if not shutil.which("setfacl"):
+            raise ValueError("创建项目组工作目录需要 setfacl，请先安装发行版的 acl 软件包")
+        target = child(root, "projects/" + label)
+        if target.exists() and any(target.iterdir()):
+            raise ValueError("同名工作目录已存在且非空，不能自动接管")
         admin_group = name + "_admin"
+        for candidate in [name, admin_group]:
+            try:
+                grp.getgrnam(candidate)
+            except KeyError:
+                continue
+            raise ValueError("同名 Linux 用户组已存在，不能接管：" + candidate)
+        run(["groupadd", name])
         run(["groupadd", admin_group])
         state["groups"][name] = {"name": name, "label": label, "adminGroup": admin_group}
+        save(root, state)
+        prepare_workspace(root, state, name)
+    elif op == "workspace_prepare":
+        prepare_workspace(root, state, request.get("group"))
     elif op == "user_groups":
         username = request.get("username")
         ensure_user(state, username)
@@ -273,7 +305,7 @@ def execute(request):
     if op != "status":
         save(root, state)
         with child(root, ".workbench/admin/audit.jsonl").open("a", encoding="utf-8") as audit:
-            json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label")}, audit, ensure_ascii=False)
+            json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label"), "group": request.get("group")}, audit, ensure_ascii=False)
             audit.write("\n")
     return {"state": actual_state(state), "value": result}
 

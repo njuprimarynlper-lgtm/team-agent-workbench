@@ -21,7 +21,7 @@ export class TransferQueue {
       for (;;) {
         const task = this.store.transfers.find(t => t.status === 'queued'); if (!task) break;
         task.status = 'running'; this.changed(); await this.store.save();
-        try { await this.remote.upload(task.binding, task.localPath, task.target, (bytes, total) => { task.bytes = bytes; task.total = total; this.changed(); }); task.status = 'done'; }
+        try { await this.remote.ensurePersonalFolder(task.binding, path.posix.dirname(task.target)); await this.remote.upload(task.binding, task.localPath, task.target, (bytes, total) => { task.bytes = bytes; task.total = total; this.changed(); }); task.status = 'done'; }
         catch (e: any) { task.status = 'error'; task.error = e.message; }
         await this.store.save(); this.changed();
       }

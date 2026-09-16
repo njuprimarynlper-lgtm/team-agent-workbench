@@ -2,7 +2,9 @@ import { _electron as electron } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { teamServer } from '../tests/fixtures/team-server.mjs';
 const root = process.cwd();
+const server = await teamServer();
 const data = path.join(root, '.test-data', 'ui-' + Date.now());
 await fs.mkdir(data, { recursive: true });
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data };
@@ -27,8 +29,30 @@ try {
     console.log('Concurrent windows, isolated APIs and independent data paths verified.');
   } finally { await admin.close(); }
   const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await page.getByText('连接团队共享空间', { exact: true }).waitFor();
+  await page.getByText('连接与工作路径', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '连接并验证工作路径', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByText('先配置工作路径', { exact: true }).waitFor();
+  await assert.rejects(page.evaluate(cwd => window.workbench.call('session.create', { provider: 'codex', cwd }), data));
+  await page.getByRole('button', { name: '配置并验证工作路径', exact: true }).click();
+  const profile = server.profile('alice');
+  await page.getByLabel('本机工作路径', { exact: true }).fill(data);
+  await page.getByLabel('Linux 工作路径', { exact: true }).fill('/projects/denied');
+  await page.getByLabel('服务器地址', { exact: true }).fill(profile.host);
+  await page.getByLabel('SFTP 端口', { exact: true }).fill(String(profile.port));
+  await page.getByLabel('Linux 用户名', { exact: true }).fill(profile.username);
+  await page.getByLabel('登录密码', { exact: true }).fill('test-password');
+  await page.getByLabel('管理员提供的服务器指纹', { exact: true }).fill(profile.fingerprint);
+  await page.getByRole('button', { name: '连接并验证工作路径', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Linux 拒绝访问' }).waitFor();
+  assert.equal(await page.getByText('先配置工作路径', { exact: true }).count(), 1);
+  await page.getByLabel('Linux 工作路径', { exact: true }).fill('/projects/ocr');
+  await page.getByRole('button', { name: '连接并验证工作路径', exact: true }).click();
+  await page.getByRole('button', { name: '创建第一个项目', exact: true }).click();
+  await page.getByLabel('项目名称', { exact: true }).fill('实体抽取');
+  await page.getByRole('button', { name: '创建项目', exact: true }).click();
+  await page.getByLabel('当前远端项目', { exact: true }).selectOption({ label: '实体抽取' });
+  assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
   await page.getByRole('button', { name: '新建工作会话', exact: true }).waitFor();
   await fs.mkdir(path.join(root, 'artifacts'), { recursive: true });
   await page.screenshot({ path: path.join(root, 'artifacts', 'welcome.png') });
@@ -46,7 +70,7 @@ try {
   await page.getByText('CLI 与本地设置', { exact: true }).waitFor();
   await page.screenshot({ path: path.join(root, 'artifacts', 'settings.png') });
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
-  await page.getByRole('button', { name: '配置连接', exact: true }).click();
+  await page.locator('.connection-button').click();
   await page.getByText('使用管理员分配的 Linux 账号密码。', { exact: false }).waitFor();
   await page.screenshot({ path: path.join(root, 'artifacts', 'connection.png') });
   await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -55,5 +79,5 @@ try {
   assert.equal(state.sessions[0].autoUpload, false);
   assert.equal(state.sessions[0].nativeId, undefined);
   assert.deepEqual(errors, []);
-  console.log('UI smoke passed: startup, session creation, handoff editing, history defaults, settings and connection form.');
-} finally { await app.close(); }
+  console.log('UI smoke passed: mandatory workspace setup, denied Linux path, subadmin project creation, sessions, handoff and history defaults.');
+} finally { await app.close(); await server.close(); }

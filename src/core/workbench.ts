@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentSession, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, SourceFile } from '../shared/types';
+import type { AgentSession, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, SourceFile, ConnectionProfile } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { SftpConnection } from './sftp';
 import { TransferQueue } from './transfers';
@@ -13,16 +13,41 @@ export class Workbench {
   store: Store; remote: SftpConnection; queue: TransferQueue; providers: ProviderInfo[] = [];
   private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
+  workspaceReady = false;
+  private configuring = false;
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void) {
     this.store = new Store(root); this.remote = new SftpConnection(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
   }
   async init() { await this.store.init(); await this.detect(); }
   async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
-  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected } : undefined }; }
+  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace } : undefined }; }
+  assertWorkspace() { if (!this.workspaceReady) throw new Error('请先填写本机与 Linux 工作路径，并通过远端访问权限验证'); }
+  async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
+    if (this.configuring) throw new Error('正在验证工作路径，请等待结果');
+    this.configuring = true; this.workspaceReady = false; this.broadcast();
+    try {
+      if (!path.isAbsolute(localPath) || !(await fs.stat(localPath)).isDirectory()) throw new Error('请选择已存在的本机工作目录');
+      if (!profile.workPath) throw new Error('请输入 Linux 工作路径');
+      const canonicalLocal = await fs.realpath(localPath);
+      const result = await this.remote.connect(profile, password, trust);
+      await this.remote.verifyWorkspace(profile.workPath);
+      await this.remote.loadManifest();
+      this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
+      this.store.settings.connections = [...this.store.settings.connections.filter(x => x.id !== result.id), result];
+      await this.store.save(); this.workspaceReady = true; this.broadcast(); return result;
+    } catch (error) { this.remote.disconnect(); throw error; }
+    finally { this.configuring = false; this.broadcast(); }
+  }
+  async createProject(name: string) {
+    this.assertWorkspace(); const project = await this.remote.createProject(name);
+    const profile = this.remote.profile!; this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? profile : p);
+    await this.store.save(); this.broadcast(); return project;
+  }
   changed = () => { this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
   session(id: string) { const s = this.store.sessions.find(x => x.id === id); if (!s) throw new Error('会话不存在'); return s; }
   draft(id: string) { const d = this.store.drafts.find(x => x.id === id); if (!d) throw new Error('草稿不存在'); return d; }
   async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string) {
+    this.assertWorkspace();
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本地工作目录');
     const id = randomUUID(); const dir = purpose === 'work' ? path.join(cwd, '.workbench', 'sessions', id) : cwd;
     await fs.mkdir(dir, { recursive: true });
@@ -37,6 +62,7 @@ export class Workbench {
     this.eventWrites.set(id, write);
   }
   async send(id: string, userText: string, sourceIds: string[] = []) {
+    this.assertWorkspace();
     const s = this.session(id);
     if (this.sending.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     this.sending.add(id); s.status = 'starting'; this.changed();
