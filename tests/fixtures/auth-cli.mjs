@@ -35,8 +35,10 @@ else if (command === 'login') {
     const m = JSON.parse(line), current = read(), turnId = current.turnId || 'fake-turn';
     const preparation = JSON.stringify(m.params || {}).includes('destinationId');
     const answer = provider => preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: 'Agent 成果草稿', body: '# Agent 成果草稿\n已根据 Agent 工作记录整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' }) : provider === 'codex' ? '# Agent 成果草稿\n已根据 Agent 工作记录整理。测试已通过。' : '# Cursor 成果草稿\n已完成。';
-    if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m) + '\n');
+    if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m.method === 'account/login/start' ? { ...m, params: { type: m.params.type } } : m) + '\n');
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
+    else if (m.method === 'getAuthStatus') send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', authMethod: 'chatgpt', authToken: current.status === 'ready' ? 'fixture.' + Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: current.accountId || 'fixture-account', chatgpt_plan_type: 'pro' } })).toString('base64url') + '.PRIVATE_FIXTURE_TOKEN' : null } });
+    else if (m.method === 'account/login/start') send({ id: m.id, result: { type: m.params.type } });
     else if (m.method === 'config/read') send({ id: m.id, result: { config: { sandbox_mode: current.permissionConfig?.sandbox || 'workspace-write', approval_policy: current.permissionConfig?.approval || 'on-request', approvals_reviewer: 'user', api_key: 'DO_NOT_FORWARD_THIS_SECRET' } } });
     else if (m.method === 'configRequirements/read') send({ id: m.id, result: { requirements: current.permissionRequirements || null } });
     else if (m.method === 'command/exec') send(current.probeBlocked ? { id: m.id, error: { code: -32000, message: 'Windows sandbox: CreateProcessAsUser failed' } } : { id: m.id, result: { exitCode: 0, stdout: 'WORKBENCH_PERMISSION_OK', stderr: '' } });
@@ -65,6 +67,7 @@ else if (command === 'login') {
     else if (m.method === 'turn/start') {
       log('turn/start');
       send({ id: m.id, result: { turn: { id: turnId } } });
+      if (current.refreshAuth) { send({ id: 'auth-refresh', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: 'fixture-account' } }); return; }
       if (current.permissionDenied) { send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'denied-command', type: 'commandExecution', command: 'test command', exitCode: 1, status: 'failed', aggregatedOutput: current.permissionDenied } } }); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); return; }
       if (current.toolApproval) { send({ id: 'tool-approval', method: 'item/commandExecution/requestApproval', params: { threadId: 'fake-thread', turnId, command: 'test command', cwd: process.cwd(), reason: 'Needs approval outside sandbox', availableDecisions: current.denyOnly ? ['decline'] : ['accept', 'decline'] } }); return; }
       if (current.turn === 'hang') return;
@@ -90,6 +93,7 @@ else if (command === 'login') {
         }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
       } else send({ id: m.id, error: { code: -32000, message: current.turn === 'network' ? 'Network timeout: connection reset' : 'Unauthenticated: Please log in again' } });
     }
+    else if (m.id === 'auth-refresh') { log(m.result?.accessToken ? 'auth-refresh-ok' : 'auth-refresh-rejected'); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId, ...(m.error ? { error: { message: m.error.message } } : {}) } } }); }
     else if (m.id === 'patch-approval' && m.result) send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId, status: 'completed' } } });
     else if (m.id === 'tool-approval' && m.result) { if (globalThis.toolPromptId) send({ id: globalThis.toolPromptId, result: { stopReason: 'end_turn' } }); else send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); }
   });

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentSession, Approval, Message } from '../shared/types';
 import { JsonRpc, type RpcMessage } from './rpc';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, permissionIssue, probeCodexCommand } from './permissions';
+import { validateCodexStorage, type CodexStorage } from './codex-storage';
+import { CodexAuthBridge } from './codex-auth-bridge';
 export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: () => void; }
 const now = () => new Date().toISOString();
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
@@ -14,10 +16,12 @@ export class AgentRuntime {
   private cursorMessageId = '';
   private closing = false;
   private turnActive = false;
-  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks) {
-    this.rpc = new JsonRpc(executable, session.provider === 'codex' ? ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor');
+  private authBridge?: CodexAuthBridge;
+  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage) {
+    this.rpc = new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', storage?.env);
+    if (session.provider === 'codex' && storage) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome);
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
-    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); if (!this.closing) this.finish(e.message); });
+    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) this.finish(e.message); });
   }
   private message(id: string, role: Message['role'], text: string, append = false) {
     const existing = this.session.messages.find(x => x.id === id);
@@ -29,11 +33,15 @@ export class AgentRuntime {
     if (this.initialized) return;
     const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
     if (s.provider === 'codex') {
-      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.4.0' } });
+      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.7.0' }, ...(this.storage ? { capabilities: { experimentalApi: true } } : {}) });
       this.rpc.notify('initialized');
+      if (this.storage) await validateCodexStorage(this.rpc, this.storage);
+      await this.authBridge?.login(this.rpc);
+      if (this.closing) return;
       const params = { cwd: s.cwd, ...(s.model ? { model: s.model } : {}), ...codexPermissionParams(s) };
-      const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId }) : await this.rpc.request('thread/start', params);
-      s.nativeId = result.thread.id; s.nativePath = result.thread.path || undefined;
+      const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId, ...(this.storage?.resumePath ? { path: this.storage.resumePath } : {}) }) : await this.rpc.request('thread/start', params);
+      s.nativeId = result.thread.id; s.nativePath = result.thread.path || this.storage?.resumePath || s.nativePath;
+      if (this.storage) s.codexStorage = 'workbench';
       s.permissions = codexPermissions(result, 'runtime');
       await probeCodexCommand(this.rpc, s.permissions, s.cwd, result.sandbox);
       if (s.permissions.execution === 'blocked') s.permissionIssue = permissionIssue(s.permissions.executionDetail) || { kind: 'sandbox', message: s.permissions.executionDetail || 'CLI 命令自检未通过', at: now() };
@@ -79,6 +87,7 @@ export class AgentRuntime {
   private onMessage(m: RpcMessage) {
     if (this.closing) return;
     const method = m.method!, p = m.params || {}, s = this.session;
+    if (method === 'account/chatgptAuthTokens/refresh' && m.id !== undefined && this.authBridge) { void this.authBridge.refresh(this.rpc, m.id); return; }
     // Only session events are archived. Account/authentication messages are never stored here.
     if (/^(item\/|turn\/|session\/|cursor\/|error$)/.test(method)) this.hooks.event({ method, params: p });
     if (m.id !== undefined) { this.onRequest(m); return; }
@@ -166,5 +175,5 @@ export class AgentRuntime {
     else if (this.session.provider === 'cursor' && this.session.nativeId) this.rpc.notify('session/cancel', { sessionId: this.session.nativeId });
     else this.close();
   }
-  close() { this.closing = true; this.turnActive = false; this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); return this.rpc.close(); }
+  async close() { this.closing = true; this.turnActive = false; this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); await Promise.all([this.rpc.close(), this.authBridge?.close()]); }
 }

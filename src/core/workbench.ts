@@ -14,6 +14,7 @@ import { preparationSnapshot } from './preparation-snapshot';
 import { SharedFiles } from './shared-files';
 import { TransferQueue } from './transfers';
 import { AgentRuntime } from './agents';
+import { prepareCodexStorage } from './codex-storage';
 import { resolveProvider, inspectProvider } from './providers';
 import { freezeFile, packageDraft, packageHistory, hashFile, contributionBody } from './artifacts';
 import { applyPreparation, contributionDirectory, discoverDestinations } from './preparation';
@@ -181,7 +182,9 @@ export class Workbench {
       if (!runtime) {
         const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
         if (s.closedAt) throw new Error('此会话已关闭');
-        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) });
+        const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
+        if (s.closedAt) throw new Error('此会话已关闭');
+        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage);
         this.runtimes.set(id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(id) === runtime) this.runtimes.delete(id); });
       }
       let prompt = userText;

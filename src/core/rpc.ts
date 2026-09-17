@@ -16,30 +16,30 @@ export function stopCLI(child: ChildProcessWithoutNullStreams): Promise<void> {
   });
   stopping.set(child, operation); return operation;
 }
-export function childEnv() {
-  const env = { ...process.env };
+export function childEnv(overrides: NodeJS.ProcessEnv = {}) {
+  const env = { ...process.env, ...overrides };
   for (const key of ['ELECTRON_RUN_AS_NODE', 'CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE', 'NODE_TLS_REJECT_UNAUTHORIZED']) delete env[key];
   return env;
 }
-export function spawnCLI(executable: string, args: string[], cwd: string) {
+export function spawnCLI(executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
   const dir = path.dirname(executable);
   if (/cursor-agent\.(cmd|ps1)$/i.test(executable) && fs.existsSync(path.join(dir, 'node.exe')) && fs.existsSync(path.join(dir, 'index.js'))) {
-    return spawn(path.join(dir, 'node.exe'), [path.join(dir, 'index.js'), ...args], { cwd, env: childEnv(), windowsHide: true, stdio: 'pipe' });
+    return spawn(path.join(dir, 'node.exe'), [path.join(dir, 'index.js'), ...args], { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
   }
   if (process.platform === 'win32' && /\.(cmd|bat|ps1)$/i.test(executable)) {
     const quote = (s: string) => "'" + s.replace(/'/g, "''") + "'";
-    return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [System.Text.UTF8Encoding]::new(); & ' + [executable, ...args].map(quote).join(' ')], { cwd, env: childEnv(), windowsHide: true, stdio: 'pipe' });
+    return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [System.Text.UTF8Encoding]::new(); & ' + [executable, ...args].map(quote).join(' ')], { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
   }
-  return spawn(executable, args, { cwd, env: childEnv(), windowsHide: true, stdio: 'pipe' });
+  return spawn(executable, args, { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
 }
 export class JsonRpc extends EventEmitter {
   private seq = 0;
   private pending = new Map<number, { resolve: (x: any) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
   readonly process: ChildProcessWithoutNullStreams;
   private closed = false;
-  constructor(executable: string, args: string[], cwd: string, private envelope = true) {
+  constructor(executable: string, args: string[], cwd: string, private envelope = true, env: NodeJS.ProcessEnv = {}) {
     super();
-    this.process = spawnCLI(executable, args, cwd);
+    this.process = spawnCLI(executable, args, cwd, env);
     const lines = readline.createInterface({ input: this.process.stdout });
     lines.on('line', line => {
       let message: RpcMessage;
