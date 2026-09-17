@@ -40,7 +40,7 @@ Cursor CLI 的命令行帮助包含 --auto-review，但本机打包版本的 ACP
 
 来自 CLI 的一次性批准请求仍交给用户，包含“帮我批准”或完全访问下实际发出的残余请求。工作台不代用户点击允许，不把一次性授权扩展成永久授权；过期请求不能审批后续操作。
 
-成果整理保持 Codex read-only / Cursor Ask，不继承工作会话的完全访问。Codex 会话独立存储及旧会话上下文迁移保持不变，见 [会话隔离](codex-session-isolation.md)。
+成果整理单独固定为完全访问：Codex danger-full-access + never，Cursor --force --sandbox disabled + Agent 模式；新建、重试和旧整理助手恢复均使用该策略，不继承或修改原工作会话的权限。整理范围仍由任务要求限定为冻结材料，上传仍需用户确认。Codex 会话独立存储及旧会话上下文迁移保持不变，见 [会话隔离](codex-session-isolation.md)。
 
 ## 验证
 
@@ -52,3 +52,5 @@ Cursor CLI 的命令行帮助包含 --auto-review，但本机打包版本的 ACP
 执行 npm run typecheck、npm run build、npm run test:permission-presets、npm run test:permissions-ui，以及权限、会话生命周期和 Agent 协议专项测试。桌面验证使用隔离测试目录，不修改真实账号配置。开发构建供本地打桩入口使用；不生成安装包。
 
 依据：[Codex 权限与沙盒](https://learn.chatgpt.com/docs/sandboxing)、[Cursor Run Modes](https://cursor.com/docs/agent/security/run-modes)、[Cursor CLI 配置](https://cursor.com/docs/cli/reference/configuration)、[Cursor ACP](https://cursor.com/docs/cli/acp)，以及本机两个 CLI 的协议/实现。
+
+成果整理权限回归：`tests/preparation-permissions.test.ts` 与 `npm run test:preparation-permissions-ui` 验证 Codex/Cursor 在来源会话为人工审批时仍以完全访问整理，正常执行不出现批准请求，重试保留补充且不会自动上传。真实 Codex 的 `test:permission-presets` 包含整理助手的实际返回权限验证。

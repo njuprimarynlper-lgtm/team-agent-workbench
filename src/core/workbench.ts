@@ -142,7 +142,7 @@ export class Workbench {
   }
   async changePermissions(id: string, mode: PermissionMode, stop = false) {
     const s = this.session(id);
-    if (s.purpose !== 'work') throw new Error('成果整理固定使用只读权限');
+    if (s.purpose !== 'work') throw new Error('成果整理固定使用完全访问权限');
     if (!['inherit', 'review', 'auto', 'full'].includes(mode)) throw new Error('无效权限模式');
     if (s.provider === 'cursor' && mode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
@@ -172,6 +172,7 @@ export class Workbench {
   }
   async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true) {
     this.assertWorkspace();
+    if (purpose === 'prepare') permissionMode = 'full';
     if (provider === 'cursor' && purpose === 'work' && permissionMode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本地工作目录');
     const cached = this.store.settings.offlineAuthorization?.profile;

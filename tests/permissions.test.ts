@@ -24,8 +24,10 @@ test('permission findings distinguish sandbox, policy and filesystem errors from
   assert.equal(codexPermissionParams({ purpose: 'work', permissionMode: 'review' }).approvalsReviewer, 'user');
   assert.deepEqual(codexPermissionParams({ purpose: 'work', permissionMode: 'review' }), { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user' });
   assert.deepEqual(codexPermissionParams({ purpose: 'work', permissionMode: 'auto' }), { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'auto_review' });
-  assert.equal(codexPermissionParams({ purpose: 'prepare', permissionMode: 'full' }).sandbox, 'read-only');
-  assert.deepEqual(cursorPermissionArgs({ purpose: 'prepare', permissionMode: 'full' }), ['acp']);
+  for (const permissionMode of ['inherit', 'review', 'auto', 'full'] as const) {
+    assert.deepEqual(codexPermissionParams({ purpose: 'prepare', permissionMode }), { sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user' });
+    assert.deepEqual(cursorPermissionArgs({ purpose: 'prepare', permissionMode }), ['--force', '--sandbox', 'disabled', 'acp']);
+  }
   assert.deepEqual(cursorPermissionArgs({ purpose: 'work', permissionMode: 'full' }), ['--force', '--sandbox', 'disabled', 'acp']);
   assert.throws(() => cursorPermissionArgs({ purpose: 'work', permissionMode: 'auto' }), /暂不支持/);
   const r = codexPermissions({ config: { sandbox_mode: 'read-only', approval_policy: 'never', approvals_reviewer: 'auto_review', secret: 'DO_NOT_FORWARD' } }, 'config', { requirements: { allowedSandboxModes: ['read-only'], allowedApprovalPolicies: ['never'] } });

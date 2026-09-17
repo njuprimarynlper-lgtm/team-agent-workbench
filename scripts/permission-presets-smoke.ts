@@ -25,6 +25,9 @@ async function main() {
       assert.equal(response.sandbox.type, mode === 'full' ? 'dangerFullAccess' : 'workspaceWrite');
       results.push({ mode, sandbox: response.sandbox.type, approval: response.approvalPolicy, reviewer: response.approvalsReviewer, description: permissionReportDescription(codexPermissions(response, 'runtime')) });
     }
+    const preparation = await rpc.request('thread/start', { cwd, ephemeral: true, ...codexPermissionParams({ purpose: 'prepare', permissionMode: 'review' }) });
+    assert.equal(preparation.approvalPolicy, 'never'); assert.equal(preparation.sandbox.type, 'dangerFullAccess');
+    results.push({ purpose: 'prepare', sandbox: preparation.sandbox.type, approval: preparation.approvalPolicy });
     await fs.writeFile(path.join(root, 'verification.json'), JSON.stringify(results, null, 2));
     console.log('Native Codex presets passed:', JSON.stringify(results));
   } finally { await rpc.close(); }

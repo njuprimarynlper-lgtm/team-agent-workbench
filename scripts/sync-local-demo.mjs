@@ -27,6 +27,7 @@ for (const [name, edition, variable, directory] of launchers) {
 const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8', windowsHide: true }).trim();
 await fs.writeFile(path.join(demo, '开发版同步.md'), `# 当前打桩入口\n\n三个“打开”启动文件已同步到当前开发构建（同步时源码提交 ${commit}）。\n\n- 程序目录：${path.join(repo, 'dist')}\n- 管理员数据：本目录 admin-data\n- Alice / Bob 数据：本目录 alice-data、bob-data\n- 共享目录：本目录 shared\n\n本页仅记录打桩开发入口；安装包单独保存在仓库 release/版本号/ 下。原有账号、组、项目、成果与轨迹继续使用。后续在源码目录执行 npm run build，以上入口即使用最新构建。密码仍需在连接时输入，不写入启动文件。\n`, 'utf8');
 await fs.appendFile(path.join(demo, '开发版同步.md'), '\n会话输入框底部可直接选择模型和权限，模型菜单内可查看账号额度。切换保留已有对话与未发送草稿；正在运行时需确认停止当前任务。顶部压缩为紧凑工具栏，项目资料引用和 Agent 工作记录收在“会话资料”菜单内。\n', 'utf8');
+await fs.appendFile(path.join(demo, '开发版同步.md'), '\n成果整理默认使用完全访问；新建和重新整理均不继承来源会话的人工审批配置。已有等待审批的整理可取消后重新整理。上传仍由用户确认。\n', 'utf8');
 const guide = path.join(demo, '使用说明.md');
 await fs.appendFile(path.join(demo, '开发版同步.md'), '\n新增空组首次使用引导：首位新建或添加的成员默认子管理员（可调整）。子管理员登录空组时填写项目背景、目标、验收标准等内容，创建首个项目和《项目说明.md》，也可稍后填写并保留草稿。现有项目及成员身份不自动改变。\n', 'utf8');
 await fs.appendFile(path.join(demo, '开发版同步.md'), '\n用户版只选择本机工作路径，共享区根目录沿用管理员配置，不再要求用户选择。新设备可从管理员版导出并导入连接配置。只有一份连接配置时直接显示连接说明，多个连接才显示有标签的选择器；工作组在一次登录后自动发现，不需要每组建立连接。\n', 'utf8');

@@ -19,6 +19,8 @@ export class AgentRuntime {
   private turnActive = false;
   private authBridge?: CodexAuthBridge;
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage) {
+    // Preparation has its own execution policy, including helpers saved by older builds.
+    if (session.purpose === 'prepare') session.permissionMode = 'full';
     this.rpc = new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', storage?.env);
     if (session.provider === 'codex' && storage) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome);
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
@@ -60,9 +62,8 @@ export class AgentRuntime {
       const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
       s.nativeId = result.sessionId || s.nativeId;
       if (s.model) await this.rpc.request('session/set_model', { sessionId: s.nativeId, modelId: s.model });
-      if (s.purpose === 'prepare') await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'ask' });
-      else if (s.permissionMode && s.permissionMode !== 'inherit') await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'agent' });
-      if (s.permissionMode === 'full' && s.purpose === 'work') s.permissions.warnings.push('本会话已请求 Run Everything；明确拒绝规则和团队策略仍由 Cursor 执行。');
+      if (s.permissionMode && s.permissionMode !== 'inherit') await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'agent' });
+      if (s.permissionMode === 'full') s.permissions.warnings.push('本会话已请求 Run Everything；明确拒绝规则和团队策略仍由 Cursor 执行。');
       if (s.permissionMode === 'inherit' && ['ask', 'plan'].includes(result.modes?.currentModeId)) s.permissions.warnings.push('当前 Cursor 为 Ask 或 Plan 模式，无法直接修改代码。');
     }
     this.initialized = true; s.status = 'idle'; this.hooks.changed();

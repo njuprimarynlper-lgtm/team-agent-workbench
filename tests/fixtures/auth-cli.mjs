@@ -9,6 +9,8 @@ const log = event => fs.appendFileSync(path.join(root, 'auth-calls.jsonl'), JSON
 const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 const mode = read();
 const command = process.argv[2];
+fs.appendFileSync(path.join(root, 'cli-launches.jsonl'), JSON.stringify(process.argv.slice(2)) + '\n');
+let approvalPolicy = mode.permissionConfig?.approval || 'on-request';
 if (command === '--version') console.log('fixture-cli-1.0');
 else if (command === 'login') {
   log('login');
@@ -60,6 +62,7 @@ else if (command === 'login') {
       else if (current.status === 'expired') send({ id: m.id, error: { code: -32000, message: 'refresh_token_expired' } });
       else { const reply = () => send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', account: current.status === 'ready' ? { type: 'chatgpt', email: 'fake@example.com', planType: 'pro' } : null } }); if (current.delay) setTimeout(reply, current.delay); else reply(); }
     } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+      approvalPolicy = m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request';
       if (current.rejectPermissionMode) send({ id: m.id, error: { code: -32000, message: 'sandbox mode not allowed by administrator policy' } });
       else send({ id: m.id, result: { thread: { id: 'fake-thread' }, ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: m.params.approvalsReviewer || current.permissionConfig?.reviewer || 'user', ...current.permissionRuntimeOverride } : {}) } });
     }
@@ -70,7 +73,7 @@ else if (command === 'login') {
       send({ id: m.id, result: { turn: { id: turnId } } });
       if (current.refreshAuth) { send({ id: 'auth-refresh', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: 'fixture-account' } }); return; }
       if (current.permissionDenied) { send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'denied-command', type: 'commandExecution', command: 'test command', exitCode: 1, status: 'failed', aggregatedOutput: current.permissionDenied } } }); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); return; }
-      if (current.toolApproval) { send({ id: 'tool-approval', method: 'item/commandExecution/requestApproval', params: { threadId: 'fake-thread', turnId, command: 'test command', cwd: process.cwd(), reason: 'Needs approval outside sandbox', availableDecisions: current.denyOnly ? ['decline'] : ['accept', 'decline'] } }); return; }
+      if (current.toolApproval || current.policyApproval && approvalPolicy !== 'never') { send({ id: 'tool-approval', method: 'item/commandExecution/requestApproval', params: { threadId: 'fake-thread', turnId, command: 'test command', cwd: process.cwd(), reason: 'Needs approval outside sandbox', availableDecisions: current.denyOnly ? ['decline'] : ['accept', 'decline'] } }); return; }
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }
       if (current.turn === 'success') {
@@ -85,7 +88,7 @@ else if (command === 'login') {
       } else send({ method: 'turn/completed', params: { turn: { id: turnId, error: { message: '401 Unauthorized: Please log in again' } } } });
     } else if (m.method === 'session/prompt') {
       if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
-      if (current.toolApproval) { globalThis.toolPromptId = m.id; send({ id: 'tool-approval', method: 'session/request_permission', params: { sessionId: 'fake-session', toolCall: { title: 'Cursor 请求执行命令', rawInput: { command: 'test command' } }, options: current.noOnce ? [{ optionId: 'always', kind: 'allow_always' }] : [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } }); return; }
+      if (current.toolApproval || current.policyApproval && !process.argv.includes('--force')) { globalThis.toolPromptId = m.id; send({ id: 'tool-approval', method: 'session/request_permission', params: { sessionId: 'fake-session', toolCall: { title: 'Cursor 请求执行命令', rawInput: { command: 'test command' } }, options: current.noOnce ? [{ optionId: 'always', kind: 'allow_always' }] : [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } }); return; }
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }
       if (current.turn === 'success') {
