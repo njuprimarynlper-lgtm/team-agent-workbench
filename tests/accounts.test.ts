@@ -56,7 +56,7 @@ test('Local administrator and extended-name members: create, export, login, uplo
     const target = binding.project.uploadPath + '/成果.md'; await bob.upload(binding, source, target, () => {});
     assert.equal((await alice.preview(alice.binding(project.id), target)).content, '工号账号的成果');
     await bob.ensurePersonalFolder(binding, binding.project.historyPath); await bob.upload(binding, source, binding.project.historyPath + '/轨迹.md', () => {});
-    await assert.rejects(alice.preview(alice.binding(project.id), binding.project.historyPath + '/轨迹.md'), /模拟权限拒绝/);
+    assert.equal((await alice.preview(alice.binding(project.id), binding.project.historyPath + '/轨迹.md')).content, '工号账号的成果');
     await admin.operation({ op: 'user_password', username: '10086', password: '2' });
     await assert.rejects(bob.list(binding, project.remoteRoot), /凭据已改变/);
     await assert.rejects(bob.connect(config('10086'), '1', async () => false), /密码错误/);
@@ -88,9 +88,9 @@ test('SFTP authenticates mapped names while protected roles, exported config and
       await c.connect(profile, '1', async () => false);
       assert.equal(c.profile!.username, username);
       const workspace = await c.verifyWorkspace('/projects/ocr'); assert.equal(workspace.canCreateProject, username === '张三');
-      if (username === '张三') await c.createProject('账号兼容'); else await c.discoverProjects();
+      try { if (username === '张三') await c.createProject('账号兼容'); else await c.discoverProjects(); } catch (e: any) { throw new Error(e.message + ' ' + JSON.stringify(server.state.errors)); }
       const project = c.profile!.projects[0]; assert.equal(path.posix.basename(project.historyPath), username);
       await c.ensurePersonalFolder(c.binding(project.id), project.historyPath);
     }
-  } finally { clients.forEach(c => c.disconnect()); await server.close(); }
+  } catch (e: any) { throw new Error(e.message + ' fixture errors: ' + JSON.stringify(server.state.errors)); } finally { clients.forEach(c => c.disconnect()); await server.close(); }
 });

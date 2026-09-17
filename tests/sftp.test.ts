@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
-test('real SFTP transport preserves UTF-8, stages uploads, propagates permission denial and blocks escaping symlinks', async () => {
+test('legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks escaping symlinks', async () => {
   const CODE = utils.sftp.STATUS_CODE, files = new Map([['/project/readme.md', Buffer.from('项目说明：中文')]]), clients: any[] = [], renames: string[][] = [];
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {}); client.on('authentication', c => c.method === 'password' && c.password === 'secret' ? c.accept() : c.reject());
@@ -46,8 +46,8 @@ test('real SFTP transport preserves UTF-8, stages uploads, propagates permission
     await assert.rejects(remote.verifyDirectory('/project/readme.md'), /必须是.*目录/);
     const preview = await remote.preview(binding, '/project/readme.md'); assert.equal(preview.content, '项目说明：中文');
     const local = path.join(dir, 'readme.md'); await remote.download(binding, '/project/readme.md', local); assert.equal(await fs.readFile(local, 'utf8'), preview.content);
-    await remote.upload(binding, local, '/project/new.md', () => {}); assert.equal(files.get('/project/new.md')?.toString(), preview.content); assert.match(renames[0][0], /\.uploading$/);
-    await assert.rejects(remote.upload(binding, local, '/project/denied/file.md', () => {}), /Linux 拒绝访问/);
+    await assert.rejects(remote.upload(binding, local, '/project/new.md', () => {}), /尚未启用受控文件操作/); assert.equal(renames.length, 0);
+    await assert.rejects(remote.upload(binding, local, '/project/denied/file.md', () => {}), /尚未启用受控文件操作/);
     await assert.rejects(remote.download(binding, '/project/escape', local), /符号链接/);
     assert.throws(() => remote.channel({ ...binding, username: 'bob' }), /身份不一致/);
   } finally { remote.disconnect(); clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); await fs.rm(dir, { recursive: true, force: true, maxRetries: 5 }); }

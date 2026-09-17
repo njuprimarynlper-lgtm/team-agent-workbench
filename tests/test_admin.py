@@ -104,7 +104,7 @@ class AdminRecoveryTests(unittest.TestCase):
         self.assertEqual([g['workspace'] for g in roles['users']['alice']['groups']], ['/projects/ocr', '/projects/nlp'])
         self.assertEqual([g['id'] for g in roles['users']['alice']['contentGroups']], ['wb_test_ocr'])
         self.assertNotIn('password', file.read_text(encoding='utf-8'))
-        self.execute('group_member', username='alice', group='wb_test_ocr', role='remove')
+        self.execute('group_member', username='alice', group='wb_test_ocr', role='remove', handoffs={'wb_test_ocr':None})
         updated = json.loads(file.read_text(encoding='utf-8'))['users']['alice']
         self.assertEqual([g['id'] for g in updated['groups']], ['wb_test_nlp'])
         self.assertEqual(updated['contentGroups'], [])
@@ -130,10 +130,10 @@ class AdminRecoveryTests(unittest.TestCase):
             self.assertIn('wb_test_ocr', status['users'][username]['groups'])
             self.execute('user_password', username=username, password='2')
             self.assertIn((['chpasswd'], login + ':2\n'), self.inputs)
-            self.execute('user_enabled', username=username, enabled=False)
+            self.execute('user_enabled', username=username, enabled=False, handoffs={'wb_test_ocr':None})
             self.assertIn(['usermod', '--expiredate', '1', login], self.calls)
             self.execute('user_enabled', username=username, enabled=True)
-            self.execute('group_member', username=username, group='wb_test_ocr', role='remove')
+            self.execute('group_member', username=username, group='wb_test_ocr', role='remove', handoffs={'wb_test_ocr':None})
             self.assertNotIn(login, self.groups['wb_test_ocr'].gr_mem)
             self.assertIn(['gpasswd', '-d', login, 'wb_test_ocr_admin'], self.calls)
         with self.assertRaisesRegex(ValueError, '已存在'):
@@ -160,7 +160,7 @@ class AdminRecoveryTests(unittest.TestCase):
         self.groups['external'] = types.SimpleNamespace(gr_name='external', gr_gid=9999, gr_mem=['alice'])
         self.execute('group_member', username='alice', group='wb_test_ocr', role='admin')
         self.execute('group_member', username='alice', group='wb_test_nlp', role='admin')
-        self.execute('group_member', username='alice', group='wb_test_ocr', role='remove')
+        self.execute('group_member', username='alice', group='wb_test_ocr', role='remove', handoffs={'wb_test_ocr':None})
         state = admin.load(self.root)
         self.assertEqual(state['users']['alice']['contentAdminGroups'], ['wb_test_nlp'])
         self.assertNotIn('alice', self.groups['wb_test_ocr'].gr_mem)
@@ -168,7 +168,7 @@ class AdminRecoveryTests(unittest.TestCase):
         self.assertIn('alice', self.groups['wb_test_nlp'].gr_mem)
         self.assertIn('alice', self.groups['external'].gr_mem)
         self.execute('group_member', username='alice', group='wb_test_ocr', role='member')
-        self.execute('group_member', username='alice', group='wb_test_nlp', role='member')
+        self.execute('group_member', username='alice', group='wb_test_nlp', role='member', handoffs={'wb_test_nlp':None})
         self.assertEqual(admin.load(self.root)['users']['alice']['contentAdminGroups'], [])
         self.assertIn('alice', self.groups['wb_test_nlp'].gr_mem)
 
@@ -356,5 +356,28 @@ class AdminRecoveryTests(unittest.TestCase):
             state=admin.initialize(self.root,{})
         self.assertTrue(state['initialized']); self.assertFalse(journal.exists())
         self.assertEqual(state['operations']['initialize']['status'],'done')
+
+    def test_offline_policy_is_validated_and_published(self):
+        self.execute('offline_policy', hours=4)
+        state=admin.load(self.root)
+        self.assertEqual(state['offlineHours'],4)
+        import json
+        roles=json.loads((self.root/'.workbench/roles.json').read_text(encoding='utf-8'))
+        self.assertEqual(roles['offlineHours'],4)
+        for hours in [0,25,True,'8']:
+            with self.assertRaises(ValueError): self.execute('offline_policy', hours=hours)
+
+    def test_last_admin_requires_explicit_handoff_or_vacancy(self):
+        self.execute('group_create',label='ocr')
+        for username in ['alice','bob']:
+            self.execute('user_create',username=username,name=username,password='1',groups=['wb_test_ocr'],contentAdminGroups=['wb_test_ocr'] if username=='alice' else [])
+        with self.assertRaisesRegex(ValueError,'最后'):
+            self.execute('group_member',username='alice',group='wb_test_ocr',role='member')
+        self.execute('group_member',username='alice',group='wb_test_ocr',role='member',handoffs={'wb_test_ocr':'bob'})
+        self.assertIn('bob',self.groups['wb_test_ocr_admin'].gr_mem)
+        self.assertNotIn('alice',self.groups['wb_test_ocr_admin'].gr_mem)
+        with self.assertRaisesRegex(ValueError,'最后'):
+            self.execute('user_enabled',username='bob',enabled=False)
+        self.execute('user_enabled',username='bob',enabled=False,handoffs={'wb_test_ocr':None})
 
 if __name__ == '__main__': unittest.main()

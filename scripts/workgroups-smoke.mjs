@@ -40,16 +40,15 @@ try {
   await expect(up.getByLabel('共享工作路径', { exact: true })).toHaveCount(0); await expect(up.getByLabel('Linux 工作路径', { exact: true })).toHaveCount(0);
   await up.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
   await expect(up.getByText('还没有加入工作组', { exact: true })).toBeVisible(); await up.screenshot({ path: path.join(data, 'no-groups.png') });
-  await up.getByTitle('新建会话', { exact: true }).click(); await up.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor();
-  assert.equal(await up.getByLabel('绑定共享项目').locator('option').count(), 1);
-  await up.getByRole('button', { name: '创建会话', exact: true }).click(); await expect(up.getByLabel('任务输入', { exact: true })).toBeVisible();
+  await expect(up.getByTitle('新建会话', { exact: true })).toHaveCount(0);
   const snap = () => up.evaluate(() => window.workbench.call('snapshot'));
-  assert.equal((await snap()).sessions[0].binding, undefined);
+  assert.equal((await snap()).sessions.length, 0);
+  await assert.rejects(up.evaluate(data => window.workbench.call('session.create', { provider: 'codex', cwd: data }), data), /没有加入工作组/);
   for (const group of ['local_ocr', 'local_nlp']) {
     await row.getByRole('button', { name: '加入用户组', exact: true }).click(); await ap.getByLabel('选择已有用户组').selectOption(group);
     await ap.getByLabel('成员身份', { exact: true }).selectOption('admin'); await confirm(ap);
   }
-  await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(2);
+  await up.getByRole('button', { name: '刷新工作组', exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(2);
   await expect(up.getByText('还没有加入工作组', { exact: true })).toHaveCount(0); await expect(up.locator('[data-group-name="local_secret"]')).toHaveCount(0);
   for (const group of ['ocr', 'nlp']) {
     if (group !== 'ocr') await up.getByTitle('在 ' + group + ' 创建项目', { exact: true }).click();
@@ -68,19 +67,17 @@ try {
   assert.equal((await snap()).sessions.find(s => s.id === bound.id).binding.project.id, ocr.id);
   await up.screenshot({ path: path.join(data, 'two-groups.png') });
   // Change role and membership through administrator UI while the user stays connected.
-  await row.getByTitle('管理 nlp 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('member'); await confirm(ap);
+  await row.getByTitle('管理 nlp 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('member'); await ap.getByLabel('nlp 接任安排').selectOption('__vacant__'); await confirm(ap);
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.getByTitle('在 nlp 创建项目', { exact: true })).toHaveCount(0);
   await expect(up.getByTitle('在 ocr 创建项目', { exact: true })).toHaveCount(1);
-  await row.getByTitle('管理 ocr 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('remove'); await confirm(ap);
+  await row.getByTitle('管理 ocr 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('remove'); await ap.getByLabel('ocr 接任安排').selectOption('__vacant__'); await confirm(ap);
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(1);
   assert.equal((await snap()).sessions.find(s => s.id === bound.id).binding.project.id, ocr.id);
-  const transfer = await up.evaluate(id => window.workbench.call('session.uploadTrajectory', { id }), bound.id);
-  await expect.poll(async () => (await snap()).transfers.find(t => t.id === transfer.id)?.status).toBe('error');
-  assert.match((await snap()).transfers.find(t => t.id === transfer.id).error, /项目入口配置已改变/);
+  await assert.rejects(up.evaluate(id => window.workbench.call('session.uploadTrajectory', { id }), bound.id), /项目入口配置已改变/);
   await fs.rename(path.join(share, 'projects', 'nlp'), path.join(share, 'projects', 'nlp-missing'));
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup .inline-error')).toBeVisible();
   await expect(up.getByText('还没有加入工作组', { exact: true })).toHaveCount(0);
   assert.deepEqual(errors, []);
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, cases: ['unassigned login and config export', 'no shared path input', 'local work without membership', 'live group assignment', 'separate groups and same-name projects', 'per-group creation roles', 'session stays bound after switching groups', 'membership revocation blocks upload', 'inaccessible group differs from no groups'], screenshots: ['no-groups.png', 'two-groups.png'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, cases: ['unassigned login and config export', 'no shared path input', 'unassigned users have no workbench', 'live group assignment', 'separate groups and same-name projects', 'per-group creation roles', 'session stays bound after switching groups', 'membership revocation blocks upload', 'inaccessible group differs from no groups'], screenshots: ['no-groups.png', 'two-groups.png'] }, null, 2));
   console.log(JSON.stringify({ passed: true, data }));
 } finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

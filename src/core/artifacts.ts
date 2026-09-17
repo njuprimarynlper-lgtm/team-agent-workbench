@@ -47,24 +47,24 @@ export async function packageDraft(draft: Draft, root: string): Promise<string> 
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const entries = [
     { name: 'README.md', text: `# ${draft.title}\n\n${repoUrl ? `GitHub 仓库：${repoUrl}\n\n` : ''}${draft.body}` },
-    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 3, kind: 'project-contribution', title: draft.title, repoUrl, description: draft.body, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, projectId: draft.binding?.project.id }, null, 2) }
+    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 3, kind: 'project-contribution', title: draft.title, repoUrl, git: draft.includeGit ? draft.git : undefined, description: draft.body, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, projectId: draft.binding?.project.id }, null, 2) }
   ];
   // Local preparation inputs and legacy attachments are deliberately never included.
   const zip = path.join(dir, safeFilename(draft.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
 }
 export function contributionBody(draft: Draft) {
-  return draft.body + (draft.supplement?.trim() ? '\n\n## 补充说明\n\n' + draft.supplement.trim() : '');
+  return draft.body + (draft.includeGit && draft.git ? `\n\n## 代码版本（整理时快照）\n\n分支：${draft.git.branch}\n\nCommit：${draft.git.commit || '尚无提交'}\n\n未提交改动：${draft.git.dirty ? '存在，commit 无法代表全部本地改动' : '无'}\n\n记录时间：${draft.git.capturedAt}` : '') + (draft.supplement?.trim() ? '\n\n## 补充说明\n\n' + draft.supplement.trim() : '');
 }
 export function historyMarkdown(session: AgentSession) {
   return `# ${session.title}\n\n提供方：${session.provider}\n原生会话 ID：${session.nativeId || '尚未创建'}\n项目：${session.binding?.project.name || '本地会话'}\n\n> 这是工作台采集的对话与工具事件，不代表厂商隐藏推理或完整训练轨迹。\n\n` + session.messages.map(m => `## ${m.role} · ${m.createdAt}\n\n${m.text}\n`).join('\n');
 }
-export async function packageHistory(session: AgentSession, sessionDir: string, root: string) {
+export async function packageHistory(session: AgentSession, sessionDir: string, root: string, frozenEvents?: string) {
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const clone = structuredClone(session); clone.approvals = [];
   const entries: { name: string; text?: string; file?: string }[] = [
     { name: 'session.json', text: JSON.stringify({ schemaVersion: 1, captureSource: session.provider === 'codex' ? 'codex-app-server' : 'cursor-acp', trainingConsent: false, capturedAt: new Date().toISOString(), session: clone }, null, 2) },
     { name: 'conversation.md', text: historyMarkdown(clone) }
   ];
-  try { entries.push({ name: 'events.jsonl', text: await fsp.readFile(path.join(sessionDir, 'events.jsonl'), 'utf8') }); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
+  try { entries.push({ name: 'events.jsonl', text: frozenEvents ?? await fsp.readFile(path.join(sessionDir, 'events.jsonl'), 'utf8') }); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
   const file = path.join(dir, `session-${session.id}-${Date.now()}.zip`); await zipEntries(file, entries); return file;
 }

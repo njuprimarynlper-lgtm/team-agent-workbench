@@ -1,3 +1,4 @@
+import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -70,7 +71,7 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
     assert((await bob.remote.list(bob.remote.binding(p.id), dir)).some(x => x.path === transfer.target));
     const next = await wb.prepare(s.id); await until(() => next.generation === 'ready'); assert.notEqual(next.id, d.id);
-    await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove' });
+    await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove', handoffs: { local_prepare: 'bob' } });
     const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于/);
     const original = await diskPath(share, transfer.target); assert((await fs.stat(original)).size > 0);
   } finally { await Promise.all([wb.close(), bob.close()]); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-prepare-local-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
@@ -87,7 +88,8 @@ test('SFTP candidate discovery skips other-member submissions and trajectories; 
     const found = await discoverDestinations(wb.remote, b, () => true);
     assert(found.destinations.some(x => x.path.endsWith('/资料'))); assert(!found.destinations.some(x => x.path.endsWith('/bob') || x.path.includes('trajectories')));
     const file = path.join(root, 'notes.txt'); await fs.writeFile(file, 'notes');
-    const transfer = await wb.queue.enqueue(file, b, p.remoteRoot + '/资料', 'upload'); await until(() => transfer.status === 'error'); assert.match(transfer.error!, /拒绝/);
+    await wb.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
+    const transfer = await wb.queue.enqueue(file, wb.remote.binding(p.id), p.remoteRoot + '/资料', 'upload'); await until(() => transfer.status === 'error'); assert.match(transfer.error!, /只能修改自己的提交/);
     wb.remote.disconnect(); const offline = await discoverDestinations(wb.remote, b, () => true); assert.equal(offline.destinations.length, 1); assert(offline.note);
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
@@ -97,8 +99,8 @@ test('hung preparation times out visibly; no duplicate jobs, no automatic upload
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, 3000);
   try {
-    await wb.store.init(); wb.workspaceReady = true; wb.store.settings.providerPaths.cursor = fixture.launcher;
-    const s = await wb.createSession('cursor', root), d = await wb.prepare(s.id);
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.cursor = fixture.launcher;
+    const s = await wb.createSession('cursor', root, offlineProjectId), d = await wb.prepare(s.id);
     await wb.saveDraftSupplement(d.id, '一直保留的补充', ''); await until(() => d.generation === 'error'); assert.match(d.generationError!, /超时/);
     assert(wb.session(d.prepareSessionId!).closedAt); assert.equal(s.status, 'idle'); assert.equal(wb.store.transfers.length, 0);
     await fixture.write({ status: 'ready', turn: 'success', preparationRaw: 'broken response' });
@@ -113,8 +115,8 @@ test('cancel preparation preserves notes and supplements, stops only the helper,
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); wb.workspaceReady = true; wb.store.settings.providerPaths.codex = fixture.launcher;
-    const parent = await wb.createSession('codex', root);
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    const parent = await wb.createSession('codex', root, offlineProjectId);
     await wb.saveHandoff(parent.id, '# Agent 工作记录\n已有方向性结论');
     await wb.send(parent.id, '持续运行的独立工作');
     await until(() => parent.status === 'running');

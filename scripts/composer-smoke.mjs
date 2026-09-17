@@ -1,3 +1,4 @@
+import { offlineSettings, offlineProjectId } from '../tests/fixtures/offline-workspace.mjs';
 import { _electron as electron, expect as baseExpect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -6,7 +7,7 @@ import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'composer-' + Date.now());
 const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
-await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
+await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ ...offlineSettings(), connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data, CURSOR_CONFIG_DIR: path.join(data, 'cursor-config') }; delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
 try {
@@ -15,7 +16,7 @@ try {
   const input = page.getByLabel('任务输入', { exact: true });
   for (const provider of ['codex', 'cursor']) {
     await fixture.write({ status: 'ready', turn: 'success' });
-    const session = await call('session.create', { provider, cwd: data });
+    const session = await call('session.create', { provider, cwd: data, projectId: offlineProjectId });
     const row = page.locator(`.session-row[data-session-id="${session.id}"]`); await row.click(); await expect(row).toHaveClass(/selected/);
     const current = async () => (await call('snapshot')).sessions.find(s => s.id === session.id);
     await expect(page.locator('.composer-bottom')).toContainText('Enter 发送 · Shift+Enter 换行');

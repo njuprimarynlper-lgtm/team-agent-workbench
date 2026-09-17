@@ -17,7 +17,8 @@ export function contributionDirectory(binding: RemoteBinding, target: string) {
 export async function discoverDestinations(remote: SharedFiles, binding: RemoteBinding, active: () => boolean): Promise<{ destinations: DraftDestination[]; note?: string }> {
   const defaultPath = contributionDirectory(binding, binding.project.uploadPath);
   const destinations: DraftDestination[] = [{ id: 'default', path: defaultPath, description: '当前成员的默认成果目录；没有合适分类时使用。' }];
-  const queue = [{ path: binding.project.remoteRoot, depth: 0 }];
+  const admin = remote.workspaces.some(w => w.groupName === binding.project.groupName && w.canCreateProject);
+  const queue = [{ path: admin ? binding.project.remoteRoot : defaultPath, depth: 0 }];
   let visited = 0, incomplete = false;
   while (queue.length && visited++ < 40 && active()) {
     const current = queue.shift()!;

@@ -1,3 +1,4 @@
+import { continuitySuccessors } from './continuity';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
@@ -56,8 +57,10 @@ export class LocalAdminConnection {
           const groups = request.groups || [], admins = request.contentAdminGroups || [];
           if (groups.some(g => !state.groups[g]?.workspace) || admins.some(g => !groups.includes(g))) throw new Error('项目组不存在或子管理员未加入该组');
         }
+        for (const { group, user: successor } of continuitySuccessors(state, request)) successor.contentAdminGroups = [...new Set([...(successor.contentAdminGroups || []), group])];
         switch (request.op) {
           case 'status': break;
+          case 'offline_policy': state.offlineHours = request.hours; break;
           case 'initialize': break;
           case 'configure_sftp': state.sftpConfigured = true; break;
           case 'group_create': {

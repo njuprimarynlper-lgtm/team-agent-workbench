@@ -1,6 +1,7 @@
 import { Client, type ClientChannel } from 'ssh2';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
 import { systemUsername } from '../core/account-login';
@@ -13,7 +14,7 @@ export class AdminConnection {
   constructor(private scriptPath: string, private changed: () => void) {}
   disconnect() { this.client?.end(); this.client = undefined; this.sudoPassword = ''; this.rawReady = false; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
   async connect(profile: AdminProfile, password: string, sudoPassword: string, trust: (key: string) => Promise<boolean>, login = profile.username): Promise<AdminProfile> {
-    this.disconnect(); this.code = deflateSync(await fs.readFile(this.scriptPath)).toString('base64');
+    this.disconnect(); this.code = deflateSync(Buffer.concat([Buffer.from("CONTENT_WORKER_BASE64 = '" + (await fs.readFile(path.join(path.dirname(this.scriptPath), 'content.py'))).toString('base64') + "'\n"), await fs.readFile(this.scriptPath)])).toString('base64');
     const client = new Client(); this.client = client; this.sudoPassword = sudoPassword || password;
     try {
       let fingerprint = '';

@@ -1,3 +1,5 @@
+import { ownDataDirectory } from '../shared/single-instance';
+import { contentEditSchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import fs from 'node:fs/promises';
@@ -6,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { Workbench } from '../core/workbench';
 import { settingsSchema, profileSchema } from '../core/config';
-import { historyMarkdown, packageDraft } from '../core/artifacts';
+import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
 let window: BrowserWindow; let workbench: Workbench; let quitting = false; let closing = false;
@@ -21,14 +23,15 @@ const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider =
 const sessionInput = z.object({ id });
 async function chooseFiles() { return (await dialog.showOpenDialog(window, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
 async function dispatch(action: string, raw: unknown): Promise<unknown> {
-  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'profile.import', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop']);
+  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'profile.import', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
+  if (workbench.accessMode() === 'readonly' && !setupActions.has(action) && !['draft.export', 'open.local', 'provider.catalog', 'provider.permissions'].includes(action)) throw new Error('离线授权已过期，当前只读；请重新连接团队账号');
   switch (action) {
     case 'snapshot': return workbench.snapshot();
     case 'settings.save': {
-      const next = settingsSchema.parse(raw);
+      const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
-      next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
+      next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.offlineAuthorization = workbench.store.settings.offlineAuthorization; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
     case 'providers.detect': return workbench.detect();
     case 'provider.auth': {
@@ -51,10 +54,10 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().min(1) }).parse(raw);
       return workbench.configureWorkspace(p.profile, p.password, p.localPath, async fingerprint => (await dialog.showMessageBox(window, { type: 'question', title: '核对共享服务器', message: `${p.profile.host}:${p.profile.port}`, detail: `首次连接，请与管理员提供的指纹核对：\n\n${fingerprint}\n\n确认后此连接将固定校验该指纹。`, buttons: ['取消', '指纹一致，连接'], defaultId: 0, cancelId: 0 })).response === 1);
     }
-    case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional() }).parse(raw); return workbench.createProject(p.name, p.groupName); }
+    case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional(), brief: projectBriefSchema.optional() }).parse(raw); return workbench.createProject(p.name, p.groupName, p.brief); }
     case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }
     case 'remote.disconnect': workbench.remote.disconnect(); return true;
-    case 'remote.manifest': { const projects = await workbench.remote.loadManifest(); const p = workbench.remote.profile!; workbench.store.settings.connections = workbench.store.settings.connections.map(x => x.id === p.id ? p : x); await workbench.store.save(); broadcast(); return projects; }
+    case 'remote.manifest': return workbench.refreshGroups();
     case 'remote.list': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.list(workbench.remote.binding(p.projectId), p.path); }
     case 'remote.preview': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.preview(workbench.remote.binding(p.projectId), p.path); }
     case 'remote.download': {
@@ -63,9 +66,26 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       await workbench.remote.download(binding, p.path, result.filePath); notice('已下载到 ' + result.filePath); return true;
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
-    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'full']).optional() }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode); }
+    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode, p.includeBrief); }
+    case 'project.brief': return workbench.remote.projectBrief(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'project.brief.save': { const p = z.object({ projectId: z.string(), brief: projectBriefSchema, revision: z.number().int().nonnegative() }).parse(raw); const value = await workbench.remote.saveProjectBrief(workbench.remote.binding(p.projectId), p.brief, p.revision); await workbench.refreshGroups(); return value; }
+    case 'content.list': return workbench.remote.contentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
+    case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.remote.contentEdit(workbench.remote.binding(p.projectId), p.change); }
+    case 'content.replace': {
+      const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw), binding = workbench.remote.binding(p.projectId);
+      const file = (await dialog.showOpenDialog(window, { title: '选择替换文件（保存为新修订）', properties: ['openFile'] })).filePaths[0];
+      if (!file) return false;
+      const snapshot = await freezeFile(file, path.join(workbench.store.root, 'uploads', 'replacements'));
+      try { await workbench.remote.contentReplace(binding, p.change, snapshot.localPath); return true; } finally { await fs.rm(snapshot.localPath, { force: true }); }
+    }
+    case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid() }).parse(raw); return workbench.attachContent(p.id, p.contentId); }
+    case 'session.projectContext': return workbench.refreshProjectContext(sessionInput.parse(raw).id);
+    case 'draft.revise': return workbench.reviseDraft(sessionInput.parse(raw).id);
+    case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }
+    case 'cache.clean': return workbench.cleanUploadCache();
     case 'session.send': {
-      const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]) }).parse(raw); const s = workbench.session(p.id);
+      const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]) }).parse(raw); const s = workbench.session(p.id); workbench.assertCanWork(s.binding);
       await workbench.requireAuth(s.provider, s.cwd);
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
       void workbench.send(p.id, p.text, p.sourceIds).catch(e => notice(e.message)); return true;
@@ -105,7 +125,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     default: throw new Error('未知操作：' + action);
   }
 }
-app.whenReady().then(async () => {
+if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
   workbench = new Workbench(app.getPath('userData'), broadcast, notice); await workbench.init();
   window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   window.setMenuBarVisibility(false);

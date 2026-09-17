@@ -30,18 +30,18 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     while (['queued','running'].includes(transfer.status) && Date.now() < deadline) await new Promise(r => setTimeout(r, 20));
     assert.equal(transfer.status, 'done', transfer.error || 'transfer failed');
     assert(transfer.target.startsWith('/projects/ocr/实体抽取/trajectories/alice/'));
-    assert.equal(server.nodes.get('/projects/ocr/实体抽取/trajectories/alice').mode & 0o777, 0o700);
+    assert.equal(server.nodes.get('/projects/ocr/实体抽取/trajectories/alice').mode & 0o777, 0o750);
     await bob.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
     assert.equal(bob.remote.workspace!.canCreateProject, false);
     assert.equal(bob.remote.profile!.projects[0].id, project.id);
     assert.equal(bob.remote.profile!.projects[0].historyPath, '/projects/ocr/实体抽取/trajectories/bob');
-    await assert.rejects(bob.createProject('越权'), /不是.*子管理员/);
+    await assert.rejects(bob.createProject('越权'), /子管理员/);
     server.state.admins = [];
-    await assert.rejects(alice.createProject('已撤权'), /不是.*子管理员/);
+    await assert.rejects(alice.createProject('已撤权'), /子管理员/);
     assert.equal(alice.remote.workspace!.canCreateProject, false);
     const before = alice.store.settings.localWorkspace;
     await assert.rejects(alice.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
     assert.equal(alice.workspaceReady, true); assert.equal(alice.store.settings.localWorkspace, before);
-    const offline = await alice.createSession('cursor', root); assert.equal(offline.binding, undefined);
+    await assert.rejects(alice.createSession('cursor', root), /离线授权/); const offline = await alice.createSession('cursor', root, project.id); assert.equal(offline.binding?.project.id, project.id);
   } finally { await alice.close(); await bob.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

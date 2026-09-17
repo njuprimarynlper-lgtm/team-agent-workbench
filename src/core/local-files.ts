@@ -1,14 +1,18 @@
+import { atomicJson } from './store';
+import { ContentFiles } from './content-files';
+import type { ContentEdit, ContentMetadata } from '../shared/content';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { ConnectionProfile, FilePreview, Project, RemoteBinding, RemoteEntry, WorkspaceAccess } from '../shared/types';
-import { authorizeUser, diskPath, localRoot, passwordMatches, readRegistry } from './local-space';
+import { authorizeUser, diskPath, localRoot, passwordMatches, readRegistry, registryLock } from './local-space';
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { newProjectLayout, projectName } from './project-layout';
 import { sameEndpoint } from './sftp';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 
 export class LocalFileConnection {
+  offlineHours = 8;
   profile?: ConnectionProfile; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] = [];
   private root = ''; private proof = ''; private ready = false;
   constructor(private changed: () => void = () => {}) {}
@@ -16,7 +20,7 @@ export class LocalFileConnection {
   disconnect() { this.ready = false; this.proof = ''; this.workspace = undefined; this.workspaces = []; this.changed(); }
   async connect(profile: ConnectionProfile, password: string, _trust: (s: string) => Promise<boolean>) {
     this.disconnect(); this.root = await localRoot(profile.localRoot);
-    const data = await readRegistry(this.root);
+    const data = await readRegistry(this.root); this.offlineHours = data.state.offlineHours || 8;
     if (!passwordMatches(password, data.credentials[profile.username])) throw new Error('模拟账号或密码错误');
     const proof = data.credentials[profile.username]; authorizeUser(data, profile.username, proof);
     const fingerprint = 'LOCAL:' + data.state.teamId;
@@ -35,7 +39,7 @@ export class LocalFileConnection {
   }
   private async access(target: string, create = false) {
     const connection = this.channel(), proof = this.proof, profile = this.profile!;
-    const data = await readRegistry(this.root);
+    const data = await readRegistry(this.root); this.offlineHours = data.state.offlineHours || 8;
     if (connection !== this.channel() || proof !== this.proof || profile !== this.profile) throw new Error('连接已改变');
     const user = authorizeUser(data, profile.username, proof);
     const group = Object.values(data.state.groups).find(g => g.workspace && withinRemote(g.workspace, target));
@@ -64,10 +68,10 @@ export class LocalFileConnection {
     const filename = root + '/.workbench-project.json';
     try {
       const file = await diskPath(this.root, filename), stat = await fs.stat(file);
-      if (!stat.isFile() || stat.size > 16384) return;
+      if (!stat.isFile() || stat.size > 256 * 1024) return;
       const meta = JSON.parse(await fs.readFile(file, 'utf8'));
       if (meta.version !== 1 || !/^project_[a-f0-9]{32}$/.test(meta.id)) return;
-      return this.personal({ id: meta.id, name: projectName(meta.name), remoteRoot: root, uploadPath: root, historyPath: root, groupName: workspace?.groupName, groupLabel: workspace?.groupLabel });
+      return this.personal({ id: meta.id, name: projectName(meta.name), briefRevision: meta.briefRevision || 0, remoteRoot: root, uploadPath: root, historyPath: root, groupName: workspace?.groupName, groupLabel: workspace?.groupLabel });
     } catch (e: any) { if (e.code === 'ENOENT' || e instanceof SyntaxError) return; throw e; }
   }
   async discoverProjects() {
@@ -85,10 +89,11 @@ export class LocalFileConnection {
         await this.verifyDirectory(group.workspace);
         workspace.canCreateProject = !!user.contentAdminGroups?.includes(group.name);
         const entries = await fs.readdir(await diskPath(this.root, group.workspace), { withFileTypes: true });
-        workspace.isEmpty = entries.length === 0;
+        workspace.isEmpty = false;
         if (entries.length > 500) throw new Error('工作组目录超过 500 项，请联系管理员整理');
         const found: Project[] = [];
         for (const e of entries) if (!e.name.startsWith('.') && e.isDirectory() && !e.isSymbolicLink()) { const p = await this.readProject(childRemote(group.workspace, e.name), workspace); if (p) found.push(p); }
+        workspace.isEmpty = found.length === 0;
         projects.push(...found);
       } catch (e: any) { workspace.accessError = e.message; workspace.canCreateProject = false; }
     }
@@ -114,7 +119,7 @@ export class LocalFileConnection {
       if (brief) await write(path.join(root, PROJECT_BRIEF_FILE), projectBriefMarkdown(project.name, brief, this.profile!.username, createdAt));
       await this.access(base, true);
       const marker = path.join(root, '.workbench-project.json');
-      await write(marker, JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt }));
+      await write(marker, JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt, brief, briefRevision: brief ? 1 : 0 }));
     } catch (error) {
       for (const file of files.reverse()) await fs.unlink(file).catch(() => {});
       // Only directories reserved by this attempt, and only while still empty.
@@ -122,13 +127,13 @@ export class LocalFileConnection {
       throw error;
     }
     workspace.isEmpty = false;
-    const p = this.personal({ ...project, groupName: group.name, groupLabel: group.label }); this.profile!.projects.push(p); this.changed(); return p;
+    const p = this.personal({ ...project, briefRevision: brief ? 1 : 0, groupName: group.name, groupLabel: group.label }); this.profile!.projects.push(p); this.changed(); return p;
   }
   private async checked(binding: RemoteBinding, target: string, write = false, missing = false) {
     this.channel(binding); target = assertRemote(binding.project.remoteRoot, target); await this.access(target);
     const p = binding.project, suffix = target.slice(p.remoteRoot.length).split('/').filter(Boolean), user = this.profile!.username;
     if (suffix.some(s => s.startsWith('.'))) throw new Error('模拟权限拒绝：管理记录不可操作');
-    if ((suffix[0] === 'trajectories' && suffix[1] && suffix[1] !== user) || (write && ['trajectories', 'submissions'].includes(suffix[0]) && suffix[1] !== user)) throw new Error('模拟权限拒绝：不能访问他人私有轨迹或修改他人成果');
+    if (write && ['trajectories', 'submissions'].includes(suffix[0]) && suffix[1] !== user) { const { user: member, group } = await this.access(target); if (!member.contentAdminGroups?.includes(group.name)) throw new Error('模拟权限拒绝：不能修改他人的公共提交'); }
     const marker = await this.readProject(p.remoteRoot);
     if (!marker || marker.id !== p.id) throw new Error('项目身份已改变');
     const file = await diskPath(this.root, target, missing); this.channel(binding); return file;
@@ -141,7 +146,6 @@ export class LocalFileConnection {
     const dir = await this.checked(binding, target), entries = await fs.readdir(dir, { withFileTypes: true }), result: RemoteEntry[] = [];
     for (const e of entries) {
       if (e.name.startsWith('.')) continue;
-      if (target === binding.project.remoteRoot + '/trajectories' && e.name !== binding.username) continue;
       const stat = await fs.lstat(path.join(dir, e.name));
       result.push({ name: e.name, path: childRemote(target, e.name), kind: stat.isSymbolicLink() ? 'link' : stat.isDirectory() ? 'directory' : 'file', size: stat.size, modified: stat.mtimeMs });
     }
@@ -166,14 +170,34 @@ export class LocalFileConnection {
     try { await fs.copyFile(file, temp, fs.constants.COPYFILE_EXCL); await this.checked(binding, target); await fs.rename(temp, local); progress(stat.size, stat.size); }
     finally { await fs.rm(temp, { force: true }); }
   }
-  async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void) {
-    const file = await this.checked(binding, target, true, true), stat = await fs.lstat(local);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('只能上传普通文件');
-    const temp = path.join(path.dirname(file), '.' + randomUUID() + '.uploading');
-    try {
-      await fs.copyFile(local, temp, fs.constants.COPYFILE_EXCL); await this.checked(binding, target, true, true);
-      // link publishes without ever replacing an existing contribution.
-      await fs.link(temp, file); progress(stat.size, stat.size);
-    } finally { await fs.rm(temp, { force: true }); }
+  async projectBrief(binding: RemoteBinding) {
+    this.channel(binding); await this.access(binding.project.remoteRoot);
+    const meta = JSON.parse(await fs.readFile(await diskPath(this.root, binding.project.remoteRoot + '/.workbench-project.json'), 'utf8'));
+    if (meta.id !== binding.project.id) throw new Error('项目身份已改变');
+    return { brief: meta.brief, revision: meta.briefRevision || 0, updatedAt: meta.briefUpdatedAt || meta.createdAt };
+  }
+  async saveProjectBrief(binding: RemoteBinding, input: ProjectBrief, revision: number) {
+    const brief = projectBriefSchema.parse(input);
+    return registryLock(this.root, async () => {
+      this.channel(binding); await this.access(binding.project.remoteRoot, true);
+      const filename = await diskPath(this.root, binding.project.remoteRoot + '/.workbench-project.json');
+      const meta = JSON.parse(await fs.readFile(filename, 'utf8'));
+      if (meta.id !== binding.project.id || (meta.briefRevision || 0) !== revision) throw new Error('项目资料已更新，请刷新后再保存');
+      const updatedAt = new Date().toISOString(), markdown = projectBriefMarkdown(binding.project.name, brief, binding.username, updatedAt);
+      const history = await diskPath(this.root, binding.project.remoteRoot + '/.brief-versions', true); await fs.mkdir(history, { recursive: true });
+      await fs.writeFile(path.join(history, (revision + 1) + '.md'), markdown);
+      await fs.writeFile(await diskPath(this.root, binding.project.remoteRoot + '/' + PROJECT_BRIEF_FILE, true), markdown);
+      await atomicJson(filename, { ...meta, brief, briefRevision: revision + 1, briefUpdatedAt: updatedAt });
+      return { brief, revision: revision + 1, updatedAt };
+    });
+  }
+  private content() { return new ContentFiles(this.root, async binding => { this.channel(binding); const { user, group } = await this.access(binding.project.remoteRoot); const project = await this.readProject(binding.project.remoteRoot); if (project?.id !== binding.project.id) throw new Error('项目身份已改变'); return { username: user.username, admin: !!user.contentAdminGroups?.includes(group.name) }; }); }
+  contentList(binding: RemoteBinding) { return this.content().list(binding); }
+  contentAdopt(binding: RemoteBinding, target: string) { return this.content().adopt(binding, target); }
+  contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.content().edit(binding, change); }
+  contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.content().edit(binding, change, file); }
+  async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string) {
+    await this.checked(binding, target, true, true);
+    const item = await this.content().publish(binding, local, target, metadata, hash); progress(item.size, item.size); return item;
   }
 }

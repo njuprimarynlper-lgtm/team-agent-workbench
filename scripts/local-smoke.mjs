@@ -78,7 +78,7 @@ try {
   await alice.page.evaluate(id => window.workbench.call('session.uploadTrajectory', { id }), session.id);
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0]?.status).toBe('done');
   const history = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0];
-  await assert.rejects(bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }), /模拟权限拒绝/);
+  const sharedHistory = await bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }); assert.equal(sharedHistory.type, 'binary');
   await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '方向性结论', body: '建议先检查数据覆盖范围，再评估是否调整方案。当前只是方向性判断，收益尚待验证。', repoUrl: '', destinationId: 'default' } });
   await alice.page.getByRole('button', { name: '整理成果', exact: true }).click();
   await expect(alice.page.getByLabel('整理状态')).toContainText('整理完成', { timeout: 20000 });
@@ -103,7 +103,7 @@ try {
   assert((await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot })).length);
   assert.equal(await alice.page.evaluate(() => typeof window.admin), 'undefined'); assert.equal(await ap.evaluate(() => typeof window.workbench), 'undefined'); assert.deepEqual(errors, []);
   if (!packaged) { await ap.screenshot({ path: path.join(data, 'admin.png'), timeout: 10000 }); await bob.page.screenshot({ path: path.join(data, 'user-bob.png'), timeout: 10000 }); }
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'history privacy', 'conclusion upload without repository link; teammate access and package contents', 'live disable/enable', 'edition isolation'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'uploaded histories are group-public', 'conclusion upload without repository link; teammate access and package contents', 'live disable/enable', 'edition isolation'] }, null, 2));
   console.log('Local filesystem administrator + two users UI passed:', data);
 } catch (error) { for (const app of apps) await app.evaluate(({ app }) => app.exit(1)).catch(() => {}); throw error; }
 finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

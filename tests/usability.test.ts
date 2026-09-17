@@ -14,7 +14,7 @@ import { teamServer } from './fixtures/team-server.mjs';
 const readZip = (file: string) => JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', file], { encoding: 'utf8' }));
 const waitTransfer = async (task: any) => { const end = Date.now() + 10000; while (['queued', 'running'].includes(task.status) && Date.now() < end) await new Promise(r => setTimeout(r, 20)); assert.equal(task.status, 'done', task.error); };
 
-test('#1 contributions are readable by teammates, cannot be overwritten, histories stay private; legacy folders migrate', async () => {
+test('#1 contributions are readable by teammates, cannot be overwritten, uploaded trajectories are public; canonical files stay server-owned', async () => {
   const server = await teamServer(), root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-permissions-'));
   const alice = new Workbench(path.join(root, 'alice'), () => {}, () => {}), bob = new Workbench(path.join(root, 'bob'), () => {}, () => {}), carol = new Workbench(path.join(root, 'carol'), () => {}, () => {});
   try {
@@ -27,16 +27,12 @@ test('#1 contributions are readable by teammates, cannot be overwritten, histori
     await bob.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
     const bobBinding = bob.remote.binding(project.id);
     assert.equal((await bob.remote.preview(bobBinding, upload.target)).content, 'shared-result');
-    await assert.rejects(bob.remote.upload(bobBinding, file, upload.target, () => {}), /拒绝访问/);
-    await assert.rejects(bob.remote.upload(bobBinding, file, project.uploadPath + '/forged.txt', () => {}), /拒绝访问/);
+    await assert.rejects(bob.remote.upload(bobBinding, file, upload.target, () => {}), /拒绝访问|自己的提交/);
+    await assert.rejects(bob.remote.upload(bobBinding, file, project.uploadPath + '/forged.txt', () => {}), /拒绝访问|自己的提交/);
     const session = await alice.createSession('codex', root, project.id), history = await alice.archive(session.id); await waitTransfer(history);
-    await assert.rejects(bob.remote.preview(bobBinding, history.target), /拒绝访问/);
-    assert.equal(server.nodes.get(history.target).mode & 0o777, 0o600);
-    // Simulate the permissions written by v0.2.1, then reconnect its owner.
-    server.nodes.get(project.uploadPath).mode = 0o40700; server.nodes.get(upload.target).mode = 0o100660;
-    await alice.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
-    assert.equal(server.nodes.get(project.uploadPath).mode & 0o7777, 0o2750); assert.equal(server.nodes.get(upload.target).mode & 0o777, 0o640);
-    assert.equal((await bob.remote.preview(bobBinding, upload.target)).content, 'shared-result');
+    assert.equal((await bob.remote.preview(bobBinding, history.target)).type, 'binary');
+    assert.equal(server.nodes.get(history.target).mode & 0o777, 0o640);
+    assert.equal(server.nodes.get(upload.target).uid, 0, 'canonical files are server-owned');
     await carol.configureWorkspace(server.profile('carol'), 'test-password', root, async () => true);
     assert.equal(carol.remote.profile!.projects.length, 0);
   } finally { await Promise.all([alice.close(), bob.close(), carol.close()]); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
@@ -48,7 +44,7 @@ test('#2/#3/#5 session inputs, handoffs and drafts persist independently and off
   try {
     await wb.store.init(); await wb.restoreLocalWorkspace(); assert.equal(wb.workspaceReady, false);
     await wb.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
-    const a = await wb.createSession('codex', root), b = await wb.createSession('cursor', root);
+    const project = await wb.createProject('本地状态'); const a = await wb.createSession('codex', root, project.id), b = await wb.createSession('cursor', root, project.id);
     assert.notEqual(a.handoffPath, b.handoffPath);
     await Promise.all([wb.saveHandoff(a.id, 'A only'), wb.saveHandoff(b.id, 'B only'), wb.saveHandoff(a.id, 'A newest')]);
     const source = path.join(root, 'reference.txt'); await fs.writeFile(source, 'local secret reference');
@@ -77,9 +73,9 @@ test('#2/#3/#5 session inputs, handoffs and drafts persist independently and off
     assert.equal(wb.store.inputs[a.id].text, 'unsent secret A'); assert.deepEqual(wb.store.inputs[a.id].sourceIds, [ref.id]); assert.equal(wb.store.inputs[b.id].answers.question, 'B');
     assert.equal(await wb.readHandoff(a.id), 'A newest'); assert.equal(await wb.readHandoff(b.id), 'B only');
     assert.equal(wb.draft(a.id).body, 'saved after retry'); assert.equal(wb.draft(a.id).target, '/target');
-    await wb.createSession('codex', root);
+    await wb.createSession('codex', root, wb.store.settings.offlineAuthorization!.profile.projects[0].id);
     await assert.rejects(wb.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
-    assert.equal(wb.workspaceReady, true); await wb.createSession('cursor', root);
+    assert.equal(wb.workspaceReady, true); await wb.createSession('cursor', root, wb.store.settings.offlineAuthorization!.profile.projects[0].id);
     await assert.rejects(wb.createProject('offline'), /连接/);
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

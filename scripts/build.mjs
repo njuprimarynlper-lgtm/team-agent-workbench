@@ -16,7 +16,7 @@ for (const edition of ['user', 'admin']) {
   await build({ entryPoints: [edition === 'user' ? 'src/main/preload.ts' : 'src/admin/preload.ts'], outfile: out + '/preload.cjs', bundle: true, platform: 'node', format: 'cjs', external: ['electron'], target: 'node22' });
   await build({ entryPoints: [edition === 'user' ? 'src/renderer/main.tsx' : 'src/admin/renderer.tsx'], outfile: out + '/renderer.js', bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'chrome130', loader: { '.css': 'css' } });
   await copyFile('src/renderer/index.html', out + '/index.html');
-  if (edition === 'admin') await copyFile('server/admin.py', out + '/admin.py');
+  if (edition === 'admin') { await copyFile('server/admin.py', out + '/admin.py'); await copyFile('server/content.py', out + '/content.py'); }
   await copyDependency('ssh2', out);
   await writeFile(out + '/package.json', JSON.stringify({ name: 'team-agent-' + edition, version, description: 'Team Agent ' + edition, author: 'Team Agent Workbench', main: 'main.cjs', dependencies: { ssh2: '^1.17.0' } }, null, 2));
 }

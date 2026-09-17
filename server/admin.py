@@ -1,8 +1,9 @@
 """Run on demand over SSH, as an already authorized Linux administrator.
 
-No daemon, application passwords or model credentials are installed on the server.
+SSH is the only account authentication. A restricted file worker manages public writes.
 The Windows admin app sends this fixed program and a JSON request on stdin.
 """
+import base64
 import datetime
 import hashlib
 import json
@@ -17,7 +18,7 @@ import uuid
 import contextlib
 import unicodedata
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover"}
+OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover", "offline_policy"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -220,7 +221,7 @@ def load(root):
     return json.loads(file.read_text(encoding="utf-8"))
 
 def write_roles(root, state):
-    roles = {"version": 1, "membershipVersion": 1, "root": str(root), "users": {}}
+    roles = {"version": 1, "membershipVersion": 1, "root": str(root), "storageVersion": state.get("storageVersion", 0), "offlineHours": state.get("offlineHours", 8), "users": {}}
     for username, user in state["users"].items():
         if user["enabled"] and not user.get("missing") and not user.get("provisioning"):
             groups = [{"id": name, "name": state["groups"][name]["label"], "workspace": state["groups"][name].get("workspace") if not state["groups"][name].get("provisioning") else None} for name in user.get("groups", []) if name in state["groups"]]
@@ -229,6 +230,8 @@ def write_roles(root, state):
     role_file = child(root, ".workbench/roles.json")
     atomic_json(role_file, roles)
     os.chmod(role_file, 0o644)
+    if state.get("storageVersion") == 1:
+        prepare_request_directories(root, state)
 
 
 def save(root, state):
@@ -236,6 +239,65 @@ def save(root, state):
     # Legacy state files did not persist ordinary memberships. Always publish
     # the current OS assignments, including during unrelated password/group edits.
     write_roles(root, actual_state(state))
+
+
+def prepare_request_directories(root, state):
+    for kind in ('inbox', 'outbox'):
+        base = child(root, '.workbench/' + kind)
+        base.mkdir(exist_ok=True)
+        os.chown(base, 0, 0)
+        os.chmod(base, 0o711)
+        for username, user in state['users'].items():
+            if user.get('uid') is None:
+                continue
+            directory = child(root, '.workbench/' + kind + '/' + user_login(state, username))
+            directory.mkdir(exist_ok=True)
+            os.chown(directory, 0, 0)
+            run(['setfacl', '-b', '-k', str(directory)])
+            os.chmod(directory, 0o700)
+            if user.get('enabled'):
+                run(['setfacl', '-m', 'u:' + str(user['uid']) + (':rwx' if kind == 'inbox' else ':r-x'), str(directory)])
+
+
+def protect_public_tree(root, state):
+    for group in state['groups'].values():
+        if not group.get('workspace'):
+            continue
+        directory = child(root, group['workspace'].lstrip('/'))
+        paths = [directory] + list(directory.rglob('*'))
+        if any(file.is_symlink() or file.is_file() and file.stat().st_nlink != 1 for file in paths):
+            raise ValueError('公共区存在符号链接或硬链接，请管理员先处理后再启用受控存储')
+        for file in paths:
+            if not file.is_dir() and not file.is_file():
+                raise ValueError('公共区只支持普通文件和目录')
+            os.chown(file, 0, group['gid'])
+            run(['setfacl', '-b', '-k', str(file)] if file.is_dir() else ['setfacl', '-b', str(file)])
+            os.chmod(file, 0o2750 if file.is_dir() else 0o640)
+
+
+def install_content_worker(root, state):
+    encoded = globals().get('CONTENT_WORKER_BASE64')
+    if not encoded:
+        raise ValueError('管理员程序缺少文件操作器，请使用完整新版管理员包')
+    program = child(root, '.workbench/admin/content.py')
+    program.write_bytes(base64.b64decode(encoded, validate=True))
+    os.chown(program, 0, 0)
+    os.chmod(program, 0o700)
+    prepare_request_directories(root, state)
+    protect_public_tree(root, state)
+    name = 'team-agent-storage-' + state['teamId']
+    unit = pathlib.Path('/etc/systemd/system') / (name + '.service')
+    python = shutil.which('python3') or '/usr/bin/python3'
+    # root path has already rejected quotes, newlines and backslashes.
+    unit.write_text('[Unit]\nDescription=Team Agent restricted file operations\nAfter=local-fs.target\n[Service]\nType=simple\nExecStart=' + python + ' -I "' + str(program).replace('%', '%%') + '" "' + str(root).replace('%', '%%') + '"\nRestart=on-failure\nUMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\n[Install]\nWantedBy=multi-user.target\n')
+    run(['systemctl', 'daemon-reload'])
+    run(['systemctl', 'enable', '--now', name])
+    run(['systemctl', 'restart', name])
+    for username, user in state['users'].items():
+        if user.get('enabled') and not user.get('provisioning'):
+            terminate_connections(user_login(state, username))
+    state['storageVersion'] = 1
+    state.setdefault('offlineHours', 8)
 
 
 def prepare_workspace(root, state, group_name):
@@ -259,6 +321,9 @@ def prepare_workspace(root, state, group_name):
     # New project content is collaborative, submissions are group-readable and trajectories remain private.
     run(["setfacl", "-d", "-m", "u::rwx,g::rwx,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
     group["workspace"] = "/projects/" + group["label"]
+    if state.get("storageVersion") == 1:
+        run(["setfacl", "-b", "-k", str(target)])
+        os.chmod(target, 0o2750)
 
 def ensure_user(state, username):
     account_name(username)
@@ -306,6 +371,37 @@ def state_lock(request):
         fcntl.flock(handle, fcntl.LOCK_EX)
         yield
 
+def enforce_continuity(root, state, request):
+    if request['op'] == 'group_member' and request.get('role') not in ('member', 'admin', 'remove'):
+        raise ValueError('无效成员操作')
+    if request['op'] not in ('user_enabled', 'user_groups', 'group_member'):
+        return
+    username = request.get('username')
+    current = actual_state(state)
+    user = current['users'].get(username)
+    if not user or not user.get('enabled'):
+        return
+    promotions = []
+    for group in user.get('contentAdminGroups', []):
+        op = request['op']
+        losing = (op == 'user_enabled' and request.get('enabled') is False) or (op == 'group_member' and request.get('group') == group and request.get('role') != 'admin') or (op == 'user_groups' and (group not in request.get('groups', []) or group not in request.get('contentAdminGroups', [])))
+        others = [u for name, u in current['users'].items() if name != username and u.get('enabled') and not u.get('missing') and not u.get('provisioning') and group in u.get('groups', []) and group in u.get('contentAdminGroups', [])]
+        if not losing or others:
+            continue
+        handoffs = request.get('handoffs', {})
+        if group not in handoffs:
+            raise ValueError('此操作将移除最后一位子管理员，请选择接任人或明确保留空缺：' + current['groups'][group]['label'])
+        successor = handoffs[group]
+        if successor is None:
+            continue
+        selected = current['users'].get(successor)
+        if successor == username or not selected or not selected.get('enabled') or selected.get('missing') or selected.get('provisioning') or group not in selected.get('groups', []):
+            raise ValueError('接任人必须是本组其他已启用成员')
+        promotions.append((successor, group, selected))
+    for successor, group, selected in promotions:
+        assign_groups(root, state, {'username': successor, 'groups': selected.get('groups', []), 'contentAdminGroups': list(set(selected.get('contentAdminGroups', []) + [group]))})
+
+
 def _execute(request):
     validate_request(request)
     if sys.platform != "linux" or os.geteuid() != 0:
@@ -331,6 +427,7 @@ def _execute(request):
                 raise ValueError("请先恢复并完成初始化")
             start_operation(root, state, request)
     result = None
+    enforce_continuity(root, state, request)
     if op == "status":
         current = actual_state(state)
         write_roles(root, current)
@@ -444,6 +541,11 @@ def _execute(request):
         if role == 'admin': admins.add(group)
         else: admins.discard(group)
         assign_groups(root, state, {**request, 'groups': sorted(groups), 'contentAdminGroups': sorted(admins)})
+    elif op == "offline_policy":
+        hours = request.get("hours")
+        if type(hours) is not int or not 1 <= hours <= 24:
+            raise ValueError("离线有效期应为 1 到 24 小时")
+        state["offlineHours"] = hours
     elif op == "configure_sftp":
         config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
         config_dir.mkdir(exist_ok=True)
@@ -463,6 +565,7 @@ def _execute(request):
             else:
                 file.write_text(previous)
             raise
+        install_content_worker(root, state)
         state["sftpConfigured"] = True
     if op != "status":
         job = state.get("operations", {}).get(state.get("activeOperation"))

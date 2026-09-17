@@ -1,3 +1,4 @@
+import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -70,9 +71,9 @@ test('session preflight blocks missing auth and runtime expiry enables login rec
   const fixture = await authLauncher(root);
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); wb.workspaceReady = true;
+    await wb.store.init(); grantTestWorkspace(wb, root);
     wb.store.settings.providerPaths.codex = fixture.launcher;
-    const session = await wb.createSession('codex', root);
+    const session = await wb.createSession('codex', root, offlineProjectId);
     await assert.rejects(wb.send(session.id, 'do not lose this task'), /尚未登录/);
     assert.equal(session.nativeId, undefined); assert.equal(session.messages.length, 0);
     await fixture.write({ status: 'ready' }); await wb.send(session.id, 'test task');

@@ -1,3 +1,4 @@
+import { offlineSettings, offlineProjectId } from '../tests/fixtures/offline-workspace.mjs';
 import { _electron as electron, expect as baseExpect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -10,7 +11,7 @@ const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', pe
 const cursorConfig = path.join(data, 'cursor-config'); await fs.mkdir(cursorConfig);
 const globalFile = path.join(cursorConfig, 'cli-config.json');
 await fs.writeFile(globalFile, JSON.stringify({ version: 1, approvalMode: 'unrestricted', permissions: { allow: ['Shell(*)'], deny: ['Read(.env)'] }, auth: { token: 'PRIVATE' } }));
-await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
+await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ ...offlineSettings(), connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data, CURSOR_CONFIG_DIR: cursorConfig }; delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
 const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
@@ -32,7 +33,7 @@ try {
   await send('请求需要审核的操作');
   await expect(page.getByLabel('待授权提醒')).toContainText('1');
   await expect(page.locator('.approval')).toContainText('Codex 请求执行命令');
-  const second = await call('session.create', { provider: 'codex', cwd: data });
+  const second = await call('session.create', { provider: 'codex', cwd: data, projectId: offlineProjectId });
   await page.locator(`.session-row[data-session-id="${second.id}"]`).click();
   await expect(page.locator('.approval')).toHaveCount(0);
   await page.getByLabel('待授权提醒').getByRole('button').click();
@@ -92,7 +93,7 @@ try {
   await expect(page.locator(`.session-row[data-session-id="${cursor.id}"]`)).toHaveClass(/selected/);
   await send('Cursor 人工审批');
   await expect(page.locator('.approval')).toContainText('Cursor 请求执行命令');
-  await assert.rejects(call('provider.cursorReview', { cwd: data }), /先停止/);
+  await assert.rejects(call('provider.cursorReview', { cwd: data, projectId: offlineProjectId }), /先停止/);
   await expect(page.locator('.approval').getByRole('button')).toHaveCount(2);
   await page.locator('.approval').getByRole('button', { name: '拒绝', exact: true }).click();
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === cursor.id).status).toBe('idle');

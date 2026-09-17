@@ -31,12 +31,12 @@ test('group member changes preserve other groups and roles even from a stale adm
   try {
     await another.connect(x.profile, 'admin-test-password', '', async () => false);
     await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_other', role: 'admin' });
-    await another.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'remove' });
+    await another.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'remove', handoffs: { 'local_workbench': null } });
     let user = (await readRegistry(x.root)).state.users.alice;
     assert.deepEqual(user.groups, ['local_other']); assert.deepEqual(user.contentAdminGroups, ['local_other']);
     await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'admin' });
-    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'member' });
-    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'member' });
+    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'member', handoffs: { 'local_workbench': null } });
+    await x.admin.operation({ op: 'group_member', username: 'alice', group: 'local_workbench', role: 'member', handoffs: { 'local_workbench': null } });
     user = (await readRegistry(x.root)).state.users.alice;
     assert.deepEqual(new Set(user.groups), new Set(['local_workbench', 'local_other']));
     assert.equal(user.groups!.length, 2); assert.deepEqual(user.contentAdminGroups, ['local_other']);
@@ -121,7 +121,7 @@ test('local admin opens legacy shares without credentials, preserves registry an
     await assert.rejects(another.connect({ ...x.profile, localRoot: path.join(x.base, 'missing'), username: '' }, '', '', async () => false), /不存在/);
   } finally { another.disconnect(); await x.clean(); }
 });
-test('local shared files: project roles, real disk transfers, team result visibility and private histories', async () => {
+test('local shared files: project roles, real disk transfers, team result and uploaded trajectory visibility', async () => {
   const x = await setup();
   try {
     const alice = await x.connect('alice'), project = await alice.createProject('完善团队工作台');
@@ -137,10 +137,10 @@ test('local shared files: project roles, real disk transfers, team result visibi
     assert.match((await bob.preview(bb, target)).content, /改进工作台/);
     assert.equal((await bob.list(bb, project.uploadPath)).length, 1);
     await assert.rejects(bob.upload(bb, file, target, () => {}), /模拟权限拒绝/);
-    await assert.rejects(alice.upload(binding, file, target, () => {}), /EEXIST/);
+    await alice.upload(binding, file, target, () => {}); // Identical retry is idempotent.
     await alice.ensurePersonalFolder(binding, project.historyPath); await alice.upload(binding, file, project.historyPath + '/history.md', () => {});
-    await assert.rejects(bob.preview(bb, project.historyPath + '/history.md'), /模拟权限拒绝/);
-    assert.deepEqual(await bob.list(bb, project.remoteRoot + '/trajectories'), []);
+    assert((await bob.preview(bb, project.historyPath + '/history.md')).content);
+    assert((await bob.list(bb, project.remoteRoot + '/trajectories')).some(e => e.name === 'alice'));
     await assert.rejects(carol.list(binding, project.remoteRoot), /身份不一致/);
     const download = path.join(x.base, 'download.md'); await bob.download(bb, target, download); assert.equal(await fs.readFile(download, 'utf8'), await fs.readFile(file, 'utf8'));
     await assert.rejects(bob.preview(bb, project.remoteRoot + '/.workbench-project.json'), /管理记录/);
@@ -158,7 +158,7 @@ test('local permission changes apply to live user connections, including passwor
     await x.admin.operation({ op: 'user_password', username: 'bob', password: 'replacement-password' }); await assert.rejects(bob.list(binding, p.remoteRoot), /凭据已改变/);
     await assert.rejects(bob.connect(x.config('bob'), 'member-test-password', async () => false), /密码错误/);
     await bob.connect(x.config('bob'), 'replacement-password', async () => false); await bob.verifyWorkspace('/projects/workbench');
-    await x.admin.operation({ op: 'user_groups', username: 'alice', groups: ['local_workbench'], contentAdminGroups: [] }); await assert.rejects(alice.createProject('revoked'), /子管理员/);
+    await x.admin.operation({ op: 'user_groups', username: 'alice', groups: ['local_workbench'], contentAdminGroups: [], handoffs: { local_workbench: null } }); await assert.rejects(alice.createProject('revoked'), /子管理员/);
     await alice.loadManifest(); assert.equal(alice.workspace!.canCreateProject, false);
     alice.disconnect(); bob.disconnect();
   } finally { await x.clean(); }

@@ -1,3 +1,4 @@
+import { offlineSettings, offlineProjectId } from '../tests/fixtures/offline-workspace.mjs';
 import { releaseRoot } from './release-paths.mjs';
 import { _electron as electron, expect as baseExpect } from '@playwright/test';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ const expect = baseExpect.configure({ timeout: 20000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'session-experience-' + Date.now());
 await fs.mkdir(data, { recursive: true });
 const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
-await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
+await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ ...offlineSettings(), connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data }; delete env.ELECTRON_RUN_AS_NODE;
 const packaged = process.argv.includes('--packaged');
 const app = await electron.launch({ ...(packaged ? { executablePath: path.join(releaseRoot, 'user/win-unpacked/Team Agent User.exe'), args: [] } : { args: ['dist/user'] }), cwd: root, env, timeout: 60000 });
@@ -33,7 +34,7 @@ try {
   await page.getByRole('button', { name: '轨迹上传', exact: true }).click();
   await expect(page.getByRole('heading', { name: '轨迹上传', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '导出到本地' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '确认上传轨迹' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '确认上传轨迹' })).toBeEnabled();
   await assert.rejects(call('session.export', { id: gpt.id }), /未知操作/);
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.getByRole('button', { name: '关闭会话', exact: true }).click();

@@ -1,3 +1,4 @@
+import { ownDataDirectory } from '../shared/single-instance';
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -12,7 +13,7 @@ app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
 let window: BrowserWindow; let remote: AdminConnection | LocalAdminConnection;
 const entry = path.join(__dirname, 'index.html');
-app.whenReady().then(async () => {
+if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
   const config = path.join(app.getPath('userData'), 'connection.json');
   const changed = () => { if (window && !window.isDestroyed()) window.webContents.send('admin:changed'); };
   remote = new AdminConnection(path.join(__dirname, 'admin.py'), changed);

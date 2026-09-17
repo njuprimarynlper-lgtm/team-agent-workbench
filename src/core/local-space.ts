@@ -53,6 +53,7 @@ export function authorizeUser(data: LocalRegistry, username: string, proof: stri
 export async function registryLock<T>(root: string, action: () => Promise<T>) {
   const file = await diskPath(root, '/.workbench-local.lock', true);
   let lock;
-  try { lock = await fs.open(file, 'wx'); } catch (e: any) { if (e.code === 'EEXIST') throw new Error('另一个管理员正在修改本地共享区；若上次进程异常退出，请确认已关闭后移除 .workbench-local.lock'); throw e; }
+  const deadline = Date.now() + 5000;
+  for (;;) { try { lock = await fs.open(file, 'wx'); break; } catch (e: any) { if (e.code !== 'EEXIST') throw e; if (Date.now() >= deadline) throw new Error('共享区正在保存其他操作，请稍后重试；异常退出留下的锁需由管理员核对后处理'); await new Promise(resolve => setTimeout(resolve, 25)); } }
   try { return await action(); } finally { await lock.close(); await fs.rm(file, { force: true }); }
 }

@@ -39,8 +39,8 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     assert.equal(projectSetupIdentity({ ...owner.remote.profile!, id: 'reimported-profile' }, 'local_one'), key(owner, 'local_one'));
     assert.notEqual(projectSetupIdentity({ ...owner.remote.profile!, localRoot: share + '-other' }, 'local_one'), key(owner, 'local_one'));
     assert(owner.remote.workspaces.find(w => w.groupName === 'local_one')!.isEmpty);
-    assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_existing')!.isEmpty, false);
-    await assert.rejects(owner.initializeProject('不覆盖', 'local_existing', brief, key(owner, 'local_existing')), /已有内容/);
+    assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_existing')!.isEmpty, true);
+    await owner.initializeProject('不覆盖', 'local_existing', brief, key(owner, 'local_existing')); assert.equal(await fs.readFile(path.join(share, 'projects/existing/原有资料.txt'), 'utf8'), 'keep');
     await assert.rejects(owner.initializeProject('错误账号', 'local_one', brief, key(member, 'local_one')), /账号已改变/);
     await assert.rejects(member.initializeProject('越权', 'local_one', brief, key(member, 'local_one')), /子管理员/);
     await assert.rejects(owner.initializeProject('缺少说明', 'local_one', { ...brief, acceptance: ' ' }, key(owner, 'local_one')));
@@ -51,9 +51,9 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     for (const dir of ['trajectories', 'submissions']) assert((await fs.stat(path.join(share, 'projects/one/客户信息整理', dir))).isDirectory());
     await member.remote.loadManifest(); const preview = await member.remote.preview(member.remote.binding(project.id), project.remoteRoot + '/' + PROJECT_BRIEF_FILE); assert.equal(preview.content, text);
     await owner.configureWorkspace(config('alice'), '1', root, async () => false); assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_one')!.isEmpty, false);
-    await assert.rejects(owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one')), /已有内容/);
+    await assert.rejects(owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one')), /EEXIST|已存在/);
     assert.equal(await fs.readFile(path.join(share, 'projects/one/客户信息整理', PROJECT_BRIEF_FILE), 'utf8'), text);
-    await admin.operation({ op: 'group_member', username: 'alice', group: 'local_two', role: 'member' });
+    await admin.operation({ op: 'group_member', username: 'alice', group: 'local_two', role: 'member', handoffs: { 'local_two': null } });
     await assert.rejects(owner.initializeProject('撤权后创建', 'local_two', brief, key(owner, 'local_two')), /子管理员/);
     assert.deepEqual(await fs.readdir(path.join(share, 'projects/two')), []);
   } finally { admin.disconnect(); await owner.close(); await member.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
@@ -79,6 +79,6 @@ test('SFTP onboarding publishes complete UTF-8 brief, respects permissions, remo
     const file = project.remoteRoot + '/' + PROJECT_BRIEF_FILE;
     assert.equal(server.nodes.get(file).mode & 0o777, 0o640); assert.equal(owner.remote.workspace!.isEmpty, false);
     await member.remote.loadManifest(); const preview = await member.remote.preview(member.remote.binding(project.id), file); assert(preview.content.includes(brief.background));
-    await assert.rejects(owner.initializeProject('新项目', 'wb_test_ocr', brief, key), /已有内容/);
+    const another = await owner.initializeProject('新项目', 'wb_test_ocr', brief, key); assert.notEqual(another.id, project.id); assert.equal(owner.remote.profile!.projects.length, 2);
   } finally { await owner.close(); await member.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });
