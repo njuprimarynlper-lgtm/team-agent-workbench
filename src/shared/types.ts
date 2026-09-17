@@ -1,4 +1,7 @@
 export type Provider = 'codex' | 'cursor';
+export type PermissionMode = 'inherit' | 'review' | 'full';
+export interface PermissionReport { provider: Provider; checkedAt: string; source: 'config' | 'runtime'; sandbox: string; approval: string; reviewer?: string; warnings: string[]; allowedModes?: PermissionMode[]; execution?: 'passed' | 'blocked' | 'unknown'; executionDetail?: string; cursorConfig?: { files: string[]; allow: string[]; deny: string[] }; }
+export interface PermissionIssue { kind: 'sandbox' | 'policy' | 'filesystem'; message: string; at: string; }
 export interface Project { id: string; name: string; remoteRoot: string; uploadPath: string; historyPath: string; managed?: boolean; groupName?: string; groupLabel?: string }
 export interface ConnectionProfile { mode?: 'sftp' | 'local'; localRoot?: string; id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
 export interface Settings { connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
@@ -9,13 +12,14 @@ export interface FilePreview { name: string; path: string; type: 'text' | 'image
 export interface SourceFile { id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string }
 export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; createdAt: string }
 export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'deny' | 'answer' }
-export interface Approval { id: string; method: string; title: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }
+export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }
 export interface RemoteBinding { connectionId: string; host: string; port: number; username: string; fingerprint: string; project: Project }
 export interface AgentSession {
   id: string; title: string; provider: Provider; model?: string; closedAt?: string; nativeId?: string; nativePath?: string;
   cwd: string; purpose: 'work' | 'prepare'; parentId?: string; createdAt: string;
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string;
   messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
+  permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue;
   autoUpload: boolean; lastArchiveAt?: string; handoffPath: string;
 }
 export interface Transfer { id: string; kind: 'upload' | 'history' | 'download'; name: string; status: 'queued' | 'running' | 'done' | 'error'; bytes: number; total: number; target: string; projectName: string; createdAt: string; error?: string; sessionId?: string; localPath: string; binding: RemoteBinding }

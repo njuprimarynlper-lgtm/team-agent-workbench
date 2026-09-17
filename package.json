@@ -12,6 +12,7 @@
     "test": "tsx --test tests/*.test.ts",
     "test:ui": "node scripts/smoke.mjs",
     "test:session-ui": "node scripts/session-experience-smoke.mjs",
+    "test:permissions-ui": "node scripts/permissions-smoke.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "start:admin": "npm run build && electron dist/admin",

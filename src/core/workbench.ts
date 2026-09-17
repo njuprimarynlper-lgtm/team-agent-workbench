@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { inspectPermissions, setCursorManualReview } from './permissions';
+import type { PermissionMode } from '../shared/types';
 import type { AgentSession, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { SharedFiles } from './shared-files';
@@ -29,6 +31,7 @@ export class Workbench {
   }
   workspaceReady = false;
   private configuring = false;
+  private configuringCursorPermissions = false;
   private closing = false;
   accounts: ProviderAccounts;
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000) {
@@ -88,14 +91,42 @@ export class Workbench {
   changed = () => { this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
   session(id: string) { const s = this.store.sessions.find(x => x.id === id); if (!s) throw new Error('会话不存在'); return s; }
   draft(id: string) { const d = this.store.drafts.find(x => x.id === id); if (!d) throw new Error('草稿不存在'); return d; }
-  async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string) {
+  async inspectPermissions(provider: Provider, cwd: string) {
+    if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
+    return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd);
+  }
+  async configureCursorReview(cwd: string) {
+    if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
+    if (this.configuringCursorPermissions) throw new Error('正在保存 Cursor 权限配置，请稍后重试');
+    if (this.store.sessions.some(s => s.provider === 'cursor' && ['starting', 'running', 'approval'].includes(s.status))) throw new Error('请先停止正在运行的 Cursor 会话，再修改其账号权限配置');
+    this.configuringCursorPermissions = true;
+    try {
+      const report = await setCursorManualReview(cwd);
+      // Idle ACP processes may have cached the old account-wide allow rules.
+      for (const [id, runtime] of this.runtimes) if (runtime.session.provider === 'cursor') {
+        this.runtimes.delete(id); await runtime.close(); runtime.session.permissions = undefined;
+      }
+      await this.store.save(); this.broadcast(); return report;
+    } finally { this.configuringCursorPermissions = false; }
+  }
+  async changePermissions(id: string, mode: PermissionMode, stop = false) {
+    const s = this.session(id);
+    if (s.purpose !== 'work') throw new Error('成果整理固定使用只读权限');
+    if (!['inherit', 'review', 'full'].includes(mode)) throw new Error('无效权限模式');
+    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
+    if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再修改权限');
+    const runtime = this.runtimes.get(id); this.runtimes.delete(id); if (runtime) await runtime.close();
+    s.permissionMode = mode; s.permissions = undefined; s.permissionIssue = undefined; s.status = 'idle'; s.approvals = [];
+    await this.store.save(); this.broadcast(); return s;
+  }
+  async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit') {
     this.assertWorkspace();
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本地工作目录');
     const id = randomUUID(); const dir = purpose === 'work' ? path.join(cwd, '.workbench', 'sessions', id) : cwd;
     await fs.mkdir(dir, { recursive: true });
     const handoffPath = path.join(dir, 'handoff.md');
     await fs.writeFile(handoffPath, '# Agent 工作记录\n\n## 目标与范围\n待补充。\n\n## 当前结果\n尚未整理。\n\n## 验证与证据\n尚无验证记录。\n\n## 代码改动与仓库链接（如有）\n无代码改动时可留空。\n\n## 尚未解决的问题\n待补充。\n', { flag: 'wx' });
-    const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, cwd, purpose, parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding: projectId ? this.remote.binding(projectId) : undefined, autoUpload: false, handoffPath };
+    const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding: projectId ? this.remote.binding(projectId) : undefined, autoUpload: false, handoffPath };
     this.store.sessions.unshift(session); this.store.settings.lastWorkspace = purpose === 'work' ? cwd : this.store.settings.lastWorkspace; await this.store.save(); this.broadcast(); return session;
   }
   private event(id: string, value: unknown) {
@@ -106,6 +137,7 @@ export class Workbench {
   async send(id: string, userText: string, sourceIds: string[] = []) {
     this.assertWorkspace();
     const s = this.session(id);
+    if (s.provider === 'cursor' && this.configuringCursorPermissions) throw new Error('正在保存 Cursor 权限配置，请保存完成后再发送任务');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (this.sending.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     this.sending.add(id); s.status = 'starting'; this.changed();
@@ -116,7 +148,7 @@ export class Workbench {
       if (!runtime) {
         const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
         if (s.closedAt) throw new Error('此会话已关闭');
-        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd) });
+        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) });
         this.runtimes.set(id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(id) === runtime) this.runtimes.delete(id); });
       }
       let prompt = userText;

@@ -32,11 +32,14 @@ else if (command === 'login') {
   else console.log('Available models\n\ncursor-fixture - Cursor Fixture (current, default)\nother-fixture - Other Fixture\n\nTip: use --model <id>');
 } else {
   readline.createInterface({ input: process.stdin }).on('line', line => {
-    const m = JSON.parse(line), current = read();
+    const m = JSON.parse(line), current = read(), turnId = current.turnId || 'fake-turn';
     const preparation = JSON.stringify(m.params || {}).includes('destinationId');
     const answer = provider => preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: 'Agent 成果草稿', body: '# Agent 成果草稿\n已根据 Agent 工作记录整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' }) : provider === 'codex' ? '# Agent 成果草稿\n已根据 Agent 工作记录整理。测试已通过。' : '# Cursor 成果草稿\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m) + '\n');
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
+    else if (m.method === 'config/read') send({ id: m.id, result: { config: { sandbox_mode: current.permissionConfig?.sandbox || 'workspace-write', approval_policy: current.permissionConfig?.approval || 'on-request', approvals_reviewer: 'user', api_key: 'DO_NOT_FORWARD_THIS_SECRET' } } });
+    else if (m.method === 'configRequirements/read') send({ id: m.id, result: { requirements: current.permissionRequirements || null } });
+    else if (m.method === 'command/exec') send(current.probeBlocked ? { id: m.id, error: { code: -32000, message: 'Windows sandbox: CreateProcessAsUser failed' } } : { id: m.id, result: { exitCode: 0, stdout: 'WORKBENCH_PERMISSION_OK', stderr: '' } });
     else if (m.method === 'model/list') {
       if (current.catalog === 'hang') return;
       if (current.catalog === 'error') send({ id: m.id, error: { code: -32000, message: 'fetch failed DO_NOT_FORWARD_THIS_SECRET' } });
@@ -54,24 +57,30 @@ else if (command === 'login') {
       }
       else if (current.status === 'expired') send({ id: m.id, error: { code: -32000, message: 'refresh_token_expired' } });
       else { const reply = () => send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', account: current.status === 'ready' ? { type: 'chatgpt', email: 'fake@example.com', planType: 'pro' } : null } }); if (current.delay) setTimeout(reply, current.delay); else reply(); }
-    } else if (m.method === 'thread/start' || m.method === 'thread/resume') send({ id: m.id, result: { thread: { id: 'fake-thread' } } });
+    } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
+      if (current.rejectPermissionMode) send({ id: m.id, error: { code: -32000, message: 'sandbox mode not allowed by administrator policy' } });
+      else send({ id: m.id, result: { thread: { id: 'fake-thread' }, ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: 'user' } : {}) } });
+    }
     else if (m.method === 'session/new' || m.method === 'session/load') send({ id: m.id, result: { sessionId: 'fake-session' } });
     else if (m.method === 'turn/start') {
       log('turn/start');
-      send({ id: m.id, result: { turn: { id: 'fake-turn' } } });
+      send({ id: m.id, result: { turn: { id: turnId } } });
+      if (current.permissionDenied) { send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'denied-command', type: 'commandExecution', command: 'test command', exitCode: 1, status: 'failed', aggregatedOutput: current.permissionDenied } } }); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); return; }
+      if (current.toolApproval) { send({ id: 'tool-approval', method: 'item/commandExecution/requestApproval', params: { threadId: 'fake-thread', turnId, command: 'test command', cwd: process.cwd(), reason: 'Needs approval outside sandbox', availableDecisions: current.denyOnly ? ['decline'] : ['accept', 'decline'] } }); return; }
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }
       if (current.turn === 'success') {
         const done = () => {
           send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'answer', type: 'agentMessage', text: answer('codex') } } });
-          send({ method: 'turn/completed', params: { turn: { id: 'fake-turn' } } });
+          send({ method: 'turn/completed', params: { turn: { id: turnId } } });
         }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
-      } else if (current.turn === 'network') send({ method: 'turn/completed', params: { turn: { id: 'fake-turn', error: { message: 'Network timeout: connection reset' } } } });
+      } else if (current.turn === 'network') send({ method: 'turn/completed', params: { turn: { id: turnId, error: { message: 'Network timeout: connection reset' } } } });
       else if (current.fileApproval) {
-        send({ method: 'item/started', params: { threadId: 'fake-thread', turnId: 'fake-turn', item: { id: 'patch-item', type: 'fileChange', changes: [{ path: 'solution.py', kind: { type: 'update' }, diff: '-old_value\n+new_value' }] } } });
-        send({ id: 'patch-approval', method: 'item/fileChange/requestApproval', params: { threadId: 'fake-thread', turnId: 'fake-turn', itemId: 'patch-item', reason: 'fixture file change' } });
-      } else send({ method: 'turn/completed', params: { turn: { id: 'fake-turn', error: { message: '401 Unauthorized: Please log in again' } } } });
+        send({ method: 'item/started', params: { threadId: 'fake-thread', turnId, item: { id: 'patch-item', type: 'fileChange', changes: [{ path: 'solution.py', kind: { type: 'update' }, diff: '-old_value\n+new_value' }] } } });
+        send({ id: 'patch-approval', method: 'item/fileChange/requestApproval', params: { threadId: 'fake-thread', turnId, itemId: 'patch-item', reason: 'fixture file change' } });
+      } else send({ method: 'turn/completed', params: { turn: { id: turnId, error: { message: '401 Unauthorized: Please log in again' } } } });
     } else if (m.method === 'session/prompt') {
+      if (current.toolApproval) { globalThis.toolPromptId = m.id; send({ id: 'tool-approval', method: 'session/request_permission', params: { sessionId: 'fake-session', toolCall: { title: 'Cursor 请求执行命令', rawInput: { command: 'test command' } }, options: current.noOnce ? [{ optionId: 'always', kind: 'allow_always' }] : [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } }); return; }
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }
       if (current.turn === 'success') {
@@ -81,6 +90,7 @@ else if (command === 'login') {
         }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
       } else send({ id: m.id, error: { code: -32000, message: current.turn === 'network' ? 'Network timeout: connection reset' : 'Unauthenticated: Please log in again' } });
     }
-    else if (m.id === 'patch-approval' && m.result) send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: 'fake-turn', status: 'completed' } } });
+    else if (m.id === 'patch-approval' && m.result) send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId, status: 'completed' } } });
+    else if (m.id === 'tool-approval' && m.result) { if (globalThis.toolPromptId) send({ id: globalThis.toolPromptId, result: { stopReason: 'end_turn' } }); else send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); }
   });
 }

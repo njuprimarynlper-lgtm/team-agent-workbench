@@ -22,8 +22,8 @@ for (const mode of ['codex', 'cursor', 'codex-files', 'codex-double']) test(mode
     assert.equal(s.nativeId, 'native-session-1'); assert.match(s.messages.find(x => x.role === 'assistant')!.text, /中文回复/);
     assert.equal(completed, false); assert.equal(s.approvals.length, 1);
     if (mode === 'codex-files') assert.deepEqual(JSON.parse(s.approvals[0].details).changes, [{ path: 'solution.py', kind: { type: 'update' }, diff: '-old\n+new' }]);
-    assert.throws(() => runtime.answer('approval-1', 'unknown'), /无效/);
-    runtime.answer('approval-1', provider === 'codex' ? 'decline' : 'reject-once');
+    assert.throws(() => runtime.answer(s.approvals[0].id, 'unknown'), /无效/);
+    runtime.answer(s.approvals[0].id, provider === 'codex' ? 'decline' : 'reject-once');
     await prompt; await until(() => completed);
     assert.equal(s.status, 'idle'); assert.equal(s.approvals.length, 0);
     assert(events.some(e => e.direction === 'user' && e.result));
@@ -32,7 +32,7 @@ for (const mode of ['codex', 'cursor', 'codex-files', 'codex-double']) test(mode
       completed = false;
       await runtime.prompt('second turn'); await until(() => s.status === 'approval');
       assert.equal(JSON.parse(s.approvals[0].details).changes, undefined, 'never reuse a previous turn or another thread diff');
-      runtime.answer('approval-1', 'decline'); await until(() => completed);
+      runtime.answer(s.approvals[0].id, 'decline'); await until(() => completed);
     }
   } finally { runtime.close(); await new Promise(r => setTimeout(r, 200)); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

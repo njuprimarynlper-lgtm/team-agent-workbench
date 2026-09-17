@@ -15,7 +15,7 @@ app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath(
 function emit(event: WorkbenchEvent) { if (window && !window.isDestroyed()) window.webContents.send('workbench:event', event); }
 let emitTimer: NodeJS.Timeout | undefined;
 function broadcast() { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); }
-const notice = (message: string) => emit({ type: 'notice', message });
+const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：') && window && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
 const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider = z.enum(['codex', 'cursor']);
 const sessionInput = z.object({ id });
 async function chooseFiles() { return (await dialog.showOpenDialog(window, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
@@ -36,6 +36,9 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     }
     case 'provider.login.cancel': workbench.accounts.cancel(z.object({ provider }).parse(raw).provider); return true;
     case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.catalog(p.provider, p.cwd); }
+    case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd); }
+    case 'provider.cursorReview': return workbench.configureCursorReview(z.object({ cwd: text.min(1) }).parse(raw).cwd);
+    case 'session.permissions': { const p = z.object({ id, mode: z.enum(['inherit', 'review', 'full']), stop: z.boolean().optional() }).parse(raw); return workbench.changePermissions(p.id, p.mode, p.stop); }
     case 'choose.directory': return (await dialog.showOpenDialog(window, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(window, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
     case 'profile.import': {
@@ -58,7 +61,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       await workbench.remote.download(binding, p.path, result.filePath); notice('已下载到 ' + result.filePath); return true;
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
-    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional() }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model); }
+    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'full']).optional() }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode); }
     case 'session.send': {
       const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]) }).parse(raw); const s = workbench.session(p.id);
       await workbench.requireAuth(s.provider, s.cwd);
@@ -104,6 +107,7 @@ app.whenReady().then(async () => {
   workbench = new Workbench(app.getPath('userData'), broadcast, notice); await workbench.init();
   window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   window.setMenuBarVisibility(false);
+  window.on('focus', () => window.flashFrame(false));
   window.on('close', event => { if (!quitting) { event.preventDefault(); void finishQuit(); } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
