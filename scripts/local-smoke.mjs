@@ -1,4 +1,7 @@
 import { releaseRoot } from './release-paths.mjs';
+const extendedAccounts = process.argv.includes('--accounts');
+const aliceName = extendedAccounts ? '张三' : 'alice', bobName = extendedAccounts ? '10086' : 'bob';
+const memberPassword = extendedAccounts ? '1' : 'member-test-password', adminPassword = extendedAccounts ? '1' : 'admin-test-password';
 import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -24,31 +27,31 @@ async function connectUser(page, username) {
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   await page.getByLabel('本地共享区根目录', { exact: true }).fill(share);
   await page.getByLabel('共享工作路径', { exact: true }).fill('/projects/competition');
-  await page.getByLabel('模拟成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('member-test-password');
+  await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill(memberPassword);
   await page.getByRole('button', { name: '连接并验证工作路径', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
 }
 try {
   const admin = await launch('admin', 'admin'); const ap = admin.page;
   await ap.getByLabel('共享区类型').selectOption('local'); await ap.getByLabel('本地共享区根目录').fill(share);
-  await ap.getByLabel('管理账号', { exact: true }).fill('admin'); await ap.getByLabel('登录密码', { exact: true }).fill('admin-test-password');
+  await ap.getByLabel('管理账号', { exact: true }).fill(extendedAccounts ? '管理员' : 'admin'); await ap.getByLabel('登录密码', { exact: true }).fill(adminPassword);
   await ap.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
   await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
   await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('组标识').fill('competition'); await confirm(ap);
-  for (const username of ['alice', 'bob']) {
+  for (const username of [aliceName, bobName]) {
     await ap.getByRole('button', { name: '创建用户', exact: true }).click();
-    await ap.getByLabel('成员姓名', { exact: true }).fill(username); await ap.getByLabel('模拟账号', { exact: true }).fill(username);
-    await ap.getByLabel('初始密码', { exact: true }).fill('member-test-password'); await ap.getByLabel('再次输入密码', { exact: true }).fill('member-test-password');
+    await ap.getByLabel('成员姓名', { exact: true }).fill(username); await ap.getByLabel('登录账号', { exact: true }).fill(username);
+    await ap.getByLabel('初始密码', { exact: true }).fill(memberPassword); await ap.getByLabel('再次输入密码', { exact: true }).fill(memberPassword);
     await ap.locator('.modal .check-row').filter({ hasText: 'competition' }).first().locator('input').check();
-    if (username === 'alice') await ap.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
+    if (username === aliceName) await ap.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
     await confirm(ap);
   }
   const exported = path.join(data, 'alice.json');
   await admin.app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, exported);
-  await ap.locator('tbody tr').filter({ hasText: 'alice' }).getByRole('button', { name: '导出连接配置' }).click(); await confirm(ap);
+  await ap.locator('tbody tr').filter({ hasText: aliceName }).getByRole('button', { name: '导出连接配置' }).click(); await confirm(ap);
   const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.mode, 'local'); assert.equal(config.localRoot, share); assert(!JSON.stringify(config).includes('password'));
-  const alice = await launch('user', 'alice'); await connectUser(alice.page, 'alice');
+  const alice = await launch('user', 'alice'); await connectUser(alice.page, aliceName);
   await alice.page.getByRole('button', { name: '创建第一个项目', exact: true }).click(); await alice.page.getByLabel('项目名称').fill('华为算法比赛'); await alice.page.getByRole('button', { name: '创建项目', exact: true }).click();
-  const bob = await launch('user', 'bob'); await connectUser(bob.page, 'bob');
+  const bob = await launch('user', 'bob'); await connectUser(bob.page, bobName);
   const snapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')), p = snapshot.connection.profile.projects[0];
   assert.equal(await bob.page.getByTitle('创建远端项目', { exact: true }).count(), 0);
   const source = path.join(data, 'competition-note.md'); await fs.writeFile(source, '# 比赛协同联调\n用户 A 与用户 B 各迭代两轮。');
@@ -73,14 +76,14 @@ try {
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0]?.status).toBe('done');
   const history = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0];
   await assert.rejects(bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }), /模拟权限拒绝/);
-  const row = ap.locator('tbody tr').filter({ hasText: 'bob' });
+  const row = ap.locator('tbody tr').filter({ hasText: bobName });
   await row.getByRole('button', { name: '停用', exact: true }).click(); await confirm(ap);
   await assert.rejects(bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot }), /已停用/);
   await row.getByRole('button', { name: '启用', exact: true }).click(); await confirm(ap);
   assert((await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot })).length);
   assert.equal(await alice.page.evaluate(() => typeof window.admin), 'undefined'); assert.equal(await ap.evaluate(() => typeof window.workbench), 'undefined'); assert.deepEqual(errors, []);
   if (!packaged) { await ap.screenshot({ path: path.join(data, 'admin.png'), timeout: 10000 }); await bob.page.screenshot({ path: path.join(data, 'user-bob.png'), timeout: 10000 }); }
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'history privacy', 'live disable/enable', 'edition isolation'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'history privacy', 'live disable/enable', 'edition isolation'] }, null, 2));
   console.log('Local filesystem administrator + two users UI passed:', data);
 } catch (error) { for (const app of apps) await app.evaluate(({ app }) => app.exit(1)).catch(() => {}); throw error; }
 finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

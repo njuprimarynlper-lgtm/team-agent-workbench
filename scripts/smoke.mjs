@@ -50,7 +50,7 @@ try {
   await page.getByLabel('Linux 工作路径', { exact: true }).fill('/projects/denied');
   await page.getByLabel('服务器地址', { exact: true }).fill(profile.host);
   await page.getByLabel('SFTP 端口', { exact: true }).fill(String(profile.port));
-  await page.getByLabel('Linux 用户名', { exact: true }).fill(profile.username);
+  await page.getByLabel('成员账号', { exact: true }).fill(profile.username);
   await page.getByLabel('登录密码', { exact: true }).fill('test-password');
   await page.getByLabel('管理员提供的服务器指纹', { exact: true }).fill(profile.fingerprint);
   await page.getByRole('button', { name: '连接并验证工作路径', exact: true }).click();

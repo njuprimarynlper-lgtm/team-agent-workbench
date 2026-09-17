@@ -1,7 +1,9 @@
 import { Client, type ClientChannel } from 'ssh2';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import { deflateSync } from 'node:zlib';
 import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
+import { systemUsername } from '../core/account-login';
 
 // Only a fixed, packaged program is executed. Request data (including passwords)
 // travels over encrypted stdin and never becomes command arguments.
@@ -10,15 +12,15 @@ export class AdminConnection {
   snapshot: AdminSnapshot = { connected: false, verified: false, busy: false };
   constructor(private scriptPath: string, private changed: () => void) {}
   disconnect() { this.client?.end(); this.client = undefined; this.sudoPassword = ''; this.rawReady = false; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
-  async connect(profile: AdminProfile, password: string, sudoPassword: string, trust: (key: string) => Promise<boolean>) {
-    this.disconnect(); this.code = Buffer.from(await fs.readFile(this.scriptPath)).toString('base64');
+  async connect(profile: AdminProfile, password: string, sudoPassword: string, trust: (key: string) => Promise<boolean>, login = profile.username): Promise<AdminProfile> {
+    this.disconnect(); this.code = deflateSync(await fs.readFile(this.scriptPath)).toString('base64');
     const client = new Client(); this.client = client; this.sudoPassword = sudoPassword || password;
     try {
       let fingerprint = '';
       await new Promise<void>((resolve, reject) => {
         client.on('error', reject); client.on('ready', resolve);
         client.on('close', () => { if (this.client === client) this.disconnect(); });
-        client.connect({ host: profile.host, port: profile.port, username: profile.username, password, readyTimeout: 30000, keepaliveInterval: 15000,
+        client.connect({ host: profile.host, port: profile.port, username: login, password, readyTimeout: 30000, keepaliveInterval: 15000,
           hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
             fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
             if (profile.fingerprint) callback(profile.fingerprint === fingerprint); else void trust(fingerprint).then(callback, () => callback(false));
@@ -39,7 +41,14 @@ export class AdminConnection {
       this.useSudo = uid.trim() !== '0';
       this.snapshot.state = await this.execute({ op: 'status' }, this.useSudo);
       this.changed(); return this.snapshot.profile!;
-    } catch (e) { this.disconnect(); throw e; }
+    } catch (e: any) {
+      this.disconnect();
+      // Existing root/sudo logins are literal. Only retry a managed alias after
+      // authentication fails; a permissions/host-key failure never triggers retry.
+      const mapped = systemUsername(profile.username);
+      if (e.level === 'client-authentication' && login === profile.username && mapped !== login) return this.connect(profile, password, sudoPassword, trust, mapped);
+      throw e;
+    }
   }
   private useSudo = true;
   private async readContentRoles(profile: AdminProfile): Promise<{ id: string; name: string }[]> {
@@ -84,7 +93,8 @@ export class AdminConnection {
   }
   private execute(payload: object, useSudo: boolean): Promise<any> {
     if (!this.rawReady || !this.client) return Promise.reject(new Error('请先连接服务器'));
-    const program = `python3 -c 'import base64;exec(base64.b64decode("${this.code}").decode("utf-8"))'`;
+    // Keep the fixed script below SSH's request-packet limit as it grows.
+    const program = `python3 -c 'import base64,zlib;exec(zlib.decompress(base64.b64decode("${this.code}")).decode("utf-8"))'`;
     const command = useSudo ? 'sudo -S -p WORKBENCH_SUDO -- ' + program : program;
     const request = { ...payload, root: this.snapshot.profile!.root };
     return new Promise((resolve, reject) => {

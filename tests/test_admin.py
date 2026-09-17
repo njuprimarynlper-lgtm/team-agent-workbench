@@ -71,6 +71,51 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertEqual((root/'projects/ocr/existing.txt').read_text(),'preserve')
 
 class AdminRecoveryTests(unittest.TestCase):
+    def test_extended_accounts_use_system_identity_for_all_commands_and_preserve_alias_roles(self):
+        import json
+        self.execute('group_create', label='ocr')
+        for username in ['张三', '10086', 'ZhangSan']:
+            self.execute('user_create', username=username, name=username, password='1', groups=['wb_test_ocr'], contentAdminGroups=['wb_test_ocr'])
+            state = admin.load(self.root)
+            login = state['users'][username]['systemUsername']
+            self.assertRegex(login, r'^wbu_[a-f0-9]{28}$')
+            self.assertIn(login, self.users)
+            self.assertNotIn(username, self.users)
+            self.assertIn((['chpasswd'], login + ':1\n'), self.inputs)
+            self.assertIn(['pkill', '-KILL', '-u', login], self.calls)
+            roles = json.loads((self.root/'.workbench/roles.json').read_text(encoding='utf-8'))
+            self.assertIn(username, roles['users'])
+            shadow = '\n'.join(n + ':hash:1:0:99999:7:::' for n in self.users)
+            with patch.object(pathlib.Path, 'read_text', return_value=shadow):
+                status = self.actual_state(state)
+            self.assertFalse(status['users'][username]['missing'])
+            self.assertIn('wb_test_ocr', status['users'][username]['groups'])
+            self.execute('user_password', username=username, password='2')
+            self.assertIn((['chpasswd'], login + ':2\n'), self.inputs)
+            self.execute('user_enabled', username=username, enabled=False)
+            self.assertIn(['usermod', '--expiredate', '1', login], self.calls)
+            self.execute('user_enabled', username=username, enabled=True)
+            self.execute('group_member', username=username, group='wb_test_ocr', role='remove')
+            self.assertNotIn(login, self.groups['wb_test_ocr'].gr_mem)
+            self.assertIn(['gpasswd', '-d', login, 'wb_test_ocr_admin'], self.calls)
+        with self.assertRaisesRegex(ValueError, '已存在'):
+            self.execute('user_create', username='zhangsan', name='', password='1')
+        with self.assertRaisesRegex(ValueError, '已存在'):
+            self.execute('user_create', username=admin.system_username('10086'), name='', password='1')
+
+    def test_extended_account_recovery_and_empty_password_rejection(self):
+        self.fail = lambda a: a[0] == 'chpasswd'
+        with self.assertRaises(RuntimeError): self.execute('user_create', username='10086', name='工号', password='1')
+        self.fail = None
+        with self.assertRaisesRegex(ValueError, '不能为空'): self.execute('recover', operationId='user_create:10086', password='')
+        self.execute('recover', operationId='user_create:10086', password='2')
+        state = admin.load(self.root)
+        self.assertFalse(state['users']['10086']['provisioning'])
+        self.assertEqual(sum(a[0] == 'useradd' for a in self.calls), 1)
+        with self.assertRaisesRegex(ValueError, '不能为空'): self.execute('user_password', username='10086', password='')
+        self.users[admin.system_username('10086')].pw_uid = 55555
+        with self.assertRaisesRegex(ValueError, '身份'): self.execute('user_enabled', username='10086', enabled=False)
+
     def test_group_member_preserves_other_roles_and_external_membership(self):
         for label in ['ocr', 'nlp']: self.execute('group_create', label=label)
         self.execute('user_create', username='alice', name='Alice', password='test-password')
@@ -113,6 +158,8 @@ class AdminRecoveryTests(unittest.TestCase):
         self.groups = {'wb_test_members': types.SimpleNamespace(gr_name='wb_test_members', gr_gid=1000, gr_mem=[])}
         self.users = {}
         self.calls = []
+        self.inputs = []
+        self.actual_state = admin.actual_state
         self.fail = None
         def lookup(mapping, name):
             if name not in mapping: raise KeyError(name)
@@ -131,6 +178,7 @@ class AdminRecoveryTests(unittest.TestCase):
 
     def command(self, args, data=None, allowed=(0,)):
         self.calls.append(args)
+        self.inputs.append((args, data))
         if self.fail and self.fail(args): raise RuntimeError('injected command failure')
         if args[0]=='groupadd':
             name=args[-1]; gid=int(args[args.index('-g')+1]); self.groups[name]=types.SimpleNamespace(gr_name=name,gr_gid=gid,gr_mem=[])

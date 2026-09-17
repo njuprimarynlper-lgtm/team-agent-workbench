@@ -18,11 +18,11 @@ const confirm = async () => { await page.getByRole('button', { name: '确认执�
 const state = async () => (await page.evaluate(() => window.admin.call('snapshot'))).state;
 const userRow = username => page.locator('.people-global [data-user="' + username + '"]');
 const group = label => page.locator('[data-group="local_' + label + '"]');
-async function fields(username) {
+async function fields(username, password = 'member-test-password') {
   await page.getByLabel('成员姓名', { exact: true }).fill(username === 'solo' ? '独立用户' : username);
-  await page.getByLabel('模拟账号', { exact: true }).fill(username);
-  await page.getByLabel('初始密码', { exact: true }).fill('member-test-password');
-  await page.getByLabel('再次输入密码', { exact: true }).fill('member-test-password');
+  await page.getByLabel('登录账号', { exact: true }).fill(username);
+  await page.getByLabel('初始密码', { exact: true }).fill(password);
+  await page.getByLabel('再次输入密码', { exact: true }).fill(password);
 }
 async function createGroup(label) {
   await page.getByRole('button', { name: '创建用户组', exact: true }).click();
@@ -141,6 +141,25 @@ try {
   await page.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
   assert.deepEqual((await state()).users, finalState.users); await expect(page.locator('.people-global tbody tr')).toHaveCount(4);
   assert.deepEqual(errors, []); checks.push('restart keeps memberships and roles; no renderer errors');
+  for (const username of ['张三', '10086', 'ZhangSan']) {
+    await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields(username, '1'); await confirm();
+    await expect(userRow(username)).toBeVisible();
+  }
+  await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('invalid/name', '1');
+  await page.getByRole('button', { name: '确认执行', exact: true }).click();
+  await expect(page.locator('.modal [role="alert"]')).toContainText('账号支持中文姓名');
+  await expect(page.locator('.modal [role="alert"]')).not.toContainText('invalid_format');
+  await page.getByLabel('登录账号', { exact: true }).fill('空密码');
+  await page.getByLabel('初始密码', { exact: true }).fill(''); await page.getByLabel('再次输入密码', { exact: true }).fill('');
+  await page.getByRole('button', { name: '确认执行', exact: true }).click();
+  await expect(page.locator('.modal [role="alert"]')).toContainText('密码不能为空');
+  await page.getByLabel('初始密码', { exact: true }).fill('1'); await page.getByLabel('再次输入密码', { exact: true }).fill('2');
+  await page.getByRole('button', { name: '确认执行', exact: true }).click();
+  await expect(page.locator('.modal [role="alert"]')).toContainText('两次输入的密码不一致');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  assert.deepEqual(errors, []);
+  checks.push('Chinese name, numeric employee ID and mixed-case accounts accept one-character passwords; invalid names, empty passwords and mismatched confirmation show clear Chinese errors');
+
   await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, data, checks }, null, 2));
   console.log(JSON.stringify({ passed: true, packaged, data, cases: checks.length }, null, 2));
 } catch (error) { if (page) await page.screenshot({ path: path.join(data, 'failure.png'), timeout: 5000 }).catch(() => {}); throw error; }

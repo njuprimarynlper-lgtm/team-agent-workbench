@@ -19,7 +19,7 @@ export async function adminCases({ app, page, data }) {
     await expect(page.getByText('待恢复操作', { exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: '创建用户', exact: true }).click();
     await page.getByLabel('成员姓名', { exact: true }).fill('Alice');
-    await page.getByLabel('Linux 账号', { exact: true }).fill('alice');
+    await page.getByLabel('登录账号', { exact: true }).fill('alice');
     await page.getByLabel('初始密码', { exact: true }).fill('new-user-password');
     await page.getByLabel('再次输入密码', { exact: true }).fill('new-user-password');
     await page.locator('.modal .check-row').filter({ hasText: 'ocr' }).first().locator('input').check();

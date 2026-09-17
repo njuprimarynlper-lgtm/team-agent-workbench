@@ -1,3 +1,4 @@
+import { errorMessage } from '../shared/errors';
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -109,7 +110,7 @@ app.whenReady().then(async () => {
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   ipcMain.handle('workbench', async (event, action, payload) => {
     if (event.sender !== window.webContents || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
-    try { return { ok: true, value: await dispatch(z.string().parse(action), payload) }; } catch (e: any) { return { ok: false, error: e.message || '操作失败' }; }
+    try { return { ok: true, value: await dispatch(z.string().parse(action), payload) }; } catch (e: any) { return { ok: false, error: errorMessage(e) }; }
   });
   await window.loadFile(entry);
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });

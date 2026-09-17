@@ -5,11 +5,11 @@ import path from 'node:path';
 
 // A protocol fixture, not a Linux emulator. Explicit denials exercise how clients
 // handle ACL failures without changing any real machine accounts or directories.
-export async function teamServer() {
+export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol: 'carol' }, password = 'test-password') {
   const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
   const publicKey = utils.parseKey(key).getPublicSSH(), fingerprint = 'SHA256:' + createHash('sha256').update(publicKey).digest('base64').replace(/=+$/, '');
   const nodes = new Map(), clients = [], codes = utils.sftp.STATUS_CODE;
-  const state = { admins: ['alice'], failFolder: '', writableRoles: false };
+  const state = { admins: [Object.keys(accounts)[0]], failFolder: '', writableRoles: false };
   const directory = (name, mode = 0o40755, uid = 0) => nodes.set(name, { mode, uid, gid: 100, data: Buffer.alloc(0) });
   for (const name of ['/', '/projects', '/projects/ocr', '/projects/denied', '/.workbench']) directory(name);
   nodes.set('/.workbench/roles.json', { mode: 0o100644, uid: 0, gid: 0, data: Buffer.alloc(0) });
@@ -17,7 +17,7 @@ export async function teamServer() {
   const updateRoles = () => { const node = nodes.get('/.workbench/roles.json'); node.mode = state.writableRoles ? 0o100666 : 0o100644; node.data = Buffer.from(JSON.stringify({ version: 1, root: '/srv/teamspace', users: Object.fromEntries(state.admins.map(username => [username, { contentGroups: [{ id: 'wb_test_ocr', name: 'OCR', workspace: '/projects/ocr' }] }])) })); };
   const server = new Server({ hostKeys: [key] }, client => {
     let username = '', uid = 0; clients.push(client); client.on('error', () => {});
-    client.on('authentication', ctx => { if (ctx.method === 'password' && ctx.password === 'test-password' && ['alice', 'bob', 'carol'].includes(ctx.username)) { username = ctx.username; uid = username === 'alice' ? 1001 : username === 'bob' ? 1002 : 1003; ctx.accept(); } else ctx.reject(); });
+    client.on('authentication', ctx => { const alias = Object.keys(accounts).find(name => accounts[name] === ctx.username); if (ctx.method === 'password' && ctx.password === password && alias) { username = alias; uid = 1001 + Object.keys(accounts).indexOf(alias); ctx.accept(); } else ctx.reject(); });
     client.on('ready', () => client.on('session', accept => accept().on('sftp', accept => {
       const sftp = accept(), handles = new Map(); let seq = 0;
       const attrs = node => ({ mode: node.mode, uid: node.uid, gid: node.gid, size: node.data.length, atime: 1, mtime: 1 });

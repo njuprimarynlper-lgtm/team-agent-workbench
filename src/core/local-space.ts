@@ -10,6 +10,7 @@ export interface LocalRegistry { version: 1; administrator: string; credentials:
 export const registryPath = '/.workbench-local/registry.json';
 export function passwordHash(password: string) { const salt = randomBytes(16).toString('hex'); return salt + ':' + scryptSync(password, salt, 32).toString('hex'); }
 export function passwordMatches(password: string, hash = '') {
+  if (typeof hash !== 'string') return false;
   const [salt, digest] = hash.split(':');
   return !!salt && /^[a-f0-9]{64}$/.test(digest || '') && timingSafeEqual(scryptSync(password, salt, 32), Buffer.from(digest, 'hex'));
 }
@@ -45,7 +46,7 @@ export async function writeRegistry(root: string, registry: LocalRegistry) {
   await atomicJson(await diskPath(root, registryPath, true), registry);
 }
 export function authorizeUser(data: LocalRegistry, username: string, proof: string) {
-  const user = data.state.users[username];
+  const user = Object.hasOwn(data.state.users, username) ? data.state.users[username] : undefined;
   if (!user?.enabled || !proof || data.credentials[username] !== proof) throw new Error('模拟权限拒绝：账号已停用或凭据已改变，请重新登录');
   return user;
 }

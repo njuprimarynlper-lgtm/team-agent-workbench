@@ -15,6 +15,7 @@ import subprocess
 import sys
 import uuid
 import contextlib
+import unicodedata
 
 OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover"}
 
@@ -35,6 +36,28 @@ def identifier(value, maximum=24):
     if not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0," + str(maximum-1) + r"}", value):
         raise ValueError("标识只能由小写字母、数字、下划线和短横线组成，并以字母开头")
     return value
+
+def account_name(value):
+    if (not isinstance(value, str) or not 1 <= len(value) <= 64
+            or unicodedata.category(value[0])[0] not in 'LN'
+            or any(unicodedata.category(c)[0] not in 'LN' and c not in '_·-' for c in value)):
+        raise ValueError('账号支持中文姓名、数字工号、大小写字母、下划线、短横线和间隔号，最多 64 个字符')
+    if re.fullmatch(r'(con|prn|aux|nul|com[1-9]|lpt[1-9])', value, re.IGNORECASE):
+        raise ValueError('此账号是系统保留名称，请换一个姓名或工号')
+    return value
+
+def system_username(username):
+    # Keep legacy Linux identities; the Windows SSH client uses this same mapping.
+    return username if re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', username) else 'wbu_' + hashlib.sha256(username.encode('utf-8')).hexdigest()[:28]
+
+def user_login(state, username):
+    record = state['users'][username]
+    return identifier(record.get('systemUsername', username), 32)
+
+def check_password(password):
+    if not isinstance(password, str) or not 1 <= len(password) <= 4096 or any(c in password for c in '\r\n\x00:'):
+        raise ValueError('密码不能为空，不能含换行、冒号或空字符；恢复时请重新输入')
+    return password
 
 def run(args, data=None, allowed=(0,)):
     result = subprocess.run(args, input=data, text=True, capture_output=True, timeout=30)
@@ -168,6 +191,7 @@ def start_operation(root, state, request):
 def assign_groups(root, state, request):
     username = request.get("username")
     ensure_user(state, username)
+    login = user_login(state, username)
     groups = request.get("groups", [])
     if not isinstance(groups, list) or any(g not in state["groups"] or not state["groups"][g].get("workspace") for g in groups):
         raise ValueError("仅可分配已准备好工作目录的团队用户组")
@@ -177,14 +201,14 @@ def assign_groups(root, state, request):
     desired = set(groups) | {state["groups"][g]["adminGroup"] for g in content_admin_groups}
     managed = set(state["groups"]) | {g["adminGroup"] for g in state["groups"].values()}
     import grp
-    current = {g.gr_name for g in grp.getgrall() if username in g.gr_mem}
+    current = {g.gr_name for g in grp.getgrall() if login in g.gr_mem}
     for group in managed & current - desired:
-        run(["gpasswd", "-d", username, group])
+        run(["gpasswd", "-d", login, group])
     if desired:
-        run(["usermod", "-a", "-G", ",".join(sorted(desired)), username])
+        run(["usermod", "-a", "-G", ",".join(sorted(desired)), login])
     state["users"][username]["contentAdminGroups"] = content_admin_groups
     checkpoint(root, state, "成员组与子管理员角色已设置")
-    terminate_connections(username)
+    terminate_connections(login)
     checkpoint(root, state, "旧连接已失效")
 
 
@@ -229,11 +253,11 @@ def prepare_workspace(root, state, group_name):
     group["workspace"] = "/projects/" + group["label"]
 
 def ensure_user(state, username):
-    identifier(username, 32)
+    account_name(username)
     if username not in state["users"]:
         raise ValueError("只允许操作由此团队空间创建的成员账号")
     import pwd
-    current = pwd.getpwnam(username)
+    current = pwd.getpwnam(user_login(state, username))
     if current.pw_uid == 0 or current.pw_uid != state["users"][username]["uid"]:
         raise ValueError("Linux 账号身份已被外部修改，拒绝操作")
 
@@ -248,12 +272,13 @@ def actual_state(state):
     shadows = {line.split(":")[0]: line.split(":") for line in pathlib.Path("/etc/shadow").read_text().splitlines()}
     for name, user in result["users"].items():
         try:
-            record = pwd.getpwnam(name)
-            shadow = shadows[name]
+            login = user_login(state, name)
+            record = pwd.getpwnam(login)
+            shadow = shadows[login]
             expires = int(shadow[7]) if shadow[7] else -1
             user["missing"] = record.pw_uid != user["uid"]
             user["enabled"] = not user["missing"] and not shadow[1].startswith(("!", "*")) and (expires < 0 or expires > today)
-            user["groups"] = [g.gr_name for g in grp.getgrall() if name in g.gr_mem or g.gr_gid == record.pw_gid]
+            user["groups"] = [g.gr_name for g in grp.getgrall() if login in g.gr_mem or g.gr_gid == record.pw_gid]
         except KeyError:
             user["missing"] = True
             user["enabled"] = False
@@ -302,55 +327,57 @@ def _execute(request):
         return actual_state(state)
     if op == "user_create":
         import pwd, grp
-        username = identifier(request.get("username"), 32)
-        password = request.get("password", "")
-        if not isinstance(password, str) or len(password) < 8 or any(c in password for c in "\r\n\x00:"):
-            raise ValueError("初始密码至少 8 位，不能含换行、冒号或空字符；恢复时请重新输入")
+        username = account_name(request.get("username"))
+        login = system_username(username)
+        password = check_password(request.get("password", ""))
         groups = request.get("groups", [])
         if any(g not in state["groups"] or not state["groups"][g].get("workspace") for g in groups) or any(g not in groups for g in request.get("contentAdminGroups", [])):
             raise ValueError("请选择已准备好的用户组，子管理员须属于对应组")
         record = state["users"].get(username)
         if not record:
+            if any(n.lower() == username.lower() or user_login(state, n) == login for n in state['users']):
+                raise ValueError('账号已存在（不允许创建仅大小写不同的重名账号）')
             try:
-                pwd.getpwnam(username)
+                pwd.getpwnam(login)
             except KeyError:
                 pass
             else:
                 raise ValueError("Linux 账号已存在，工具不会接管已有系统账号")
-            record = {"username": username, "uid": allocate_id(pwd.getpwall(), "pw_uid", [u.get("uid") for u in state["users"].values()]), "name": str(request.get("name", username))[:120], "enabled": True, "provisioning": True, "marker": "workbench-" + state["teamId"] + "-" + username}
+            record = {"username": username, "systemUsername": login, "uid": allocate_id(pwd.getpwall(), "pw_uid", [u.get("uid") for u in state["users"].values()]), "name": str(request.get("name", username))[:120], "enabled": True, "provisioning": True, "marker": "workbench-" + state["teamId"] + "-" + login}
             state["users"][username] = record
             save(root, state)
         elif not record.get("provisioning"):
             raise ValueError("账号已创建完成，请使用重置密码或组管理入口")
+        login = user_login(state, username)
         shell = shutil.which("nologin") or "/usr/sbin/nologin"
         try:
-            current = pwd.getpwnam(username)
+            current = pwd.getpwnam(login)
         except KeyError:
-            run(["useradd", "-M", "-u", str(record["uid"]), "-c", record["marker"], "-d", "/", "-s", shell, "-g", state["loginGroup"], username])
-            current = pwd.getpwnam(username)
+            run(["useradd", "-M", "-u", str(record["uid"]), "-c", record["marker"], "-d", "/", "-s", shell, "-g", state["loginGroup"], login])
+            current = pwd.getpwnam(login)
         if current.pw_uid != record["uid"] or current.pw_gecos != record["marker"] or current.pw_gid != grp.getgrnam(state["loginGroup"]).gr_gid:
             raise ValueError("账号身份与创建记录不符，拒绝恢复")
         checkpoint(root, state, "专用账号已创建")
-        run(["chpasswd"], username + ":" + password + "\n")
+        run(["chpasswd"], login + ":" + password + "\n")
         checkpoint(root, state, "初始密码已设置")
         assign_groups(root, state, request)
         record["provisioning"] = False
     elif op == "user_password":
         username = request.get("username")
         ensure_user(state, username)
-        password = request.get("password", "")
-        if not isinstance(password, str) or len(password) < 8 or any(c in password for c in "\r\n\x00:"):
-            raise ValueError("密码至少 8 位，且不能含换行、冒号或空字符")
-        run(["chpasswd"], username + ":" + password + "\n")
-        terminate_connections(username)
+        login = user_login(state, username)
+        password = check_password(request.get("password", ""))
+        run(["chpasswd"], login + ":" + password + "\n")
+        terminate_connections(login)
     elif op == "user_enabled":
         username = request.get("username")
         ensure_user(state, username)
+        login = user_login(state, username)
         enabled = request.get("enabled") is True
-        run(["usermod", "--expiredate", "" if enabled else "1", username])
+        run(["usermod", "--expiredate", "" if enabled else "1", login])
         state["users"][username]["enabled"] = enabled
         if not enabled:
-            terminate_connections(username)
+            terminate_connections(login)
     elif op == "group_create":
         label = identifier(request.get("label"), 14)
         name = "wb_" + state["teamId"] + "_" + label
@@ -398,7 +425,8 @@ def _execute(request):
         import grp
         # Read current OS membership while holding the team lock. A group-level
         # change must not overwrite assignments made from another admin window.
-        current = {g.gr_name for g in grp.getgrall() if username in g.gr_mem}
+        login = user_login(state, username)
+        current = {g.gr_name for g in grp.getgrall() if login in g.gr_mem}
         groups = set(state['groups']) & current
         admins = {name for name, g in state['groups'].items() if g['adminGroup'] in current and name in groups}
         if role == 'remove': groups.discard(group)

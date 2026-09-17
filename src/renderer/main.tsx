@@ -131,7 +131,7 @@ function ConnectModal({ settings, connection, close, run, onConnected }: { setti
       <label className="field full">{local ? '共享工作路径' : 'Linux 工作路径'}（必填）<input aria-label={local ? '共享工作路径' : 'Linux 工作路径'} value={profile.workPath || ''} placeholder="例如 /projects/workbench" onChange={e => update('workPath', e.target.value)}/><small>{local ? '相对于共享区根目录的逻辑路径，例如 /projects/workbench。连接时按模拟账号检查访问权。' : '使用 SFTP 中看到的路径；连接时实际验证目录访问权限。'}</small></label>
       <label className="field">连接名称<input value={profile.name} onChange={e => update('name', e.target.value)}/></label>
       {!local && <><label className="field">服务器地址<input value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label></>}
-      <label className="field">{local ? '模拟成员账号' : 'Linux 用户名'}<input aria-label={local ? '模拟成员账号' : 'Linux 用户名'} value={profile.username} onChange={e => update('username', e.target.value)}/></label>
+      <label className="field">{'成员账号'}<input aria-label={'成员账号'} placeholder="管理员分配的姓名或工号" value={profile.username} onChange={e => update('username', e.target.value)}/></label>
       <label className="field full">登录密码<input type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/></label>
       {!local && <><label className="field full">管理员提供的服务器指纹<input value={profile.fingerprint} onChange={e => update('fingerprint', e.target.value)}/></label><label className="field full">远端项目入口清单（可选）<input value={profile.manifestPath} onChange={e => update('manifestPath', e.target.value)}/></label></>}
     </div>

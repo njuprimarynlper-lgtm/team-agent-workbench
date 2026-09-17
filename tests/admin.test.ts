@@ -5,6 +5,8 @@ import { generateKeyPairSync } from 'node:crypto';
 import { Server, utils } from 'ssh2';
 import { AdminConnection } from '../src/admin/connection';
 import { adminOperationSchema, adminProfileSchema } from '../src/admin/types';
+import { systemUsername } from '../src/core/account-login';
+import { inflateSync } from 'node:zlib';
 const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
 
 test('admin schemas reject privilege and content operations; secrets are not profile fields', () => {
@@ -14,18 +16,18 @@ test('admin schemas reject privilege and content operations; secrets are not pro
   assert.equal('password' in profile, false); assert.equal('sudoPassword' in profile, false);
 });
 
-async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false) {
+async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
   const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true };
   const control = { failNext: false };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
-    client.on('authentication', context => context.method === 'password' && context.password === 'login-secret' ? context.accept() : context.reject());
+    client.on('authentication', context => context.method === 'password' && context.password === 'login-secret' && (!login || context.username === login) ? context.accept() : context.reject());
     client.on('ready', () => client.on('session', accept => {
       const session = accept();
       session.on('sftp', (accept, reject) => {
         if (role !== 'project') { reject(); return; }
-        const sftp = accept(), content = Buffer.from(JSON.stringify({ version: 1, root: '/srv/teamspace', users: { worker: { contentGroups: [{ id: 'wb_test_ocr', name: 'OCR' }] } } }));
+        const sftp = accept(), content = Buffer.from(JSON.stringify({ version: 1, root: '/srv/teamspace', users: { [alias]: { contentGroups: [{ id: 'wb_test_ocr', name: 'OCR' }] } } }));
         sftp.on('LSTAT', (id, target) => sftp.attrs(id, { mode: target.endsWith('.json') ? (writableManifest ? 0o100666 : 0o100644) : 0o40755, uid: 0, gid: 0, size: content.length, atime: 0, mtime: 0 }));
         sftp.on('OPEN', id => sftp.handle(id, Buffer.from('roles')));
         sftp.on('FSTAT', id => sftp.attrs(id, { mode: 0o100644, uid: 0, gid: 0, size: content.length, atime: 0, mtime: 0 }));
@@ -37,7 +39,8 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
         if (info.command === 'id -u') { channel.write(role === 'root' ? '0\n' : '1001\n'); channel.exit(0); channel.end(); return; }
         if (role === 'project') { channel.stderr.write('not in sudoers'); channel.exit(1); channel.end(); return; }
         const encoded = info.command.match(/b64decode\("([A-Za-z0-9+/=]+)"/); assert(encoded);
-        assert.match(Buffer.from(encoded[1], 'base64').toString(), /def main\(request\)/);
+        assert(info.command.length < 30000);
+        assert.match(inflateSync(Buffer.from(encoded[1], 'base64')).toString(), /def main\(request\)/);
         let buffer = '', authorized = role === 'root';
         channel.on('data', (data: Buffer) => {
           buffer += data.toString(); let n: number;
@@ -98,4 +101,16 @@ test('#7 remote operation failure automatically refreshes partial state for reco
     assert.equal(remote.snapshot.busy, false); assert.equal(f.requests.at(-1).op, 'status');
     assert.deepEqual(remote.snapshot.state!.operations!['group_create:ocr'].completed, ['成员用户组已创建']);
   } finally { remote.disconnect(); await f.close(); }
+});
+
+
+test('admin app preserves literal server accounts and accepts mapped project members', async () => {
+  for (const [role, alias, login] of [['root', 'OpsAdmin', 'OpsAdmin'], ['project', '张三', systemUsername('张三')]] as const) {
+    const f = await fixture(role, false, alias, login), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+    try {
+      await remote.connect({ host: '127.0.0.1', port: f.port, username: alias, fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true);
+      assert.equal(remote.snapshot.role, role === 'root' ? 'administrator' : 'project_admin');
+      assert.equal(remote.snapshot.profile!.username, alias);
+    } finally { remote.disconnect(); await f.close(); }
+  }
 });

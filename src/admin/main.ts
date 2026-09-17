@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { errorMessage } from '../shared/errors';
 import { AdminConnection } from './connection';
 import { LocalAdminConnection } from './local-connection';
 import { adminProfileSchema, adminOperationSchema } from './types';
@@ -44,7 +45,7 @@ app.whenReady().then(async () => {
       }
       else throw new Error('管理员版不支持此操作');
       return { ok: true, value };
-    } catch (error: any) { return { ok: false, error: error.message }; }
+    } catch (error: any) { return { ok: false, error: errorMessage(error) }; }
   });
   await window.loadFile(entry);
 }).catch(e => { dialog.showErrorBox('管理员版启动失败', e.message); app.quit(); });

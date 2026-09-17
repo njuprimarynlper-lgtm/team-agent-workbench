@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ConnectionProfile, FilePreview, Project, RemoteBinding, RemoteEntry, WorkspaceAccess } from '../shared/types';
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { manifestSchema } from './config';
+import { systemUsername } from './account-login';
 import { newProjectLayout, projectName } from './project-layout';
 const MAX_PREVIEW = 512 * 1024;
 export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
@@ -35,7 +36,7 @@ export class SftpConnection {
         if (error) { reject(error); return; }
         this.sftp = channel; this.profile = { ...profile, fingerprint }; resolve(); this.changed();
       }));
-      client.connect({ host: profile.host, port: profile.port, username: profile.username, password, readyTimeout: 30000, keepaliveInterval: 15000,
+      client.connect({ host: profile.host, port: profile.port, username: systemUsername(profile.username), password, readyTimeout: 30000, keepaliveInterval: 15000,
         hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
           fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
           if (profile.fingerprint) { callback(profile.fingerprint === fingerprint); return; }

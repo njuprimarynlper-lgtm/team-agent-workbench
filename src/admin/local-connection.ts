@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
-import { adminOperationSchema, nameSchema } from './types';
+import { adminOperationSchema } from './types';
+import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
 import { diskPath, localRoot, passwordHash, passwordMatches, readRegistry, registryLock, writeRegistry, type LocalRegistry } from '../core/local-space';
 
 export class LocalAdminConnection {
@@ -11,8 +12,8 @@ export class LocalAdminConnection {
   disconnect() { this.generation++; this.proof = ''; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
   async connect(profile: AdminProfile, password: string, _sudo: string, _trust: (s: string) => Promise<boolean>) {
     this.disconnect(); this.root = await localRoot(profile.localRoot);
-    nameSchema.parse(profile.username);
-    if (password.length < 8) throw new Error('本地测试密码至少 8 位');
+    profile = { ...profile, username: accountNameSchema.parse(profile.username) };
+    accountPasswordSchema.parse(password);
     let data: LocalRegistry | undefined;
     try { data = await readRegistry(this.root); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
     if (data) {
@@ -48,7 +49,7 @@ export class LocalAdminConnection {
         }
         if (data.administrator !== this.snapshot.profile!.username || data.credentials[data.administrator] !== this.proof || generation !== this.generation) throw new Error('模拟管理员身份已改变，请重新连接');
         const state = data.state;
-        const user = 'username' in request ? state.users[request.username] : undefined;
+        const user = 'username' in request && Object.hasOwn(state.users, request.username) ? state.users[request.username] : undefined;
         if (['user_password', 'user_enabled', 'user_groups', 'group_member'].includes(request.op) && !user) throw new Error('成员不存在');
         if (request.op === 'user_create' || request.op === 'user_groups') {
           const groups = request.groups || [], admins = request.contentAdminGroups || [];
@@ -67,7 +68,7 @@ export class LocalAdminConnection {
           }
           case 'workspace_prepare': if (!state.groups[request.group]?.workspace) throw new Error('项目组不存在'); break;
           case 'user_create':
-            if (state.users[request.username] || data.administrator === request.username) throw new Error('账号已存在');
+            if ([data.administrator, ...Object.keys(state.users)].some(name => name.toLowerCase() === request.username.toLowerCase())) throw new Error('账号已存在（不允许创建仅大小写不同的重名账号）');
             state.users[request.username] = { username: request.username, name: request.name, enabled: true, groups: request.groups || [], contentAdminGroups: request.contentAdminGroups || [] };
             data.credentials[request.username] = passwordHash(request.password); break;
           case 'user_password': data.credentials[request.username] = passwordHash(request.password); break;
