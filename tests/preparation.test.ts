@@ -108,6 +108,39 @@ test('hung preparation times out visibly; no duplicate jobs, no automatic upload
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
+test('cancel preparation preserves notes and supplements, stops only the helper, and supports retry', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-cancel-'));
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); wb.workspaceReady = true; wb.store.settings.providerPaths.codex = fixture.launcher;
+    const parent = await wb.createSession('codex', root);
+    await wb.saveHandoff(parent.id, '# Agent 工作记录\n已有方向性结论');
+    await wb.send(parent.id, '持续运行的独立工作');
+    await until(() => parent.status === 'running');
+    const d = await wb.prepare(parent.id);
+    await until(() => wb.session(d.prepareSessionId!).status === 'running');
+    await wb.saveDraftSupplement(d.id, '取消后仍保留的补充', '');
+    const originalInput = d.inputDir;
+    await wb.cancelPreparation(d.id);
+    assert.equal(d.generation, 'canceled'); assert(d.generationFinishedAt);
+    const helper = wb.session(d.prepareSessionId!);
+    assert(helper.closedAt); assert.equal(helper.status, 'idle'); assert.deepEqual(helper.approvals, []);
+    assert.equal(parent.status, 'running'); assert.equal(parent.closedAt, undefined);
+    assert.equal(await wb.readHandoff(parent.id), '# Agent 工作记录\n已有方向性结论');
+    assert.equal(d.supplement, '取消后仍保留的补充'); assert.equal(wb.store.transfers.length, 0);
+    assert.equal((await wb.prepare(parent.id)).id, d.id); assert.equal(d.generation, 'canceled');
+    await fixture.write({ status: 'ready', turn: 'success' });
+    await wb.retryPreparation(d.id); await until(() => d.generation === 'ready');
+    assert.equal(d.inputDir, originalInput); assert.equal(d.supplement, '取消后仍保留的补充');
+    const body = d.body;
+    await wb.cancelPreparation(d.id); assert.equal(d.generation, 'ready'); assert.equal(d.body, body);
+    assert.equal(wb.store.transfers.length, 0);
+    await wb.store.save(); const reopened = new Store(wb.store.root); await reopened.init();
+    assert.equal(reopened.drafts[0].body, body); assert.equal(reopened.drafts[0].supplement, d.supplement);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
+
 test('older drafts preserve the reviewed explanation and completed submissions during migration', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-migration-'));
   try {

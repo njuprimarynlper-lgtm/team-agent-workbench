@@ -65,7 +65,7 @@ try {
   await expect(bob.page.locator('.preview-content')).toContainText('各迭代两轮');
   await alice.page.getByTitle('新建会话', { exact: true }).click(); await alice.page.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor(); await alice.page.getByRole('button', { name: '创建会话', exact: true }).click();
   await alice.page.getByLabel('任务输入', { exact: true }).fill('为算法比赛建立基线');
-  await alice.page.getByRole('button', { name: '交接文件', exact: true }).click(); await alice.page.getByLabel('交接文件正文').fill('# 比赛第一轮\n量化接口和数据已就绪'); await alice.page.getByRole('button', { name: '保存交接文件' }).click();
+  if (!await alice.page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await alice.page.locator('.session-materials > summary').click(); await alice.page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await alice.page.getByRole('button', { name: '更正记录（可选）', exact: true }).click(); await alice.page.getByLabel('Agent 工作记录正文').fill('# 比赛第一轮\n量化接口和数据已就绪'); await alice.page.getByRole('button', { name: '保存并返回' }).click();
   await fixture.write({ status: 'ready', fileApproval: true });
   await alice.page.getByTitle('发送任务', { exact: true }).click();
   const approval = alice.page.locator('.approval'); await expect(approval).toContainText('Codex 请求修改文件');

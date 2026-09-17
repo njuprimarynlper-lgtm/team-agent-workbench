@@ -42,6 +42,19 @@ try {
   await expect(page.getByLabel('任务输入', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '重新打开会话', exact: true }).click();
   await expect(page.getByLabel('任务输入', { exact: true })).toBeVisible();
+  // Agent notes are secondary local source material, read-only until explicitly corrected.
+  await expect(page.getByRole('button', { name: '交接文件', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '查看 Agent 工作记录', exact: true })).toBeHidden();
+  await page.locator('.session-materials > summary').click();
+  await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Agent 工作记录', exact: true, level: 2 })).toBeVisible();
+  await expect(page.getByLabel('Agent 工作记录正文')).toHaveCount(0);
+  await expect(page.locator('.agent-notes-explanation')).toContainText('通常无需你填写');
+  await expect(page.locator('.agent-notes-explanation')).toContainText('工作记录本身不会随成果上传');
+  const noteBefore = await fs.readFile(gpt.handoffPath, 'utf8');
+  if (!packaged) await page.screenshot({ path: path.join(artifacts, 'agent-work-notes.png') });
+  await page.getByRole('button', { name: '返回会话', exact: true }).click();
+  assert.equal(await fs.readFile(gpt.handoffPath, 'utf8'), noteBefore, 'Viewing notes must not rewrite them');
   // Failed preparations are visible on the draft itself, never in the session list.
   await fixture.write({ status: 'ready', turn: 'network' });
   await page.getByRole('button', { name: '整理成果', exact: true }).click();
@@ -50,6 +63,12 @@ try {
   await expect(page.getByRole('button', { name: '查看整理会话' })).toHaveCount(0);
   await page.getByLabel('补充说明（可选）', { exact: true }).fill('我已经编辑过的说明');
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-failure.png') });
+  await expect(page.getByLabel('工作记录与成果草稿的区别')).toContainText('确认后才上传');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByLabel('任务输入')).toBeVisible();
+  assert.equal((await snap()).transfers.length, 0);
+  await page.getByRole('button', { name: '整理成果', exact: true }).click();
+  await expect(page.getByLabel('补充说明（可选）')).toHaveValue('我已经编辑过的说明');
   await fixture.write({ status: 'ready', turn: 'success', turnDelay: 5000 });
   await page.getByRole('button', { name: '重试整理', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('正在整理');
@@ -83,9 +102,22 @@ try {
   const submitBox = await page.getByRole('button', { name: '确认上传', exact: true }).boundingBox(); assert(submitBox && submitBox.y >= 0 && submitBox.y + submitBox.height <= 760);
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-compact.png') });
   await page.setViewportSize({ width: 1520, height: 980 });
+  // Ready drafts can be canceled without discarding the review or accidentally uploading.
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByLabel('任务输入')).toHaveValue('整理期间继续准备下一项任务');
+  assert.equal((await snap()).drafts[0].generation, 'ready');
+  assert.equal((await snap()).transfers.length, 0);
+  await page.getByRole('button', { name: '整理成果', exact: true }).click();
+  assert.equal((await snap()).drafts[0].id, preparingId);
+  await expect(page.getByLabel('补充说明（可选）')).toHaveValue('我已经编辑过的说明');
   await fixture.write({ status: 'ready', turn: 'hang' });
   await page.getByRole('button', { name: '重新整理', exact: true }).click();
-  await page.getByRole('button', { name: '停止整理', exact: true }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByLabel('任务输入')).toBeVisible();
+  assert.equal((await snap()).drafts[0].generation, 'canceled');
+  assert.equal((await snap()).transfers.length, 0);
+  assert.equal((await snap()).sessions.find(s => s.id === gpt.id).closedAt, undefined);
+  await page.getByRole('button', { name: '整理成果', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('已停止');
   await expect(page.getByLabel('整理已用时间')).toHaveCount(0);
   await expect(page.getByLabel('补充说明（可选）')).toHaveValue('我已经编辑过的说明');
@@ -94,6 +126,15 @@ try {
   await fixture.write({ status: 'ready', fileApproval: true });
   await page.getByRole('button', { name: '重新整理', exact: true }).click();
   await expect(page.getByLabel('成果整理进度').getByText('Codex 请求修改文件')).toBeVisible({ timeout: 20000 });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByLabel('任务输入')).toBeVisible();
+  const canceled = (await snap()).drafts[0];
+  assert.equal(canceled.generation, 'canceled');
+  const helper = (await snap()).sessions.find(s => s.id === canceled.prepareSessionId);
+  assert(helper.closedAt); assert.deepEqual(helper.approvals, []);
+  await page.getByRole('button', { name: '整理成果', exact: true }).click();
+  await page.getByRole('button', { name: '重新整理', exact: true }).click();
+  await expect(page.getByLabel('成果整理进度').getByText('Codex 请求修改文件')).toBeVisible();
   await page.getByLabel('成果整理进度').getByRole('button', { name: '拒绝', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('整理失败'); // no final answer in approval fixture
   await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '缺失链接的成果', body: '材料没有仓库地址。\n\n' + '较长说明。'.repeat(200), repoUrl: '', destinationId: 'default' } });
@@ -139,6 +180,6 @@ try {
   assert(calls.some(m => m.method === 'turn/start' && m.params.model === 'gpt-fixture-2'));
   assert(calls.some(m => m.method === 'session/set_model' && m.params.modelId === 'other-fixture'));
   assert.deepEqual(errors, []);
-  console.log('Session UX passed: identities, disabled login, both model adapters, quota/fallback, hidden preparation, failure/retry, preserved edits, approval, close/reopen, trajectory-only entry.');
+  console.log('Session UX passed: identities, disabled login, both model adapters, quota/fallback, secondary read-only Agent notes, contribution explanations, cancel while ready/running/failed/awaiting approval, hidden preparation, failure/retry, preserved edits, approval, close/reopen, trajectory-only entry.');
 } catch (e) { if (!packaged) await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'session-experience-failed.png') }).catch(() => {}); throw e; }
 finally { await app.close(); }

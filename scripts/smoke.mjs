@@ -97,9 +97,9 @@ try {
   await page.getByLabel('Codex 登录状态', { exact: true }).waitFor({ state: 'detached' });
   assert.equal(await page.getByLabel('任务输入', { exact: true }).inputValue(), '登录前保留这段任务');
   assert(!(await auth.calls()).includes('turn/start'));
-  await page.getByRole('button', { name: '交接文件', exact: true }).click();
+  if (!await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await page.getByRole('button', { name: '更正记录（可选）', exact: true }).click();
   await page.locator('.handoff-editor').fill('# 交接\n\n已实现目录浏览。验证：本地 UI 检查通过。\n');
-  await page.getByRole('button', { name: '保存交接文件', exact: true }).click();
+  await page.getByRole('button', { name: '保存并返回', exact: true }).click();
   await page.getByRole('button', { name: '轨迹上传', exact: true }).click();
   assert.equal(await page.locator('.check-row input').isChecked(), false);
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();

@@ -27,16 +27,16 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect(input).toHaveValue('A 独立输入'); await select(b.id); await expect(input).toHaveValue('B 独立输入');
   // Every session owns a different file; both X and save-close flush edits.
   for (const [session, text] of [[a, '# A 的交接'], [b, '# B 的交接']]) {
-    await select(session.id); await page.getByRole('button', { name: '交接文件', exact: true }).click();
-    await page.getByLabel('交接文件正文').fill(text);
+    await select(session.id); if (!await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await page.getByRole('button', { name: '更正记录（可选）', exact: true }).click();
+    await page.getByLabel('Agent 工作记录正文').fill(text);
     await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
     assert.equal(await fs.readFile(session.handoffPath, 'utf8'), text);
   }
   assert.notEqual(a.handoffPath, b.handoffPath);
   // Simulate an unavailable destination, ensure X cannot silently discard text, then retry.
-  await select(b.id); await page.getByRole('button', { name: '交接文件', exact: true }).click();
+  await select(b.id); if (!await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await page.getByRole('button', { name: '更正记录（可选）', exact: true }).click();
   await fs.rename(b.handoffPath, b.handoffPath + '.saved'); await fs.mkdir(b.handoffPath);
-  await page.getByLabel('交接文件正文').fill('# B 保存失败后恢复');
+  await page.getByLabel('Agent 工作记录正文').fill('# B 保存失败后恢复');
   await expect(page.getByRole('status')).toContainText('保存失败');
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('窗口已保留');

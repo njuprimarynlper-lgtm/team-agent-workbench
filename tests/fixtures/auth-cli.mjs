@@ -34,7 +34,7 @@ else if (command === 'login') {
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const m = JSON.parse(line), current = read();
     const preparation = JSON.stringify(m.params || {}).includes('destinationId');
-    const answer = provider => preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: 'Agent 成果草稿', body: '# Agent 成果草稿\n已根据交接文件整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' }) : provider === 'codex' ? '# Agent 成果草稿\n已根据交接文件整理。测试已通过。' : '# Cursor 成果草稿\n已完成。';
+    const answer = provider => preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: 'Agent 成果草稿', body: '# Agent 成果草稿\n已根据 Agent 工作记录整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' }) : provider === 'codex' ? '# Agent 成果草稿\n已根据 Agent 工作记录整理。测试已通过。' : '# Cursor 成果草稿\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m) + '\n');
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
     else if (m.method === 'model/list') {
