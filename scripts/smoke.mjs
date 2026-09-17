@@ -108,7 +108,7 @@ try {
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'settings.png') });
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.locator('.connection-button').click();
-  await page.getByLabel('团队连接说明').getByText('使用管理员分配的 SSH 账号密码登录，共享空间由所属工作组自动分配。').waitFor();
+  await page.getByLabel('团队连接说明').getByText('团队连接：' + profile.host + ':' + profile.port + ' · ' + profile.username, { exact: true }).waitFor();
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'connection.png') });
   await page.getByRole('button', { name: '取消', exact: true }).click();
   const state = await page.evaluate(() => window.workbench.call('snapshot'));

@@ -50,8 +50,8 @@ try {
   await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Agent 工作记录', exact: true, level: 2 })).toBeVisible();
   await expect(page.getByLabel('Agent 工作记录正文')).toHaveCount(0);
-  await expect(page.locator('.agent-notes-explanation')).toContainText('通常无需你填写');
-  await expect(page.locator('.agent-notes-explanation')).toContainText('工作记录本身不会随成果上传');
+  await expect(page.getByText('通常无需你填写', { exact: false })).toHaveCount(0);
+  await expect(page.locator('.agent-notes-explanation')).toContainText('Agent 维护的过程记录，不随成果上传。');
   const noteBefore = await fs.readFile(gpt.handoffPath, 'utf8');
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'agent-work-notes.png') });
   await page.getByRole('button', { name: '返回会话', exact: true }).click();
@@ -64,7 +64,7 @@ try {
   await expect(page.getByRole('button', { name: '查看整理会话' })).toHaveCount(0);
   await page.getByLabel('补充说明（可选）', { exact: true }).fill('我已经编辑过的说明');
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-failure.png') });
-  await expect(page.getByLabel('工作记录与成果草稿的区别')).toContainText('确认后才上传');
+  await expect(page.getByLabel('工作记录与成果草稿的区别')).toContainText('待审阅的分享内容');
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByLabel('任务输入')).toBeVisible();
   assert.equal((await snap()).transfers.length, 0);

@@ -27,7 +27,7 @@ export function ProviderAuthPanel({ provider, auth, cwd, autoCheck = true, stale
   }, [provider, cwd, autoCheck, stale]);
   return <section className={'provider-auth auth-' + current.status} aria-label={name + ' 登录状态'}>
     <div className="row"><strong>{name} 账号</strong><span className={'badge ' + (canUseProvider(current) ? 'done' : current.status === 'error' || current.status === 'unauthenticated' ? 'error' : 'running')}>{authLabels[current.status]}</span></div>
-    <p>{current.detail}</p>
+    {!['authenticated', 'unknown', 'checking'].includes(current.status) && <p>{current.detail}</p>}
     {canUseProvider(current) && <p className="account-identity"><strong>{current.identity || 'CLI 未提供账号名称'}</strong>{current.plan && <span className="badge">{current.plan}</span>}</p>}
     {error && <div className="inline-error" role="alert">{error}</div>}
     <div className="row auth-actions">

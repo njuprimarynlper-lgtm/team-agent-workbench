@@ -16,11 +16,11 @@ export function ModelPicker({ provider, cwd, ready, model, changed }: { provider
   return <section className="model-picker" aria-label="模型与额度">
     <div className="row"><b>模型与额度</b><span className="spacer"/><button className="text-button" disabled={!ready || busy} onClick={() => void refresh()}><RefreshCw size={13} className={busy ? 'spin' : ''}/>{busy ? '读取中…' : '刷新模型与额度'}</button></div>
     <label className="field">会话模型<select aria-label="会话模型" value={model} disabled={!ready || busy} onChange={e => changed(e.target.value)}><option value="">沿用 CLI 默认模型</option>{model && !catalog?.models.some(m => m.id === model) && <option value={model}>{model}（上次选择）</option>}{catalog?.models.map(m => <option key={m.id} value={m.id}>{m.name}{m.isDefault ? ' · 默认' : ''}</option>)}</select></label>
-    {!ready && <p className="muted small">登录状态确认后读取当前账号的可选模型。</p>}
+    {!ready && <p className="muted small">请先登录</p>}
     {(error || catalog?.modelError) && <p role="alert" className="inline-error">{error || catalog?.modelError}</p>}
     <div className="quota-panel">
       <div className="row"><strong>账号额度</strong><span className="spacer"/><button className="text-button" onClick={() => void window.workbench.call('open.link', url).catch(() => setError('无法打开浏览器，请稍后重试。'))}><ExternalLink size={13}/>查看官方额度页</button></div>
-      <p className="muted small">{catalog?.quota.detail || (provider === 'cursor' ? 'Cursor 个人套餐额度请在官方页面查看。' : '确认登录后读取额度，暂未读取不代表额度为零。')}</p>
+      {!catalog?.quota.windows.length && <p className="muted small">{catalog?.quota.detail || (provider === 'cursor' ? '请在官方额度页查看' : '额度未读取')}</p>}
       {catalog?.quota.windows.map((w, i) => <div className="quota-window" key={i}><div className="row"><span>{w.name}{w.windowMinutes ? `（${w.windowMinutes >= 1440 ? w.windowMinutes / 1440 + ' 天' : w.windowMinutes / 60 + ' 小时'}）` : ''}</span><b>剩余 {Number((100 - w.usedPercent).toFixed(1))}%</b></div><progress max={100} value={100 - w.usedPercent}/><small>{w.resetsAt ? '重置：' + new Date(w.resetsAt * 1000).toLocaleString('zh-CN') : '重置时间暂未提供'}</small></div>)}
       {catalog && <small className="muted">读取时间：{new Date(catalog.checkedAt).toLocaleTimeString('zh-CN')}</small>}
     </div>

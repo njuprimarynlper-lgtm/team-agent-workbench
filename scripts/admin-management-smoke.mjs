@@ -107,7 +107,7 @@ try {
   assert.deepEqual((await state()).users.alice.contentAdminGroups, ['local_nlp']);
   checks.push('click user to inspect and edit all memberships, removing one group preserves another role');
   await userRow('solo').locator('.group-chip').filter({ hasText: 'ocr' }).click();
-  await page.getByLabel('成员身份').selectOption('remove'); await expect(page.locator('.membership-removal')).toContainText('保留用户账号'); await page.getByLabel('ocr 接任安排').selectOption('__vacant__'); await confirm();
+  await page.getByLabel('成员身份').selectOption('remove'); await expect(page.locator('.membership-removal')).toContainText('账号、其他组身份及已上传内容保留'); await page.getByLabel('ocr 接任安排').selectOption('__vacant__'); await confirm();
   assert.deepEqual((await state()).users.solo.groups, ['local_nlp']); assert.deepEqual((await state()).users.solo.contentAdminGroups, []);
   checks.push('user-side removal revokes only that group and its subadmin role');
   await page.getByRole('tab', { name: '按组查看', exact: true }).click();

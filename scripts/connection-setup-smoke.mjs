@@ -38,6 +38,9 @@ try {
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await expect(page.getByText('competition.xxx', { exact: true })).toHaveCount(0);
   await expect(page.getByLabel('连接名称', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('共享空间由账号权限决定', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('代码和个人工作文件所在的本机目录。这里只需要选择这一处路径。', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.workspace-discovery-note')).toHaveCount(0);
   await page.getByLabel('登录密码', { exact: true }).fill('not-persisted');
   await expect(page.getByRole('button', { name: '登录并发现工作组' })).toBeDisabled();
   await app.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, workspace);
@@ -56,7 +59,7 @@ try {
   await expect(page.getByLabel('成员账号')).toHaveValue('bob');
   await expect(page.getByLabel('登录密码', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('团队连接（已保存）')).toBeVisible();
-  await expect(page.getByText('选择登录哪个团队服务；工作组和项目会在登录后按账号权限显示。')).toBeVisible();
+  await expect(page.getByLabel('团队连接（已保存）')).toHaveValue('bob');
   await page.getByLabel('登录密码', { exact: true }).fill('not-persisted');
   await page.getByLabel('团队连接（已保存）').selectOption('alice');
   await expect(page.getByLabel('登录密码', { exact: true })).toHaveValue('');
