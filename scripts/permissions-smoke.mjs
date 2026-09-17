@@ -45,8 +45,12 @@ try {
   await expect(page.getByLabel('待授权提醒')).toHaveCount(0);
   await fixture.write({ status: 'ready', permissionRuntime: true, permissionDenied: 'Windows sandbox: CreateProcessWithLogonW failed: 1385' });
   await send('验证运行中权限错误');
-  await expect(page.locator('.permission-alert')).toContainText('执行遇到权限限制');
-  await page.getByRole('button', { name: '查看权限与处理方式', exact: true }).click();
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前为工作目录内读写权限，访问目录外文件或执行部分命令可能受限。');
+  await expect(page.getByLabel('当前执行权限')).not.toContainText(/沙盒|sandbox|1385|CreateProcess|自检/);
+  await expect(page.locator('.permission-alert')).toHaveCount(0);
+  await page.screenshot({ path: path.join(artifacts, 'permissions-impact.png') });
+  await page.getByRole('button', { name: '修改权限', exact: true }).click();
+  await expect(page.locator('.modal')).not.toContainText(/1385|CreateProcess|查看错误详情|查看检测详情/);
   await page.getByLabel('权限模式').selectOption('full');
   await page.setViewportSize({ width: 1100, height: 760 });
   const apply = page.getByRole('button', { name: '应用到此会话', exact: true });
@@ -62,12 +66,13 @@ try {
   await send('用户主动继续');
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).permissions?.sandbox).toBe('dangerFullAccess');
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('idle');
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前为完全权限');
   assert((await calls()).some(m => m.method === 'thread/resume' && m.params.sandbox === 'danger-full-access' && m.params.approvalPolicy === 'never'));
   // Even a full-mode runtime can receive team-enforced requests; never auto-answer.
   await fixture.write({ status: 'ready', permissionRuntime: true, toolApproval: true }); await send('仍需团队批准的操作');
   await expect(page.locator('.approval')).toBeVisible();
   const oldRequest = (await snap()).sessions.find(s => s.id === first.id).approvals[0];
-  await page.getByRole('button', { name: '检测与修改权限', exact: true }).click();
+  await page.getByRole('button', { name: '修改权限', exact: true }).click();
   await page.getByLabel('权限模式').selectOption('review');
   await page.getByRole('button', { name: '停止当前任务并应用', exact: true }).click();
   await expect(page.getByRole('heading', { name: '会话执行权限', exact: true })).toHaveCount(0);
@@ -97,6 +102,17 @@ try {
   await expect(page.locator('.approval').getByRole('button')).toHaveCount(2);
   await page.locator('.approval').getByRole('button', { name: '拒绝', exact: true }).click();
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === cursor.id).status).toBe('idle');
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前为人工审批权限');
+  await fixture.write({ status: 'ready', permissionRuntime: true, permissionConfig: { sandbox: 'read-only', approval: 'on-request' }, probeBlocked: true, turn: 'success' });
+  await page.locator(`.session-row[data-session-id="${second.id}"]`).click();
+  await send('只读权限下的命令自检失败');
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === second.id).permissions?.execution).toBe('blocked');
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前为只读权限，可能无法修改文件或运行需要写入的命令。');
+  await expect(page.getByLabel('当前执行权限')).not.toContainText(/sandbox|CreateProcess|自检/);
+  await page.getByRole('button', { name: '修改权限', exact: true }).click();
+  await expect(page.locator('.modal')).not.toContainText(/CreateProcess|查看错误详情|查看检测详情/);
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.screenshot({ path: path.join(artifacts, 'permissions-readonly.png') });
   assert.deepEqual(errors, []);
   console.log('Permission UI passed: default inherited policy, readonly/never warnings, manual Codex and Cursor approval, background-session notification routing, allow/deny, sandbox failure, explicit session change/resume, no replay, stop pending approval, stale answer rejected, isolated Cursor config backup and deny preservation, compact window layout.');
 } catch (e) { await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'permissions-failed.png') }).catch(() => {}); throw e; }

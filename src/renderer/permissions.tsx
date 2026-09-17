@@ -2,11 +2,23 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { AgentSession, PermissionMode, PermissionReport, Provider } from '../shared/types';
 
 export const permissionLabels: Record<PermissionMode, string> = { inherit: 'CLI 原有设置', review: '人工审批', full: '完全权限' };
+export function sessionPermissionDescription(session: Pick<AgentSession, 'permissionMode' | 'permissions'>) {
+  const mode = session.permissionMode || 'inherit', report = session.permissions;
+  // Report the effective runtime scope when available, rather than the requested mode.
+  if (report?.source === 'runtime' || mode === 'inherit') {
+    if (['read-only', 'readOnly'].includes(report?.sandbox || '')) return '当前为只读权限，可能无法修改文件或运行需要写入的命令。';
+    if (['workspace-write', 'workspaceWrite'].includes(report?.sandbox || '')) return '当前为工作目录内读写权限，访问目录外文件或执行部分命令可能受限。';
+    if (['danger-full-access', 'dangerFullAccess'].includes(report?.sandbox || '')) return '当前为完全权限，Agent 可访问本机账号允许的文件和网络，部分操作可能无需确认。';
+  }
+  if (mode === 'review') return '当前为人工审批权限，部分操作可能需要你确认后才能继续。';
+  if (mode === 'full') return '当前选择完全权限，Agent 可访问本机账号允许的文件和网络，部分操作可能无需确认。';
+  return '当前沿用 CLI 权限设置，部分操作可能受限或需要你确认。';
+}
 const sandboxLabel: Record<string, string> = { 'read-only': '只读', readOnly: '只读', 'workspace-write': '工作目录内可写', workspaceWrite: '工作目录内可写', 'danger-full-access': '不使用 CLI 沙盒', dangerFullAccess: '不使用 CLI 沙盒', enabled: '启用沙盒', disabled: '关闭沙盒', unknown: 'CLI 未提供' };
 const approvalLabel: Record<string, string> = { untrusted: '不受信任操作由用户批准', 'on-request': 'Agent 请求时由用户批准', never: '不发起授权请求', allowlist: '白名单外操作请求批准', unrestricted: '自动执行', 'auto-review': '自动审核', granular: 'CLI 自定义审批规则', unknown: 'CLI 未提供' };
 export function PermissionSummary({ report }: { report?: PermissionReport }) {
   if (!report) return <p className="muted small">权限尚未检测</p>;
-  return <div className="permission-summary"><p><b>{report.source === 'runtime' ? 'CLI 生效值' : 'CLI 配置检测'}</b> · {sandboxLabel[report.sandbox] || report.sandbox} · {approvalLabel[report.approval] || report.approval}</p>{report.execution && <p>命令执行：{report.execution === 'passed' ? '基础自检通过' : report.execution === 'blocked' ? '受限' : '尚不能确认'}{report.executionDetail && <small>{report.executionDetail}</small>}</p>}{report.warnings.map((w, i) => <p className="permission-warning" key={i}>{w}</p>)}</div>;
+  return <div className="permission-summary"><p><b>{report.source === 'runtime' ? '当前权限' : '已保存的权限设置'}</b> · {sandboxLabel[report.sandbox] || '待确认'} · {approvalLabel[report.approval] || '待确认'}</p>{report.warnings.map((w, i) => <p className="permission-warning" key={i}>{w}</p>)}</div>;
 }
 export function PermissionPicker({ provider, cwd, mode, changed }: { provider: Provider; cwd: string; mode: PermissionMode; changed: (m: PermissionMode) => void }) {
   const [report, setReport] = useState<PermissionReport>(), [busy, setBusy] = useState(false), [error, setError] = useState(''); const sequence = useRef(0);
@@ -21,5 +33,5 @@ export function PermissionPicker({ provider, cwd, mode, changed }: { provider: P
 export function SessionPermissions({ session, close }: { session: AgentSession; close: () => void }) {
   const [mode, setMode] = useState<PermissionMode>(session.permissionMode || 'inherit'), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const running = ['running', 'approval', 'starting'].includes(session.status);
-  return <div className="modal-backdrop"><section className="modal"><header><h2>会话执行权限</h2><button className="secondary" onClick={close}>关闭</button></header><div className="modal-body"><p>会话：{session.title}。修改后需手动继续任务。</p>{session.permissionIssue && <div className="inline-error"><b>最近一次执行受限</b><pre>{session.permissionIssue.message}</pre></div>}{session.permissions && <PermissionSummary report={session.permissions}/>}<PermissionPicker provider={session.provider} cwd={session.cwd} mode={mode} changed={setMode}/>{running && <p>应用将停止当前任务并取消未处理授权。</p>}{error && <p className="inline-error" role="alert">{error}</p>}</div><footer><button className="secondary" onClick={close}>取消</button><button className="primary" disabled={busy || session.status === 'starting'} onClick={async () => { setBusy(true); try { await window.workbench.call('session.permissions', { id: session.id, mode, stop: running }); close(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{running ? '停止当前任务并应用' : '应用到此会话'}</button></footer></section></div>;
+  return <div className="modal-backdrop"><section className="modal"><header><h2>会话执行权限</h2><button className="secondary" onClick={close}>关闭</button></header><div className="modal-body"><p>会话：{session.title}。修改后需手动继续任务。</p><p>{sessionPermissionDescription(session)}</p><PermissionPicker provider={session.provider} cwd={session.cwd} mode={mode} changed={setMode}/>{running && <p>应用将停止当前任务并取消未处理授权。</p>}{error && <p className="inline-error" role="alert">{error}</p>}</div><footer><button className="secondary" onClick={close}>取消</button><button className="primary" disabled={busy || session.status === 'starting'} onClick={async () => { setBusy(true); try { await window.workbench.call('session.permissions', { id: session.id, mode, stop: running }); close(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{running ? '停止当前任务并应用' : '应用到此会话'}</button></footer></section></div>;
 }
