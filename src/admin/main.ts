@@ -44,10 +44,10 @@ app.whenReady().then(async () => {
       else if (action === 'disconnect') { if (remote.snapshot.busy) throw new Error('请等待操作完成'); remote.disconnect(); value = true; }
       else if (action === 'operation') value = await remote.operation(adminOperationSchema.parse(payload));
       else if (action === 'member.export') {
-        const input = z.object({ username: z.string(), group: z.string() }).parse(payload);
+        const input = z.object({ username: z.string(), group: z.string().optional() }).parse(payload);
         await remote.operation({ op: 'status' });
         const profile = memberConfig(remote.snapshot.profile!, remote.snapshot.state!, input.username, input.group);
-        const result = await dialog.showSaveDialog(window, { defaultPath: `${input.username}-${input.group}.json`, filters: [{ name: '成员连接配置（不含密码）', extensions: ['json'] }] });
+        const result = await dialog.showSaveDialog(window, { defaultPath: `${input.username}-connection.json`, filters: [{ name: '成员连接配置（不含密码）', extensions: ['json'] }] });
         if (result.filePath) await fs.writeFile(result.filePath, JSON.stringify(profile, null, 2), { mode: 0o600 });
         value = !!result.filePath;
       }

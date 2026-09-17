@@ -78,7 +78,7 @@ test('#2/#3/#5 session inputs, handoffs and drafts persist independently and off
     assert.equal(await wb.readHandoff(a.id), 'A newest'); assert.equal(await wb.readHandoff(b.id), 'B only');
     assert.equal(wb.draft(a.id).body, 'saved after retry'); assert.equal(wb.draft(a.id).target, '/target');
     await wb.createSession('codex', root);
-    await assert.rejects(wb.configureWorkspace({ ...server.profile('alice'), workPath: '/missing' }, 'test-password', root, async () => true));
+    await assert.rejects(wb.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
     assert.equal(wb.workspaceReady, true); await wb.createSession('cursor', root);
     await assert.rejects(wb.createProject('offline'), /连接/);
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
@@ -106,13 +106,14 @@ test('#6 contribution ZIP accepts conclusions and optional repository links, nev
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('#8 export uses actual member access and chroot path, excludes credentials and supports per-group selection', () => {
+test('#8 export uses actual member access and chroot path, excludes credentials and discovers all groups with one stable identity', () => {
   const state: AdminState = { initialized: true, teamId: 'test', sftpConfigured: true, users: { alice: { username: 'alice', name: 'Alice', enabled: true, groups: ['wb_t_ocr', 'wb_t_nlp'] } }, groups: { wb_t_ocr: { name: 'wb_t_ocr', label: 'ocr', adminGroup: 'wb_t_ocr_admin', workspace: '/projects/ocr' }, wb_t_nlp: { name: 'wb_t_nlp', label: 'nlp', adminGroup: 'wb_t_nlp_admin', workspace: '/projects/nlp' } } };
   const profile = { host: 'host', port: 2222, username: 'root', fingerprint: 'SHA256:verified', root: '/srv/teamspace', password: 'never-export' };
   const result = memberConfig(profile, state, 'alice', 'wb_t_ocr');
-  assert.equal(result.username, 'alice'); assert.equal(result.workPath, '/projects/ocr'); assert.equal(result.port, 2222); assert.equal(result.fingerprint, profile.fingerprint);
+  assert.equal(result.username, 'alice'); assert.equal(result.workPath, ''); assert.equal(result.port, 2222); assert.equal(result.fingerprint, profile.fingerprint);
   assert(!JSON.stringify(result).includes('never-export')); assert(!JSON.stringify(result).includes('/srv/teamspace'));
-  assert.equal(memberConfig(profile, state, 'alice', 'wb_t_nlp').workPath, '/projects/nlp');
+  assert.equal(memberConfig(profile, state, 'alice', 'wb_t_nlp').id, result.id);
+  state.users.alice.groups = []; assert.equal(memberConfig(profile, state, 'alice').workPath, '');
   state.users.alice.groups = ['wb_t_ocr']; assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_nlp'), /授权/);
   state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('待配置 SFTP 接入')); assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
   state.sftpConfigured = true; state.users.alice.provisioning = true; assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_ocr'), /未完成/);

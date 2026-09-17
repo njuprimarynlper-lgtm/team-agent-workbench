@@ -7,14 +7,12 @@ import { Workbench } from '../src/core/workbench';
 // @ts-expect-error JavaScript protocol fixture shared with the Electron smoke test.
 import { teamServer } from './fixtures/team-server.mjs';
 
-test('mandatory paths, remote access checks, scoped project creation, discovery and trajectory upload', async () => {
+test('automatic assigned workspace discovery, scoped project creation and trajectory upload', async () => {
   const server = await teamServer(), root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-workspace-'));
   const alice = new Workbench(path.join(root, 'alice'), () => {}, () => {}), bob = new Workbench(path.join(root, 'bob'), () => {}, () => {});
   try {
     await alice.store.init(); await bob.store.init();
     await assert.rejects(alice.createSession('codex', root), /验证/);
-    await assert.rejects(alice.configureWorkspace({ ...server.profile('alice'), workPath: '' }, 'test-password', root, async () => true), /Linux 工作路径/);
-    await assert.rejects(alice.configureWorkspace({ ...server.profile('alice'), workPath: '/projects/denied' }, 'test-password', root, async () => true), /Linux 拒绝访问/);
     assert.equal(alice.workspaceReady, false);
     await alice.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
     assert.equal(alice.workspaceReady, true); assert.equal(alice.remote.workspace!.canCreateProject, true);
@@ -42,7 +40,7 @@ test('mandatory paths, remote access checks, scoped project creation, discovery 
     await assert.rejects(alice.createProject('已撤权'), /不是.*子管理员/);
     assert.equal(alice.remote.workspace!.canCreateProject, false);
     const before = alice.store.settings.localWorkspace;
-    await assert.rejects(alice.configureWorkspace({ ...server.profile('alice'), workPath: '/missing' }, 'test-password', root, async () => true));
+    await assert.rejects(alice.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
     assert.equal(alice.workspaceReady, true); assert.equal(alice.store.settings.localWorkspace, before);
     const offline = await alice.createSession('cursor', root); assert.equal(offline.binding, undefined);
   } finally { await alice.close(); await bob.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }

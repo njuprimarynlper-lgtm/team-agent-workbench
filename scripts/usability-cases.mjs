@@ -75,7 +75,7 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
   assert.equal((await call('snapshot')).drafts[0].files.length, 1); // Kept only as preparation evidence locally.
   // A failed connection replacement must leave local sessions usable.
-  await assert.rejects(call('remote.connect', { profile: { ...profile, workPath: '/missing' }, password: 'test-password', localPath: data }));
+  await assert.rejects(call('remote.connect', { profile, password: 'wrong-password', localPath: data }));
   assert.equal((await call('snapshot')).workspaceReady, true);
   await page.getByRole('button', { name: '工作会话', exact: true }).click(); await select(a.id);
   await expect(input).toHaveValue('A 独立输入');
@@ -85,8 +85,8 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
 
 export async function restoredCases(page, expected) {
   await page.getByLabel('任务输入', { exact: true }).waitFor();
-  await expect(page.getByText('先配置工作路径', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('连接与工作路径', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('先连接团队账号', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('团队账号与本机目录', { exact: true })).toHaveCount(0);
   for (const [session, text] of [[expected.a, 'A 独立输入'], [expected.b, 'B 独立输入']]) {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue(text);

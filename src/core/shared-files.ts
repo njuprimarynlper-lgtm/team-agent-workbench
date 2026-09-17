@@ -6,6 +6,7 @@ export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
   constructor(private changed: () => void) { this.backend = new SftpConnection(changed); }
   get profile() { return this.backend.profile; }
+  get workspaces() { return this.backend.workspaces; }
   get workspace() { return this.backend.workspace; }
   get connected() { return this.backend.connected; }
   async connect(profile: ConnectionProfile, password: string, trust: (s: string) => Promise<boolean>) {
@@ -17,7 +18,7 @@ export class SharedFiles {
   binding(id: string) { return this.backend.binding(id); }
   verifyWorkspace(target: string) { return this.backend.verifyWorkspace(target); }
   loadManifest() { return this.backend.loadManifest(); }
-  createProject(name: string) { return this.backend.createProject(name); }
+  createProject(name: string, groupName?: string) { return this.backend.createProject(name, groupName); }
   ensurePersonalFolder(binding: RemoteBinding, target: string) { return this.backend.ensurePersonalFolder(binding, target); }
   list(binding: RemoteBinding, target: string) { return this.backend.list(binding, target); }
   preview(binding: RemoteBinding, target: string) { return this.backend.preview(binding, target); }

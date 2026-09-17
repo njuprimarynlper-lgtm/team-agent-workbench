@@ -47,7 +47,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().min(1) }).parse(raw);
       return workbench.configureWorkspace(p.profile, p.password, p.localPath, async fingerprint => (await dialog.showMessageBox(window, { type: 'question', title: '核对共享服务器', message: `${p.profile.host}:${p.profile.port}`, detail: `首次连接，请与管理员提供的指纹核对：\n\n${fingerprint}\n\n确认后此连接将固定校验该指纹。`, buttons: ['取消', '指纹一致，连接'], defaultId: 0, cancelId: 0 })).response === 1);
     }
-    case 'project.create': return workbench.createProject(z.object({ name: z.string().min(1).max(180) }).parse(raw).name);
+    case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional() }).parse(raw); return workbench.createProject(p.name, p.groupName); }
     case 'remote.disconnect': workbench.remote.disconnect(); return true;
     case 'remote.manifest': { const projects = await workbench.remote.loadManifest(); const p = workbench.remote.profile!; workbench.store.settings.connections = workbench.store.settings.connections.map(x => x.id === p.id ? p : x); await workbench.store.save(); broadcast(); return projects; }
     case 'remote.list': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.list(workbench.remote.binding(p.projectId), p.path); }

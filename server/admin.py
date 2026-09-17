@@ -206,6 +206,7 @@ def assign_groups(root, state, request):
         run(["gpasswd", "-d", login, group])
     if desired:
         run(["usermod", "-a", "-G", ",".join(sorted(desired)), login])
+    state["users"][username]["groups"] = list(groups)
     state["users"][username]["contentAdminGroups"] = content_admin_groups
     checkpoint(root, state, "成员组与子管理员角色已设置")
     terminate_connections(login)
@@ -218,17 +219,24 @@ def load(root):
         raise ValueError("此目录尚未初始化为团队空间")
     return json.loads(file.read_text(encoding="utf-8"))
 
-def save(root, state):
-    atomic_json(child(root, ".workbench/admin/state.json"), state)
-    roles = {"version": 1, "root": str(root), "users": {}}
+def write_roles(root, state):
+    roles = {"version": 1, "membershipVersion": 1, "root": str(root), "users": {}}
     for username, user in state["users"].items():
-        if user["enabled"]:
-            assigned = [{"id": name, "name": state["groups"][name]["label"], "workspace": state["groups"][name].get("workspace")} for name in user.get("contentAdminGroups", []) if name in state["groups"]]
-            if assigned:
-                roles["users"][username] = {"contentGroups": assigned}
+        if user["enabled"] and not user.get("missing") and not user.get("provisioning"):
+            groups = [{"id": name, "name": state["groups"][name]["label"], "workspace": state["groups"][name].get("workspace") if not state["groups"][name].get("provisioning") else None} for name in user.get("groups", []) if name in state["groups"]]
+            assigned = [group for group in groups if group["id"] in user.get("contentAdminGroups", [])]
+            roles["users"][username] = {"groups": groups, "contentGroups": assigned}
     role_file = child(root, ".workbench/roles.json")
     atomic_json(role_file, roles)
     os.chmod(role_file, 0o644)
+
+
+def save(root, state):
+    atomic_json(child(root, ".workbench/admin/state.json"), state)
+    # Legacy state files did not persist ordinary memberships. Always publish
+    # the current OS assignments, including during unrelated password/group edits.
+    write_roles(root, actual_state(state))
+
 
 def prepare_workspace(root, state, group_name):
     import grp
@@ -324,7 +332,9 @@ def _execute(request):
             start_operation(root, state, request)
     result = None
     if op == "status":
-        return actual_state(state)
+        current = actual_state(state)
+        write_roles(root, current)
+        return current
     if op == "user_create":
         import pwd, grp
         username = account_name(request.get("username"))

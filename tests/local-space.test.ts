@@ -20,7 +20,7 @@ async function setup() {
   await admin.operation({ op: 'group_create', label: 'other' });
   for (const username of ['alice', 'bob', 'carol']) await admin.operation({ op: 'user_create', username, name: username, password: 'member-test-password', groups: [username === 'carol' ? 'local_other' : 'local_workbench'], contentAdminGroups: username === 'alice' ? ['local_workbench'] : [] });
   const config = (username: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, username === 'carol' ? 'local_other' : 'local_workbench');
-  const connect = async (username: string) => { const c = new LocalFileConnection(); const p = config(username); await c.connect(p, 'member-test-password', async () => false); await c.verifyWorkspace(p.workPath!); await c.loadManifest(); return c; };
+  const connect = async (username: string) => { const c = new LocalFileConnection(); const p = config(username); await c.connect(p, 'member-test-password', async () => false); await c.loadManifest(); await c.loadManifest(); return c; };
   const clean = async () => { admin.disconnect(); if (!base.startsWith(path.join(os.tmpdir(), 'workbench-local-'))) throw new Error('unsafe cleanup'); await fs.rm(base, { recursive: true, force: true, maxRetries: 4 }); };
   return { base, root, admin, profile, config, connect, clean };
 }

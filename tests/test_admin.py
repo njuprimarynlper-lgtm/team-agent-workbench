@@ -71,6 +71,44 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertEqual((root/'projects/ocr/existing.txt').read_text(),'preserve')
 
 class AdminRecoveryTests(unittest.TestCase):
+    def test_saving_legacy_state_preserves_ordinary_membership_from_system(self):
+        import json
+        self.execute('group_create', label='ocr')
+        self.execute('user_create', username='alice', name='Alice', password='1', groups=['wb_test_ocr'])
+        state = admin.load(self.root)
+        del state['users']['alice']['groups']
+        original_read = pathlib.Path.read_text
+        def read(file, *args, **kwargs):
+            if file.as_posix() == '/etc/shadow': return 'alice:hash:1:0:99999:7:::'
+            return original_read(file, *args, **kwargs)
+        with patch.object(admin, 'actual_state', side_effect=self.actual_state), patch.object(pathlib.Path, 'read_text', read):
+            admin.save(self.root, state)
+        roles = json.loads((self.root/'.workbench/roles.json').read_text(encoding='utf-8'))
+        self.assertEqual([g['id'] for g in roles['users']['alice']['groups']], ['wb_test_ocr'])
+        self.assertEqual(roles['users']['alice']['contentGroups'], [])
+
+    def test_membership_manifest_includes_all_enabled_accounts_and_refresh_migrates_legacy_roles(self):
+        import json
+        for label in ['ocr', 'nlp']: self.execute('group_create', label=label)
+        self.execute('user_create', username='alice', name='Alice', password='1', groups=['wb_test_ocr', 'wb_test_nlp'], contentAdminGroups=['wb_test_ocr'])
+        self.execute('user_create', username='test1', name='Test', password='1')
+        self.execute('user_create', username='disabled', name='Disabled', password='1')
+        self.execute('user_enabled', username='disabled', enabled=False)
+        file = self.root/'.workbench/roles.json'
+        file.write_text(json.dumps({'version': 1, 'users': {}}), encoding='utf-8')
+        self.execute('status')
+        roles = json.loads(file.read_text(encoding='utf-8'))
+        self.assertEqual(roles['membershipVersion'], 1)
+        self.assertEqual(set(roles['users']), {'alice', 'test1'})
+        self.assertEqual(roles['users']['test1'], {'groups': [], 'contentGroups': []})
+        self.assertEqual([g['workspace'] for g in roles['users']['alice']['groups']], ['/projects/ocr', '/projects/nlp'])
+        self.assertEqual([g['id'] for g in roles['users']['alice']['contentGroups']], ['wb_test_ocr'])
+        self.assertNotIn('password', file.read_text(encoding='utf-8'))
+        self.execute('group_member', username='alice', group='wb_test_ocr', role='remove')
+        updated = json.loads(file.read_text(encoding='utf-8'))['users']['alice']
+        self.assertEqual([g['id'] for g in updated['groups']], ['wb_test_nlp'])
+        self.assertEqual(updated['contentGroups'], [])
+
     def test_extended_accounts_use_system_identity_for_all_commands_and_preserve_alias_roles(self):
         import json
         self.execute('group_create', label='ocr')

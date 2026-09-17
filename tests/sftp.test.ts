@@ -36,7 +36,11 @@ test('real SFTP transport preserves UTF-8, stages uploads, propagates permission
   const port = (server.address() as { port: number }).port, remote = new SftpConnection(), dir = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-sftp-'));
   try {
     const profile = { id: 'test', name: 'fixture', host: '127.0.0.1', port, username: 'alice', fingerprint: '', manifestPath: '', projects: [{ id: 'p', name: 'p', remoteRoot: '/project', uploadPath: '/project', historyPath: '/project' }] };
-    await remote.connect(profile, 'secret', async () => true); const binding = remote.binding('p');
+    await remote.connect(profile, 'secret', async () => true);
+    assert.deepEqual(remote.profile!.projects, []); // Client-supplied entries cannot grant access.
+    // This transport-only fixture has no team metadata; discovery is covered by workspace/workgroup tests.
+    remote.profile!.projects = profile.projects;
+    const binding = remote.binding('p');
     assert.deepEqual(await remote.verifyDirectory('/project'), { path: '/project', canonicalPath: '/project' });
     await assert.rejects(remote.verifyDirectory('/project/denied'), /Linux 拒绝访问/);
     await assert.rejects(remote.verifyDirectory('/project/readme.md'), /必须是.*目录/);

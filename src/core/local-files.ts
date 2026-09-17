@@ -8,11 +8,11 @@ import { newProjectLayout, projectName } from './project-layout';
 import { sameEndpoint } from './sftp';
 
 export class LocalFileConnection {
-  profile?: ConnectionProfile; workspace?: WorkspaceAccess;
+  profile?: ConnectionProfile; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] = [];
   private root = ''; private proof = ''; private ready = false;
   constructor(private changed: () => void = () => {}) {}
   get connected() { return this.ready; }
-  disconnect() { this.ready = false; this.proof = ''; this.workspace = undefined; this.changed(); }
+  disconnect() { this.ready = false; this.proof = ''; this.workspace = undefined; this.workspaces = []; this.changed(); }
   async connect(profile: ConnectionProfile, password: string, _trust: (s: string) => Promise<boolean>) {
     this.disconnect(); this.root = await localRoot(profile.localRoot);
     const data = await readRegistry(this.root);
@@ -20,7 +20,7 @@ export class LocalFileConnection {
     const proof = data.credentials[profile.username]; authorizeUser(data, profile.username, proof);
     const fingerprint = 'LOCAL:' + data.state.teamId;
     if (profile.fingerprint && profile.fingerprint !== fingerprint) throw new Error('本地共享区身份已改变，请导入此共享区的成员配置');
-    this.profile = { ...profile, mode: 'local', localRoot: this.root, host: 'local', port: 22, fingerprint, projects: [] };
+    this.profile = { ...profile, mode: 'local', localRoot: this.root, host: 'local', port: 22, fingerprint, projects: [], workPath: '', manifestPath: '' };
     this.proof = proof; this.ready = true; this.changed(); return this.profile;
   }
   channel(binding?: RemoteBinding) {
@@ -54,42 +54,59 @@ export class LocalFileConnection {
   }
   async verifyWorkspace(target: string): Promise<WorkspaceAccess> {
     const checked = await this.verifyDirectory(target), { user, group } = await this.access(target);
-    this.workspace = { ...checked, canCreateProject: group.workspace === checked.path && !!user.contentAdminGroups?.includes(group.name), groupName: group.name };
-    this.profile!.workPath = checked.path; this.changed(); return this.workspace;
+    if (checked.path !== group.workspace) throw new Error('共享工作路径由所属工作组分配');
+    this.workspace = { ...checked, canCreateProject: !!user.contentAdminGroups?.includes(group.name), groupName: group.name, groupLabel: group.label };
+    this.changed(); return this.workspace;
   }
   private personal(p: Project): Project { return { ...p, managed: true, uploadPath: childRemote(p.remoteRoot, 'submissions') + '/' + this.profile!.username, historyPath: p.remoteRoot + '/trajectories/' + this.profile!.username }; }
-  private async readProject(root: string): Promise<Project | undefined> {
+  private async readProject(root: string, workspace?: WorkspaceAccess): Promise<Project | undefined> {
     const filename = root + '/.workbench-project.json';
     try {
       const file = await diskPath(this.root, filename), stat = await fs.stat(file);
       if (!stat.isFile() || stat.size > 16384) return;
       const meta = JSON.parse(await fs.readFile(file, 'utf8'));
       if (meta.version !== 1 || !/^project_[a-f0-9]{32}$/.test(meta.id)) return;
-      return this.personal({ id: meta.id, name: projectName(meta.name), remoteRoot: root, uploadPath: root, historyPath: root });
+      return this.personal({ id: meta.id, name: projectName(meta.name), remoteRoot: root, uploadPath: root, historyPath: root, groupName: workspace?.groupName, groupLabel: workspace?.groupLabel });
     } catch (e: any) { if (e.code === 'ENOENT' || e instanceof SyntaxError) return; throw e; }
   }
   async discoverProjects() {
-    const base = this.workspace?.canonicalPath; if (!base) throw new Error('请先验证共享工作路径');
-    await this.verifyWorkspace(base);
-    const current = await this.readProject(base), projects: Project[] = [];
-    if (current) projects.push(current);
-    else {
-      const entries = await fs.readdir(await diskPath(this.root, base), { withFileTypes: true });
-      if (entries.length > 500) throw new Error('目录数量超过 500，请选择更具体的工作路径');
-      for (const e of entries) if (!e.name.startsWith('.') && e.isDirectory() && !e.isSymbolicLink()) { const p = await this.readProject(childRemote(base, e.name)); if (p) projects.push(p); }
+    const profile = this.channel().profile!, proof = this.proof;
+    let data: Awaited<ReturnType<typeof readRegistry>>, user: ReturnType<typeof authorizeUser>;
+    try { data = await readRegistry(this.root); user = authorizeUser(data, profile.username, proof); }
+    catch (e) { if (this.profile === profile && this.proof === proof) { this.workspaces = []; this.workspace = undefined; profile.projects = []; this.changed(); } throw e; }
+    const workspaces: WorkspaceAccess[] = [], projects: Project[] = [];
+    for (const name of user.groups || []) {
+      const group = data.state.groups[name]; if (!group) continue;
+      const workspace: WorkspaceAccess = { path: group.workspace || '', canonicalPath: group.workspace || '', groupName: group.name, groupLabel: group.label, canCreateProject: false };
+      workspaces.push(workspace);
+      try {
+        if (!group.workspace || group.provisioning) throw new Error('管理员尚未完成工作组目录配置');
+        await this.verifyDirectory(group.workspace);
+        workspace.canCreateProject = !!user.contentAdminGroups?.includes(group.name);
+        const entries = await fs.readdir(await diskPath(this.root, group.workspace), { withFileTypes: true });
+        if (entries.length > 500) throw new Error('工作组目录超过 500 项，请联系管理员整理');
+        const found: Project[] = [];
+        for (const e of entries) if (!e.name.startsWith('.') && e.isDirectory() && !e.isSymbolicLink()) { const p = await this.readProject(childRemote(group.workspace, e.name), workspace); if (p) found.push(p); }
+        projects.push(...found);
+      } catch (e: any) { workspace.accessError = e.message; workspace.canCreateProject = false; }
     }
-    this.channel().profile!.projects = projects; this.changed(); return projects;
+    if (this.profile !== profile || this.proof !== proof || !this.connected) throw new Error('刷新期间连接已改变');
+    this.workspaces = workspaces; this.workspace = workspaces[0]; profile.projects = projects; profile.workPath = ''; profile.manifestPath = '';
+    this.changed(); return projects;
   }
   loadManifest() { return this.discoverProjects(); }
-  async createProject(name: string) {
-    const base = this.workspace?.canonicalPath; if (!base) throw new Error('请先验证共享工作路径');
-    const { group } = await this.access(base, true);
+  async createProject(name: string, groupName?: string) {
+    await this.loadManifest();
+    const workspace = groupName ? this.workspaces.find(w => w.groupName === groupName) : this.workspaces.length === 1 ? this.workspaces[0] : undefined;
+    if (!workspace) throw new Error(this.workspaces.length ? '请选择要创建项目的工作组' : '还没有加入工作组，请联系管理员');
+    if (workspace.accessError) throw new Error(workspace.accessError);
+    const base = workspace.canonicalPath, { group } = await this.access(base, true);
     if (base !== group.workspace) throw new Error('只能在项目组工作路径中创建项目');
     const project = newProjectLayout(base, name), root = await diskPath(this.root, project.remoteRoot, true);
-    await fs.mkdir(root); // Exclusive reservation; a duplicate never overwrites.
+    await fs.mkdir(root);
     await fs.mkdir(path.join(root, 'trajectories')); await fs.mkdir(path.join(root, 'submissions'));
     await fs.writeFile(path.join(root, '.workbench-project.json'), JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt: new Date().toISOString() }), { flag: 'wx' });
-    const p = this.personal(project); this.profile!.projects.push(p); this.changed(); return p;
+    const p = this.personal({ ...project, groupName: group.name, groupLabel: group.label }); this.profile!.projects.push(p); this.changed(); return p;
   }
   private async checked(binding: RemoteBinding, target: string, write = false, missing = false) {
     this.channel(binding); target = assertRemote(binding.project.remoteRoot, target); await this.access(target);

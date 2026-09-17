@@ -46,7 +46,7 @@ test('Local administrator and extended-name members: create, export, login, uplo
     await admin.operation({ op: 'group_create', label: 'demo' });
     for (const username of ['张三', '10086', 'ZhangSan', 'constructor']) await admin.operation({ op: 'user_create', username, name: username, password: '1', groups: ['local_demo'], contentAdminGroups: username === '张三' ? ['local_demo'] : [] });
     const config = (name: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, name, 'local_demo');
-    for (const name of ['张三', '10086', 'ZhangSan', 'constructor']) { const c = new LocalFileConnection(); const p = config(name); await c.connect(p, '1', async () => false); await c.verifyWorkspace(p.workPath!); c.disconnect(); }
+    for (const name of ['张三', '10086', 'ZhangSan', 'constructor']) { const c = new LocalFileConnection(); const p = config(name); await c.connect(p, '1', async () => false); await c.loadManifest(); c.disconnect(); }
     await alice.connect(config('张三'), '1', async () => false); await alice.verifyWorkspace('/projects/demo');
     const project = await alice.createProject('身份验证');
     await bob.connect(config('10086'), '1', async () => false); await bob.verifyWorkspace('/projects/demo'); await bob.discoverProjects();

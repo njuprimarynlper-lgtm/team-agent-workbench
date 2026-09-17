@@ -52,7 +52,7 @@ export class Workbench {
     this.store.inputs[id] = structuredClone(input); return this.store.save();
   }
   async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
-  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace } : undefined }; }
+  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
   async requireAuth(provider: Provider, cwd: string) {
     const prior = this.accounts.states[provider];
     const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
@@ -65,16 +65,14 @@ export class Workbench {
     const job = { controller, promise }; this.catalogJobs.set(provider, job);
     try { return await promise; } finally { if (this.catalogJobs.get(provider) === job) this.catalogJobs.delete(provider); }
   }
-  assertWorkspace() { if (!this.workspaceReady) throw new Error('请先填写本机与共享工作路径，并通过远端访问权限验证'); }
+  assertWorkspace() { if (!this.workspaceReady) throw new Error('请先验证团队账号并选择本机工作目录'); }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
-    if (this.configuring) throw new Error('正在验证工作路径，请等待结果');
+    if (this.configuring) throw new Error('正在登录并发现工作组，请等待结果');
     this.configuring = true; this.broadcast();
     try {
       if (!path.isAbsolute(localPath) || !(await fs.stat(localPath)).isDirectory()) throw new Error('请选择已存在的本机工作目录');
-      if (!profile.workPath) throw new Error(profile.mode === 'local' ? '请输入共享工作路径' : '请输入 Linux 工作路径');
       const canonicalLocal = await fs.realpath(localPath);
-      const result = await this.remote.connect(profile, password, trust);
-      await this.remote.verifyWorkspace(profile.workPath);
+      const result = await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       this.store.settings.verifiedLocalWorkspace = canonicalLocal; this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
       this.store.settings.connections = [...this.store.settings.connections.filter(x => x.id !== result.id), result];
@@ -82,8 +80,8 @@ export class Workbench {
     } catch (error) { this.remote.disconnect(); throw error; }
     finally { this.configuring = false; this.broadcast(); }
   }
-  async createProject(name: string) {
-    this.assertWorkspace(); const project = await this.remote.createProject(name);
+  async createProject(name: string, groupName?: string) {
+    this.assertWorkspace(); const project = await this.remote.createProject(name, groupName);
     const profile = this.remote.profile!; this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? profile : p);
     await this.store.save(); this.broadcast(); return project;
   }

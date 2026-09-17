@@ -31,11 +31,11 @@ export async function adminCases({ app, page, data }) {
     const output = path.join(data, 'member-alice.json');
     await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, output);
     await page.getByRole('button', { name: '导出连接配置', exact: true }).click();
-    await expect(page.getByLabel('导出项目组')).toHaveValue('wb_test_ocr');
+    await expect(page.getByLabel('导出项目组')).toHaveCount(0);
     await page.getByRole('button', { name: '确认执行', exact: true }).click();
     await page.getByText('连接配置已导出，请将初始密码另行交付给成员', { exact: true }).waitFor();
     const raw = await fs.readFile(output, 'utf8'), config = JSON.parse(raw);
-    assert.equal(config.username, 'alice'); assert.equal(config.workPath, '/projects/ocr'); assert.equal(config.fingerprint, server.profile.fingerprint);
+    assert.equal(config.username, 'alice'); assert.equal(config.workPath, ''); assert.equal(config.fingerprint, server.profile.fingerprint);
     assert(!raw.includes('password')); assert(!raw.includes('/srv/teamspace')); assert.equal(server.requests.at(-1).op, 'status');
     await page.getByRole('button', { name: '加入用户组', exact: true }).click();
     await page.getByLabel('选择已有用户组').selectOption('wb_test_nlp');

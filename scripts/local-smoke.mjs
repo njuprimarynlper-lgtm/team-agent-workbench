@@ -2,12 +2,13 @@ import { releaseRoot } from './release-paths.mjs';
 const extendedAccounts = process.argv.includes('--accounts');
 const aliceName = extendedAccounts ? '张三' : 'alice', bobName = extendedAccounts ? '10086' : 'bob';
 const memberPassword = extendedAccounts ? '1' : 'member-test-password';
-import { _electron as electron, expect } from '@playwright/test';
+import { _electron as electron, expect as baseExpect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), packaged = process.argv.includes('--packaged');
 const data = path.join(root, '.test-data', 'local-ui-' + Date.now()), share = path.join(data, 'share');
@@ -27,9 +28,9 @@ async function connectUser(page, username) {
   await page.getByLabel('共享区类型').selectOption('local');
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   await page.getByLabel('本地共享区根目录', { exact: true }).fill(share);
-  await page.getByLabel('共享工作路径', { exact: true }).fill('/projects/competition');
+  await expect(page.getByLabel('共享工作路径', { exact: true })).toHaveCount(0);
   await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill(memberPassword);
-  await page.getByRole('button', { name: '连接并验证工作路径', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
 }
 try {
   const admin = await launch('admin', 'admin'); const ap = admin.page;

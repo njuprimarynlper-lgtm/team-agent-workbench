@@ -9,12 +9,18 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
   const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
   const publicKey = utils.parseKey(key).getPublicSSH(), fingerprint = 'SHA256:' + createHash('sha256').update(publicKey).digest('base64').replace(/=+$/, '');
   const nodes = new Map(), clients = [], codes = utils.sftp.STATUS_CODE;
-  const state = { admins: [Object.keys(accounts)[0]], failFolder: '', writableRoles: false };
+  const state = { admins: [Object.keys(accounts)[0]], failFolder: '', writableRoles: false, memberships: Object.fromEntries(Object.keys(accounts).map(name => [name, ['ocr']])), groupAdmins: {}, legacyRoles: false };
   const directory = (name, mode = 0o40755, uid = 0) => nodes.set(name, { mode, uid, gid: 100, data: Buffer.alloc(0) });
   for (const name of ['/', '/projects', '/projects/ocr', '/projects/denied', '/.workbench']) directory(name);
   nodes.set('/.workbench/roles.json', { mode: 0o100644, uid: 0, gid: 0, data: Buffer.alloc(0) });
   const normalize = value => path.posix.normalize(value);
-  const updateRoles = () => { const node = nodes.get('/.workbench/roles.json'); node.mode = state.writableRoles ? 0o100666 : 0o100644; node.data = Buffer.from(JSON.stringify({ version: 1, root: '/srv/teamspace', users: Object.fromEntries(state.admins.map(username => [username, { contentGroups: [{ id: 'wb_test_ocr', name: 'OCR', workspace: '/projects/ocr' }] }])) })); };
+  const updateRoles = () => {
+    const node = nodes.get('/.workbench/roles.json'); node.mode = state.writableRoles ? 0o100666 : 0o100644;
+    node.data = Buffer.from(JSON.stringify({ version: 1, ...(!state.legacyRoles ? { membershipVersion: 1 } : {}), root: '/srv/teamspace', users: Object.fromEntries(Object.keys(accounts).map(username => {
+      const groups = (state.memberships[username] || []).map(label => ({ id: 'wb_test_' + label, name: label === 'ocr' ? 'OCR' : label.toUpperCase(), workspace: '/projects/' + label }));
+      return [username, { groups, contentGroups: groups.filter(g => (g.id === 'wb_test_ocr' ? state.admins : state.groupAdmins[g.id.slice(8)] || []).includes(username)) }];
+    })) }));
+  };
   const server = new Server({ hostKeys: [key] }, client => {
     let username = '', uid = 0; clients.push(client); client.on('error', () => {});
     client.on('authentication', ctx => { const alias = Object.keys(accounts).find(name => accounts[name] === ctx.username); if (ctx.method === 'password' && ctx.password === password && alias) { username = alias; uid = 1001 + Object.keys(accounts).indexOf(alias); ctx.accept(); } else ctx.reject(); });
@@ -24,11 +30,12 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
       const error = (id, code) => sftp.status(id, code);
       const bits = node => uid === node.uid ? (node.mode >> 6) & 7 : node.gid === (username === 'carol' ? 200 : 100) ? (node.mode >> 3) & 7 : node.mode & 7;
       const canRead = target => {
+        const group = target.match(/^\/projects\/([^/]+)/)?.[1]; if (group && !(state.memberships[username] || []).includes(group)) return false;
         if (target === '/projects/denied' || target.startsWith('/projects/denied/')) return false;
         for (let p = target; p !== '/'; p = path.posix.dirname(p)) { const n = nodes.get(p); if (n && !(bits(n) & (n.mode & 0o040000 ? 1 : 4))) return false; }
         return true;
       };
-      const canWrite = parent => canRead(parent) && (parent === '/projects/ocr' ? state.admins.includes(username) : !!(bits(nodes.get(parent)) & 2));
+      const canWrite = parent => canRead(parent) && (/^\/projects\/[^/]+$/.test(parent) ? (parent === '/projects/ocr' ? state.admins : state.groupAdmins[parent.split('/')[2]] || []).includes(username) : !!(bits(nodes.get(parent)) & 2));
       const get = (id, raw, callback) => { updateRoles(); const target = normalize(raw), node = nodes.get(target); if (!canRead(target)) error(id, codes.PERMISSION_DENIED); else if (!node) error(id, codes.NO_SUCH_FILE); else callback(node, target); };
       sftp.on('REALPATH', (id, target) => get(id, target, (node, canonical) => sftp.name(id, [{ filename: canonical, longname: '', attrs: attrs(node) }])));
       for (const method of ['STAT', 'LSTAT']) sftp.on(method, (id, target) => get(id, target, node => sftp.attrs(id, attrs(node))));
