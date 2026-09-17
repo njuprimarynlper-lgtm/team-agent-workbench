@@ -56,11 +56,18 @@ async function main() {
     assert(JSON.stringify(requests.at(-1)?.input).includes(brief.sha256), 'first-turn reference must remain in native model context');
     assert.equal(s.messages.filter(m => m.role === 'user')[1].text, '刚才的口令是什么？', 'subsequent prompt must not append the reference again');
     assert.equal((JSON.stringify(requests.at(-1)?.input).match(/用户选择的参考文件/g) || []).length, 1, 'native model history must contain the reference introduction only once');
+    const beforeSwitch = requests.length;
+    await wb.changeModel(s.id, 'fixture-model-next');
+    assert.equal(requests.length, beforeSwitch, 'model selection must not trigger inference');
+    await wb.send(s.id, '切换模型后继续之前的口令。'); await wait(s);
+    assert.equal(s.nativeId, nativeId); assert.equal(requests.at(-1)?.model, 'fixture-model-next');
+    assert(JSON.stringify(requests.at(-1)?.input).includes('请记住口令 WB_CONTEXT_20260917'));
+    assert.equal((JSON.stringify(requests.at(-1)?.input).match(/用户选择的参考文件/g) || []).length, 1);
     await wb.close();
     wb = new Workbench(path.join(data, 'workbench'), () => {}, () => {});
     await wb.store.init(); grantTestWorkspace(wb, workspace);
     await wb.send(s.id, '重启后继续回答之前的口令。'); const restored = wb.session(s.id); await wait(restored);
-    assert.equal(restored.nativeId, nativeId);
+    assert.equal(restored.nativeId, nativeId); assert.equal(restored.model, 'fixture-model-next');
     assert(JSON.stringify(requests.at(-1)?.input).includes('请记住口令 WB_CONTEXT_20260917'));
     source = new JsonRpc(executable, ['app-server'], workspace, false);
     await source.request('initialize', { clientInfo: { name: 'workbench_isolation_check', version: '0.7.0' } }); source.notify('initialized');
@@ -85,7 +92,7 @@ async function main() {
     assert.notEqual(migrated.nativePath, legacy.thread.path);
     assert(JSON.stringify(requests.at(-1)?.input).includes('旧会话迁移前的口令 LEGACY_CONTEXT_20260917'));
     assert.equal(await fs.readFile(legacy.thread.path, 'utf8'), original, 'continuing migrated history must not change the desktop copy');
-    const report = { passed: true, data, nativeId, cases: ['new thread absent from personal Codex list', 'default Codex cannot read isolated id', 'permission change preserves user and assistant model context', 'restart preserves context and native id', 'native rollout retained', 'no auth file copied', 'legacy context migrates without changing desktop copy'], modelRequests: requests.length };
+    const report = { passed: true, data, nativeId, cases: ['new thread absent from personal Codex list', 'default Codex cannot read isolated id', 'permission change preserves user and assistant model context', 'model change uses selected model and preserves context without reinjecting references', 'restart preserves context and native id', 'native rollout retained', 'no auth file copied', 'legacy context migrates without changing desktop copy'], modelRequests: requests.length };
     await fs.writeFile(path.join(data, 'verification.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
   } finally {
     await source?.close(); await wb.close(); await new Promise<void>(resolve => server.close(() => resolve()));

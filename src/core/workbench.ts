@@ -25,6 +25,7 @@ import { inspectCatalog } from './provider-catalog';
 export class Workbench {
   store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
   private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
+  private changingSettings = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
   private edits: Promise<unknown> = Promise.resolve();
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
@@ -146,9 +147,28 @@ export class Workbench {
     if (s.provider === 'cursor' && mode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
     if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再修改权限');
-    const runtime = this.runtimes.get(id); this.runtimes.delete(id); if (runtime) await runtime.close();
-    s.permissionMode = mode; s.permissions = undefined; s.permissionIssue = undefined; s.status = 'idle'; s.approvals = [];
-    await this.store.save(); this.broadcast(); return s;
+    return this.updateSessionSettings(s, () => { s.permissionMode = mode; s.permissionIssue = undefined; });
+  }
+  private async updateSessionSettings(s: AgentSession, update: () => void) {
+    if (this.changingSettings.has(s.id)) throw new Error('正在切换会话设置，请稍后重试');
+    this.changingSettings.add(s.id);
+    try {
+      const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close();
+      update(); s.permissions = undefined; s.status = 'idle'; s.approvals = [];
+      await this.store.save(); this.broadcast(); return s;
+    } finally { this.changingSettings.delete(s.id); }
+  }
+  async changeModel(id: string, model: string, stop = false) {
+    const s = this.session(id);
+    if (s.purpose !== 'work') throw new Error('成果整理使用来源会话的模型');
+    if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
+    model = model.trim();
+    if (!model || model.length > 256 || /[\x00-\x1f\x7f]/.test(model)) throw new Error('请选择有效的模型');
+    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
+    if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再切换模型');
+    // Reconnect on the next send: both providers resume the original native session.
+    // Cursor applies session/set_model after session/load; Codex resumes with model.
+    return this.updateSessionSettings(s, () => { s.model = model; });
   }
   async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true) {
     this.assertWorkspace();
@@ -173,6 +193,7 @@ export class Workbench {
   }
   async send(id: string, userText: string, sourceIds: string[] = []) {
     this.assertWorkspace();
+    if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
     if (!userText.trim()) throw new Error('请输入任务内容');
     const s = this.session(id); this.assertCanWork(s.binding);
     if (s.provider === 'cursor' && this.configuringCursorPermissions) throw new Error('正在保存 Cursor 权限配置，请保存完成后再发送任务');

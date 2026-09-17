@@ -43,6 +43,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd); }
     case 'provider.cursorReview': return workbench.configureCursorReview(z.object({ cwd: text.min(1) }).parse(raw).cwd);
     case 'session.permissions': { const p = z.object({ id, mode: z.enum(['inherit', 'review', 'auto', 'full']), stop: z.boolean().optional() }).parse(raw); return workbench.changePermissions(p.id, p.mode, p.stop); }
+    case 'session.model': { const p = z.object({ id, model: z.string().trim().min(1).max(256).regex(/^[^\x00-\x1f\x7f]+$/), stop: z.boolean().optional() }).parse(raw); return workbench.changeModel(p.id, p.model, p.stop); }
     case 'choose.directory': return (await dialog.showOpenDialog(window, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(window, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
     case 'profile.import': {

@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, inspectPermissions, permissionIssue, setCursorManualReview } from '../src/core/permissions';
 import { AgentRuntime } from '../src/core/agents';
 import { Workbench } from '../src/core/workbench';
-import { permissionReportDescription, sessionPermissionDescription } from '../src/shared/permission-presentation';
+import { permissionReportDescription, sessionPermissionDescription, sessionPermissionLabel } from '../src/shared/permission-presentation';
 import type { AgentSession, Provider } from '../src/shared/types';
 // @ts-expect-error Shared CLI fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -35,6 +35,8 @@ test('permission findings distinguish sandbox, policy and filesystem errors from
 test('native permission names distinguish approval modes from filesystem restrictions and unverified selections', () => {
   const report = (sandbox: string, approval: string, reviewer = 'user') => codexPermissions({ sandbox: { type: sandbox }, approvalPolicy: approval, approvalsReviewer: reviewer }, 'runtime');
   assert.match(permissionReportDescription(report('workspaceWrite', 'on-request')), /^当前：请求批准。/);
+  assert.equal(sessionPermissionLabel({ provider: 'codex', permissionMode: 'full', permissions: report('readOnly', 'on-request') }), '自定义设置（请求批准）');
+  assert.equal(sessionPermissionLabel({ provider: 'codex', permissionMode: 'full' }), '完全访问');
   assert.match(permissionReportDescription(report('workspaceWrite', 'on-request', 'auto_review')), /^当前：帮我批准。/);
   assert.match(permissionReportDescription(report('dangerFullAccess', 'never')), /^当前：完全访问。/);
   assert.match(permissionReportDescription(report('readOnly', 'on-request')), /^当前：自定义设置（请求批准）。.*仅允许读取/);
