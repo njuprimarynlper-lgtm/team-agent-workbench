@@ -39,7 +39,7 @@ else if (command === 'login') {
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
     else if (m.method === 'getAuthStatus') send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', authMethod: 'chatgpt', authToken: current.status === 'ready' ? 'fixture.' + Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: current.accountId || 'fixture-account', chatgpt_plan_type: 'pro' } })).toString('base64url') + '.PRIVATE_FIXTURE_TOKEN' : null } });
     else if (m.method === 'account/login/start') send({ id: m.id, result: { type: m.params.type } });
-    else if (m.method === 'config/read') send({ id: m.id, result: { config: { sandbox_mode: current.permissionConfig?.sandbox || 'workspace-write', approval_policy: current.permissionConfig?.approval || 'on-request', approvals_reviewer: 'user', api_key: 'DO_NOT_FORWARD_THIS_SECRET' } } });
+    else if (m.method === 'config/read') send({ id: m.id, result: { config: { sandbox_mode: current.permissionConfig?.sandbox || 'workspace-write', approval_policy: current.permissionConfig?.approval || 'on-request', approvals_reviewer: current.permissionConfig?.reviewer || 'user', api_key: 'DO_NOT_FORWARD_THIS_SECRET' } } });
     else if (m.method === 'configRequirements/read') send({ id: m.id, result: { requirements: current.permissionRequirements || null } });
     else if (m.method === 'command/exec') send(current.probeBlocked ? { id: m.id, error: { code: -32000, message: 'Windows sandbox: CreateProcessAsUser failed' } } : { id: m.id, result: { exitCode: 0, stdout: 'WORKBENCH_PERMISSION_OK', stderr: '' } });
     else if (m.method === 'model/list') {
@@ -61,7 +61,7 @@ else if (command === 'login') {
       else { const reply = () => send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', account: current.status === 'ready' ? { type: 'chatgpt', email: 'fake@example.com', planType: 'pro' } : null } }); if (current.delay) setTimeout(reply, current.delay); else reply(); }
     } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
       if (current.rejectPermissionMode) send({ id: m.id, error: { code: -32000, message: 'sandbox mode not allowed by administrator policy' } });
-      else send({ id: m.id, result: { thread: { id: 'fake-thread' }, ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: 'user' } : {}) } });
+      else send({ id: m.id, result: { thread: { id: 'fake-thread' }, ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: m.params.approvalsReviewer || current.permissionConfig?.reviewer || 'user', ...current.permissionRuntimeOverride } : {}) } });
     }
     else if (m.method === 'session/new' || m.method === 'session/load') send({ id: m.id, result: { sessionId: 'fake-session' } });
     else if (m.method === 'turn/start') {

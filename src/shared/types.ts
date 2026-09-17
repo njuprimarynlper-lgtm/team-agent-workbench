@@ -1,7 +1,7 @@
 import type { ContentMetadata, GitRevision } from './content';
 import type { ProjectBrief } from './project-brief';
 export type Provider = 'codex' | 'cursor';
-export type PermissionMode = 'inherit' | 'review' | 'full';
+export type PermissionMode = 'inherit' | 'review' | 'auto' | 'full';
 export interface PermissionReport { provider: Provider; checkedAt: string; source: 'config' | 'runtime'; sandbox: string; approval: string; reviewer?: string; warnings: string[]; allowedModes?: PermissionMode[]; execution?: 'passed' | 'blocked' | 'unknown'; executionDetail?: string; cursorConfig?: { files: string[]; allow: string[]; deny: string[] }; }
 export interface PermissionIssue { kind: 'sandbox' | 'policy' | 'filesystem'; message: string; at: string; }
 export interface Project { briefRevision?: number; id: string; name: string; remoteRoot: string; uploadPath: string; historyPath: string; managed?: boolean; groupName?: string; groupLabel?: string }

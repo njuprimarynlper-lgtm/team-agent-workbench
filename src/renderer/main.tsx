@@ -202,6 +202,7 @@ function NewSessionModal({ settings, auth, projects, projectId, close, run, crea
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('inherit');
   const [includeBrief, setIncludeBrief] = useState(true);
   const [selected, setSelected] = useState<Provider>('codex'), [cwd, setCwd] = useState(settings.lastWorkspace || settings.localWorkspace || ''), [project, setProject] = useState(projectId), [busy, setBusy] = useState(false), [model, setModel] = useState('');
+  useEffect(() => { if (selected === 'cursor' && permissionMode === 'auto') setPermissionMode('inherit'); }, [selected, permissionMode]);
   useEffect(() => setModel(''), [selected, cwd]);
   return <Modal title="新建工作会话" close={close} wide><div className="modal-body">
     <div className="provider-picker">{(['codex', 'cursor'] as Provider[]).map(p => <button aria-label={providerLabel(p)} className={selected === p ? 'selected' : ''} key={p} onClick={() => setSelected(p)}><span className={'provider-icon ' + p}>{p === 'codex' ? 'G' : 'C'}</span>{providerLabel(p)}{selected === p && <Check size={15}/>}</button>)}</div>

@@ -23,7 +23,8 @@ try {
   const send = async text => { await page.getByLabel('任务输入', { exact: true }).fill(text); await page.getByRole('button', { name: '发送任务', exact: true }).click(); };
   await page.getByRole('button', { name: '新建工作会话', exact: true }).click();
   await expect(page.getByLabel('权限模式')).toHaveValue('inherit');
-  await expect(page.getByLabel('CLI 执行权限')).toContainText('审批已关闭');
+  await expect(page.getByLabel('CLI 执行权限')).toContainText('不会请求批准，受限操作可能无法完成');
+  await expect(page.getByLabel('权限模式').locator('option')).toHaveText(['沿用 Codex 设置', '请求批准', '帮我批准', '完全访问']);
   await page.getByLabel('权限模式').selectOption('review');
   await expect(page.getByLabel('Codex 登录状态').getByText('fake@example.com')).toBeVisible();
   await page.screenshot({ path: path.join(artifacts, 'permissions-create.png') });
@@ -45,7 +46,9 @@ try {
   await expect(page.getByLabel('待授权提醒')).toHaveCount(0);
   await fixture.write({ status: 'ready', permissionRuntime: true, permissionDenied: 'Windows sandbox: CreateProcessWithLogonW failed: 1385' });
   await send('验证运行中权限错误');
-  await expect(page.getByLabel('当前执行权限')).toContainText('当前为工作目录内读写权限，访问目录外文件或执行部分命令可能受限。');
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).permissionIssue?.kind).toBe('sandbox');
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('idle');
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前：请求批准。');
   await expect(page.getByLabel('当前执行权限')).not.toContainText(/沙盒|sandbox|1385|CreateProcess|自检/);
   await expect(page.locator('.permission-alert')).toHaveCount(0);
   await page.screenshot({ path: path.join(artifacts, 'permissions-impact.png') });
@@ -66,7 +69,7 @@ try {
   await send('用户主动继续');
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).permissions?.sandbox).toBe('dangerFullAccess');
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('idle');
-  await expect(page.getByLabel('当前执行权限')).toContainText('当前为完全权限');
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前：完全访问');
   assert((await calls()).some(m => m.method === 'thread/resume' && m.params.sandbox === 'danger-full-access' && m.params.approvalPolicy === 'never'));
   // Even a full-mode runtime can receive team-enforced requests; never auto-answer.
   await fixture.write({ status: 'ready', permissionRuntime: true, toolApproval: true }); await send('仍需团队批准的操作');
@@ -79,15 +82,32 @@ try {
   await expect(page.getByLabel('待授权提醒')).toHaveCount(0);
   await assert.rejects(call('session.answer', { id: first.id, requestId: oldRequest.id, option: 'accept' }));
   assert.equal((await snap()).sessions.find(s => s.id === first.id).status, 'idle');
+  // Auto-review is a native reviewer choice, not the client auto-answering requests.
+  await page.getByRole('button', { name: '修改权限', exact: true }).click();
+  await page.getByLabel('权限模式').selectOption('auto');
+  await page.getByRole('button', { name: '应用到此会话', exact: true }).click();
+  await expect(page.getByLabel('当前执行权限')).toContainText('已选择：帮我批准');
+  await send('自动审查仍需人工确认的请求');
+  await expect(page.locator('.approval')).toBeVisible();
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前：帮我批准');
+  assert((await calls()).some(m => m.method === 'thread/resume' && m.params.approvalPolicy === 'on-request' && m.params.approvalsReviewer === 'auto_review'));
+  assert.equal((await snap()).sessions.find(s => s.id === first.id).nativeId, changed.nativeId);
+  await page.screenshot({ path: path.join(artifacts, 'permissions-auto-review.png') });
+  await page.locator('.approval').getByRole('button', { name: '拒绝', exact: true }).click();
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('idle');
   // Cursor configuration changes are explicit and limited to isolated test paths.
   await page.setViewportSize({ width: 1520, height: 980 });
   await page.getByRole('button', { name: '新建会话', exact: true }).click();
+  await page.getByLabel('权限模式').selectOption('auto');
   await page.getByRole('button', { name: 'Cursor', exact: true }).click();
+  await expect(page.getByLabel('权限模式')).toHaveValue('inherit');
+  await expect(page.getByLabel('权限模式').locator('option[value="auto"]')).toHaveJSProperty('disabled', true);
+  await expect(page.getByLabel('权限模式').locator('option')).toHaveText(['沿用 Cursor 设置', 'Allowlist（白名单）', 'Auto-review（自动审查）（当前接入方式暂不支持）', 'Run Everything（全部运行）']);
   await page.getByLabel('权限模式').selectOption('review');
-  await page.getByText('配置 Cursor 人工审批', { exact: true }).click();
+  await page.getByText('配置 Cursor Allowlist', { exact: true }).click();
   await expect(page.getByLabel('CLI 执行权限')).toContainText('会影响使用同一配置的其他 Cursor CLI 会话');
   assert.equal(JSON.parse(await fs.readFile(globalFile, 'utf8')).approvalMode, 'unrestricted');
-  await page.getByRole('button', { name: '应用 Cursor 人工审批配置', exact: true }).click();
+  await page.getByRole('button', { name: '应用 Cursor Allowlist 配置', exact: true }).click();
   await expect.poll(async () => JSON.parse(await fs.readFile(globalFile, 'utf8')).approvalMode).toBe('allowlist');
   const configured = JSON.parse(await fs.readFile(globalFile, 'utf8')); assert.deepEqual(configured.permissions.allow, []); assert.deepEqual(configured.permissions.deny, ['Read(.env)']); assert.equal(configured.auth.token, 'PRIVATE');
   await expect(page.getByLabel('Cursor 登录状态').getByText('fake@example.com')).toBeVisible();
@@ -102,18 +122,19 @@ try {
   await expect(page.locator('.approval').getByRole('button')).toHaveCount(2);
   await page.locator('.approval').getByRole('button', { name: '拒绝', exact: true }).click();
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === cursor.id).status).toBe('idle');
-  await expect(page.getByLabel('当前执行权限')).toContainText('当前为人工审批权限');
+  await expect(page.getByLabel('当前执行权限')).toContainText('已选择：Allowlist（白名单）');
   await fixture.write({ status: 'ready', permissionRuntime: true, permissionConfig: { sandbox: 'read-only', approval: 'on-request' }, probeBlocked: true, turn: 'success' });
   await page.locator(`.session-row[data-session-id="${second.id}"]`).click();
   await send('只读权限下的命令自检失败');
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === second.id).permissions?.execution).toBe('blocked');
-  await expect(page.getByLabel('当前执行权限')).toContainText('当前为只读权限，可能无法修改文件或运行需要写入的命令。');
+  await expect(page.getByLabel('当前执行权限')).toContainText('当前：自定义设置（请求批准）');
+  await expect(page.getByLabel('当前执行权限')).toContainText('目前仅允许读取，修改文件或运行写入命令需要额外授权');
   await expect(page.getByLabel('当前执行权限')).not.toContainText(/sandbox|CreateProcess|自检/);
   await page.getByRole('button', { name: '修改权限', exact: true }).click();
   await expect(page.locator('.modal')).not.toContainText(/CreateProcess|查看错误详情|查看检测详情/);
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.screenshot({ path: path.join(artifacts, 'permissions-readonly.png') });
   assert.deepEqual(errors, []);
-  console.log('Permission UI passed: default inherited policy, readonly/never warnings, manual Codex and Cursor approval, background-session notification routing, allow/deny, sandbox failure, explicit session change/resume, no replay, stop pending approval, stale answer rejected, isolated Cursor config backup and deny preservation, compact window layout.');
+  console.log('Permission UI passed: provider-native labels, Codex ask/auto/full presets, custom readonly restriction, auto-review residual human approval, Cursor ACP unavailable option and provider switch, background approvals, change/resume without replay or lost identity, stale rejection, isolated Cursor config preservation, compact layout.');
 } catch (e) { await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'permissions-failed.png') }).catch(() => {}); throw e; }
 finally { await app.close(); }

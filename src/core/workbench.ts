@@ -141,7 +141,8 @@ export class Workbench {
   async changePermissions(id: string, mode: PermissionMode, stop = false) {
     const s = this.session(id);
     if (s.purpose !== 'work') throw new Error('成果整理固定使用只读权限');
-    if (!['inherit', 'review', 'full'].includes(mode)) throw new Error('无效权限模式');
+    if (!['inherit', 'review', 'auto', 'full'].includes(mode)) throw new Error('无效权限模式');
+    if (s.provider === 'cursor' && mode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
     if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再修改权限');
     const runtime = this.runtimes.get(id); this.runtimes.delete(id); if (runtime) await runtime.close();
@@ -150,6 +151,7 @@ export class Workbench {
   }
   async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true) {
     this.assertWorkspace();
+    if (provider === 'cursor' && purpose === 'work' && permissionMode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本地工作目录');
     const cached = this.store.settings.offlineAuthorization?.profile;
     const binding = purpose === 'prepare' && parentId ? this.session(parentId).binding : projectId ? this.remote.connected ? this.remote.binding(projectId) : cached && cached.projects.some(p => p.id === projectId) ? { connectionId: cached.id, host: cached.host, port: cached.port, username: cached.username, fingerprint: cached.fingerprint, project: structuredClone(cached.projects.find(p => p.id === projectId)!) } : undefined : undefined;

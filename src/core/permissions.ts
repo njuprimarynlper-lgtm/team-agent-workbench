@@ -17,10 +17,12 @@ export function permissionIssue(value: unknown): PermissionIssue | undefined {
 export function codexPermissionParams(s: Pick<AgentSession, 'purpose' | 'permissionMode'>) {
   if (s.purpose === 'prepare') return { approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: 'read-only' };
   if (s.permissionMode === 'full') return { approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: 'danger-full-access' };
-  if (s.permissionMode === 'review') return { approvalPolicy: 'untrusted', approvalsReviewer: 'user', sandbox: 'workspace-write' };
+  if (s.permissionMode === 'review') return { approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: 'workspace-write' };
+  if (s.permissionMode === 'auto') return { approvalPolicy: 'on-request', approvalsReviewer: 'auto_review', sandbox: 'workspace-write' };
   return {};
 }
 export function cursorPermissionArgs(s: Pick<AgentSession, 'purpose' | 'permissionMode'>) {
+  if (s.purpose === 'work' && s.permissionMode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
   return s.purpose === 'work' && s.permissionMode === 'full' ? ['--force', '--sandbox', 'disabled', 'acp'] : ['acp'];
 }
 export function codexPermissions(raw: any, source: PermissionReport['source'] = 'config', requirements?: any): PermissionReport {
@@ -28,14 +30,17 @@ export function codexPermissions(raw: any, source: PermissionReport['source'] = 
   const reviewer = scalar(c.approvalsReviewer ?? c.approvals_reviewer), warnings: string[] = [];
   if (['read-only', 'readOnly'].includes(sandbox)) warnings.push('当前只读：可分析资料，但不能按普通工具权限修改文件。');
   if (approval === 'never' && !['danger-full-access', 'dangerFullAccess'].includes(sandbox)) warnings.push('沙盒外操作被限制，且审批已关闭；受限操作可能直接失败，无法弹出授权请求。');
-  if (['auto_review', 'guardian_subagent'].includes(reviewer)) warnings.push('当前由 CLI 自动审核请求；若需要自己审核，请选择人工审批。');
+  if (['auto_review', 'guardian_subagent'].includes(reviewer)) warnings.push('当前由 Codex 自动审查批准请求；若需要自己审核，请选择“请求批准”。');
   if (sandbox === 'unknown' || approval === 'unknown') warnings.push('CLI 未返回完整权限信息；不能据此认定拥有完全权限。实际生效值将在会话启动后更新。');
   const modes: PermissionMode[] = ['inherit'];
   const r = requirements?.requirements;
   const accepts = (field: string, value: string) => !Array.isArray(r?.[field]) || r[field].includes(value);
-  if (accepts('allowedSandboxModes', 'workspace-write') && accepts('allowedApprovalPolicies', 'untrusted') && accepts('allowedApprovalsReviewers', 'user')) modes.push('review');
+  if (accepts('allowedSandboxModes', 'workspace-write') && accepts('allowedApprovalPolicies', 'on-request')) {
+    if (accepts('allowedApprovalsReviewers', 'user')) modes.push('review');
+    if (accepts('allowedApprovalsReviewers', 'auto_review')) modes.push('auto');
+  }
   if (accepts('allowedSandboxModes', 'danger-full-access') && accepts('allowedApprovalPolicies', 'never') && accepts('allowedApprovalsReviewers', 'user')) modes.push('full');
-  if (r && modes.length < 3) warnings.push('管理员策略限制了可选权限模式；工作台不能绕过该限制。');
+  if (r && modes.length < 4) warnings.push('管理员策略限制了可选权限模式；工作台不能绕过该限制。');
   if (source === 'runtime' && c.sandbox?.networkAccess === false) warnings.push('沙盒内网络关闭；下载依赖等操作可能需要额外授权。');
   return { provider: 'codex', checkedAt: stamp(), source, sandbox, approval, reviewer, warnings, allowedModes: modes };
 }
@@ -53,10 +58,10 @@ export async function cursorPermissions(cwd: string): Promise<PermissionReport> 
   const allow = configs.flatMap(c => Array.isArray(c.permissions?.allow) ? c.permissions.allow.filter((x: any) => typeof x === 'string') : []);
   const deny = configs.flatMap(c => Array.isArray(c.permissions?.deny) ? c.permissions.deny.filter((x: any) => typeof x === 'string') : []);
   const approval = readable ? scalar(configs[0].approvalMode, 'allowlist') : 'unknown', sandbox = scalar(configs[0].sandbox?.mode);
-  if (approval !== 'allowlist') warnings.push('CLI 当前允许自动审核或自动执行。选择人工审批时需先将 Cursor 配置切换为人工规则。');
+  if (approval !== 'allowlist') warnings.push('选择 Allowlist 时需先修改 Cursor 的批准设置。');
   if (allow.some(x => /^(Shell|Write)\(/.test(x))) warnings.push('配置中有允许执行或修改的白名单；这些操作可能不会请求人工授权。可在下方清除自动允许项。');
-  if (deny.length) warnings.push('存在明确拒绝规则；即使选择完全权限，CLI 仍可能拒绝匹配的操作。');
-  return { provider: 'cursor', checkedAt: stamp(), source: 'config', sandbox, approval, warnings, execution: 'unknown', cursorConfig: { files, allow: allow.slice(0, 300), deny: deny.slice(0, 300) } };
+  if (deny.length) warnings.push('存在明确拒绝规则；即使选择 Run Everything，Cursor 仍可能拒绝匹配的操作。');
+  return { provider: 'cursor', checkedAt: stamp(), source: 'config', sandbox, approval, warnings, allowedModes: ['inherit', 'review', 'full'], execution: 'unknown', cursorConfig: { files, allow: allow.slice(0, 300), deny: deny.slice(0, 300) } };
 }
 // This is an explicit UI action. Preserve unrelated settings and deny rules,
 // back up exact originals, and refuse concurrent/symlink edits.

@@ -25,7 +25,8 @@
     "test:admin-ui": "node scripts/admin-management-smoke.mjs",
     "test:competition": "tsx scripts/competition-pilot.ts",
     "test:collaboration-ui": "tsx scripts/collaboration-smoke.ts",
-    "test:server": "python -m unittest discover -s tests -p test_*.py"
+    "test:server": "python -m unittest discover -s tests -p test_*.py",
+    "test:permission-presets": "tsx scripts/permission-presets-smoke.ts"
   },
   "dependencies": {
     "@openai/codex": "^0.154.0",

@@ -4,6 +4,7 @@ import { JsonRpc, type RpcMessage } from './rpc';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, permissionIssue, probeCodexCommand } from './permissions';
 import { validateCodexStorage, type CodexStorage } from './codex-storage';
 import { CodexAuthBridge } from './codex-auth-bridge';
+import { permissionLabels } from '../shared/permission-presentation';
 export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: () => void; }
 const now = () => new Date().toISOString();
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
@@ -45,10 +46,15 @@ export class AgentRuntime {
       s.permissions = codexPermissions(result, 'runtime');
       await probeCodexCommand(this.rpc, s.permissions, s.cwd, result.sandbox);
       if (s.permissions.execution === 'blocked') s.permissionIssue = permissionIssue(s.permissions.executionDetail) || { kind: 'sandbox', message: s.permissions.executionDetail || 'CLI 命令自检未通过', at: now() };
-      if (s.purpose === 'work' && s.permissionMode === 'review' && (result.approvalPolicy !== 'untrusted' || result.approvalsReviewer !== 'user')) throw new Error('无法确认 CLI 权限策略已采用人工审批，请检查 CLI 版本和管理员约束后重试');
+      if (s.purpose === 'work' && s.permissionMode && s.permissionMode !== 'inherit') {
+        const expected = codexPermissionParams(s);
+        // Windows may apply a narrower scope until its sandbox is configured.
+        // Show that scope as a custom restriction; do not prevent read-only work.
+        if (result.approvalPolicy !== expected.approvalPolicy || result.approvalsReviewer !== expected.approvalsReviewer) throw new Error(`权限策略未采用“${permissionLabels.codex[s.permissionMode]}”，请修改权限或更新 Codex 后重试`);
+      }
     } else {
       s.permissions = await cursorPermissions(s.cwd);
-      if (s.purpose === 'work' && s.permissionMode === 'review' && (s.permissions.approval !== 'allowlist' || s.permissions.cursorConfig?.allow.length)) throw new Error('Cursor 权限策略仍包含自动审批或允许规则。请打开执行权限，点击“配置 Cursor 人工审批”后重试。');
+      if (s.purpose === 'work' && s.permissionMode === 'review' && (s.permissions.approval !== 'allowlist' || s.permissions.cursorConfig?.allow.length)) throw new Error('Cursor 权限策略仍包含自动审批或允许规则。请打开执行权限，点击“配置 Cursor Allowlist”后重试。');
       await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.4.0' } });
       await this.rpc.request('authenticate', { methodId: 'cursor_login' }, 120000);
       const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
@@ -56,8 +62,8 @@ export class AgentRuntime {
       if (s.model) await this.rpc.request('session/set_model', { sessionId: s.nativeId, modelId: s.model });
       if (s.purpose === 'prepare') await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'ask' });
       else if (s.permissionMode && s.permissionMode !== 'inherit') await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'agent' });
-      if (s.permissionMode === 'full' && s.purpose === 'work') s.permissions.warnings.push('本会话已使用 --force --sandbox disabled 请求完全权限；明确拒绝规则和团队策略仍由 Cursor 执行。');
-      if (s.permissionMode === 'inherit' && ['ask', 'plan'].includes(result.modes?.currentModeId)) s.permissions.warnings.push('当前 Cursor 为只读问答或规划模式，无法直接修改代码。可改用人工审批或完全权限启动 Agent 模式。');
+      if (s.permissionMode === 'full' && s.purpose === 'work') s.permissions.warnings.push('本会话已请求 Run Everything；明确拒绝规则和团队策略仍由 Cursor 执行。');
+      if (s.permissionMode === 'inherit' && ['ask', 'plan'].includes(result.modes?.currentModeId)) s.permissions.warnings.push('当前 Cursor 为 Ask 或 Plan 模式，无法直接修改代码。');
     }
     this.initialized = true; s.status = 'idle'; this.hooks.changed();
   }

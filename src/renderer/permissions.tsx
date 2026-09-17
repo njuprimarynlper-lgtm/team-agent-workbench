@@ -1,33 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { AgentSession, PermissionMode, PermissionReport, Provider } from '../shared/types';
 
-export const permissionLabels: Record<PermissionMode, string> = { inherit: 'CLI 原有设置', review: '人工审批', full: '完全权限' };
-export function sessionPermissionDescription(session: Pick<AgentSession, 'permissionMode' | 'permissions'>) {
-  const mode = session.permissionMode || 'inherit', report = session.permissions;
-  // Report the effective runtime scope when available, rather than the requested mode.
-  if (report?.source === 'runtime' || mode === 'inherit') {
-    if (['read-only', 'readOnly'].includes(report?.sandbox || '')) return '当前为只读权限，可能无法修改文件或运行需要写入的命令。';
-    if (['workspace-write', 'workspaceWrite'].includes(report?.sandbox || '')) return '当前为工作目录内读写权限，访问目录外文件或执行部分命令可能受限。';
-    if (['danger-full-access', 'dangerFullAccess'].includes(report?.sandbox || '')) return '当前为完全权限，Agent 可访问本机账号允许的文件和网络，部分操作可能无需确认。';
-  }
-  if (mode === 'review') return '当前为人工审批权限，部分操作可能需要你确认后才能继续。';
-  if (mode === 'full') return '当前选择完全权限，Agent 可访问本机账号允许的文件和网络，部分操作可能无需确认。';
-  return '当前沿用 CLI 权限设置，部分操作可能受限或需要你确认。';
-}
-const sandboxLabel: Record<string, string> = { 'read-only': '只读', readOnly: '只读', 'workspace-write': '工作目录内可写', workspaceWrite: '工作目录内可写', 'danger-full-access': '不使用 CLI 沙盒', dangerFullAccess: '不使用 CLI 沙盒', enabled: '启用沙盒', disabled: '关闭沙盒', unknown: 'CLI 未提供' };
-const approvalLabel: Record<string, string> = { untrusted: '不受信任操作由用户批准', 'on-request': 'Agent 请求时由用户批准', never: '不发起授权请求', allowlist: '白名单外操作请求批准', unrestricted: '自动执行', 'auto-review': '自动审核', granular: 'CLI 自定义审批规则', unknown: 'CLI 未提供' };
+import { permissionLabels, permissionEffects, permissionReportDescription, sessionPermissionDescription } from '../shared/permission-presentation';
+export { sessionPermissionDescription } from '../shared/permission-presentation';
 export function PermissionSummary({ report }: { report?: PermissionReport }) {
   if (!report) return <p className="muted small">权限尚未检测</p>;
-  return <div className="permission-summary"><p><b>{report.source === 'runtime' ? '当前权限' : '已保存的权限设置'}</b> · {sandboxLabel[report.sandbox] || '待确认'} · {approvalLabel[report.approval] || '待确认'}</p>{report.warnings.map((w, i) => <p className="permission-warning" key={i}>{w}</p>)}</div>;
+  return <div className="permission-summary"><p>{permissionReportDescription(report)}</p></div>;
 }
 export function PermissionPicker({ provider, cwd, mode, changed }: { provider: Provider; cwd: string; mode: PermissionMode; changed: (m: PermissionMode) => void }) {
   const [report, setReport] = useState<PermissionReport>(), [busy, setBusy] = useState(false), [error, setError] = useState(''); const sequence = useRef(0);
   const check = async () => { const n = ++sequence.current; setBusy(true); setError(''); try { const next = await window.workbench.call<PermissionReport>('provider.permissions', { provider, cwd }); if (n === sequence.current) setReport(next); } catch (e: any) { if (n === sequence.current) setError('权限检测失败：' + e.message); } finally { if (n === sequence.current) setBusy(false); } };
   useEffect(() => { setReport(undefined); if (cwd) void check(); return () => { sequence.current++; }; }, [provider, cwd]);
-  return <section className="permission-picker" aria-label="CLI 执行权限"><div className="row"><b>执行权限</b><span className="spacer"/><button type="button" className="text-button" disabled={busy || !cwd} onClick={() => void check()}>{busy ? '检测中…' : '重新检测权限'}</button></div><label className="field">权限模式<select aria-label="权限模式" value={mode} onChange={e => changed(e.target.value as PermissionMode)}>{(['inherit', 'review', 'full'] as const).map(m => <option key={m} value={m} disabled={!!report?.allowedModes && !report.allowedModes.includes(m)}>{permissionLabels[m]}{report?.allowedModes && !report.allowedModes.includes(m) ? '（管理员策略不允许）' : ''}</option>)}</select></label>
-    {mode !== 'inherit' && <p className="muted small">{mode === 'review' ? provider === 'codex' ? '在工作目录沙盒内运行，不受信任的操作需你批准。' : 'CLI 请求时由你审批；需先清除已有自动允许规则。' : '允许访问当前 Windows 账号可访问的文件和网络，并减少工具审批。'}</p>}
+  return <section className="permission-picker" aria-label="CLI 执行权限"><div className="row"><b>执行权限</b><span className="spacer"/><button type="button" className="text-button" disabled={busy || !cwd} onClick={() => void check()}>{busy ? '检测中…' : '重新检测权限'}</button></div><label className="field">权限模式<select aria-label="权限模式" value={mode} onChange={e => changed(e.target.value as PermissionMode)}>{(['inherit', 'review', 'auto', 'full'] as const).map(m => {
+      const unavailable = provider === 'cursor' && m === 'auto';
+      const restricted = !!report?.allowedModes && !report.allowedModes.includes(m);
+      return <option key={m} value={m} disabled={unavailable || restricted}>{permissionLabels[provider][m]}{unavailable ? '（当前接入方式暂不支持）' : restricted ? '（管理员策略不允许）' : ''}</option>;
+    })}</select></label>
+    {mode !== 'inherit' && <p className="muted small">{permissionEffects[provider][mode]}</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}<PermissionSummary report={report}/>
-    {provider === 'cursor' && mode === 'review' && <details className="cursor-review-config"><summary>配置 Cursor 人工审批</summary><p>清空账号及当前目录的自动允许列表，启用白名单审批；保留拒绝规则并备份配置。会影响使用同一配置的其他 Cursor CLI 会话。</p>{report?.cursorConfig?.files.map(file => <code key={file}>{file}</code>)}<button className="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const next = await window.workbench.call<PermissionReport>('provider.cursorReview', { cwd }); setReport(next); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>应用 Cursor 人工审批配置</button></details>}
+    {provider === 'cursor' && mode === 'review' && <details className="cursor-review-config"><summary>配置 Cursor Allowlist</summary><p>清空账号及当前目录的自动允许列表，启用白名单审批；保留拒绝规则并备份配置。会影响使用同一配置的其他 Cursor CLI 会话。</p>{report?.cursorConfig?.files.map(file => <code key={file}>{file}</code>)}<button className="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const next = await window.workbench.call<PermissionReport>('provider.cursorReview', { cwd }); setReport(next); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>应用 Cursor Allowlist 配置</button></details>}
   </section>;
 }
 export function SessionPermissions({ session, close }: { session: AgentSession; close: () => void }) {

@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, inspectPermissions, permissionIssue, setCursorManualReview } from '../src/core/permissions';
 import { AgentRuntime } from '../src/core/agents';
 import { Workbench } from '../src/core/workbench';
+import { permissionReportDescription, sessionPermissionDescription } from '../src/shared/permission-presentation';
 import type { AgentSession, Provider } from '../src/shared/types';
 // @ts-expect-error Shared CLI fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -21,11 +22,35 @@ test('permission findings distinguish sandbox, policy and filesystem errors from
   assert.equal(permissionIssue('401 unauthorized: login required'), undefined); assert.equal(permissionIssue('fetch failed ECONNRESET'), undefined);
   assert.deepEqual(codexPermissionParams({ purpose: 'work', permissionMode: 'inherit' }), {});
   assert.equal(codexPermissionParams({ purpose: 'work', permissionMode: 'review' }).approvalsReviewer, 'user');
+  assert.deepEqual(codexPermissionParams({ purpose: 'work', permissionMode: 'review' }), { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user' });
+  assert.deepEqual(codexPermissionParams({ purpose: 'work', permissionMode: 'auto' }), { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'auto_review' });
   assert.equal(codexPermissionParams({ purpose: 'prepare', permissionMode: 'full' }).sandbox, 'read-only');
   assert.deepEqual(cursorPermissionArgs({ purpose: 'prepare', permissionMode: 'full' }), ['acp']);
   assert.deepEqual(cursorPermissionArgs({ purpose: 'work', permissionMode: 'full' }), ['--force', '--sandbox', 'disabled', 'acp']);
+  assert.throws(() => cursorPermissionArgs({ purpose: 'work', permissionMode: 'auto' }), /暂不支持/);
   const r = codexPermissions({ config: { sandbox_mode: 'read-only', approval_policy: 'never', approvals_reviewer: 'auto_review', secret: 'DO_NOT_FORWARD' } }, 'config', { requirements: { allowedSandboxModes: ['read-only'], allowedApprovalPolicies: ['never'] } });
   assert(r.warnings.some(w => w.includes('审批已关闭'))); assert.deepEqual(r.allowedModes, ['inherit']); assert(!JSON.stringify(r).includes('DO_NOT_FORWARD'));
+});
+
+test('native permission names distinguish approval modes from filesystem restrictions and unverified selections', () => {
+  const report = (sandbox: string, approval: string, reviewer = 'user') => codexPermissions({ sandbox: { type: sandbox }, approvalPolicy: approval, approvalsReviewer: reviewer }, 'runtime');
+  assert.match(permissionReportDescription(report('workspaceWrite', 'on-request')), /^当前：请求批准。/);
+  assert.match(permissionReportDescription(report('workspaceWrite', 'on-request', 'auto_review')), /^当前：帮我批准。/);
+  assert.match(permissionReportDescription(report('dangerFullAccess', 'never')), /^当前：完全访问。/);
+  assert.match(permissionReportDescription(report('readOnly', 'on-request')), /^当前：自定义设置（请求批准）。.*仅允许读取/);
+  assert.match(permissionReportDescription(report('readOnly', 'never')), /^当前：自定义设置。不会请求批准.*无法修改文件/);
+  assert.match(permissionReportDescription(report('dangerFullAccess', 'on-request')), /^当前：自定义设置（请求批准）/);
+  assert.match(permissionReportDescription(report('workspaceWrite', 'untrusted')), /^当前：自定义设置。/);
+  assert.match(sessionPermissionDescription({ provider: 'codex', permissionMode: 'full', permissions: report('readOnly', 'never') }), /^当前：自定义设置/);
+  assert.match(sessionPermissionDescription({ provider: 'codex', permissionMode: 'auto' }), /^已选择：帮我批准/);
+  for (const [approval, label] of [['allowlist', 'Allowlist（白名单）'], ['auto-review', 'Auto-review（自动审查）'], ['unrestricted', 'Run Everything（全部运行）']]) {
+    const cursorReport = { ...report('unknown', approval), provider: 'cursor' as const, source: 'config' as const };
+    assert(permissionReportDescription(cursorReport).startsWith('已保存设置：' + label));
+  }
+  const restricted = codexPermissions({}, 'config', { requirements: { allowedSandboxModes: ['workspace-write'], allowedApprovalPolicies: ['on-request'], allowedApprovalsReviewers: ['user'] } });
+  assert.deepEqual(restricted.allowedModes, ['inherit', 'review']);
+  const autoOnly = codexPermissions({}, 'config', { requirements: { allowedSandboxModes: ['workspace-write'], allowedApprovalPolicies: ['on-request'], allowedApprovalsReviewers: ['auto_review'] } });
+  assert.deepEqual(autoOnly.allowedModes, ['inherit', 'auto']);
 });
 
 test('Cursor manual review is explicit, backs up originals, preserves deny rules/auth, clears global and project allows', async () => {
@@ -48,18 +73,19 @@ test('Cursor manual review is explicit, backs up originals, preserves deny rules
   } finally { if (prior === undefined) delete process.env.CURSOR_CONFIG_DIR; else process.env.CURSOR_CONFIG_DIR = prior; await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('Codex manual/full modes are explicit; administrator rejection never falls back to elevated permissions', async () => {
+test('Codex native presets are explicit; administrator rejection never falls back to elevated permissions', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-perm-modes-'));
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', permissionRuntime: true, turn: 'success' });
   try {
-    for (const mode of ['review', 'full'] as const) {
+    for (const mode of ['review', 'auto', 'full'] as const) {
       const s = session('codex', root); s.permissionMode = mode;
       const runtime = new AgentRuntime(s, fixture.launcher, { changed: () => {}, done: () => {}, event: () => {} });
       try {
         await runtime.prompt('mode check'); await until(() => s.status === 'idle');
         assert.equal(s.permissions!.execution, 'passed'); assert.match(s.permissions!.executionDetail!, /不代表/);
-        assert.equal(s.permissions!.approval, mode === 'review' ? 'untrusted' : 'never');
-        assert.equal(s.permissions!.sandbox, mode === 'review' ? 'workspaceWrite' : 'dangerFullAccess');
+        assert.equal(s.permissions!.approval, mode === 'full' ? 'never' : 'on-request');
+        assert.equal(s.permissions!.sandbox, mode === 'full' ? 'dangerFullAccess' : 'workspaceWrite');
+        assert.equal(s.permissions!.reviewer, mode === 'auto' ? 'auto_review' : 'user');
       } finally { await runtime.close(); }
     }
     await fixture.write({ status: 'ready', rejectPermissionMode: true });
@@ -68,9 +94,34 @@ test('Codex manual/full modes are explicit; administrator rejection never falls 
     try { await assert.rejects(runtime.prompt('blocked'), /administrator policy/); assert(s.permissionIssue); }
     finally { await runtime.close(); }
     const calls = (await fs.readFile(path.join(root, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(x => JSON.parse(x));
-    assert.equal(calls.filter(x => x.method === 'turn/start').length, 2, 'blocked policy must not start a model turn');
-    assert.equal(calls.filter(x => x.method === 'thread/start').length, 3, 'no fallback or hidden retries');
+    assert.equal(calls.filter(x => x.method === 'turn/start').length, 3, 'blocked policy must not start a model turn');
+    assert.equal(calls.filter(x => x.method === 'thread/start').length, 4, 'no fallback or hidden retries');
   } finally { await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
+test('Codex refuses to claim auto-review when native runtime keeps another reviewer; Cursor auto switch is rejected without changing the session', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-perm-mismatch-'));
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', permissionRuntime: true, permissionRuntimeOverride: { approvalsReviewer: 'user' } });
+  const s = session('codex', root); s.permissionMode = 'auto';
+  const runtime = new AgentRuntime(s, fixture.launcher, { changed: () => {}, done: () => {}, event: () => {} });
+  const wb = new Workbench(path.join(root, 'store'), () => {}, () => {});
+  try {
+    await assert.rejects(runtime.prompt('do not run'), /权限策略未采用“帮我批准”/);
+    assert.equal(s.permissionIssue?.kind, 'policy');
+    const calls = (await fs.readFile(path.join(root, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(x => JSON.parse(x));
+    assert.equal(calls.filter(x => x.method === 'turn/start').length, 0);
+    await runtime.close();
+    await fixture.write({ status: 'ready', permissionRuntime: true, permissionRuntimeOverride: { sandbox: { type: 'readOnly' } }, turn: 'success' });
+    const limited = session('codex', root); limited.permissionMode = 'review';
+    const limitedRuntime = new AgentRuntime(limited, fixture.launcher, { changed: () => {}, done: () => {}, event: () => {} });
+    try {
+      await limitedRuntime.prompt('read-only work can continue'); await until(() => limited.status === 'idle');
+      assert.match(sessionPermissionDescription(limited), /^当前：自定义设置（请求批准）。.*仅允许读取/);
+    } finally { await limitedRuntime.close(); }
+    await wb.store.init(); const cursor = session('cursor', root); cursor.permissionMode = 'review'; cursor.nativeId = 'keep-native-id'; wb.store.sessions.push(cursor);
+    await assert.rejects(wb.changePermissions(cursor.id, 'auto'), /暂不支持/);
+    assert.equal(cursor.permissionMode, 'review'); assert.equal(cursor.nativeId, 'keep-native-id');
+  } finally { await runtime.close(); await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });
 
 test('Native approval limits: deny-only Codex request and Cursor without one-time options never offer broader grants', async () => {
