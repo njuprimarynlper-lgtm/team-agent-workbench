@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { completeProjectSetup } from './onboarding-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), data = path.join(root, '.test-data', 'workgroups-ui-' + Date.now()), share = path.join(data, 'share');
@@ -51,9 +52,9 @@ try {
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(2);
   await expect(up.getByText('还没有加入工作组', { exact: true })).toHaveCount(0); await expect(up.locator('[data-group-name="local_secret"]')).toHaveCount(0);
   for (const group of ['ocr', 'nlp']) {
-    await up.getByTitle('在 ' + group + ' 创建项目', { exact: true }).click();
-    await expect(up.getByLabel('创建项目的工作组')).toHaveValue('local_' + group);
-    await up.getByLabel('项目名称').fill('同名项目'); await up.getByRole('button', { name: '创建项目', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
+    if (group !== 'ocr') await up.getByTitle('在 ' + group + ' 创建项目', { exact: true }).click();
+    await expect(up.getByRole('dialog', { name: '完善项目资料' })).toContainText(group + ' · 项目初始化');
+    await completeProjectSetup(up, '同名项目');
   }
   await expect(up.locator('.workgroup-project')).toHaveCount(2);
   const projects = (await snap()).connection.profile.projects, ocr = projects.find(p => p.groupName === 'local_ocr');

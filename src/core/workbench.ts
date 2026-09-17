@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { inspectPermissions, setCursorManualReview } from './permissions';
 import type { PermissionMode } from '../shared/types';
+import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
 import type { AgentSession, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { SharedFiles } from './shared-files';
@@ -83,8 +84,17 @@ export class Workbench {
     } catch (error) { this.remote.disconnect(); throw error; }
     finally { this.configuring = false; this.broadcast(); }
   }
-  async createProject(name: string, groupName?: string) {
-    this.assertWorkspace(); const project = await this.remote.createProject(name, groupName);
+  async initializeProject(name: string, groupName: string, brief: ProjectBrief, contextKey: string) {
+    this.assertWorkspace();
+    const checkIdentity = () => { if (!this.remote.connected || !this.remote.profile || projectSetupIdentity(this.remote.profile, groupName) !== contextKey) throw new Error('共享区或账号已改变，请重新打开项目引导'); };
+    checkIdentity(); await this.remote.loadManifest(); checkIdentity();
+    const workspace = this.remote.workspaces.find(w => w.groupName === groupName);
+    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('当前账号不是此工作组的项目子管理员，或目录无法访问');
+    if (!workspace.isEmpty) throw new Error('此工作组已有内容，请刷新后查看已有项目；填写的资料仍保留在本机');
+    return this.createProject(name, groupName, projectBriefSchema.parse(brief));
+  }
+  async createProject(name: string, groupName?: string, brief?: ProjectBrief) {
+    this.assertWorkspace(); const project = await this.remote.createProject(name, groupName, brief);
     const profile = this.remote.profile!; this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? profile : p);
     await this.store.save(); this.broadcast(); return project;
   }

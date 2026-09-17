@@ -9,7 +9,7 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
   const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
   const publicKey = utils.parseKey(key).getPublicSSH(), fingerprint = 'SHA256:' + createHash('sha256').update(publicKey).digest('base64').replace(/=+$/, '');
   const nodes = new Map(), clients = [], codes = utils.sftp.STATUS_CODE;
-  const state = { admins: [Object.keys(accounts)[0]], failFolder: '', writableRoles: false, memberships: Object.fromEntries(Object.keys(accounts).map(name => [name, ['ocr']])), groupAdmins: {}, legacyRoles: false };
+  const state = { admins: [Object.keys(accounts)[0]], failFolder: '', failWrite: '', writableRoles: false, memberships: Object.fromEntries(Object.keys(accounts).map(name => [name, ['ocr']])), groupAdmins: {}, legacyRoles: false };
   const directory = (name, mode = 0o40755, uid = 0) => nodes.set(name, { mode, uid, gid: 100, data: Buffer.alloc(0) });
   for (const name of ['/', '/projects', '/projects/ocr', '/projects/denied', '/.workbench']) directory(name);
   nodes.set('/.workbench/roles.json', { mode: 0o100644, uid: 0, gid: 0, data: Buffer.alloc(0) });
@@ -69,7 +69,7 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
       sftp.on('FSTAT', (id, handle) => sftp.attrs(id, attrs(nodes.get(handles.get(handle.toString()).target))));
       sftp.on('SETSTAT', (id, raw, input) => get(id, raw, node => { if (node.uid !== uid) { error(id, codes.PERMISSION_DENIED); return; } if (input.mode !== undefined) node.mode = (node.mode & 0o170000) | (input.mode & 0o7777); sftp.status(id, codes.OK); }));
       sftp.on('FSETSTAT', (id, handle, input) => { const node = nodes.get(handles.get(handle.toString()).target); if (input.mode !== undefined) node.mode = (node.mode & 0o170000) | (input.mode & 0o7777); sftp.status(id, codes.OK); });
-      sftp.on('WRITE', (id, handle, offset, data) => { const node = nodes.get(handles.get(handle.toString()).target), next = Buffer.alloc(Math.max(node.data.length, offset + data.length)); node.data.copy(next); data.copy(next, offset); node.data = next; sftp.status(id, codes.OK); });
+      sftp.on('WRITE', (id, handle, offset, data) => { if (path.posix.basename(handles.get(handle.toString()).target) === state.failWrite) { nodes.get(handles.get(handle.toString()).target).data = Buffer.from('partial'); error(id, codes.PERMISSION_DENIED); return; } const node = nodes.get(handles.get(handle.toString()).target), next = Buffer.alloc(Math.max(node.data.length, offset + data.length)); node.data.copy(next); data.copy(next, offset); node.data = next; sftp.status(id, codes.OK); });
       sftp.on('READ', (id, handle, offset, length) => { const node = nodes.get(handles.get(handle.toString()).target); offset >= node.data.length ? error(id, codes.EOF) : sftp.data(id, node.data.subarray(offset, offset + length)); });
       sftp.on('CLOSE', (id, handle) => { handles.delete(handle.toString()); sftp.status(id, codes.OK); });
       sftp.on('REMOVE', (id, target) => { nodes.delete(normalize(target)); sftp.status(id, codes.OK); });

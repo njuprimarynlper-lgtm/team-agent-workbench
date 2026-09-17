@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, FolderTree, Plus, RefreshCw, ShieldCheck, Us
 import type { AdminSnapshot, AdminState, ManagedGroup, ManagedUser } from './types';
 import type { Form } from './renderer';
 import { memberReadiness } from './member-readiness';
+import { firstMemberIsAdmin } from './member-defaults';
 
 type Open = (form: Form) => void;
 export function PeopleManagement({ state, ready, busy, local, open, refresh }: { state: AdminState; ready: boolean; busy: boolean; local: boolean; open: Open; refresh: () => void }) {
@@ -44,7 +45,8 @@ export function MembershipDialog({ form, snapshot, close, done }: { form: Form; 
   const groups = Object.values(snapshot.state?.groups || {}).filter(g => g.workspace && !g.provisioning);
   const users = Object.values(snapshot.state?.users || {}).filter(u => !u.missing && !u.provisioning);
   const [username, setUsername] = useState(form.user?.username || ''), [groupName, setGroupName] = useState(form.group?.name || '');
-  const [role, setRole] = useState<'member' | 'admin' | 'remove'>(form.role || 'member');
+  const defaultRole = (group: string) => firstMemberIsAdmin(snapshot.state, group) ? 'admin' as const : 'member' as const;
+  const [role, setRole] = useState<'member' | 'admin' | 'remove'>(form.role || defaultRole(form.group?.name || ''));
   const [search, setSearch] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const selectedUser = users.find(u => u.username === username), selectedGroup = groups.find(g => g.name === groupName);
   const candidateGroups = groups.filter(g => !form.user || !form.user.groups?.includes(g.name) || form.group?.name === g.name);
@@ -59,8 +61,8 @@ export function MembershipDialog({ form, snapshot, close, done }: { form: Form; 
   return <div className="modal-backdrop"><section className="modal membership-dialog"><header><h2>{title}</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={close}><X size={19}/></button></header><div className="modal-body">
     {error && <div className="inline-error" role="alert">{error}</div>}
     {form.user ? <div className="member-summary"><UserRound size={24}/><div><b>{form.user.name}</b><code>{form.user.username}</code><small>当前所属组：{groups.filter(g => form.user!.groups?.includes(g.name)).map(g => g.label).join('、') || '未分组'}</small></div></div> : <><label className="field">查找已有用户<input aria-label="查找已有用户" value={search} onChange={e => setSearch(e.target.value)} placeholder="账号或姓名"/></label><div className="member-candidates">{candidates.map(u => <label className="check-row" key={u.username}><input type="radio" name="existing-user" aria-label={'选择用户 ' + u.username} checked={username === u.username} onChange={() => setUsername(u.username)}/><span><b>{u.name}</b> <code>{u.username}</code><small>{u.enabled ? '已启用' : '已停用'} · 已加入：{groups.filter(g => u.groups?.includes(g.name)).map(g => g.label).join('、') || '未分组'}</small></span></label>)}{!candidates.length && <p className="muted">{search ? '没有匹配的可添加用户' : '暂无可添加用户，已有用户均已加入本组。'}</p>}</div></>}
-    {form.group ? <p>目标用户组：<b>{form.group.label}</b> <code>{form.group.name}</code></p> : <label className="field">选择已有用户组<select aria-label="选择已有用户组" value={groupName} onChange={e => setGroupName(e.target.value)}><option value="">请选择用户组</option>{candidateGroups.map(g => <option key={g.name} value={g.name}>{g.label}</option>)}</select>{!candidateGroups.length && <small>暂无可加入的用户组，请先创建用户组。</small>}</label>}
-    <label className="field">成员身份<select aria-label="成员身份" value={role} onChange={e => setRole(e.target.value as typeof role)}><option value="member">普通成员</option><option value="admin">项目子管理员（仅本组）</option>{form.user && form.group && <option value="remove">移出此组</option>}</select></label>
+    {form.group ? <p>目标用户组：<b>{form.group.label}</b> <code>{form.group.name}</code></p> : <label className="field">选择已有用户组<select aria-label="选择已有用户组" value={groupName} onChange={e => { setGroupName(e.target.value); setRole(defaultRole(e.target.value)); }}><option value="">请选择用户组</option>{candidateGroups.map(g => <option key={g.name} value={g.name}>{g.label}</option>)}</select>{!candidateGroups.length && <small>暂无可加入的用户组，请先创建用户组。</small>}</label>}
+    {firstMemberIsAdmin(snapshot.state, groupName) && <p className="muted small">本组尚无成员，默认将首位成员设为子管理员；可在下方改为普通成员。</p>}<label className="field">成员身份<select aria-label="成员身份" value={role} onChange={e => setRole(e.target.value as typeof role)}><option value="member">普通成员</option><option value="admin">项目子管理员（仅本组）</option>{form.user && form.group && <option value="remove">移出此组</option>}</select></label>
     <div className={'callout ' + (removing ? 'membership-removal' : '')}><div>{removing ? '解除该用户与此组的关系，并撤销本组子管理员权限。' : role === 'admin' ? '加入该组，并获得对应工作路径的项目创建和内容管理权限。' : '加入该组，获得对应项目组工作路径的访问权限。'}<small>{removing ? '保留用户账号、其他组身份，以及已上传的成果和轨迹。' : '子管理员权限按组授予；管理用户和任命管理员仍由总管理员操作。'}</small><small>{snapshot.profile?.mode === 'local' ? '权限变更在下一次共享操作时生效。' : '执行后将断开此用户的旧共享连接，重新登录后应用最新权限。'}</small></div></div>
   </div><footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || !selectedUser || !selectedGroup} onClick={() => void submit()}>{busy ? '执行中…' : '确认执行'}</button></footer></section></div>;
 }

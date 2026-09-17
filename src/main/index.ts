@@ -8,6 +8,7 @@ import { Workbench } from '../core/workbench';
 import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
+import { projectBriefSchema } from '../shared/project-brief';
 let window: BrowserWindow; let workbench: Workbench; let quitting = false; let closing = false;
 const entry = path.join(__dirname, 'index.html');
 app.setName('Team Agent User');
@@ -51,6 +52,7 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       return workbench.configureWorkspace(p.profile, p.password, p.localPath, async fingerprint => (await dialog.showMessageBox(window, { type: 'question', title: '核对共享服务器', message: `${p.profile.host}:${p.profile.port}`, detail: `首次连接，请与管理员提供的指纹核对：\n\n${fingerprint}\n\n确认后此连接将固定校验该指纹。`, buttons: ['取消', '指纹一致，连接'], defaultId: 0, cancelId: 0 })).response === 1);
     }
     case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional() }).parse(raw); return workbench.createProject(p.name, p.groupName); }
+    case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }
     case 'remote.disconnect': workbench.remote.disconnect(); return true;
     case 'remote.manifest': { const projects = await workbench.remote.loadManifest(); const p = workbench.remote.profile!; workbench.store.settings.connections = workbench.store.settings.connections.map(x => x.id === p.id ? p : x); await workbench.store.save(); broadcast(); return projects; }
     case 'remote.list': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.list(workbench.remote.binding(p.projectId), p.path); }

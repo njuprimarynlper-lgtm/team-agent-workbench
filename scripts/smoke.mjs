@@ -7,6 +7,7 @@ import { teamServer } from '../tests/fixtures/team-server.mjs';
 import { adminCases } from './admin-cases.mjs';
 import { usabilityCases, restoredCases } from './usability-cases.mjs';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { completeProjectSetup } from './onboarding-helpers.mjs';
 const root = process.cwd();
 const packaged = process.argv.includes('--packaged');
 const launch = edition => packaged ? { executablePath: path.join(releaseRoot, edition, 'win-unpacked', edition === 'user' ? 'Team Agent User.exe' : 'Team Agent Admin.exe'), args: [] } : { args: ['dist/' + edition] };
@@ -58,9 +59,7 @@ try {
   assert.equal(await page.getByText('先连接团队账号', { exact: true }).count(), 1);
   await page.getByLabel('登录密码', { exact: true }).fill('test-password');
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
-  await page.getByRole('button', { name: '创建第一个项目', exact: true }).click();
-  await page.getByLabel('项目名称', { exact: true }).fill('实体抽取');
-  await page.getByRole('button', { name: '创建项目', exact: true }).click();
+  await completeProjectSetup(page, '实体抽取');
   await page.locator('.workgroup-project').filter({ hasText: '实体抽取' }).click();
   assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
   await page.getByRole('button', { name: '新建工作会话', exact: true }).waitFor();

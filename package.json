@@ -14,6 +14,7 @@
     "test:session-ui": "node scripts/session-experience-smoke.mjs",
     "test:permissions-ui": "node scripts/permissions-smoke.mjs",
     "test:composer-ui": "node scripts/composer-smoke.mjs",
+    "test:onboarding-ui": "node scripts/project-onboarding-smoke.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "start:admin": "npm run build && electron dist/admin",

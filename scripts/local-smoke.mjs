@@ -8,6 +8,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { completeProjectSetup } from './onboarding-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), packaged = process.argv.includes('--packaged');
@@ -30,7 +31,7 @@ async function connectUser(page, username) {
   await page.getByLabel('本地共享区根目录', { exact: true }).fill(share);
   await expect(page.getByLabel('共享工作路径', { exact: true })).toHaveCount(0);
   await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill(memberPassword);
-  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
 try {
   const admin = await launch('admin', 'admin'); const ap = admin.page;
@@ -52,7 +53,7 @@ try {
   await ap.locator('tbody tr').filter({ hasText: aliceName }).getByRole('button', { name: '导出连接配置' }).click(); await confirm(ap);
   const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.mode, 'local'); assert.equal(config.localRoot, share); assert(!JSON.stringify(config).includes('password'));
   const alice = await launch('user', 'alice'); await connectUser(alice.page, aliceName);
-  await alice.page.getByRole('button', { name: '创建第一个项目', exact: true }).click(); await alice.page.getByLabel('项目名称').fill('华为算法比赛'); await alice.page.getByRole('button', { name: '创建项目', exact: true }).click();
+  await completeProjectSetup(alice.page, '华为算法比赛');
   const bob = await launch('user', 'bob'); await connectUser(bob.page, bobName);
   const snapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')), p = snapshot.connection.profile.projects[0];
   assert.equal(await bob.page.getByTitle('创建远端项目', { exact: true }).count(), 0);
@@ -71,7 +72,7 @@ try {
   await alice.page.getByTitle('发送任务', { exact: true }).click();
   const approval = alice.page.locator('.approval'); await expect(approval).toContainText('Codex 请求修改文件');
   await approval.getByText('查看请求详情', { exact: true }).click();
-  await expect(approval.locator('pre')).toContainText('solution.py'); await expect(approval.locator('pre')).toContainText('+new_value');
+  await expect(approval.locator('details pre')).toContainText('solution.py'); await expect(approval.locator('details pre')).toContainText('+new_value');
   await approval.getByRole('button', { name: '拒绝', exact: true }).click(); await expect(approval).toHaveCount(0);
   const session = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).sessions[0];
   await alice.page.evaluate(id => window.workbench.call('session.uploadTrajectory', { id }), session.id);

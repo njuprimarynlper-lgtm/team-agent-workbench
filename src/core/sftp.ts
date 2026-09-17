@@ -9,6 +9,7 @@ import type { ConnectionProfile, FilePreview, Project, RemoteBinding, RemoteEntr
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { systemUsername } from './account-login';
 import { newProjectLayout, projectName } from './project-layout';
+import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 const MAX_PREVIEW = 512 * 1024;
 export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
   return a.connectionId === b.id && a.host === b.host && a.port === b.port && a.username === b.username && a.fingerprint === b.fingerprint;
@@ -136,6 +137,7 @@ export class SftpConnection {
         const checked = await this.verifyDirectory(workspace.path);
         if (checked.canonicalPath !== workspace.path) throw new Error('工作组目录不能指向其他路径');
         const entries = await new Promise<import('ssh2').FileEntry[]>((resolve, reject) => s.readdir(workspace.path, (e, list) => e ? reject(friendlySftp(e)) : resolve(list)));
+        workspace.isEmpty = entries.every(e => e.filename === '.' || e.filename === '..');
         const directories = entries.filter(e => !e.filename.startsWith('.') && (e.attrs.mode & 0o170000) === 0o040000);
         if (directories.length > 500) throw new Error('工作组目录超过 500 项，请联系管理员整理');
         const found: Project[] = [];
@@ -152,7 +154,8 @@ export class SftpConnection {
     }
     this.changed(); return projects;
   }
-  async createProject(name: string, groupName?: string): Promise<Project> {
+  async createProject(name: string, groupName?: string, rawBrief?: ProjectBrief): Promise<Project> {
+    const brief = rawBrief === undefined ? undefined : projectBriefSchema.parse(rawBrief);
     await this.loadManifest();
     const s = this.channel(), workspace = groupName ? this.workspaces.find(w => w.groupName === groupName) : this.workspaces.length === 1 ? this.workspaces[0] : undefined;
     if (!workspace) throw new Error(this.workspaces.length ? '请选择要创建项目的工作组' : '还没有加入工作组，请联系管理员');
@@ -160,20 +163,28 @@ export class SftpConnection {
     if (!workspace.canCreateProject) throw new Error('当前账号不是此工作组的项目子管理员');
     const base = workspace.canonicalPath;
     const project = newProjectLayout(base, name), directories: string[] = [];
-    const marker = childRemote(project.remoteRoot, '.workbench-project.json'); let markerWritten = false, completed = false;
+    const marker = childRemote(project.remoteRoot, '.workbench-project.json'), briefPath = childRemote(project.remoteRoot, PROJECT_BRIEF_FILE), files: string[] = []; let completed = false;
     const mkdir = (target: string, mode: number) => new Promise<void>((resolve, reject) => s.mkdir(target, { mode }, e => e ? reject(friendlySftp(e)) : resolve()));
+    const write = async (target: string, text: string) => {
+      const handle = await new Promise<Buffer>((resolve, reject) => s.open(target, 'wx', { mode: 0o640 }, (e, handle) => e ? reject(friendlySftp(e)) : resolve(handle)));
+      files.push(target); const buffer = Buffer.from(text, 'utf8');
+      try { await new Promise<void>((resolve, reject) => s.write(handle, buffer, 0, buffer.length, 0, e => e ? reject(friendlySftp(e)) : resolve())); }
+      finally { await new Promise<void>((resolve, reject) => s.close(handle, e => e ? reject(friendlySftp(e)) : resolve())); }
+    };
     try {
       // Exclusive mkdir reserves the name. Other members cannot enter until the final chmod.
       await mkdir(project.remoteRoot, 0o2700); directories.push(project.remoteRoot);
       for (const folder of ['trajectories', 'submissions']) { const dir = childRemote(project.remoteRoot, folder); await mkdir(dir, 0o3770); directories.push(dir); }
-      await new Promise<void>((resolve, reject) => s.writeFile(marker, JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt: new Date().toISOString() }, null, 2), { flag: 'wx', mode: 0o640 }, e => e ? reject(friendlySftp(e)) : resolve())); markerWritten = true;
+      if (brief) await write(briefPath, projectBriefMarkdown(project.name, brief, this.profile!.username, new Date().toISOString()));
+      await write(marker, JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt: new Date().toISOString() }, null, 2));
       if (this.channel() !== s) throw new Error('创建期间连接已改变');
       await new Promise<void>((resolve, reject) => s.chmod(project.remoteRoot, 0o2770, e => e ? reject(friendlySftp(e)) : resolve())); completed = true;
+      workspace.isEmpty = false;
       const result = this.projectForUser({ ...project, groupName: workspace.groupName, groupLabel: workspace.groupLabel }); this.profile!.projects.push(result); this.changed(); return result;
     } catch (error: any) {
       // Only remove paths reserved by this attempt, and only if still empty.
       if (!completed) {
-        if (markerWritten) await new Promise<void>(r => s.unlink(marker, () => r()));
+        for (const file of files.reverse()) await new Promise<void>(r => s.unlink(file, () => r()));
         for (const dir of directories.reverse()) await new Promise<void>(r => s.rmdir(dir, () => r()));
       }
       throw new Error('项目未创建成功（同名目录不会覆盖）：' + error.message);

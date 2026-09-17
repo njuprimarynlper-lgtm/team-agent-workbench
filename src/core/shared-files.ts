@@ -1,6 +1,7 @@
 import { SftpConnection } from './sftp';
 import { LocalFileConnection } from './local-files';
 import type { ConnectionProfile, RemoteBinding } from '../shared/types';
+import type { ProjectBrief } from '../shared/project-brief';
 
 export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
@@ -18,7 +19,7 @@ export class SharedFiles {
   binding(id: string) { return this.backend.binding(id); }
   verifyWorkspace(target: string) { return this.backend.verifyWorkspace(target); }
   loadManifest() { return this.backend.loadManifest(); }
-  createProject(name: string, groupName?: string) { return this.backend.createProject(name, groupName); }
+  createProject(name: string, groupName?: string, brief?: ProjectBrief) { return this.backend.createProject(name, groupName, brief); }
   ensurePersonalFolder(binding: RemoteBinding, target: string) { return this.backend.ensurePersonalFolder(binding, target); }
   list(binding: RemoteBinding, target: string) { return this.backend.list(binding, target); }
   preview(binding: RemoteBinding, target: string) { return this.backend.preview(binding, target); }

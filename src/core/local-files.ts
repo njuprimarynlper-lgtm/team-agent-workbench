@@ -6,6 +6,7 @@ import { authorizeUser, diskPath, localRoot, passwordMatches, readRegistry } fro
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { newProjectLayout, projectName } from './project-layout';
 import { sameEndpoint } from './sftp';
+import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 
 export class LocalFileConnection {
   profile?: ConnectionProfile; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] = [];
@@ -84,6 +85,7 @@ export class LocalFileConnection {
         await this.verifyDirectory(group.workspace);
         workspace.canCreateProject = !!user.contentAdminGroups?.includes(group.name);
         const entries = await fs.readdir(await diskPath(this.root, group.workspace), { withFileTypes: true });
+        workspace.isEmpty = entries.length === 0;
         if (entries.length > 500) throw new Error('工作组目录超过 500 项，请联系管理员整理');
         const found: Project[] = [];
         for (const e of entries) if (!e.name.startsWith('.') && e.isDirectory() && !e.isSymbolicLink()) { const p = await this.readProject(childRemote(group.workspace, e.name), workspace); if (p) found.push(p); }
@@ -95,7 +97,8 @@ export class LocalFileConnection {
     this.changed(); return projects;
   }
   loadManifest() { return this.discoverProjects(); }
-  async createProject(name: string, groupName?: string) {
+  async createProject(name: string, groupName?: string, rawBrief?: ProjectBrief) {
+    const brief = rawBrief === undefined ? undefined : projectBriefSchema.parse(rawBrief);
     await this.loadManifest();
     const workspace = groupName ? this.workspaces.find(w => w.groupName === groupName) : this.workspaces.length === 1 ? this.workspaces[0] : undefined;
     if (!workspace) throw new Error(this.workspaces.length ? '请选择要创建项目的工作组' : '还没有加入工作组，请联系管理员');
@@ -103,9 +106,22 @@ export class LocalFileConnection {
     const base = workspace.canonicalPath, { group } = await this.access(base, true);
     if (base !== group.workspace) throw new Error('只能在项目组工作路径中创建项目');
     const project = newProjectLayout(base, name), root = await diskPath(this.root, project.remoteRoot, true);
-    await fs.mkdir(root);
-    await fs.mkdir(path.join(root, 'trajectories')); await fs.mkdir(path.join(root, 'submissions'));
-    await fs.writeFile(path.join(root, '.workbench-project.json'), JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt: new Date().toISOString() }), { flag: 'wx' });
+    const directories: string[] = [], files: string[] = [], createdAt = new Date().toISOString();
+    const write = async (file: string, text: string) => { const handle = await fs.open(file, 'wx'); files.push(file); try { await handle.writeFile(text, 'utf8'); } finally { await handle.close(); } };
+    try {
+      await fs.mkdir(root); directories.push(root);
+      for (const name of ['trajectories', 'submissions']) { const dir = path.join(root, name); await fs.mkdir(dir); directories.push(dir); }
+      if (brief) await write(path.join(root, PROJECT_BRIEF_FILE), projectBriefMarkdown(project.name, brief, this.profile!.username, createdAt));
+      await this.access(base, true);
+      const marker = path.join(root, '.workbench-project.json');
+      await write(marker, JSON.stringify({ version: 1, id: project.id, name: project.name, createdBy: this.profile!.username, createdAt }));
+    } catch (error) {
+      for (const file of files.reverse()) await fs.unlink(file).catch(() => {});
+      // Only directories reserved by this attempt, and only while still empty.
+      for (const dir of directories.reverse()) await fs.rmdir(dir).catch(() => {});
+      throw error;
+    }
+    workspace.isEmpty = false;
     const p = this.personal({ ...project, groupName: group.name, groupLabel: group.label }); this.profile!.projects.push(p); this.changed(); return p;
   }
   private async checked(binding: RemoteBinding, target: string, write = false, missing = false) {

@@ -70,7 +70,8 @@ try {
   await createGroup('nlp'); await createGroup('ocr');
   await page.getByRole('button', { name: '创建用户', exact: true }).click(); await fields('alice');
   for (const label of ['nlp', 'ocr']) await page.locator('.modal .check-row').filter({ hasText: 'local_' + label }).locator('input').check();
-  await page.locator('.modal .check-row').filter({ hasText: 'nlp · 内容子管理员' }).locator('input').check(); await confirm();
+  for (const label of ['nlp', 'ocr']) await expect(page.locator('.modal .check-row').filter({ hasText: label + ' · 内容子管理员' }).locator('input')).toBeChecked();
+  await page.locator('.modal .check-row').filter({ hasText: 'ocr · 内容子管理员' }).locator('input').uncheck(); await confirm();
   await expect(userRow('alice').locator('.group-chip.subadmin')).toContainText('nlp');
   await expect(userRow('alice').locator('.group-chip')).toHaveCount(2);
   checks.push('global creation selects multiple groups and per-group subadmin');
