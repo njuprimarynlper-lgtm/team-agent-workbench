@@ -6,6 +6,7 @@ import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 
 const root = process.cwd(), packaged = process.argv.includes('--packaged');
@@ -76,6 +77,23 @@ try {
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0]?.status).toBe('done');
   const history = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0];
   await assert.rejects(bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }), /模拟权限拒绝/);
+  await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '方向性结论', body: '建议先检查数据覆盖范围，再评估是否调整方案。当前只是方向性判断，收益尚待验证。', repoUrl: '', destinationId: 'default' } });
+  await alice.page.getByRole('button', { name: '整理成果', exact: true }).click();
+  await expect(alice.page.getByLabel('整理状态')).toContainText('整理完成', { timeout: 20000 });
+  await expect(alice.page.getByText('补充仓库链接后即可上传', { exact: true })).toHaveCount(0);
+  await expect(alice.page.getByLabel('GitHub 仓库链接')).toBeHidden();
+  await expect(alice.page.getByRole('button', { name: '确认上传', exact: true })).toBeEnabled();
+  await alice.page.getByLabel('补充说明（可选）').fill('同事可先复核样本，再决定下一轮工作。');
+  await alice.page.getByRole('button', { name: '确认上传', exact: true }).click();
+  await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.find(t => t.name.includes('方向性结论'))?.status, { timeout: 20000 }).toBe('done');
+  const conclusion = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.find(t => t.name.includes('方向性结论'));
+  const conclusionFile = path.join(share, ...conclusion.target.split('/').filter(Boolean));
+  const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', conclusionFile], { encoding: 'utf8' }));
+  assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']);
+  assert.match(zip['README.md'], /建议先检查数据覆盖范围/); assert.match(zip['README.md'], /同事可先复核样本/);
+  assert(!zip['README.md'].includes('GitHub 仓库：')); assert.equal('repoUrl' in JSON.parse(zip['manifest.json']), false);
+  const visible = await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: path.posix.dirname(conclusion.target) });
+  assert(visible.some(entry => entry.path === conclusion.target));
   const row = ap.locator('tbody tr').filter({ hasText: bobName });
   await row.getByRole('button', { name: '停用', exact: true }).click(); await confirm(ap);
   await assert.rejects(bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot }), /已停用/);
@@ -83,7 +101,7 @@ try {
   assert((await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot })).length);
   assert.equal(await alice.page.evaluate(() => typeof window.admin), 'undefined'); assert.equal(await ap.evaluate(() => typeof window.workbench), 'undefined'); assert.deepEqual(errors, []);
   if (!packaged) { await ap.screenshot({ path: path.join(data, 'admin.png'), timeout: 10000 }); await bob.page.screenshot({ path: path.join(data, 'user-bob.png'), timeout: 10000 }); }
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'history privacy', 'live disable/enable', 'edition isolation'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'history privacy', 'conclusion upload without repository link; teammate access and package contents', 'live disable/enable', 'edition isolation'] }, null, 2));
   console.log('Local filesystem administrator + two users UI passed:', data);
 } catch (error) { for (const app of apps) await app.evaluate(({ app }) => app.exit(1)).catch(() => {}); throw error; }
 finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

@@ -10,7 +10,7 @@ export function draftStatus(draft: Draft) {
 }
 export function DraftEditor({ draft, session, sourceTitle, run, notice }: { draft: Draft; session?: AgentSession; sourceTitle?: string; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notice: (s: string) => void }) {
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [expanded, setExpanded] = useState(false);
-  const [showRepo, setShowRepo] = useState(!draft.repoUrl || !!draft.repoUrlOverride);
+  const [showRepo, setShowRepo] = useState(!!draft.repoUrlOverride);
   const [answers, setAnswers] = useState<Record<string, string>>({}), [now, setNow] = useState(Date.now());
   const generating = draft.generation === 'running', ready = draft.generation === 'ready';
   const locked = busy || submitted || !!draft.submitted;
@@ -18,7 +18,7 @@ export function DraftEditor({ draft, session, sourceTitle, run, notice }: { draf
   const value = editor.value, repoUrl = value.repoUrlOverride.trim() || draft.repoUrl || '';
   const change = (patch: Partial<typeof value>) => editor.change({ ...value, ...patch });
   useEffect(() => { setNow(Date.now()); if (!generating) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [generating, draft.generationStartedAt]);
-  useEffect(() => { if (ready) setShowRepo(!draft.repoUrl || !!draft.repoUrlOverride); }, [draft.repoUrl, ready]);
+  useEffect(() => { if (ready) setShowRepo(!!draft.repoUrlOverride); }, [draft.repoUrl, ready]);
   const elapsed = Math.max(0, Math.floor((now - Date.parse(draft.generationStartedAt || draft.createdAt)) / 1000));
   const status = generating ? session?.approvals.length ? '整理需要确认下方 CLI 请求。' : 'AI 正在整理成果……' : ready ? '整理完成，待确认上传。' : draft.generation === 'error' ? '整理失败，补充说明已保留。' : '已停止整理，可以重新整理。';
   return <div className="draft-editor">
@@ -34,15 +34,15 @@ export function DraftEditor({ draft, session, sourceTitle, run, notice }: { draf
     {draft.body && <section className="contribution-result" aria-label="AI 整理结果">
       {!ready && !draft.submitted && <p className="muted small">上次的整理结果（本次尚未完成）</p>}
       <h2>{draft.title}</h2>
-      <p className="repository-reference">仓库链接：{repoUrl ? <a href={repoUrl} onClick={e => { e.preventDefault(); void run(() => api.call('open.link', repoUrl)); }}>{repoUrl}</a> : <span className="muted">材料中未识别到，请在下方补充。</span>}</p>
+      <p className="repository-reference">仓库链接：{repoUrl ? <a href={repoUrl} onClick={e => { e.preventDefault(); void run(() => api.call('open.link', repoUrl)); }}>{repoUrl}</a> : <span className="muted">未提供（可选，不影响上传）。</span>}</p>
       <div className={'generated-preview markdown ' + (!expanded && draft.body.length > 800 ? 'collapsed' : '')} aria-label="AI 整理说明"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} onClick={e => { e.preventDefault(); if (href && /^https?:/.test(href)) void run(() => api.call('open.link', href)); }}>{children}</a>, img: ({ alt }) => <span>[图片：{alt || '附件'}]</span> }}>{draft.body}</ReactMarkdown></div>
       {draft.body.length > 800 && <button className="text-button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起详情' : '展开详情'}</button>}
     </section>}
-    {(ready || draft.body) && !locked && <details className="repository-correction" open={showRepo} onToggle={e => setShowRepo(e.currentTarget.open)}><summary>{repoUrl ? '更正仓库链接（可选）' : '补充仓库链接'}</summary><label className="field">GitHub 仓库链接<input aria-label="GitHub 仓库链接" placeholder={draft.repoUrl || 'https://github.com/owner/repository'} value={value.repoUrlOverride} onChange={e => change({ repoUrlOverride: e.target.value })}/><small>AI 从材料中自动提取；缺失或不准确时可在这里补充、更正。</small></label></details>}
+    {(ready || draft.body) && !locked && <details className="repository-correction" open={showRepo} onToggle={e => setShowRepo(e.currentTarget.open)}><summary>{repoUrl ? '更正仓库链接（可选）' : '添加仓库链接（可选）'}</summary><label className="field">GitHub 仓库链接<input aria-label="GitHub 仓库链接" placeholder={draft.repoUrl || 'https://github.com/owner/repository'} value={value.repoUrlOverride} onChange={e => change({ repoUrlOverride: e.target.value })}/><small>涉及代码时可补充或更正。方向性判断、研究结论等成果可以留空，直接上传。</small></label></details>}
     <label className="field contribution-supplement">补充说明（可选）<textarea rows={3} aria-label="补充说明（可选）" placeholder="补充背景、注意事项或更正说明，也可以留空。" disabled={locked} value={value.supplement} onChange={e => change({ supplement: e.target.value })}/></label>
     {!locked && <div className="row small muted" role="status"><span>{editor.status}</span>{editor.status.startsWith('保存失败') && <button className="text-button" onClick={editor.retry}>重试保存</button>}</div>}
     <div className="automatic-destination" aria-label="自动上传位置"><b>上传至</b><div>{draft.binding ? <><span>{draft.binding.project.name}</span><code>{generating ? '正在自动识别……' : draft.target || draft.binding.project.uploadPath}</code><small>{!generating && (draft.destinationNote || '使用当前成员的默认成果目录。')}</small></> : <span>此会话未绑定共享项目，无法上传。</span>}</div><span className="badge">自动识别</span></div>
-    <p className="muted small">上传仓库链接、AI 整理说明和你的补充。参考文件、代码和会话轨迹不在此次上传中。</p>
-    <div className="draft-actions">{!draft.submitted && !submitted ? <><span className="muted small">{generating ? '整理完成后即可确认上传' : !repoUrl && ready ? '补充仓库链接后即可上传' : '点击确认后才会上传'}</span><span className="spacer"/><button className="primary" disabled={busy || !ready || !draft.body.trim() || !repoUrl || !draft.binding} onClick={() => void run(async () => { setBusy(true); try { await editor.flush(); await api.call('draft.submit', { id: draft.id }); setSubmitted(true); notice('成果已加入上传队列，可在传输记录中查看结果'); } finally { setBusy(false); } })}><Upload size={15}/>{busy ? '正在提交…' : '确认上传'}</button></> : <div className="green row"><Check size={17}/>成果已固化。查看传输记录确认上传状态或重试。</div>}</div>
+    <p className="muted small">上传成果说明和你的补充；填写了仓库链接时一并附带。参考文件、代码和会话轨迹不在此次上传中。</p>
+    <div className="draft-actions">{!draft.submitted && !submitted ? <><span className="muted small">{generating ? '整理完成后即可确认上传' : '点击确认后才会上传'}</span><span className="spacer"/><button className="primary" disabled={busy || !ready || !draft.body.trim() || !draft.binding} onClick={() => void run(async () => { setBusy(true); try { await editor.flush(); await api.call('draft.submit', { id: draft.id }); setSubmitted(true); notice('成果已加入上传队列，可在传输记录中查看结果'); } finally { setBusy(false); } })}><Upload size={15}/>{busy ? '正在提交…' : '确认上传'}</button></> : <div className="green row"><Check size={17}/>成果已固化。查看传输记录确认上传状态或重试。</div>}</div>
   </div>;
 }

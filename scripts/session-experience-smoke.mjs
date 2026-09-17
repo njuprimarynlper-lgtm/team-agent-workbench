@@ -99,6 +99,9 @@ try {
   await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '缺失链接的成果', body: '材料没有仓库地址。\n\n' + '较长说明。'.repeat(200), repoUrl: '', destinationId: 'default' } });
   await page.getByRole('button', { name: '重试整理', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('整理完成');
+  await expect(page.getByText('补充仓库链接后即可上传', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('GitHub 仓库链接')).toBeHidden();
+  await page.getByText('添加仓库链接（可选）', { exact: true }).click();
   await expect(page.getByLabel('GitHub 仓库链接')).toBeVisible();
   await page.getByLabel('GitHub 仓库链接').pressSequentially('https://github.com/human/corrected');
   await expect(page.getByLabel('GitHub 仓库链接')).toHaveValue('https://github.com/human/corrected');

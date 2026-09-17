@@ -84,7 +84,7 @@ test('#2/#3/#5 session inputs, handoffs and drafts persist independently and off
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('#6 contribution ZIP contains exactly repository link, explanation and metadata, never code or local paths', async () => {
+test('#6 contribution ZIP accepts conclusions and optional repository links, never code or local paths', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-reference-'));
   try {
     const draft: any = { id: 'draft', sessionId: 'session', title: 'change', body: 'Fix extraction; commit abc; tested 42 cases.', repoUrl: 'https://github.com/owner/repo', files: [{ localPath: 'C:/secrets/code.py', sourcePath: '/private/code.py', name: 'code.py' }] };
@@ -93,8 +93,16 @@ test('#6 contribution ZIP contains exactly repository link, explanation and meta
     assert.equal(JSON.parse(zip['manifest.json']).repoUrl, draft.repoUrl); assert.match(zip['README.md'], /tested 42 cases/);
     assert(!JSON.stringify(zip).includes('code.py')); assert(!JSON.stringify(zip).includes('/private'));
     draft.body = 'changed later'; assert.match(readZip(file)['README.md'], /tested 42 cases/);
-    await assert.rejects(packageDraft({ ...draft, repoUrl: '' }, root), /GitHub/);
-    await assert.rejects(packageDraft({ ...draft, body: '' }, root), /修改说明/);
+    for (const repoUrl of [undefined, '', '   ']) {
+      const notes = readZip(await packageDraft({ ...draft, repoUrl, repoUrlOverride: '  ', title: '方向性结论', body: '建议先验证数据覆盖率，再考虑替换方案。', supplement: '这是待验证的方向，不是性能提升结论。' }, root));
+      const manifest = JSON.parse(notes['manifest.json']);
+      assert.equal(manifest.schemaVersion, 3); assert.equal(manifest.kind, 'project-contribution'); assert.equal('repoUrl' in manifest, false);
+      assert.match(notes['README.md'], /建议先验证数据覆盖率/); assert.match(notes['README.md'], /待验证的方向/); assert(!notes['README.md'].includes('GitHub 仓库：'));
+      assert.deepEqual(Object.keys(notes).sort(), ['README.md', 'manifest.json']); assert(!JSON.stringify(notes).includes('C:/secrets'));
+    }
+    await assert.rejects(packageDraft({ ...draft, repoUrl: 'not-a-link' }, root), /GitHub/);
+    await assert.rejects(packageDraft({ ...draft, repoUrlOverride: 'https://example.com/owner/repo' }, root), /github.com/);
+    await assert.rejects(packageDraft({ ...draft, body: '' }, root), /成果说明/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 

@@ -60,10 +60,12 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     const index = JSON.parse(await fs.readFile(path.join(d.inputDir, 'source-index.json'), 'utf8'));
     assert.match(await fs.readFile(index.handoff.localPath, 'utf8'), /继续推进/);
     assert.match(d.supplement!, /人工补充/);
+    await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '方向性结论', body: '建议先验证数据覆盖率。已有依据来自当前材料，尚未验证最终收益。', repoUrl: '', destinationId: selected.id } });
+    await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.repoUrl, '');
     const transfer = await wb.submitDraft(d.id); await until(() => !['queued', 'running'].includes(transfer.status)); assert.equal(transfer.status, 'done', transfer.error || '');
     assert.equal(path.posix.dirname(transfer.target), dir);
     const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', transfer.localPath], { encoding: 'utf8' }));
-    assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']); assert.match(zip['README.md'], /已完成的验证/); assert.match(zip['README.md'], /人工补充/); assert(!JSON.stringify(zip).includes('材料原始内容'));
+    assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']); assert.match(zip['README.md'], /建议先验证数据覆盖率/); assert.equal('repoUrl' in JSON.parse(zip['manifest.json']), false); assert.match(zip['README.md'], /人工补充/); assert(!JSON.stringify(zip).includes('材料原始内容'));
     assert.throws(() => wb.saveDraftSupplement(d.id, 'late', ''), /已提交/);
     await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
     assert((await bob.remote.list(bob.remote.binding(p.id), dir)).some(x => x.path === transfer.target));

@@ -40,13 +40,14 @@ export function githubRepository(value: string): string {
 }
 export async function packageDraft(draft: Draft, root: string): Promise<string> {
   draft = structuredClone(draft);
-  const repoUrl = githubRepository(draft.repoUrlOverride || draft.repoUrl || '');
-  if (!draft.body.trim()) throw new Error('请填写修改说明');
+  const repository = draft.repoUrlOverride?.trim() || draft.repoUrl?.trim() || '';
+  const repoUrl = repository ? githubRepository(repository) : undefined;
+  if (!draft.body.trim()) throw new Error('请填写成果说明');
   draft.body = contributionBody(draft);
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const entries = [
-    { name: 'README.md', text: `# ${draft.title}\n\nGitHub 仓库：${repoUrl}\n\n${draft.body}` },
-    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 2, kind: 'repository-reference', title: draft.title, repoUrl, description: draft.body, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, projectId: draft.binding?.project.id }, null, 2) }
+    { name: 'README.md', text: `# ${draft.title}\n\n${repoUrl ? `GitHub 仓库：${repoUrl}\n\n` : ''}${draft.body}` },
+    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 3, kind: 'project-contribution', title: draft.title, repoUrl, description: draft.body, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, projectId: draft.binding?.project.id }, null, 2) }
   ];
   // Local preparation inputs and legacy attachments are deliberately never included.
   const zip = path.join(dir, safeFilename(draft.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
