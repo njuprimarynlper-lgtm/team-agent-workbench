@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { errorMessage } from '../shared/errors';
 import { AdminConnection } from './connection';
 import { LocalAdminConnection } from './local-connection';
-import { adminProfileSchema, adminOperationSchema } from './types';
+import { adminProfileSchema, adminConnectSchema, adminOperationSchema } from './types';
 import { memberConfig } from './member-config';
 app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
@@ -14,8 +14,17 @@ let window: BrowserWindow; let remote: AdminConnection | LocalAdminConnection;
 const entry = path.join(__dirname, 'index.html');
 app.whenReady().then(async () => {
   const config = path.join(app.getPath('userData'), 'connection.json');
-  remote = new AdminConnection(path.join(__dirname, 'admin.py'), () => { if (window && !window.isDestroyed()) window.webContents.send('admin:changed'); });
-  try { remote.snapshot.profile = adminProfileSchema.parse(JSON.parse(await fs.readFile(config, 'utf8'))); } catch {}
+  const changed = () => { if (window && !window.isDestroyed()) window.webContents.send('admin:changed'); };
+  remote = new AdminConnection(path.join(__dirname, 'admin.py'), changed);
+  try {
+    const profile = adminProfileSchema.parse(JSON.parse(await fs.readFile(config, 'utf8')));
+    remote.snapshot.profile = profile;
+    if (profile.mode === 'local') {
+      remote = new LocalAdminConnection(changed); remote.snapshot.profile = profile;
+      try { await remote.connect(profile, '', '', async () => false); }
+      catch (error) { remote.snapshot.connectionError = errorMessage(error); }
+    }
+  } catch {}
   window = new BrowserWindow({ width: 1320, height: 900, minWidth: 1040, minHeight: 720, show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 管理员版', backgroundColor: '#f6f7f9', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   window.setMenuBarVisibility(false); window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', e => e.preventDefault()); window.webContents.session.setPermissionRequestHandler((_c, _p, cb) => cb(false));
@@ -26,9 +35,8 @@ app.whenReady().then(async () => {
       if (action === 'snapshot') value = remote.snapshot;
       else if (action === 'connect') {
         if (remote.snapshot.busy) throw new Error('请等待当前管理操作完成后更换连接');
-        const input = z.object({ profile: adminProfileSchema, password: z.string().min(1).max(4096), sudoPassword: z.string().max(4096).default('') }).parse(payload);
+        const input = adminConnectSchema.parse(payload);
         remote.disconnect();
-        const changed = () => { if (window && !window.isDestroyed()) window.webContents.send('admin:changed'); };
         remote = input.profile.mode === 'local' ? new LocalAdminConnection(changed) : new AdminConnection(path.join(__dirname, 'admin.py'), changed);
         value = await remote.connect(input.profile, input.password, input.sudoPassword, async fingerprint => (await dialog.showMessageBox(window, { type: 'question', title: '核对服务器身份', message: input.profile.host, detail: '请与运维提供的 SSH 主机指纹核对：\n\n' + fingerprint, buttons: ['取消', '指纹一致，连接'], defaultId: 0, cancelId: 0 })).response === 1);
         await fs.mkdir(path.dirname(config), { recursive: true }); await fs.writeFile(config, JSON.stringify(value, null, 2));

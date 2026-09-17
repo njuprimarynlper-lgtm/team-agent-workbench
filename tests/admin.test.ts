@@ -4,7 +4,7 @@ import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
 import { Server, utils } from 'ssh2';
 import { AdminConnection } from '../src/admin/connection';
-import { adminOperationSchema, adminProfileSchema } from '../src/admin/types';
+import { adminOperationSchema, adminProfileSchema, adminConnectSchema } from '../src/admin/types';
 import { systemUsername } from '../src/core/account-login';
 import { inflateSync } from 'node:zlib';
 const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
@@ -14,6 +14,16 @@ test('admin schemas reject privilege and content operations; secrets are not pro
   assert.equal(adminOperationSchema.safeParse({ op: 'user_create', username: '-R /', password: 'abcdefgh', name: 'bad' }).success, false);
   const profile = adminProfileSchema.parse({ host: 'host', port: 22, username: 'admin', password: 'secret', sudoPassword: 'secret', root: '/srv/teamspace' });
   assert.equal('password' in profile, false); assert.equal('sudoPassword' in profile, false);
+});
+
+test('only the local admin connection accepts omitted account and password', () => {
+  const profile = { mode: 'local' as const, localRoot: 'D:/share', host: 'local', port: 22 };
+  const local = adminConnectSchema.parse({ profile }); assert.equal(local.password, ''); assert.equal(local.profile.username, '');
+  for (const mode of [undefined, 'sftp']) {
+    assert.equal(adminConnectSchema.safeParse({ profile: { ...profile, mode } }).success, false);
+    assert.equal(adminConnectSchema.safeParse({ profile: { ...profile, mode, username: 'root' } }).success, false);
+    assert.equal(adminConnectSchema.safeParse({ profile: { ...profile, mode, username: 'root' }, password: '1' }).success, true);
+  }
 });
 
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {

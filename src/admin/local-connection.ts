@@ -2,52 +2,53 @@ import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
 import { adminOperationSchema } from './types';
-import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
-import { diskPath, localRoot, passwordHash, passwordMatches, readRegistry, registryLock, writeRegistry, type LocalRegistry } from '../core/local-space';
+import { diskPath, localRoot, passwordHash, readRegistry, registryLock, writeRegistry, type LocalRegistry } from '../core/local-space';
 
 export class LocalAdminConnection {
   snapshot: AdminSnapshot = { connected: false, verified: false, busy: false };
-  private root = ''; private proof = ''; private generation = 0;
+  private root = ''; private teamId?: string; private generation = 0;
   constructor(private changed: () => void) {}
-  disconnect() { this.generation++; this.proof = ''; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
-  async connect(profile: AdminProfile, password: string, _sudo: string, _trust: (s: string) => Promise<boolean>) {
-    this.disconnect(); this.root = await localRoot(profile.localRoot);
-    profile = { ...profile, username: accountNameSchema.parse(profile.username) };
-    accountPasswordSchema.parse(password);
+  disconnect() { this.generation++; this.teamId = undefined; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
+  async connect(profile: AdminProfile, _password: string, _sudo: string, _trust: (s: string) => Promise<boolean>) {
+    this.disconnect();
+    try { this.root = await localRoot(profile.localRoot); }
+    catch (error: any) { if (error.code === 'ENOENT') throw new Error('本地共享目录不存在，请重新选择'); throw error; }
     let data: LocalRegistry | undefined;
     try { data = await readRegistry(this.root); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
     if (data) {
-      if (!passwordMatches(password, data.credentials[profile.username])) throw new Error('模拟账号或密码错误');
-      if (data.administrator !== profile.username) throw new Error('本地管理员版只允许此共享区的模拟管理员登录；项目子管理员请使用用户版');
-      this.proof = data.credentials[profile.username];
+      if (profile.fingerprint && profile.fingerprint !== 'LOCAL:' + data.state.teamId) throw new Error('本地共享区身份已改变，请重新选择共享目录');
+      this.teamId = data.state.teamId;
     } else {
       if ((await fs.readdir(this.root)).length) throw new Error('首次初始化必须使用专用空目录');
-      this.proof = passwordHash(password);
+      if (profile.fingerprint) throw new Error('原本地共享区的登记文件不存在，请检查共享目录');
     }
-    const saved = { ...profile, host: 'local', localRoot: this.root, fingerprint: data ? 'LOCAL:' + data.state.teamId : '', mode: 'local' as const };
-    this.snapshot = { profile: saved, connected: true, verified: true, busy: false, actor: profile.username, role: 'administrator', state: data?.state || { initialized: false, users: {}, groups: {} } };
+    // Local mode is a permission test stub. The admin application opens the
+    // selected folder directly; the legacy administrator label is metadata only.
+    const saved = { ...profile, username: data?.administrator || 'admin', host: 'local', localRoot: this.root, fingerprint: data ? 'LOCAL:' + data.state.teamId : '', mode: 'local' as const };
+    this.snapshot = { profile: saved, connected: true, verified: true, busy: false, actor: '本地管理员', role: 'administrator', state: data?.state || { initialized: false, users: {}, groups: {} } };
     this.changed(); return saved;
   }
   async operation(raw: AdminOperation) {
     const request = adminOperationSchema.parse(raw);
-    if (!this.snapshot.connected || !this.proof) throw new Error('请先连接本地共享区');
+    if (!this.snapshot.connected) throw new Error('请先连接本地共享区');
     if (this.snapshot.busy) throw new Error('请等待当前管理操作完成');
     const generation = this.generation;
     this.snapshot.busy = true; this.changed();
     try {
       return await registryLock(this.root, async () => {
-        let data: LocalRegistry;
+        let data: LocalRegistry; let created = false;
         try { data = await readRegistry(this.root); }
         catch (e: any) {
           if (e.code !== 'ENOENT') throw e;
+          if (this.teamId) throw new Error('本地共享区登记文件不存在，请重新连接并检查目录');
           if (request.op === 'status') return this.snapshot.state;
           if (request.op !== 'initialize') throw new Error('请先初始化账号管理');
           if ((await fs.readdir(this.root)).some(s => s !== '.workbench-local.lock')) throw new Error('共享区不是空目录，不能初始化');
-          data = { version: 1, administrator: this.snapshot.profile!.username, credentials: { [this.snapshot.profile!.username]: this.proof }, state: { initialized: true, teamId: randomUUID(), loginGroup: 'local_members', sftpConfigured: true, users: {}, groups: {}, operations: {} } };
+          data = { version: 1, administrator: this.snapshot.profile!.username, credentials: {}, state: { initialized: true, teamId: randomUUID(), loginGroup: 'local_members', sftpConfigured: true, users: {}, groups: {}, operations: {} } }; created = true;
           await fs.mkdir(await diskPath(this.root, '/.workbench-local', true));
           await fs.mkdir(await diskPath(this.root, '/projects', true));
         }
-        if (data.administrator !== this.snapshot.profile!.username || data.credentials[data.administrator] !== this.proof || generation !== this.generation) throw new Error('模拟管理员身份已改变，请重新连接');
+        if ((!created && data.state.teamId !== this.teamId) || generation !== this.generation) throw new Error('本地共享区已改变，请重新连接');
         const state = data.state;
         const user = 'username' in request && Object.hasOwn(state.users, request.username) ? state.users[request.username] : undefined;
         if (['user_password', 'user_enabled', 'user_groups', 'group_member'].includes(request.op) && !user) throw new Error('成员不存在');
@@ -90,7 +91,7 @@ export class LocalAdminConnection {
           state.operations ||= {}; state.operations[id] = { id, op: request.op, request: sanitized, status: 'done', completed: ['本地权限桩已保存'] };
           await writeRegistry(this.root, data);
         }
-        this.snapshot.state = state; this.snapshot.profile!.fingerprint = 'LOCAL:' + state.teamId; return state;
+        this.teamId = state.teamId; this.snapshot.state = state; this.snapshot.profile!.fingerprint = 'LOCAL:' + state.teamId; return state;
       });
     } finally { this.snapshot.busy = false; this.changed(); }
   }

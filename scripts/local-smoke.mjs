@@ -1,7 +1,7 @@
 import { releaseRoot } from './release-paths.mjs';
 const extendedAccounts = process.argv.includes('--accounts');
 const aliceName = extendedAccounts ? '张三' : 'alice', bobName = extendedAccounts ? '10086' : 'bob';
-const memberPassword = extendedAccounts ? '1' : 'member-test-password', adminPassword = extendedAccounts ? '1' : 'admin-test-password';
+const memberPassword = extendedAccounts ? '1' : 'member-test-password';
 import { _electron as electron, expect } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -33,8 +33,8 @@ async function connectUser(page, username) {
 try {
   const admin = await launch('admin', 'admin'); const ap = admin.page;
   await ap.getByLabel('共享区类型').selectOption('local'); await ap.getByLabel('本地共享区根目录').fill(share);
-  await ap.getByLabel('管理账号', { exact: true }).fill(extendedAccounts ? '管理员' : 'admin'); await ap.getByLabel('登录密码', { exact: true }).fill(adminPassword);
-  await ap.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
+  await expect(ap.getByLabel('管理账号', { exact: true })).toHaveCount(0); await expect(ap.getByLabel('登录密码', { exact: true })).toHaveCount(0);
+  await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
   await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
   await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('组标识').fill('competition'); await confirm(ap);
   for (const username of [aliceName, bobName]) {

@@ -6,7 +6,7 @@ import os from 'node:os';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { LocalFileConnection } from '../src/core/local-files';
 import { memberConfig } from '../src/admin/member-config';
-import { readRegistry, diskPath } from '../src/core/local-space';
+import { readRegistry, diskPath, writeRegistry, passwordHash } from '../src/core/local-space';
 import { Workbench } from '../src/core/workbench';
 
 async function setup() {
@@ -76,8 +76,11 @@ test('local admin: empty-root bootstrap, hashed passwords, registration, group a
     const exported = x.config('alice'); assert.equal(exported.mode, 'local'); assert.equal(exported.localRoot, await fs.realpath(x.root)); assert(!JSON.stringify(exported).includes('password'));
     assert((await fs.stat(path.join(x.root, 'projects/workbench'))).isDirectory());
     const another = new LocalAdminConnection(() => {});
-    await assert.rejects(another.connect(x.profile, 'wrong-password', '', async () => false), /密码错误/);
-    await assert.rejects(another.connect({ ...x.profile, username: 'alice' }, 'member-test-password', '', async () => false), /管理员版/);
+    await another.connect({ ...x.profile, username: '' }, '', '', async () => false);
+    assert.equal(another.snapshot.actor, '本地管理员'); assert.equal(another.snapshot.profile!.username, data.administrator);
+    await another.connect({ ...x.profile, username: 'alice' }, 'ignored-password', '', async () => false);
+    assert.equal(another.snapshot.profile!.username, data.administrator);
+    another.disconnect();
     await assert.rejects(another.operation({ op: 'initialize' }), /先连接/);
     await another.connect(x.profile, 'admin-test-password', '', async () => false);
     await another.operation({ op: 'status' }); assert.equal(Object.keys(another.snapshot.state!.users).length, 3); another.disconnect();
@@ -92,6 +95,31 @@ test('local admin: empty-root bootstrap, hashed passwords, registration, group a
     const longProfile = memberConfig(x.admin.snapshot.profile!, x.admin.snapshot.state!, longUser, group);
     assert(longProfile.id.length <= 80); assert.equal(longProfile.username, longUser);
   } finally { await x.clean(); }
+});
+
+test('local admin opens legacy shares without credentials, preserves registry and rejects a replaced share', async () => {
+  const x = await setup(), another = new LocalAdminConnection(() => {});
+  try {
+    const data = await readRegistry(x.root); data.administrator = '旧管理员'; data.credentials['旧管理员'] = passwordHash('old-password');
+    await writeRegistry(x.root, data);
+    const file = await diskPath(x.root, '/.workbench-local/registry.json'), before = await fs.readFile(file, 'utf8');
+    const saved = await another.connect({ ...x.profile, username: '' }, '', '', async () => { throw new Error('local mode must not authenticate over SSH'); });
+    assert.equal(saved.username, '旧管理员'); assert.equal(another.snapshot.verified, true);
+    await another.operation({ op: 'status' }); assert.equal(await fs.readFile(file, 'utf8'), before);
+    await another.operation({ op: 'user_groups', username: 'bob', groups: ['local_other'], contentAdminGroups: [] });
+    assert.equal((await readRegistry(x.root)).credentials['旧管理员'], data.credentials['旧管理员']);
+    const replacement = await readRegistry(x.root); replacement.state.teamId = 'different-space'; await writeRegistry(x.root, replacement);
+    await assert.rejects(another.operation({ op: 'group_create', label: 'wrong' }), /共享区已改变/);
+    await assert.rejects(another.connect(saved, '', '', async () => false), /身份已改变/);
+    assert.equal(another.snapshot.connected, false);
+    const current = await readRegistry(x.root); assert.equal(current.state.groups.local_wrong, undefined);
+    await another.connect({ ...x.profile, username: '' }, '', '', async () => false);
+    await fs.rename(file, file + '.moved');
+    await assert.rejects(another.operation({ op: 'status' }), /登记文件不存在/);
+    await assert.rejects(another.operation({ op: 'initialize' }), /登记文件不存在/);
+    await fs.rename(file + '.moved', file);
+    await assert.rejects(another.connect({ ...x.profile, localRoot: path.join(x.base, 'missing'), username: '' }, '', '', async () => false), /不存在/);
+  } finally { another.disconnect(); await x.clean(); }
 });
 test('local shared files: project roles, real disk transfers, team result visibility and private histories', async () => {
   const x = await setup();

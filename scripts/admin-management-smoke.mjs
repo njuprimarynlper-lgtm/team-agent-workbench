@@ -53,8 +53,8 @@ try {
   await launch();
   await page.getByLabel('共享区类型').selectOption('local');
   await page.getByLabel('本地共享区根目录').fill(shared);
-  await page.getByLabel('管理账号', { exact: true }).fill('admin'); await page.getByLabel('登录密码', { exact: true }).fill('admin-test-password');
-  await page.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  await expect(page.getByLabel('管理账号', { exact: true })).toHaveCount(0); await expect(page.getByLabel('登录密码', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
   await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
   await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户组', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm();
@@ -137,8 +137,8 @@ try {
   if (!packaged) await page.screenshot({ path: path.join(data, '全部用户.png') });
   checks.push('search group/user, unassigned/subadmin filters and empty results');
   const finalState = await state(); await app.close(); await launch();
-  await page.getByLabel('登录密码', { exact: true }).fill('admin-test-password');
-  await page.getByRole('button', { name: '连接并验证权限', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
+  await expect.poll(async () => (await page.evaluate(() => window.admin.call('snapshot'))).connected).toBe(true);
+  await expect(page.locator('.modal')).toHaveCount(0);
   assert.deepEqual((await state()).users, finalState.users); await expect(page.locator('.people-global tbody tr')).toHaveCount(4);
   assert.deepEqual(errors, []); checks.push('restart keeps memberships and roles; no renderer errors');
   for (const username of ['张三', '10086', 'ZhangSan']) {

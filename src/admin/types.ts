@@ -3,15 +3,18 @@ import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
 export const adminProfileSchema = z.object({
   mode: z.enum(['sftp', 'local']).optional(), localRoot: z.string().optional(),
   host: z.string().trim().min(1).max(255), port: z.number().int().min(1).max(65535),
-  username: z.string().min(1).max(64), fingerprint: z.string().default(''),
+  username: z.string().max(64).default(''), fingerprint: z.string().default(''),
   root: z.string().regex(/^\/(?:[^\x00\r\n\\/]+\/)+[^\x00\r\n\\/]+$/).default('/srv/teamspace'),
-});
+}).refine(profile => profile.mode === 'local' || !!profile.username.trim(), { path: ['username'], message: '请输入服务器管理账号' });
+export const adminConnectSchema = z.object({
+  profile: adminProfileSchema, password: z.string().max(4096).default(''), sudoPassword: z.string().max(4096).default(''),
+}).refine(input => input.profile.mode === 'local' || !!input.password, { path: ['password'], message: '请输入服务器登录密码' });
 export type AdminProfile = z.infer<typeof adminProfileSchema>;
 export type ManagedUser = { username: string; systemUsername?: string; name: string; enabled: boolean; uid?: number; groups?: string[]; contentAdminGroups?: string[]; missing?: boolean; provisioning?: boolean };
 export type ManagedGroup = AdminState['groups'][string];
 export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string };
 export type AdminState = { initialized: boolean; bootstrapPending?: boolean; operations?: Record<string, AdminJob>; teamId?: string; loginGroup?: string; sftpConfigured?: boolean; users: Record<string, ManagedUser>; groups: Record<string, { name: string; label: string; adminGroup: string; workspace?: string; provisioning?: boolean }> };
-export type AdminSnapshot = { profile?: AdminProfile; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[] };
+export type AdminSnapshot = { profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[] };
 export const nameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/, '用户组标识需以小写字母开头，最多 32 位，可包含数字、下划线和短横线');
 const password = accountPasswordSchema;
 export const adminOperationSchema = z.discriminatedUnion('op', [

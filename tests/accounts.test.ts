@@ -36,7 +36,7 @@ test('Windows and Linux derive identical system logins and preserve legacy accou
   assert.equal(new Set(linux).size, names.length);
 });
 
-test('Chinese administrator and members: create, export, login, upload, reset, revoke and reconnect on disk', async () => {
+test('Local administrator and extended-name members: create, export, login, upload, reset, revoke and reconnect on disk', async () => {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-accounts-'));
   const root = path.join(base, 'share'); await fs.mkdir(root);
   const admin = new LocalAdminConnection(() => {}), alice = new LocalFileConnection(), bob = new LocalFileConnection();

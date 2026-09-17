@@ -29,7 +29,7 @@ await fs.writeFile(path.join(demo, '开发版同步.md'), `# 当前打桩入口\
 const guide = path.join(demo, '使用说明.md');
 const original = await fs.readFile(guide, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
 if (original) {
-  const note = `> 当前三个启动文件使用最新开发构建，程序位于 \`${path.join(repo, 'dist')}\`，不再依赖旧版安装包。共享目录、账号及历史会话继续使用本目录原有数据。管理员的“创建用户 / 创建用户组”已并排；用户版的整理成果已改为后台等待面板、AI 自动说明与上传位置、小型可选补充、人工确认上传；模型选择和轨迹上传继续保留。重新打开启动文件即可查看；以下四轮比赛记录属于历史验证。`;
+  const note = `> 当前三个启动文件使用最新开发构建，程序位于 \`${path.join(repo, 'dist')}\`，不再依赖旧版安装包。共享目录、账号及历史会话继续使用本目录原有数据。本地管理员无需账号密码，启动自动打开已保存的共享目录；“创建用户 / 创建用户组”已并排；用户版的整理成果已改为后台等待面板、AI 自动说明与上传位置、小型可选补充、人工确认上传；模型选择和轨迹上传继续保留。重新打开启动文件即可查看；以下四轮比赛记录属于历史验证。`;
   await fs.writeFile(guide, /^> 当前三个启动文件.*$/m.test(original) ? original.replace(/^> 当前三个启动文件.*$/m, note) : note + '\n\n' + original, 'utf8');
 }
 console.log(JSON.stringify({ demo, commit, launchers: launchers.map(([name]) => path.join(demo, name)), build: path.join(repo, 'dist') }, null, 2));

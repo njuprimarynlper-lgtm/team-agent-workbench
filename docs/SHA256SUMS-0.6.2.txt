@@ -1,0 +1,4 @@
+42755af70efaa8c7303674f1754eb83f7089d594b0b132cd320da42a098d9f9a  admin/TeamAgent-admin-0.6.2-x64.exe  389070131 bytes
+f606bef1d1fe57d2cfcb815fc4b0505c290471ad67fc7d8020f6bc9afdbfc69d  admin/TeamAgent-admin-0.6.2-x64.zip  387412214 bytes
+4f2b3cbd446f5c5344b4afba2eb322fc627f88f8eb394a7212aad38c42ece7cc  user/TeamAgent-user-0.6.2-x64.exe  1011300514 bytes
+51eda1fa1a013d77c69ded3d017a0c7727d98aa661312886ebaa051f8eedaa34  user/TeamAgent-user-0.6.2-x64.zip  1009766160 bytes
