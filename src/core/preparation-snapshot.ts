@@ -14,7 +14,7 @@ export async function preparationSnapshot(session: AgentSession, inputDir: strin
   await atomicJson(path.join(inputDir, 'conversation.json'), conversation);
   let handoff: SourceFile | undefined, noteWarning: string | undefined;
   try { handoff = await freezeFile(session.handoffPath, inputDir); }
-  catch (error: any) { if (error.code !== 'ENOENT') throw error; noteWarning = 'Agent 工作记录缺失；依据冻结对话整理。'; }
+  catch (error: any) { if (error.code !== 'ENOENT') throw error; noteWarning = '阶段摘要缺失；依据冻结对话整理。'; }
   const files: SourceFile[] = [];
   for (const source of session.sources) { const copy = await freezeFile(source.localPath, inputDir); files.push({ ...copy, name: source.name, sourcePath: source.sourcePath }); }
   for (const file of extraFiles) files.push(await freezeFile(file, inputDir));

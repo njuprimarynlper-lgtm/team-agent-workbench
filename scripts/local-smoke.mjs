@@ -71,7 +71,7 @@ try {
   await expect(bob.page.locator('.preview-content')).toContainText('各迭代两轮');
   await alice.page.getByTitle('新建会话', { exact: true }).click(); await alice.page.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor(); await alice.page.getByRole('button', { name: '创建会话', exact: true }).click();
   await alice.page.getByLabel('任务输入', { exact: true }).fill('为算法比赛建立基线');
-  if (!await alice.page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await alice.page.locator('.session-materials > summary').click(); await alice.page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await alice.page.getByRole('button', { name: '更正记录（可选）', exact: true }).click(); await alice.page.getByLabel('Agent 工作记录正文').fill('# 比赛第一轮\n量化接口和数据已就绪'); await alice.page.getByRole('button', { name: '保存并返回' }).click();
+  if (!await alice.page.getByRole('button', { name: '查看阶段摘要', exact: true }).isVisible()) await alice.page.locator('.session-materials > summary').click(); await alice.page.getByRole('button', { name: '查看阶段摘要', exact: true }).click(); await alice.page.getByRole('button', { name: '更正摘要', exact: true }).click(); await alice.page.getByLabel('阶段摘要正文').fill('# 比赛第一轮\n量化接口和数据已就绪'); await alice.page.getByRole('button', { name: '保存并返回' }).click();
   await fixture.write({ status: 'ready', fileApproval: true });
   await alice.page.getByTitle('发送任务', { exact: true }).click();
   const approval = alice.page.locator('.approval'); await expect(approval).toContainText('Codex 请求修改文件');
@@ -85,11 +85,11 @@ try {
   const sharedHistory = await bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }); assert.equal(sharedHistory.type, 'binary');
   await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '方向性结论', body: '建议先检查数据覆盖范围，再评估是否调整方案。当前只是方向性判断，收益尚待验证。', repoUrl: '', destinationId: 'default' } });
   await alice.page.getByRole('button', { name: '整理成果', exact: true }).click();
-  await expect(alice.page.getByLabel('整理状态')).toContainText('整理完成', { timeout: 20000 });
+  await expect(alice.page.getByLabel('整理状态')).toContainText('已整理好', { timeout: 20000 });
   await expect(alice.page.getByText('补充仓库链接后即可上传', { exact: true })).toHaveCount(0);
   await expect(alice.page.getByLabel('GitHub 仓库链接')).toBeHidden();
   await expect(alice.page.getByRole('button', { name: '确认上传', exact: true })).toBeEnabled();
-  await alice.page.getByLabel('补充说明（可选）').fill('同事可先复核样本，再决定下一轮工作。');
+  await alice.page.getByLabel('给团队的补充（可选）').fill('同事可先复核样本，再决定下一轮工作。');
   await alice.page.getByRole('button', { name: '确认上传', exact: true }).click();
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.find(t => t.name.includes('方向性结论'))?.status, { timeout: 20000 }).toBe('done');
   const conclusion = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.find(t => t.name.includes('方向性结论'));

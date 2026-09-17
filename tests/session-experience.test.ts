@@ -59,14 +59,14 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': model pr
     assert(selection.length); assert(selection.every(c => (c.params.model || c.params.modelId) === 'chosen-model'));
     await f.write({ status: 'ready', turn: 'network' });
     const [d, same] = await Promise.all([wb.prepare(s.id), wb.prepare(s.id)]); assert.equal(d.id, same.id);
-    await until(() => d.generation === 'error'); assert.match(d.generationError!, /Network timeout/);
+    await until(() => d.generation === 'error'); assert.match(d.generationError!, /网络连接中断/);
     assert.equal(d.generatedBody, undefined); assert.equal(s.status, 'idle');
     await wb.saveDraftSupplement(d.id, 'Human edits stay intact', 'https://github.com/owner/repo');
     const attempt = d.prepareSessionId;
     await f.write({ status: 'ready', turn: 'success' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'ready');
-    assert.notEqual(d.prepareSessionId, attempt); assert(d.generatedBody); assert.equal(d.supplement, 'Human edits stay intact'); assert.match(d.body, /Agent 成果草稿/);
+    assert.notEqual(d.prepareSessionId, attempt); assert(d.generatedBody); assert.equal(d.supplement, 'Human edits stay intact'); assert.match(d.body, /阶段摘要/);
     assert.equal(wb.session(d.prepareSessionId!).model, 'chosen-model');
-    await f.write({ status: 'ready', turn: 'crash' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'error'); assert.match(d.generationError!, /进程已退出/);
+    await f.write({ status: 'ready', turn: 'crash' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'error'); assert.match(d.generationError!, /CLI 意外停止/);
     const canceledRetry = wb.retryPreparation(d.id); await wb.cancelPreparation(d.id); await canceledRetry;
     assert.equal(d.generation, 'canceled', 'cancel during retry setup must not start a later model task');
     await f.write({ status: 'ready', turn: 'hang' }); await wb.retryPreparation(d.id); const internal = wb.session(d.prepareSessionId!);

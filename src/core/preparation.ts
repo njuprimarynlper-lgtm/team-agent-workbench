@@ -58,5 +58,6 @@ export function applyPreparation(draft: Draft, answer: string) {
     target = contributionDirectory(draft.binding, selected?.path || draft.binding.project.uploadPath);
     draft.destinationNote = selected && selected.id !== 'default' ? 'AI 根据成果内容和项目目录自动识别。' : '未匹配到更合适的分类，使用当前成员的默认成果目录。';
   }
-  Object.assign(draft, { title: result.title, body: result.body, generatedBody: result.body, repoUrl, target });
+  const body = result.body.replace(/^#\s+(.+)\r?\n+/u, (full, heading) => heading.trim() === result.title.trim() ? '' : full);
+  Object.assign(draft, { title: result.title, body, generatedBody: body, repoUrl, target });
 }

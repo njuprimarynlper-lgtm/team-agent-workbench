@@ -28,16 +28,16 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect(input).toHaveValue('A 独立输入'); await select(b.id); await expect(input).toHaveValue('B 独立输入');
   // Every session owns a different file; both X and save-close flush edits.
   for (const [session, text] of [[a, '# A 的交接'], [b, '# B 的交接']]) {
-    await select(session.id); if (!await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await page.getByRole('button', { name: '更正记录（可选）', exact: true }).click();
-    await page.getByLabel('Agent 工作记录正文').fill(text);
+    await select(session.id); if (!await page.getByRole('button', { name: '查看阶段摘要', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看阶段摘要', exact: true }).click(); await page.getByRole('button', { name: '更正摘要', exact: true }).click();
+    await page.getByLabel('阶段摘要正文').fill(text);
     await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
     assert.equal(await fs.readFile(session.handoffPath, 'utf8'), text);
   }
   assert.notEqual(a.handoffPath, b.handoffPath);
   // Simulate an unavailable destination, ensure X cannot silently discard text, then retry.
-  await select(b.id); if (!await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看 Agent 工作记录', exact: true }).click(); await page.getByRole('button', { name: '更正记录（可选）', exact: true }).click();
+  await select(b.id); if (!await page.getByRole('button', { name: '查看阶段摘要', exact: true }).isVisible()) await page.locator('.session-materials > summary').click(); await page.getByRole('button', { name: '查看阶段摘要', exact: true }).click(); await page.getByRole('button', { name: '更正摘要', exact: true }).click();
   await fs.rename(b.handoffPath, b.handoffPath + '.saved'); await fs.mkdir(b.handoffPath);
-  await page.getByLabel('Agent 工作记录正文').fill('# B 保存失败后恢复');
+  await page.getByLabel('阶段摘要正文').fill('# B 保存失败后恢复');
   await expect(page.getByRole('status')).toContainText('保存失败');
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('窗口已保留');
@@ -48,30 +48,30 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   // Preparation is independent; AI text and optional human supplement are separate.
   await auth.write({ status: 'ready', turn: 'success' });
   const draft = await call('draft.prepare', { id: a.id });
-  await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('整理状态')).toContainText('整理完成', { timeout: 20000 });
-  await page.getByLabel('补充说明（可选）', { exact: true }).fill('只提交修改说明；验证通过，不附带代码。');
+  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await expect(page.getByLabel('整理状态')).toContainText('已整理好', { timeout: 20000 });
+  await page.getByLabel('给团队的补充（可选）', { exact: true }).fill('只提交修改说明；验证通过，不附带代码。');
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
-  await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('只提交修改说明；验证通过，不附带代码。');
-  await expect(page.getByLabel('AI 整理结果')).toContainText('https://github.com/owner/repo');
-  await expect(page.getByRole('status')).toHaveText('已保存');
+  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('只提交修改说明；验证通过，不附带代码。');
+  await expect(page.getByRole('region', { name: '整理结果', exact: true })).toContainText('https://github.com/owner/repo');
+  await expect(page.getByText('已保存', { exact: true })).toHaveCount(0);
   await fs.rm(draft.outputPath); await fs.mkdir(draft.outputPath);
-  await page.getByLabel('补充说明（可选）', { exact: true }).fill('保存失败后仍保留的说明');
+  await page.getByLabel('给团队的补充（可选）', { exact: true }).fill('保存失败后仍保留的说明');
   await expect(page.getByRole('status')).toContainText('保存失败');
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
-  await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
+  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   await app.evaluate(({ dialog, BrowserWindow }) => {
     dialog.showMessageBox = async (_window, options) => { dialog.closeGuardMessage = options.message; return { response: 0, checkboxChecked: false }; };
     BrowserWindow.getAllWindows()[0].close();
   });
   await expect.poll(() => app.evaluate(({ dialog }) => dialog.closeGuardMessage)).toBe('保存失败，已保留窗口和待保存内容。');
-  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
+  await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   await fs.rmdir(draft.outputPath); await page.getByRole('button', { name: '重试保存', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('已保存');
+  await expect(page.getByText('已保存', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '确认上传', exact: true }).click();
-  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '确认上传', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
   const evidence = (await call('snapshot')).drafts[0].files;
@@ -94,8 +94,8 @@ export async function restoredCases(page, expected) {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue(text);
   }
-  await page.getByRole('button', { name: '成果草稿', exact: true }).click();
-  await expect(page.getByLabel('补充说明（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
+  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   const snapshot = await page.evaluate(() => window.workbench.call('snapshot'));
   assert.equal(snapshot.connection, undefined); assert.equal(snapshot.workspaceReady, true);
   console.log('Restart without remote connection passed: inputs and drafts restored; local work remains available.');

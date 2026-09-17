@@ -129,7 +129,7 @@ test('cancel preparation preserves notes and supplements, stops only the helper,
     const helper = wb.session(d.prepareSessionId!);
     assert(helper.closedAt); assert.equal(helper.status, 'idle'); assert.deepEqual(helper.approvals, []);
     assert.equal(parent.status, 'running'); assert.equal(parent.closedAt, undefined);
-    assert.equal(await wb.readHandoff(parent.id), '# Agent 工作记录\n已有方向性结论');
+    assert.equal(await wb.readHandoff(parent.id), '# 阶段摘要\n\n已有方向性结论');
     assert.equal(d.supplement, '取消后仍保留的补充'); assert.equal(wb.store.transfers.length, 0);
     assert.equal((await wb.prepare(parent.id)).id, d.id); assert.equal(d.generation, 'canceled');
     await fixture.write({ status: 'ready', turn: 'success' });
