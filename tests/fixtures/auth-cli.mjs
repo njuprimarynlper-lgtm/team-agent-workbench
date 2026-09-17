@@ -66,6 +66,7 @@ else if (command === 'login') {
     else if (m.method === 'session/new' || m.method === 'session/load') send({ id: m.id, result: { sessionId: 'fake-session' } });
     else if (m.method === 'turn/start') {
       log('turn/start');
+      if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
       send({ id: m.id, result: { turn: { id: turnId } } });
       if (current.refreshAuth) { send({ id: 'auth-refresh', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: 'fixture-account' } }); return; }
       if (current.permissionDenied) { send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'denied-command', type: 'commandExecution', command: 'test command', exitCode: 1, status: 'failed', aggregatedOutput: current.permissionDenied } } }); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); return; }
@@ -83,6 +84,7 @@ else if (command === 'login') {
         send({ id: 'patch-approval', method: 'item/fileChange/requestApproval', params: { threadId: 'fake-thread', turnId, itemId: 'patch-item', reason: 'fixture file change' } });
       } else send({ method: 'turn/completed', params: { turn: { id: turnId, error: { message: '401 Unauthorized: Please log in again' } } } });
     } else if (m.method === 'session/prompt') {
+      if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
       if (current.toolApproval) { globalThis.toolPromptId = m.id; send({ id: 'tool-approval', method: 'session/request_permission', params: { sessionId: 'fake-session', toolCall: { title: 'Cursor 请求执行命令', rawInput: { command: 'test command' } }, options: current.noOnce ? [{ optionId: 'always', kind: 'allow_always' }] : [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } }); return; }
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }

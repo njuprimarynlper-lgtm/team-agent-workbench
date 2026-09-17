@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentSession, Approval, Message } from '../shared/types';
+import type { AgentSession, Approval, Message, MessageContext } from '../shared/types';
 import { JsonRpc, type RpcMessage } from './rpc';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, permissionIssue, probeCodexCommand } from './permissions';
 import { validateCodexStorage, type CodexStorage } from './codex-storage';
@@ -24,10 +24,10 @@ export class AgentRuntime {
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
     this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) this.finish(e.message); });
   }
-  private message(id: string, role: Message['role'], text: string, append = false) {
+  private message(id: string, role: Message['role'], text: string, append = false, metadata: Pick<Message, 'userText' | 'context'> = {}) {
     const existing = this.session.messages.find(x => x.id === id);
     if (existing) existing.text = append ? existing.text + text : text;
-    else this.session.messages.push({ id, role, text, createdAt: now() });
+    else this.session.messages.push({ id, role, text, createdAt: now(), ...metadata });
     this.hooks.changed();
   }
   async start() {
@@ -67,12 +67,17 @@ export class AgentRuntime {
     }
     this.initialized = true; s.status = 'idle'; this.hooks.changed();
   }
-  async prompt(text: string) {
+  async ensureStarted() {
+    try { await this.start(); } catch (error) { const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else this.hooks.authFailed?.(error); throw error; }
+  }
+  async prompt(text: string, options?: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'> }) {
     if (!text.trim()) throw new Error('请输入任务内容');
     if (this.session.status === 'running' || this.session.status === 'approval') throw new Error('当前会话仍在运行，可以新建独立会话继续工作');
-    try { await this.start(); } catch (error) { const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else this.hooks.authFailed?.(error); throw error; }
-    if (this.closing) return;
-    this.message(randomUUID(), 'user', text); this.hooks.event({ direction: 'user', text });
+    await this.ensureStarted();
+    if (this.closing) return false;
+    const context = options ? { ...options.context, nativeId: this.session.nativeId!, accepted: false } : undefined;
+    this.message(randomUUID(), 'user', text, false, options ? { userText: options.userText, context } : {});
+    this.hooks.event({ direction: 'user', text, ...(options ? { userText: options.userText } : {}) });
     this.turnId = undefined; this.turnActive = true; this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
     try {
       if (this.session.provider === 'codex') {
@@ -82,7 +87,9 @@ export class AgentRuntime {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text }] }, 0);
         this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
       }
-    } catch (e: any) { if (!this.closing) this.finish(e.message); }
+      if (context) { context.accepted = true; this.hooks.changed(); }
+      return true;
+    } catch (e: any) { if (!this.closing) this.finish(e.message); return false; }
   }
   private finish(error?: string) {
     const completedTurn = this.turnActive; this.turnActive = false;

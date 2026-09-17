@@ -14,7 +14,8 @@ export interface WorkspaceAccess { path: string; canonicalPath: string; canCreat
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
 export interface SourceFile { id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string }
-export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; createdAt: string }
+export interface MessageContext { nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string> }
+export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; userText?: string; context?: MessageContext; createdAt: string }
 export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'deny' | 'answer' }
 export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }
 export interface RemoteBinding { connectionId: string; host: string; port: number; username: string; fingerprint: string; project: Project }

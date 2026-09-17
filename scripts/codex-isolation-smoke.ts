@@ -43,6 +43,8 @@ async function main() {
   try {
     await wb.store.init(); grantTestWorkspace(wb, workspace); wb.store.settings.providerPaths.codex = executable;
     const s = await wb.createSession('codex', workspace, offlineProjectId, 'work', undefined, 'fixture-model', 'inherit');
+    const briefFile = path.join(workspace, 'project-brief.md'); await fs.writeFile(briefFile, 'Project context retention fixture.');
+    const [brief] = await wb.attachLocal(s.id, [briefFile]); s.projectBrief = { revision: 1, sourceId: brief.id, capturedAt: new Date().toISOString() };
     await wb.send(s.id, '请记住口令 WB_CONTEXT_20260917。'); await wait(s);
     const nativeId = s.nativeId; assert(nativeId); assert.equal(s.codexStorage, 'workbench');
     assert(s.nativePath?.startsWith(path.join(data, 'workbench', 'codex-home')));
@@ -51,6 +53,9 @@ async function main() {
     assert.equal(s.nativeId, nativeId); assert.equal(s.permissions?.sandbox, 'dangerFullAccess');
     assert(JSON.stringify(requests.at(-1)?.input).includes('请记住口令 WB_CONTEXT_20260917'), 'previous user context must reach the next model request');
     assert(JSON.stringify(requests.at(-1)?.input).includes('记住了隔离验证口令'), 'previous assistant context must reach the next model request');
+    assert(JSON.stringify(requests.at(-1)?.input).includes(brief.sha256), 'first-turn reference must remain in native model context');
+    assert.equal(s.messages.filter(m => m.role === 'user')[1].text, '刚才的口令是什么？', 'subsequent prompt must not append the reference again');
+    assert.equal((JSON.stringify(requests.at(-1)?.input).match(/用户选择的参考文件/g) || []).length, 1, 'native model history must contain the reference introduction only once');
     await wb.close();
     wb = new Workbench(path.join(data, 'workbench'), () => {}, () => {});
     await wb.store.init(); grantTestWorkspace(wb, workspace);
