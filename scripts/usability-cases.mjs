@@ -14,10 +14,11 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   const source = path.join(data, 'reference-code.py'); await fs.writeFile(source, 'CODE_MUST_STAY_LOCAL = True');
   await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, source);
   await page.getByRole('button', { name: '添加本地参考文件', exact: true }).click();
-  await expect(page.locator('.source-chips .selected')).toHaveCount(1);
+  // Project briefs are fixed references; these assertions concern the user's selected attachment.
+  await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(1);
   await select(b.id); await input.fill('B 独立输入'); await select(a.id);
-  await expect(input).toHaveValue('A 独立输入'); await expect(page.locator('.source-chips .selected')).toHaveCount(1);
-  await select(b.id); await expect(input).toHaveValue('B 独立输入'); await expect(page.locator('.source-chips .selected')).toHaveCount(0);
+  await expect(input).toHaveValue('A 独立输入'); await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(1);
+  await select(b.id); await expect(input).toHaveValue('B 独立输入'); await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(0);
   // Failed asynchronous B request must leave both A and B text untouched.
   await auth.write({ status: 'network', delay: 1500 });
   await call('provider.auth', { provider: 'codex', cwd: data });
@@ -73,7 +74,9 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect(page.getByLabel('补充说明（可选）', { exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '确认上传', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
-  assert.equal((await call('snapshot')).drafts[0].files.length, 1); // Kept only as preparation evidence locally.
+  const evidence = (await call('snapshot')).drafts[0].files;
+  assert.equal(evidence.length, a.sources.length + 1); // Existing project context plus the attachment, retained locally.
+  assert.equal(evidence.filter(f => f.name === 'reference-code.py').length, 1);
   // A failed connection replacement must leave local sessions usable.
   await assert.rejects(call('remote.connect', { profile, password: 'wrong-password', localPath: data }));
   assert.equal((await call('snapshot')).workspaceReady, true);

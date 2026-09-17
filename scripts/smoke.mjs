@@ -49,6 +49,7 @@ try {
   const profile = server.profile('alice');
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   assert.equal(await page.getByLabel('Linux 工作路径', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: '手动设置 SSH 连接', exact: true }).click();
   await page.getByLabel('服务器地址', { exact: true }).fill(profile.host);
   await page.getByLabel('SFTP 端口', { exact: true }).fill(String(profile.port));
   await page.getByLabel('成员账号', { exact: true }).fill(profile.username);
@@ -107,7 +108,7 @@ try {
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'settings.png') });
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.locator('.connection-button').click();
-  await page.getByText('使用管理员分配的 Linux 账号密码。', { exact: false }).waitFor();
+  await page.getByLabel('团队连接说明').getByText('使用管理员分配的 SSH 账号密码登录，共享空间由所属工作组自动分配。').waitFor();
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'connection.png') });
   await page.getByRole('button', { name: '取消', exact: true }).click();
   const state = await page.evaluate(() => window.workbench.call('snapshot'));

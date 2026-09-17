@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 import { completeProjectSetup } from './onboarding-helpers.mjs';
+import { importConnection, exportConnection } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), packaged = process.argv.includes('--packaged');
@@ -25,10 +26,12 @@ async function launch(edition, name) {
   const page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message)); pages.push(page); return { app, page };
 }
 async function confirm(page) { await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0); }
-async function connectUser(page, username) {
-  await page.getByLabel('共享区类型').selectOption('local');
+async function connectUser(user, username, configFile) {
+  const { page } = user;
+  await expect(page.getByLabel('团队连接说明')).toContainText('尚未配置团队连接');
+  await importConnection(user, configFile);
+  await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
-  await page.getByLabel('本地共享区根目录', { exact: true }).fill(share);
   await expect(page.getByLabel('共享工作路径', { exact: true })).toHaveCount(0);
   await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill(memberPassword);
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
@@ -52,9 +55,10 @@ try {
   await admin.app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, exported);
   await ap.locator('tbody tr').filter({ hasText: aliceName }).getByRole('button', { name: '导出连接配置' }).click(); await confirm(ap);
   const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.mode, 'local'); assert.equal(config.localRoot, share); assert(!JSON.stringify(config).includes('password'));
-  const alice = await launch('user', 'alice'); await connectUser(alice.page, aliceName);
+  const alice = await launch('user', 'alice'); await connectUser(alice, aliceName, exported);
   await completeProjectSetup(alice.page, '华为算法比赛');
-  const bob = await launch('user', 'bob'); await connectUser(bob.page, bobName);
+  const bobConfig = path.join(data, 'bob.json'); await exportConnection(admin, bobName, bobConfig);
+  const bob = await launch('user', 'bob'); await connectUser(bob, bobName, bobConfig);
   const snapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')), p = snapshot.connection.profile.projects[0];
   assert.equal(await bob.page.getByTitle('创建远端项目', { exact: true }).count(), 0);
   const source = path.join(data, 'competition-note.md'); await fs.writeFile(source, '# 比赛协同联调\n用户 A 与用户 B 各迭代两轮。');

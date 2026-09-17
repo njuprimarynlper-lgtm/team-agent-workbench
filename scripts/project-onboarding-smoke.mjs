@@ -4,6 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 import { completeProjectSetup } from './onboarding-helpers.mjs';
+import { importConnection, exportConnection } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'project-onboarding-ui-' + Date.now()), share = path.join(data, 'share'); await fs.mkdir(share, { recursive: true });
 const cli = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
@@ -20,10 +21,11 @@ async function fields(page, username) {
   await page.getByLabel('成员姓名', { exact: true }).fill(username); await page.getByLabel('登录账号', { exact: true }).fill(username);
   await page.getByLabel('初始密码', { exact: true }).fill('1'); await page.getByLabel('再次输入密码', { exact: true }).fill('1');
 }
-async function login(page, username, first = false) {
+async function login(user, username, first = false) {
+  const { page } = user;
   if (!first) await page.locator('.connection-button').click();
-  await page.getByLabel('共享区类型').selectOption('local'); await page.getByLabel('本机工作路径', { exact: true }).fill(data);
-  await page.getByLabel('本地共享区根目录', { exact: true }).fill(share); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
+  if (first) await importConnection(user, path.join(data, username + '.json'));
+  await page.getByLabel('本机工作路径', { exact: true }).fill(data); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
 try {
@@ -52,8 +54,9 @@ try {
   assert.deepEqual(members.bob.contentAdminGroups, ['local_beta']); assert.deepEqual(members.carol.contentAdminGroups, []);
   await ap.screenshot({ path: path.join(data, 'admin-default-roles.png') });
 
+  for (const username of ['alice', 'dave']) await exportConnection(admin, username, path.join(data, username + '.json'));
   let owner = await launch('user', 'owner'), up = owner.page;
-  await login(up, 'alice', true);
+  await login(owner, 'alice', true);
   const guide = () => up.getByRole('dialog', { name: '完善项目资料', exact: true });
   await expect(guide()).toContainText('alpha · 项目初始化'); await expect(guide().getByRole('button', { name: '保存并创建项目' })).toBeDisabled();
   await guide().getByLabel('引导项目名称').fill('客户资料整理'); await guide().getByLabel('项目背景', { exact: true }).fill('暂存的背景：客户资料重复录入较多。');
@@ -62,7 +65,7 @@ try {
   await up.locator('[data-group-name="local_alpha"]').getByRole('button', { name: '完善项目资料', exact: true }).click();
   await expect(guide().getByLabel('引导项目名称')).toHaveValue('客户资料整理'); await expect(guide().getByLabel('项目背景', { exact: true })).toHaveValue('暂存的背景：客户资料重复录入较多。');
   await guide().getByRole('button', { name: '稍后填写', exact: true }).click();
-  await owner.app.close(); owner = await launch('user', 'owner'); up = owner.page; await login(up, 'alice');
+  await owner.app.close(); owner = await launch('user', 'owner'); up = owner.page; await login(owner, 'alice');
   await expect(guide().getByLabel('引导项目名称')).toHaveValue('客户资料整理'); await expect(guide().getByLabel('项目背景', { exact: true })).toHaveValue('暂存的背景：客户资料重复录入较多。');
   await guide().getByLabel('项目目标', { exact: true }).fill('提高处理效率与结果质量。'); await guide().getByLabel('验收标准', { exact: true }).fill('指定样例全部通过，由负责人评审。');
   await guide().getByText('补充范围、资料与协作约定（可选）', { exact: true }).click();
@@ -82,15 +85,15 @@ try {
     const fs = process.getBuiltinModule('node:fs/promises'), rename = fs.rename;
     fs.rename = async (from, to) => { if (String(to).endsWith('settings.json')) { fs.rename = rename; await new Promise(resolve => setTimeout(resolve, 1200)); } return rename(from, to); };
   });
-  await login(teammate.page, 'dave', true); await expect(teammate.page.getByRole('dialog', { name: '完善项目资料' })).toHaveCount(0);
+  await login(teammate, 'dave', true); await expect(teammate.page.getByRole('dialog', { name: '完善项目资料' })).toHaveCount(0);
   const sharedBrief = teammate.page.locator('.file-row').filter({ hasText: '项目说明.md' });
   await expect(sharedBrief).toBeVisible({ timeout: 5000 }); await sharedBrief.click(); await expect(teammate.page.locator('.preview-content')).toContainText('只使用脱敏样例');
   // Reconnect in the same desktop app: another account/group never receives Alice's draft.
-  await login(up, 'bob'); await expect(guide()).toContainText('beta · 项目初始化'); await expect(guide().getByLabel('引导项目名称')).toHaveValue('');
+  await login(owner, 'bob'); await expect(guide()).toContainText('beta · 项目初始化'); await expect(guide().getByLabel('引导项目名称')).toHaveValue('');
   await completeProjectSetup(up, '另一个组的项目'); assert((await fs.stat(path.join(share, 'projects/beta/另一个组的项目/项目说明.md'))).isFile());
   assert.equal(await fs.readFile(file, 'utf8'), text);
-  await login(up, 'alice'); await expect(up.locator('.workgroup-project')).toContainText('客户资料整理'); await expect(guide()).toHaveCount(0);
-  await login(up, 'carol'); await expect(up.locator('[data-group-name="local_gamma"]')).toBeVisible(); await expect(guide()).toHaveCount(0);
+  await login(owner, 'alice'); await expect(up.locator('.workgroup-project')).toContainText('客户资料整理'); await expect(guide()).toHaveCount(0);
+  await login(owner, 'carol'); await expect(up.locator('[data-group-name="local_gamma"]')).toBeVisible(); await expect(guide()).toHaveCount(0);
   await expect(up.getByRole('button', { name: '完善项目资料', exact: true })).toHaveCount(0);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, data, cases: ['first created member defaults admin', 'first added member defaults admin from both entry points', 'later member remains ordinary', 'explicit role override', 'automatic first-login prompt', 'defer without blocking local work', 'local draft and restart', 'all brief fields shared in project root', 'teammate reads brief after slow first-login persistence', 'account and group isolation', 'existing content and ordinary members do not prompt', '1100px layout'] }));

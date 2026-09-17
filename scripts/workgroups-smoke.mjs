@@ -4,6 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 import { completeProjectSetup } from './onboarding-helpers.mjs';
+import { importConnection } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), data = path.join(root, '.test-data', 'workgroups-ui-' + Date.now()), share = path.join(data, 'share');
@@ -35,8 +36,8 @@ try {
   await row.getByRole('button', { name: '导出连接配置', exact: true }).click(); await confirm(ap);
   const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.workPath, ''); assert.deepEqual(config.projects, []);
   const user = await launch('user'), up = user.page;
-  await up.getByLabel('共享区类型').selectOption('local'); await up.getByLabel('本机工作路径', { exact: true }).fill(data);
-  await up.getByLabel('本地共享区根目录', { exact: true }).fill(share); await up.getByLabel('成员账号').fill('test1'); await up.getByLabel('登录密码', { exact: true }).fill('1');
+  await importConnection(user, exported); await up.getByLabel('本机工作路径', { exact: true }).fill(data);
+  await up.getByLabel('成员账号').fill('test1'); await up.getByLabel('登录密码', { exact: true }).fill('1');
   await expect(up.getByLabel('共享工作路径', { exact: true })).toHaveCount(0); await expect(up.getByLabel('Linux 工作路径', { exact: true })).toHaveCount(0);
   await up.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
   await expect(up.getByText('还没有加入工作组', { exact: true })).toBeVisible(); await up.screenshot({ path: path.join(data, 'no-groups.png') });
@@ -56,6 +57,17 @@ try {
     await completeProjectSetup(up, '同名项目');
   }
   await expect(up.locator('.workgroup-project')).toHaveCount(2);
+  // One saved account/connection discovers both groups again on the next login.
+  await up.locator('.connection-button').click();
+  await expect(up.getByLabel('团队连接（已保存）')).toHaveCount(0);
+  await expect(up.getByLabel('本地共享区根目录', { exact: true })).toHaveCount(0);
+  await up.getByLabel('登录密码', { exact: true }).fill('1');
+  await up.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
+  await expect(up.locator('.modal')).toHaveCount(0);
+  await expect(up.locator('.workgroup')).toHaveCount(2);
+  await expect(up.locator('.workgroup-project')).toHaveCount(2);
+  assert.equal((await snap()).settings.connections.length, 1);
+  assert.equal((await snap()).connection.profile.localRoot, share);
   const projects = (await snap()).connection.profile.projects, ocr = projects.find(p => p.groupName === 'local_ocr');
   await up.locator('[data-project-id="' + ocr.id + '"]').click();
   await up.getByTitle('新建会话', { exact: true }).click(); await up.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor();
@@ -70,6 +82,8 @@ try {
   await row.getByTitle('管理 nlp 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('member'); await ap.getByLabel('nlp 接任安排').selectOption('__vacant__'); await confirm(ap);
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.getByTitle('在 nlp 创建项目', { exact: true })).toHaveCount(0);
   await expect(up.getByTitle('在 ocr 创建项目', { exact: true })).toHaveCount(1);
+  await assert.rejects(up.evaluate(() => window.workbench.call('project.create', { name: '越权创建', groupName: 'local_nlp' })), /子管理员|权限|管理/);
+  await up.screenshot({ path: path.join(data, 'independent-roles.png') });
   await row.getByTitle('管理 ocr 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('remove'); await ap.getByLabel('ocr 接任安排').selectOption('__vacant__'); await confirm(ap);
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(1);
   assert.equal((await snap()).sessions.find(s => s.id === bound.id).binding.project.id, ocr.id);
@@ -78,6 +92,6 @@ try {
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup .inline-error')).toBeVisible();
   await expect(up.getByText('还没有加入工作组', { exact: true })).toHaveCount(0);
   assert.deepEqual(errors, []);
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, cases: ['unassigned login and config export', 'no shared path input', 'unassigned users have no workbench', 'live group assignment', 'separate groups and same-name projects', 'per-group creation roles', 'session stays bound after switching groups', 'membership revocation blocks upload', 'inaccessible group differs from no groups'], screenshots: ['no-groups.png', 'two-groups.png'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, cases: ['unassigned login and admin config import', 'no shared root or shared path input', 'unassigned users have no workbench', 'live group assignment', 'one saved account login discovers two groups', 'separate groups and same-name projects', 'independent subadmin/member roles and backend denial', 'session stays bound after switching groups', 'membership revocation blocks upload', 'inaccessible group differs from no groups'], screenshots: ['no-groups.png', 'two-groups.png', 'independent-roles.png'] }, null, 2));
   console.log(JSON.stringify({ passed: true, data }));
 } finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

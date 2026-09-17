@@ -163,25 +163,35 @@ function ConnectModal({ settings, connection, close, run, onConnected }: { setti
   const empty: ConnectionProfile = { id: crypto.randomUUID(), name: '团队共享空间', host: '', port: 22, username: '', fingerprint: '', manifestPath: '', projects: [], workPath: '' };
   const [profile, setProfile] = useState(connection?.profile || settings.connections[0] || empty);
   const [localPath, setLocalPath] = useState(settings.localWorkspace || ''), [password, setPassword] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [manual, setManual] = useState(false);
   const local = profile.mode === 'local';
-  const select = (p: ConnectionProfile) => { setProfile(p); setPassword(''); setError(''); };
-  const update = (key: keyof ConnectionProfile, value: unknown) => setProfile({ ...profile, [key]: value, ...(['host', 'port', 'localRoot'].includes(key) ? { fingerprint: '' } : {}) });
+  const configured = !!profile.host;
+  const profiles = settings.connections;
+  const saved = profiles.some(p => p.id === profile.id);
+  const connectionLabel = (p: ConnectionProfile) => `${p.mode === 'local' ? '本地测试团队' : p.host + ':' + p.port} · ${p.username || '待填写账号'}`;
+  const select = (p: ConnectionProfile) => { setProfile(p); setPassword(''); setError(''); setManual(false); };
+  const update = (key: keyof ConnectionProfile, value: unknown) => setProfile({ ...profile, [key]: value, ...(['host', 'port'].includes(key) ? { fingerprint: '' } : {}) });
   const choose = (setter: (value: string) => void) => void run(async () => { const dir = await api.call<string>('choose.directory'); if (dir) setter(dir); });
   return <Modal title="团队账号与本机目录" close={close} wide><div className="modal-body">
     {error && <div className="inline-error" role="alert">{error}</div>}
-    <label className="field">共享区类型<select aria-label="共享区类型" value={local ? 'local' : 'sftp'} onChange={e => select({ ...empty, mode: e.target.value as 'local' | 'sftp', host: e.target.value === 'local' ? 'local' : '', name: e.target.value === 'local' ? '本地联调' : '团队共享空间' })}><option value="sftp">Linux / SFTP</option><option value="local">本地文件系统（模拟权限）</option></select></label>
-    <div className="callout"><Server size={19}/><div>{local ? '本地联调 · 模拟权限' : '使用管理员分配的 Linux 账号密码。'}<small>{local ? '文件真实保存在本地共享目录。权限由工作台测试桩检查，不能替代系统权限。请先在管理员版初始化目录、创建项目组和成员。' : '登录后自动获取所属工作组和项目。密码仅用于本次连接，不写入配置文件或传给 Agent。'}</small></div></div>
-    <div className="row gap-bottom"><select aria-label="已保存的服务器" value={profile.id} onChange={e => { const p = settings.connections.find(x => x.id === e.target.value); if (p) select(p); }}><option value={profile.id}>{profile.name}</option>{settings.connections.filter(p => p.id !== profile.id).map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select><button className="secondary" onClick={() => select(empty)}>新增</button><button className="secondary" onClick={() => void run(async () => { const p = await api.call<ConnectionProfile | null>('profile.import'); if (p) select(p); })}>导入管理员配置</button></div>
+    <fieldset className="connection-fields" disabled={busy}>
+    {profiles.length > 1 && <label className="field">团队连接（已保存）<select aria-label="团队连接（已保存）" value={saved ? profile.id : ''} onChange={e => { const p = profiles.find(x => x.id === e.target.value); if (p) select(p); }}>
+      {!saved && <option value="" disabled>正在设置新连接</option>}{profiles.map(p => <option key={p.id} value={p.id}>{connectionLabel(p)} · {p.name}</option>)}
+    </select><small>选择登录哪个团队服务；工作组和项目会在登录后按账号权限显示。</small></label>}
+    <div className="callout" aria-label="团队连接说明"><Server size={19}/><div><b>{configured ? '团队连接：' + connectionLabel(profile) : '尚未配置团队连接'}</b><small>{configured ? (local ? '共享目录由管理员配置，用户无需选择。本地模式用于联调，权限为模拟检查。' : '使用管理员分配的 SSH 账号密码登录，共享空间由所属工作组自动分配。') : '首次使用请导入管理员提供的连接配置。已有配置的设备可直接登录。'}</small></div></div>
+    <div className="row gap-bottom"><button className="secondary" onClick={() => void run(async () => { const p = await api.call<ConnectionProfile | null>('profile.import'); if (p) select(p); })}>导入管理员配置</button><button className="text-button" onClick={() => { select({ ...empty, mode: 'sftp' }); setManual(true); }}>手动设置 SSH 连接</button>{profiles.length === 1 && !saved && <button className="text-button" onClick={() => select(profiles[0])}>返回已有团队连接</button>}</div>
+    {local && !profile.localRoot?.trim() && <div className="inline-error" role="alert">管理员配置缺少共享目录，请重新导入完整的连接配置。</div>}
+    {!local && (configured || manual) && <details className="connection-server-details" open={manual} onToggle={e => setManual(e.currentTarget.open)}><summary>服务器连接设置</summary><div className="form-grid">
+      <label className="field">服务器地址<input value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label>
+      <label className="field full">管理员提供的服务器指纹<input value={profile.fingerprint} onChange={e => update('fingerprint', e.target.value)}/></label>
+    </div></details>}
     <div className="form-grid">
-      <label className="field full">本机工作路径（必填）<div className="row"><input aria-label="本机工作路径" value={localPath} onChange={e => setLocalPath(e.target.value)}/><button className="secondary" onClick={() => choose(setLocalPath)}>选择目录</button></div></label>
-      {local && <label className="field full">本地共享区根目录<div className="row"><input aria-label="本地共享区根目录" value={profile.localRoot || ''} onChange={e => update('localRoot', e.target.value)}/><button className="secondary" onClick={() => choose(value => update('localRoot', value))}>选择共享目录</button></div><small>与管理员版选择同一目录；不是本机代码工作目录。</small></label>}
+      <label className="field full">本机工作路径（必填）<div className="row"><input aria-label="本机工作路径" value={localPath} onChange={e => setLocalPath(e.target.value)}/><button className="secondary" onClick={() => choose(setLocalPath)}>选择目录</button></div><small>代码和个人工作文件所在的本机目录。这里只需要选择这一处路径。</small></label>
       <div className="field full workspace-discovery-note"><b>共享空间由账号权限决定</b><small>无需填写共享工作路径。加入的每个工作组会单独显示，项目由工作台自动发现；未加入工作组时会提示联系管理员。</small></div>
-      <label className="field">连接名称<input value={profile.name} onChange={e => update('name', e.target.value)}/></label>
-      {!local && <><label className="field">服务器地址<input value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label></>}
       <label className="field">{'成员账号'}<input aria-label={'成员账号'} placeholder="管理员分配的姓名或工号" value={profile.username} onChange={e => update('username', e.target.value)}/></label>
-      <label className="field full">登录密码<input type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/></label>
-      {!local && <><label className="field full">管理员提供的服务器指纹<input value={profile.fingerprint} onChange={e => update('fingerprint', e.target.value)}/></label></>}
+      <label className="field">登录密码<input aria-label="登录密码" type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/><small>仅用于本次连接，不保存或传给 Agent。</small></label>
     </div>
+    </fieldset>
   </div><footer>{connection?.connected && <button className="secondary" onClick={() => void run(async () => { await api.call('remote.disconnect'); close(); })}><Unplug size={14}/>断开连接</button>}<span className="spacer"/><button className="secondary" onClick={close}>取消</button><button className="primary" disabled={busy || !profile.host || !profile.username || !password || !localPath.trim() || (local && !profile.localRoot?.trim())} onClick={async () => { setBusy(true); setError(''); try { await api.call('remote.connect', { profile: { ...profile, projects: [], workPath: '', manifestPath: '' }, password, localPath }); setPassword(''); onConnected(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{busy ? '正在登录并发现工作组…' : '登录并发现工作组'}</button></footer></Modal>;
 }
 
