@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { serverIdentityKey } from '../shared/server-identity';
 import { Workbench } from '../core/workbench';
 import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
@@ -23,7 +24,7 @@ const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider =
 const sessionInput = z.object({ id });
 async function chooseFiles() { return (await dialog.showOpenDialog(window, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
 async function dispatch(action: string, raw: unknown): Promise<unknown> {
-  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'profile.import', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
+  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'snapshot': return workbench.snapshot();
@@ -45,18 +46,31 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     case 'session.model': { const p = z.object({ id, model: z.string().trim().min(1).max(256).regex(/^[^\x00-\x1f\x7f]+$/), stop: z.boolean().optional() }).parse(raw); return workbench.changeModel(p.id, p.model, p.stop); }
     case 'choose.directory': return (await dialog.showOpenDialog(window, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(window, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
-    case 'profile.import': {
-      const file = (await dialog.showOpenDialog(window, { properties: ['openFile'], filters: [{ name: '连接配置', extensions: ['json'] }] })).filePaths[0];
-      if (!file) return null; const p = profileSchema.parse(JSON.parse(await fs.readFile(file, 'utf8')));
-      workbench.store.settings.connections = [...workbench.store.settings.connections.filter(x => x.id !== p.id), p]; await workbench.store.save(); broadcast(); return p;
-    }
     case 'remote.connect': {
       const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().min(1) }).parse(raw);
-      return workbench.configureWorkspace(p.profile, p.password, p.localPath, async fingerprint => (await dialog.showMessageBox(window, {
+      const key = serverIdentityKey(p.profile.host, p.profile.port);
+      const profile = { ...p.profile, fingerprint: p.profile.fingerprint || workbench.store.settings.trustedServerIdentities?.[key] || '' };
+      return workbench.configureWorkspace(profile, p.password, p.localPath, async fingerprint => {
+        const accepted = (await dialog.showMessageBox(window, {
         type: 'question', title: '首次连接团队服务器', message: p.profile.name || '团队共享服务器',
         detail: `当前电脑尚未连接过 ${p.profile.host}:${p.profile.port}。确认后，本机会记住服务器身份；以后身份发生变化时会在发送密码前停止连接。\n\n技术信息：${fingerprint}`,
         buttons: ['取消', '确认并连接'], defaultId: 0, cancelId: 0,
-      })).response === 1);
+        })).response === 1;
+        if (accepted) {
+          workbench.store.settings.trustedServerIdentities = { ...(workbench.store.settings.trustedServerIdentities || {}), [key]: fingerprint };
+          await workbench.store.save(); broadcast();
+        }
+        return accepted;
+      });
+    }
+    case 'server.identity.forget': {
+      const p = z.object({ host: z.string().min(1), port: z.number().int().min(1).max(65535) }).parse(raw), key = serverIdentityKey(p.host, p.port);
+      workbench.remote.disconnect();
+      const identities = { ...(workbench.store.settings.trustedServerIdentities || {}) }; delete identities[key];
+      workbench.store.settings.trustedServerIdentities = identities;
+      workbench.store.settings.connections = workbench.store.settings.connections.map(profile => serverIdentityKey(profile.host, profile.port) === key ? { ...profile, fingerprint: '' } : profile);
+      if (workbench.store.settings.workspaceSnapshot && serverIdentityKey(workbench.store.settings.workspaceSnapshot.profile.host, workbench.store.settings.workspaceSnapshot.profile.port) === key) workbench.store.settings.workspaceSnapshot.profile.fingerprint = '';
+      await workbench.store.save(); broadcast(); return true;
     }
     case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional(), brief: projectBriefSchema.optional() }).parse(raw); return workbench.createProject(p.name, p.groupName, p.brief); }
     case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }

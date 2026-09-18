@@ -20,7 +20,7 @@ export async function atomicJson(file: string, data: unknown) {
   } finally { await fs.rm(temp, { force: true }).catch(() => {}); }
 }
 export class Store {
-  settings: Settings = { connections: [], providerPaths: { codex: '', cursor: '' }, lastWorkspace: '' };
+  settings: Settings = { connections: [], providerPaths: { codex: '', cursor: '' }, lastWorkspace: '', trustedServerIdentities: {} };
   sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = [];
   inputs: Record<string, SessionInput> = {};
   private writes: Promise<void> = Promise.resolve();

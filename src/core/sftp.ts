@@ -53,7 +53,7 @@ export class SftpConnection {
       });
     }).catch(e => {
       client.end();
-      if (identityChanged) throw new Error('服务器身份发生变化，已停止连接。请向管理员获取新的团队连接配置；登录密码尚未发送。');
+      if (identityChanged) throw new Error('服务器身份发生变化，已停止连接，登录密码尚未发送。请确认服务器是否重装或迁移；确认无误后，在“服务器连接”中重新确认服务器身份。');
       if (firstConnectionCancelled) throw new Error('已取消首次连接，服务器身份没有保存，登录密码尚未发送。');
       throw friendlySftp(e);
     });

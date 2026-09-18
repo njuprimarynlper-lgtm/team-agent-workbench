@@ -49,14 +49,17 @@ try {
   const profile = server.profile('alice');
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   assert.equal(await page.getByLabel('Linux 工作路径', { exact: true }).count(), 0);
-  await page.getByRole('button', { name: '手动设置 SSH 连接', exact: true }).click();
   await page.getByLabel('服务器地址', { exact: true }).fill(profile.host);
   await page.getByLabel('SFTP 端口', { exact: true }).fill(String(profile.port));
   await page.getByLabel('成员账号', { exact: true }).fill(profile.username);
   await page.getByLabel('登录密码', { exact: true }).fill('wrong-password');
   await app.evaluate(({ dialog }) => {
     const original = dialog.showMessageBox.bind(dialog);
-    dialog.showMessageBox = async (window, options) => options?.title === '首次连接团队服务器' ? { response: 1, checkboxChecked: false } : original(window, options);
+    globalThis.__serverIdentityPrompts = 0;
+    dialog.showMessageBox = async (window, options) => {
+      if (options?.title === '首次连接团队服务器') { globalThis.__serverIdentityPrompts++; return { response: 1, checkboxChecked: false }; }
+      return original(window, options);
+    };
   });
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'authentication' }).waitFor();
@@ -64,6 +67,7 @@ try {
   await page.getByLabel('登录密码', { exact: true }).fill('test-password');
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
   await completeProjectSetup(page, '实体抽取');
+  assert.equal(await app.evaluate(() => globalThis.__serverIdentityPrompts), 1);
   await page.locator('.workgroup-project').filter({ hasText: '实体抽取' }).click();
   assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
   await page.getByRole('button', { name: '新建工作会话', exact: true }).waitFor();

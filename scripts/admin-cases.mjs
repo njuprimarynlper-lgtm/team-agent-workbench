@@ -25,15 +25,13 @@ export async function adminCases({ app, page, data }) {
     await page.locator('.modal .check-row').filter({ hasText: 'ocr' }).first().locator('input').check();
     await page.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
     await page.getByRole('button', { name: '确认执行', exact: true }).click();
-    await page.getByText('开通完成，可导出配置', { exact: true }).waitFor();
+    await page.getByText('开通完成', { exact: true }).waitFor();
     const created = server.requests.find(r => r.op === 'user_create');
     assert.deepEqual(created.groups, ['wb_test_ocr']); assert.deepEqual(created.contentAdminGroups, ['wb_test_ocr']);
     const output = path.join(data, 'member-alice.json');
     await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, output);
-    await page.getByRole('button', { name: '导出连接配置', exact: true }).click();
-    await expect(page.getByLabel('导出项目组')).toHaveCount(0);
-    await page.getByRole('button', { name: '确认执行', exact: true }).click();
-    await page.getByText('连接配置已导出，请将初始密码另行交付给成员', { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.admin.call('member.export', { username: 'alice' })), true);
+    await expect(page.getByRole('button', { name: '导出连接配置', exact: true })).toHaveCount(0);
     const raw = await fs.readFile(output, 'utf8'), config = JSON.parse(raw);
     assert.equal(config.username, 'alice'); assert.equal(config.workPath, ''); assert.equal(config.fingerprint, server.profile.fingerprint);
     assert(!raw.includes('password')); assert(!raw.includes('/srv/teamspace')); assert.equal(server.requests.at(-1).op, 'status');
@@ -48,6 +46,6 @@ export async function adminCases({ app, page, data }) {
     await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
     assert.deepEqual(server.state.users.alice.groups, ['wb_test_ocr']);
     assert.deepEqual(server.state.users.alice.contentAdminGroups, ['wb_test_ocr']);
-    console.log('Admin UI passed: partial operation status/recovery, create with group and subadmin assignment, ready checklist and secret-free member export.');
+    console.log('Admin UI passed: partial operation status/recovery, create with group and subadmin assignment, and a login-ready member state without a config-export action.');
   } finally { await server.close(); }
 }

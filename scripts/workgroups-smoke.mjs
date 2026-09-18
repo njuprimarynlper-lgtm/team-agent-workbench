@@ -33,7 +33,7 @@ try {
   const row = ap.locator('tbody tr').filter({ hasText: 'test1' });
   const exported = path.join(data, 'test1.json');
   await admin.app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, exported);
-  await row.getByRole('button', { name: '导出连接配置', exact: true }).click(); await confirm(ap);
+  assert.equal(await ap.evaluate(username => window.admin.call('member.export', { username }), 'test1'), true);
   const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.workPath, ''); assert.deepEqual(config.projects, []);
   const user = await launch('user'), up = user.page;
   await importConnection(user, exported); await up.getByLabel('本机工作路径', { exact: true }).fill(data);

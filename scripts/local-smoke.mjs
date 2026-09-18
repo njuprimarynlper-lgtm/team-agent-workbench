@@ -28,7 +28,7 @@ async function launch(edition, name) {
 async function confirm(page) { await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0); }
 async function connectUser(user, username, configFile) {
   const { page } = user;
-  await expect(page.getByLabel('团队连接说明')).toContainText('尚未配置团队连接');
+  await expect(page.getByLabel('团队连接说明')).toContainText('填写团队服务器和登录账号');
   await importConnection(user, configFile);
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
@@ -53,7 +53,7 @@ try {
   }
   const exported = path.join(data, 'alice.json');
   await admin.app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, exported);
-  await ap.locator('tbody tr').filter({ hasText: aliceName }).getByRole('button', { name: '导出连接配置' }).click(); await confirm(ap);
+  assert.equal(await ap.evaluate(username => window.admin.call('member.export', { username }), aliceName), true);
   const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.mode, 'local'); assert.equal(config.localRoot, share); assert(!JSON.stringify(config).includes('password'));
   const alice = await launch('user', 'alice'); await connectUser(alice, aliceName, exported);
   await completeProjectSetup(alice.page, '华为算法比赛');

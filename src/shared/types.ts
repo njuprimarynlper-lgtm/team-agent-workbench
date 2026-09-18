@@ -8,7 +8,7 @@ export interface Project { briefRevision?: number; id: string; name: string; rem
 export interface ConnectionProfile { mode?: 'sftp' | 'local'; localRoot?: string; id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
 export interface WorkspaceSnapshot { profile: ConnectionProfile; workspaces: WorkspaceAccess[] }
 export interface ProjectBriefState { brief?: ProjectBrief; revision: number; updatedAt?: string }
-export interface Settings { workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
+export interface Settings { workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; trustedServerIdentities?: Record<string, string>; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
 export interface SessionInput { text: string; sourceIds: string[]; answers: Record<string, string> }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
