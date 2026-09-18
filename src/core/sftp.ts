@@ -13,6 +13,7 @@ import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { systemUsername } from './account-login';
 import { newProjectLayout, projectName } from './project-layout';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
+import { groupWorkspacePattern } from '../shared/groups';
 const MAX_PREVIEW = 512 * 1024;
 export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
   return a.connectionId === b.id && a.host === b.host && a.port === b.port && a.username === b.username && a.fingerprint === b.fingerprint;
@@ -100,9 +101,12 @@ export class SftpConnection {
       if (!Array.isArray(user.groups) || user.groups.length > 200) throw new Error('工作组记录格式无效');
       const seen = new Set<string>(), roots = new Set<string>();
       return user.groups.map((g: any) => {
-        if (typeof g.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(g.id) || typeof g.name !== 'string' || !g.name || g.name.length > 160 || (g.workspace !== null && g.workspace !== undefined && (typeof g.workspace !== 'string' || !/^\/projects\/[a-z][a-z0-9_-]{0,13}$/.test(g.workspace))) || seen.has(g.id) || (g.workspace && roots.has(g.workspace))) throw new Error('工作组记录格式无效');
-        seen.add(g.id); if (g.workspace) roots.add(g.workspace);
-        return { groupName: g.id, groupLabel: g.name, path: g.workspace || '', canonicalPath: g.workspace || '', canCreateProject: !!g.workspace && Array.isArray(user.contentGroups) && user.contentGroups.some((a: any) => a.id === g.id && a.workspace === g.workspace), ...(!g.workspace ? { accessError: '管理员尚未完成工作组目录配置' } : {}) };
+        if (typeof g.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(g.id) || typeof g.name !== 'string' || !g.name || g.name.length > 160 || seen.has(g.id)) throw new Error('工作组记录格式无效');
+        const workspace = g.workspace || '';
+        // An unrecognised path may simply be newer than this client; keep the reason visible instead of calling the record corrupt.
+        if (typeof workspace !== 'string' || (workspace && (!groupWorkspacePattern.test(workspace) || roots.has(workspace)))) throw new Error('用户组的共享目录路径无法识别，请先升级用户版；若仍失败，请联系管理员核对成员信息');
+        seen.add(g.id); if (workspace) roots.add(workspace);
+        return { groupName: g.id, groupLabel: g.name, path: workspace, canonicalPath: workspace, canCreateProject: !!workspace && Array.isArray(user.contentGroups) && user.contentGroups.some((a: any) => a.id === g.id && a.workspace === workspace), ...(!workspace ? { accessError: '管理员尚未完成工作组目录配置' } : {}) };
       });
     } catch (e: any) { throw new Error('无法读取账号的工作组信息：' + e.message); }
   }

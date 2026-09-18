@@ -47,6 +47,24 @@ def account_name(value):
         raise ValueError('此账号是系统保留名称，请换一个姓名或工号')
     return value
 
+def group_label(value):
+    # Local display name the administrator types; the Linux group name is derived from it.
+    message = '用户组名称支持中文、字母、数字、下划线、短横线和间隔号，最多 24 个字符'
+    if not isinstance(value, str):
+        raise ValueError(message)
+    value = unicodedata.normalize('NFC', value)
+    if (not 1 <= len(value) <= 24
+            or unicodedata.category(value[0])[0] not in 'LN'
+            or any(unicodedata.category(c)[0] not in 'LN' and c not in '_-·' for c in value)):
+        raise ValueError(message)
+    return value
+
+def group_slug(label):
+    # Legacy slugs stay byte-identical; anything else (including Chinese) derives a
+    # stable ASCII suffix, the same way system_username maps non-ASCII accounts.
+    label = unicodedata.normalize('NFC', label)
+    return label if re.fullmatch(r'[a-z][a-z0-9_-]{0,13}', label) else 'g' + hashlib.sha256(label.encode('utf-8')).hexdigest()[:13]
+
 def system_username(username):
     # Keep legacy Linux identities; the Windows SSH client uses this same mapping.
     return username if re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', username) else 'wbu_' + hashlib.sha256(username.encode('utf-8')).hexdigest()[:28]
@@ -307,7 +325,8 @@ def prepare_workspace(root, state, group_name):
         raise ValueError("用户组不属于此团队")
     if not shutil.which("setfacl"):
         raise ValueError("服务器缺少 setfacl，请先安装发行版的 acl 软件包")
-    target = child(root, "projects/" + identifier(group["label"], 14))
+    label = group_label(group.get("label"))
+    target = child(root, "projects/" + label)
     if target.exists() and not group.get("workspace") and any(target.iterdir()):
         raise ValueError("工作目录已存在且非空，不会接管，请运维检查：" + str(target))
     if target.exists() and target.stat().st_uid != 0:
@@ -320,7 +339,7 @@ def prepare_workspace(root, state, group_name):
     run(["setfacl", "-m", "u::rwx,g::r-x,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
     # New project content is collaborative, submissions are group-readable and trajectories remain private.
     run(["setfacl", "-d", "-m", "u::rwx,g::rwx,g:" + group["adminGroup"] + ":rwx,m::rwx,o::---", str(target)])
-    group["workspace"] = "/projects/" + group["label"]
+    group["workspace"] = "/projects/" + label
     if state.get("storageVersion") == 1:
         run(["setfacl", "-b", "-k", str(target)])
         os.chmod(target, 0o2750)
@@ -418,6 +437,9 @@ def _execute(request):
     if missing:
         raise ValueError("服务器缺少命令：" + ", ".join(missing) + "。请先安装发行版的 OpenSSH、shadow/passwd、procps 软件包。")
     op = request["op"]
+    if isinstance(request.get("label"), str):
+        # Same visible name typed in a different Unicode form must land on one record, one journal key and one directory.
+        request["label"] = unicodedata.normalize('NFC', request["label"])
     if op == "initialize":
         state = initialize(root, request)
     else:
@@ -486,13 +508,16 @@ def _execute(request):
         if not enabled:
             terminate_connections(login)
     elif op == "group_create":
-        label = identifier(request.get("label"), 14)
-        name = "wb_" + state["teamId"] + "_" + label
+        label = group_label(request.get("label"))
+        name = "wb_" + state["teamId"] + "_" + group_slug(label)
         import grp
         if not shutil.which("setfacl"):
             raise ValueError("创建项目组工作目录需要 setfacl，请先安装发行版的 acl 软件包")
         record = state["groups"].get(name)
         if not record:
+            collision = next((g for g in state["groups"].values() if str(g.get("label", "")).casefold() == label.casefold()), None)
+            if collision:
+                raise ValueError("已存在同名或仅大小写不同的用户组：" + collision["label"])
             target = child(root, "projects/" + label)
             if target.exists() and any(target.iterdir()):
                 raise ValueError("同名工作目录已存在且非空，不能自动接管")
@@ -505,6 +530,9 @@ def _execute(request):
             record = {"name": name, "label": label, "adminGroup": name + "_admin", "provisioning": True}
             state["groups"][name] = record
             save(root, state)
+        elif record.get("label") != label:
+            # The derived Linux name is not injective; never complete another group's record.
+            raise ValueError("用户组名称与已有用户组冲突，请换一个名称：" + str(record.get("label", "")))
         elif not record.get("provisioning"):
             raise ValueError("用户组已存在且创建完成")
         provision_group(root, state, record, "gid", name, "成员用户组已创建")

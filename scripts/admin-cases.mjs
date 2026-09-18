@@ -8,7 +8,7 @@ export async function adminCases({ app, page, data }) {
   try {
     await page.evaluate(profile => window.admin.call('connect', { profile, password: 'test-password', sudoPassword: '' }), server.profile);
     await page.getByRole('button', { name: '创建用户组', exact: true }).click();
-    await page.getByLabel('组标识', { exact: true }).fill('nlp');
+    await page.getByLabel('用户组名称', { exact: true }).fill('nlp');
     await page.getByRole('button', { name: '确认执行', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: '测试：子管理员组创建失败' }).waitFor();
     await page.getByRole('button', { name: '取消', exact: true }).click();

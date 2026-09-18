@@ -1,5 +1,6 @@
 import { releaseRoot } from './release-paths.mjs';
 import { _electron as electron, expect } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -26,7 +27,7 @@ async function fields(username, password = 'member-test-password') {
 }
 async function createGroup(label) {
   await page.getByRole('button', { name: '创建用户组', exact: true }).click();
-  await page.getByLabel('组标识').fill(label); await confirm();
+  await page.getByLabel('用户组名称').fill(label); await confirm();
 }
 async function membership(select) {
   if (select) await select(); await confirm();
@@ -160,6 +161,19 @@ try {
   await page.getByRole('button', { name: '取消', exact: true }).click();
   assert.deepEqual(errors, []);
   checks.push('Chinese name, numeric employee ID and mixed-case accounts accept one-character passwords; invalid names, empty passwords and mismatched confirmation show clear Chinese errors');
+
+  // The administrator types the name members see; the Linux group name is derived from it.
+  await page.getByRole('button', { name: '创建用户组', exact: true }).click();
+  await page.getByLabel('用户组名称').fill('实体抽取'); await confirm();
+  const derived = 'local_g' + createHash('sha256').update('实体抽取'.normalize('NFC'), 'utf8').digest('hex').slice(0, 13);
+  await expect(page.locator('.admin-success')).toContainText('操作成功');
+  await expect(page.locator('.admin-success')).toHaveCount(0, { timeout: 12000 });
+  await page.getByRole('tab', { name: '按组查看', exact: true }).click();
+  const card = page.locator('[data-group="' + derived + '"]');
+  await expect(card).toContainText('实体抽取'); await expect(card).toContainText('/projects/实体抽取');
+  assert.equal((await state()).groups[derived].label, '实体抽取');
+  assert.deepEqual(errors, []);
+  checks.push('a Chinese group name is accepted, the derived Linux group and Chinese workspace show on the card, and success notices dismiss themselves');
 
   await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, data, checks }, null, 2));
   console.log(JSON.stringify({ passed: true, packaged, data, cases: checks.length }, null, 2));

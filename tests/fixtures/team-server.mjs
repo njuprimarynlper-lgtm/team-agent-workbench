@@ -4,6 +4,9 @@ const { Server, utils } = ssh2;
 import { generateKeyPairSync, createHash } from 'node:crypto';
 import path from 'node:path';
 
+// Mirrors group_slug() in server/admin.py: legacy ASCII names stay as they are, other names derive an ASCII suffix.
+const groupSlug = label => /^[a-z][a-z0-9_-]{0,13}$/.test(label) ? label : 'g' + createHash('sha256').update(label, 'utf8').digest('hex').slice(0, 13);
+
 // A protocol fixture, not a Linux emulator. Explicit denials exercise how clients
 // handle ACL failures without changing any real machine accounts or directories.
 export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol: 'carol' }, password = 'test-password') {
@@ -19,7 +22,7 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
   const updateRoles = () => {
     const node = nodes.get('/.workbench/roles.json'); node.mode = state.writableRoles ? 0o100666 : 0o100644;
     node.data = Buffer.from(JSON.stringify({ version: 1, storageVersion: 1, ...(!state.legacyRoles ? { membershipVersion: 1 } : {}), root: '/srv/teamspace', users: Object.fromEntries(Object.keys(accounts).map(username => {
-      const groups = (state.memberships[username] || []).map(label => ({ id: 'wb_test_' + label, name: label === 'ocr' ? 'OCR' : label.toUpperCase(), workspace: '/projects/' + label }));
+      const groups = (state.memberships[username] || []).map(label => ({ id: 'wb_test_' + groupSlug(label), name: label === 'ocr' ? 'OCR' : label.toUpperCase(), workspace: '/projects/' + label }));
       return [username, { groups, contentGroups: groups.filter(g => (g.id === 'wb_test_ocr' ? state.admins : state.groupAdmins[g.id.slice(8)] || []).includes(username)) }];
     })) }));
   };

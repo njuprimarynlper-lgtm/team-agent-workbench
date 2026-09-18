@@ -45,15 +45,18 @@ try {
   assert.equal(exitCode, 0); assert.equal((await call(bp, 'snapshot')).sessions.length, 1);
   await mp.getByLabel('共享区类型').selectOption('local'); await mp.getByLabel('本地共享区根目录').fill(share);
   await mp.getByRole('button', { name: '打开共享目录', exact: true }).click();
-  await mp.getByRole('button', { name: '设置有效期', exact: true }).click(); await mp.getByLabel('有效期（小时）').fill('4'); await mp.getByRole('button', { name: '确认执行', exact: true }).click();
-  await expect(mp.locator('.admin-content')).toContainText('离线工作有效期：4 小时');
+  await mp.getByRole('button', { name: '设置有效期', exact: true }).click(); await mp.getByLabel('断网后仍可继续工作（小时）').fill('4'); await mp.getByRole('button', { name: '确认执行', exact: true }).click();
+  await expect(mp.locator('.admin-content')).toContainText('成员离线工作有效期：4 小时');
   await call(bp, 'remote.manifest'); const lease = (await call(bp, 'snapshot')).settings.offlineAuthorization;
   assert.equal(Date.parse(lease.expiresAt) - Date.parse(lease.verifiedAt), 4 * 3600000);
   await ap.getByRole('button', { name: '项目资料 · v1', exact: true }).click();
   await expect(ap.getByLabel('项目背景', { exact: true })).toHaveValue('项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('提高质量和效率'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
-  await call(bp, 'remote.manifest'); await expect(bp.getByText(/有新版本可采用/)).toBeVisible();
+  // Wait for Alice's asynchronous save before Bob re-reads the manifest, or Bob legitimately still sees version 1.
+  await expect(ap.getByRole('button', { name: '项目资料 · v2', exact: true })).toBeVisible();
+  await call(bp, 'remote.manifest'); await expect(bp.locator('.session-materials .materials-update')).toBeVisible();
   assert.equal((await call(bp, 'snapshot')).sessions[0].projectBrief.revision, 1);
-  await bp.getByRole('button', { name: '采用当前项目资料', exact: true }).click();
+  // The adoption action and the version note live behind the collapsed materials summary.
+  await bp.locator('.session-materials > summary').click(); await expect(bp.locator('.session-materials-content')).toContainText('有新版本'); await bp.getByRole('button', { name: '更新项目说明', exact: true }).click();
   await expect.poll(async () => (await call(bp, 'snapshot')).sessions[0].projectBrief.revision).toBe(2);
   await bp.getByTitle('公共成果', { exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).click();
   await bp.getByRole('button', { name: '修改自己的提交', exact: true }).click(); await bp.getByLabel('公共成果内容').fill('Bob 补充的验证依据'); await bp.getByRole('button', { name: '保存修改', exact: true }).click();

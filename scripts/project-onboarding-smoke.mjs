@@ -34,7 +34,7 @@ try {
   await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
   await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
   for (const username of ['bob', 'carol']) { await ap.getByRole('button', { name: '创建用户', exact: true }).click(); await fields(ap, username); await confirm(ap); }
-  for (const label of ['alpha', 'beta', 'gamma']) { await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('组标识').fill(label); await confirm(ap); }
+  for (const label of ['alpha', 'beta', 'gamma']) { await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('用户组名称').fill(label); await confirm(ap); }
   await ap.getByRole('tab', { name: '按组查看', exact: true }).click();
   const group = name => ap.locator(`[data-group="local_${name}"]`);
   for (const username of ['alice', 'dave']) {

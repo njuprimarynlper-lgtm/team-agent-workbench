@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
+import { groupLabelMessage, groupLabelPattern } from '../shared/groups';
 export const adminProfileSchema = z.object({
   mode: z.enum(['sftp', 'local']).optional(), localRoot: z.string().optional(),
   host: z.string().trim().min(1).max(255), port: z.number().int().min(1).max(65535),
@@ -15,7 +16,9 @@ export type ManagedGroup = AdminState['groups'][string];
 export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string };
 export type AdminState = { initialized: boolean; bootstrapPending?: boolean; operations?: Record<string, AdminJob>; storageVersion?: number; offlineHours?: number; teamId?: string; loginGroup?: string; sftpConfigured?: boolean; users: Record<string, ManagedUser>; groups: Record<string, { name: string; label: string; adminGroup: string; workspace?: string; provisioning?: boolean }> };
 export type AdminSnapshot = { profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[] };
-export const nameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/, '用户组标识需以小写字母开头，最多 32 位，可包含数字、下划线和短横线');
+export const nameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/, '系统组名需以小写字母开头，最多 32 位，可包含数字、下划线和短横线');
+// Normalize before checking so the value that travels to the server is the one that was validated.
+export const groupLabelSchema = z.string().max(48).transform(value => value.normalize('NFC')).refine(value => groupLabelPattern.test(value), groupLabelMessage);
 const password = accountPasswordSchema;
 export const adminOperationSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('offline_policy'), hours: z.number().int().min(1).max(24) }), z.object({ op: z.literal('status') }), z.object({ op: z.literal('initialize') }), z.object({ op: z.literal('configure_sftp') }),
@@ -24,7 +27,7 @@ export const adminOperationSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('user_password'), username: accountNameSchema, password }),
   z.object({ op: z.literal('user_enabled'), username: accountNameSchema, enabled: z.boolean() }),
   z.object({ op: z.literal('workspace_prepare'), group: nameSchema }),
-  z.object({ op: z.literal('group_create'), label: z.string().regex(/^[a-z][a-z0-9_-]{0,13}$/, '组标识需以小写字母开头，最多 14 位，可包含数字、下划线和短横线') }),
+  z.object({ op: z.literal('group_create'), label: groupLabelSchema }),
   z.object({ op: z.literal('user_groups'), username: accountNameSchema, groups: z.array(nameSchema).max(100), contentAdminGroups: z.array(nameSchema).max(100).default([]) }),
   z.object({ op: z.literal('group_member'), username: accountNameSchema, group: nameSchema, role: z.enum(['member', 'admin', 'remove']) }),
 ]).and(z.object({ handoffs: z.record(z.string(), accountNameSchema.nullable()).optional() }));

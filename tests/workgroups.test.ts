@@ -52,6 +52,25 @@ test('local account automatically discovers assigned groups, tolerates no member
   } finally { admin.disconnect(); await owner.close(); await member.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
+test('SFTP accepts a Chinese workgroup name and still rejects unrecognised workspace paths', async () => {
+  const server = await teamServer(), alice = new SftpConnection();
+  server.nodes.set('/projects/实体抽取', { mode: 0o40755, uid: 0, gid: 100, data: Buffer.alloc(0) });
+  server.state.memberships.alice = ['实体抽取'];
+  try {
+    await alice.connect({ ...server.profile('alice'), workPath: '/projects/实体抽取' }, 'test-password', async () => true);
+    await alice.loadManifest();
+    assert.equal(alice.workspaces.length, 1);
+    const workspace = alice.workspaces[0];
+    assert.match(workspace.groupName!, /^wb_test_g[a-f0-9]{13}$/);
+    assert.equal(workspace.groupLabel, '实体抽取');
+    assert.equal(workspace.path, '/projects/实体抽取'); assert(!workspace.accessError);
+    // A path the client cannot recognise is still refused instead of being trusted.
+    server.nodes.set('/projects/实体 抽取', { mode: 0o40755, uid: 0, gid: 100, data: Buffer.alloc(0) });
+    server.state.memberships.alice = ['实体 抽取'];
+    await assert.rejects(alice.loadManifest(), /无法识别/);
+  } finally { alice.disconnect(); await server.close(); }
+});
+
 test('SFTP discovers trusted memberships across groups, refreshes roles, isolates access errors and rejects legacy/untrusted metadata', async () => {
   const server = await teamServer(), alice = new SftpConnection(), bob = new SftpConnection();
   server.nodes.set('/projects/nlp', { mode: 0o40755, uid: 0, gid: 100, data: Buffer.alloc(0) });

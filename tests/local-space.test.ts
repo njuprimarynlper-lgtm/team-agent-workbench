@@ -195,3 +195,24 @@ test('local Workbench: multiple independent sessions, frozen handoffs, real queu
     assert(restored.workspaceReady); assert.equal(restored.store.inputs[b.id].text, '补充用户使用说明'); assert.equal(restored.remote.connected, false); await restored.close();
   } finally { await wb.close(); await x.clean(); }
 });
+test('local stub derives a Linux group name from a Chinese group name and keeps the Chinese workspace', async () => {
+  const x = await setup();
+  try {
+    await x.admin.operation({ op: 'group_create', label: '实体抽取' });
+    const state = x.admin.snapshot.state!, group = Object.values(state.groups).find(g => g.label === '实体抽取')!;
+    assert.match(group.name, /^local_g[a-f0-9]{13}$/);
+    assert.equal(group.workspace, '/projects/实体抽取');
+    assert((await fs.stat(await diskPath(x.root, group.workspace!))).isDirectory());
+    await assert.rejects(x.admin.operation({ op: 'group_create', label: '实体抽取' }), /项目组已存在/);
+    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'WorkBench' }), /仅大小写不同/);
+    // The client schema rejects before the request leaves, so Python and TypeScript stay in step.
+    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'a b' }), /用户组名称支持中文/);
+    await x.admin.operation({ op: 'group_create', label: 'café' });
+    assert.equal(Object.values(x.admin.snapshot.state!.groups).find(g => g.label === 'café')!.workspace, '/projects/café');
+    // The same visible name in a decomposed Unicode form must land on the one record.
+    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'cafe\u0301' }), /项目组已存在/);
+    await x.admin.operation({ op: 'user_create', username: '李四', name: '李四', password: 'member-test-password', groups: [group.name], contentAdminGroups: [group.name] });
+    const profile = memberConfig(x.admin.snapshot.profile!, x.admin.snapshot.state!, '李四', group.name);
+    assert.equal(profile.username, '李四'); assert.equal(profile.mode, 'local');
+  } finally { await x.clean(); }
+});

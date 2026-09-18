@@ -1,6 +1,7 @@
 import { continuitySuccessors } from './continuity';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { groupSlug } from './group-name';
 import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
 import { adminOperationSchema } from './types';
 import { diskPath, localRoot, passwordHash, readRegistry, registryLock, writeRegistry, type LocalRegistry } from '../core/local-space';
@@ -64,11 +65,16 @@ export class LocalAdminConnection {
           case 'initialize': break;
           case 'configure_sftp': state.sftpConfigured = true; break;
           case 'group_create': {
-            const name = 'local_' + request.label;
-            if (state.groups[name]) throw new Error('项目组已存在');
-            const workspace = '/projects/' + request.label;
-            await fs.mkdir(await diskPath(this.root, workspace, true));
-            state.groups[name] = { name, label: request.label, adminGroup: name + '_admins', workspace }; break;
+            const label = request.label, name = 'local_' + groupSlug(label), record = state.groups[name];
+            if (!record) {
+              const collision = Object.values(state.groups).find(g => g.label.toLowerCase() === label.toLowerCase());
+              if (collision) throw new Error('已存在同名或仅大小写不同的用户组：' + collision.label);
+              const workspace = '/projects/' + label;
+              await fs.mkdir(await diskPath(this.root, workspace, true));
+              state.groups[name] = { name, label, adminGroup: name + '_admins', workspace };
+            }
+            else if (record.label !== label) throw new Error('用户组名称与已有用户组冲突，请换一个名称：' + record.label);
+            else throw new Error('项目组已存在'); break;
           }
           case 'workspace_prepare': if (!state.groups[request.group]?.workspace) throw new Error('项目组不存在'); break;
           case 'user_create':

@@ -60,6 +60,18 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertEqual(state['groups']['wb_test_ocr']['workspace'],'/projects/ocr')
             self.assertTrue((root/'projects/ocr').is_dir())
 
+    def test_group_names_accept_chinese_and_derive_linux_identifiers(self):
+        self.assertEqual(admin.group_label('实体抽取'), '实体抽取')
+        self.assertEqual(admin.group_slug('ocr'), 'ocr')
+        self.assertEqual(admin.group_slug('ocr_name-1'), 'ocr_name-1')
+        self.assertRegex(admin.group_slug('实体抽取'), r'^g[a-f0-9]{13}$')
+        self.assertEqual(admin.group_slug('实体抽取'), admin.group_slug(admin.group_label('实体抽取')))
+        # Same visible name in a different Unicode form must land on the same Linux name.
+        self.assertEqual(admin.group_label('é'), admin.group_label('é'))
+        self.assertEqual(admin.group_slug('é'), admin.group_slug('é'))
+        for value in ['实体/抽取', '..', '.hidden', '-bad', 'a b', 'x' * 25, '', None, 3]:
+            with self.assertRaises(ValueError): admin.group_label(value)
+
     def test_workspace_initialization_does_not_take_over_existing_content(self):
         import tempfile
         state = {'groups': {'wb_test_ocr': {'label':'ocr','adminGroup':'wb_test_ocr_admin'}}}
@@ -254,6 +266,39 @@ class AdminRecoveryTests(unittest.TestCase):
         (self.root/'projects/old').mkdir(); (self.root/'projects/old/keep.txt').write_text('keep')
         with self.assertRaisesRegex(ValueError,'非空'): self.execute('group_create',label='old')
         self.assertEqual((self.root/'projects/old/keep.txt').read_text(),'keep')
+
+    def test_chinese_group_name_creates_derived_linux_group_and_workspace(self):
+        self.execute('group_create', label='实体抽取')
+        slug = admin.group_slug('实体抽取'); name = 'wb_test_' + slug
+        state = admin.load(self.root)
+        self.assertEqual(list(state['groups']), [name])
+        self.assertEqual(state['groups'][name]['label'], '实体抽取')
+        self.assertEqual(state['groups'][name]['workspace'], '/projects/实体抽取')
+        self.assertTrue((self.root/'projects/实体抽取').is_dir())
+        self.assertIn(name, self.groups); self.assertIn(name + '_admin', self.groups)
+        self.assertRegex(name, r'^wb_test_g[a-f0-9]{13}$')
+        with self.assertRaisesRegex(ValueError, '已经完成'): self.execute('group_create', label='实体抽取')
+
+    def test_chinese_group_recovers_from_partial_failure_under_its_own_journal_key(self):
+        self.fail = lambda a: a[0] == 'groupadd' and a[-1].endswith('_admin')
+        with self.assertRaises(RuntimeError): self.execute('group_create', label='财务组')
+        state = admin.load(self.root); job = state['operations']['group_create:财务组']
+        self.assertEqual(job['status'], 'failed'); self.assertEqual(job['completed'], ['成员用户组已创建'])
+        self.fail = None
+        self.execute('recover', operationId=job['id'])
+        state = admin.load(self.root)
+        self.assertEqual(state['operations'][job['id']]['status'], 'done')
+        self.assertEqual(state['groups']['wb_test_' + admin.group_slug('财务组')]['workspace'], '/projects/财务组')
+        self.assertEqual(sum(a[0] == 'groupadd' and a[-1] == 'wb_test_' + admin.group_slug('财务组') for a in self.calls), 1)
+
+    def test_group_names_that_differ_only_by_case_or_derived_name_are_rejected(self):
+        self.execute('group_create', label='ocr')
+        with self.assertRaisesRegex(ValueError, '仅大小写不同'): self.execute('group_create', label='OCR')
+        self.execute('group_create', label='实体抽取')
+        # A legacy-looking name that happens to collide with a derived Linux name must not take over that record.
+        clash = 'g' + admin.hashlib.sha256('实体抽取'.encode('utf-8')).hexdigest()[:13]
+        with self.assertRaisesRegex(ValueError, '冲突'): self.execute('group_create', label=clash)
+        self.assertEqual(admin.load(self.root)['groups']['wb_test_' + admin.group_slug('实体抽取')]['label'], '实体抽取')
 
     def test_gid_replacement_is_rejected_and_foreign_group_is_not_adopted(self):
         self.fail=lambda a:a[0]=='groupadd' and a[-1].endswith('_admin')

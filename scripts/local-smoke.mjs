@@ -42,7 +42,7 @@ try {
   await expect(ap.getByLabel('管理账号', { exact: true })).toHaveCount(0); await expect(ap.getByLabel('登录密码', { exact: true })).toHaveCount(0);
   await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
   await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
-  await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('组标识').fill('competition'); await confirm(ap);
+  await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('用户组名称').fill('competition'); await confirm(ap);
   for (const username of [aliceName, bobName]) {
     await ap.getByRole('button', { name: '创建用户', exact: true }).click();
     await ap.getByLabel('成员姓名', { exact: true }).fill(username); await ap.getByLabel('登录账号', { exact: true }).fill(username);

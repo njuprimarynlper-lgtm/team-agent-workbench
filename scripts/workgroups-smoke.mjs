@@ -25,7 +25,7 @@ try {
   await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
   await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
   for (const label of ['ocr', 'nlp', 'secret']) {
-    await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('组标识').fill(label); await confirm(ap);
+    await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('用户组名称').fill(label); await confirm(ap);
   }
   await ap.getByRole('button', { name: '创建用户', exact: true }).click();
   await ap.getByLabel('成员姓名', { exact: true }).fill('测试成员'); await ap.getByLabel('登录账号', { exact: true }).fill('test1');
