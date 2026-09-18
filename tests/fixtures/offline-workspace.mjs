@@ -1,5 +1,5 @@
-// Desktop smoke tests seed a previously verified lease, never bypass the group gate.
+// Desktop smoke tests seed a previously verified workspace, never bypass the group gate.
 export const offlineProjectId = 'project_' + 'a'.repeat(32);
 export function offlineSettings() {
-  return { offlineAuthorization: { profile: { id: 'offline-test', name: '测试组', host: 'test.invalid', port: 22, username: 'alice', fingerprint: 'fixture', manifestPath: '', projects: [{ id: offlineProjectId, name: '测试项目', groupName: 'test_group', groupLabel: '测试组', remoteRoot: '/projects/test/P', uploadPath: '/projects/test/P/submissions/alice', historyPath: '/projects/test/P/trajectories/alice' }] }, workspaces: [{ path: '/projects/test', canonicalPath: '/projects/test', groupName: 'test_group', groupLabel: '测试组', canCreateProject: false }], verifiedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 8 * 3600000).toISOString() } };
+  return { workspaceSnapshot: { profile: { id: 'offline-test', name: '测试组', host: 'test.invalid', port: 22, username: 'alice', fingerprint: 'fixture', manifestPath: '', projects: [{ id: offlineProjectId, name: '测试项目', groupName: 'test_group', groupLabel: '测试组', remoteRoot: '/projects/test/P', uploadPath: '/projects/test/P/submissions/alice', historyPath: '/projects/test/P/trajectories/alice' }] }, workspaces: [{ path: '/projects/test', canonicalPath: '/projects/test', groupName: 'test_group', groupLabel: '测试组', canCreateProject: false }] } };
 }

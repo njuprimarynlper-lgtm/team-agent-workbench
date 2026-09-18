@@ -61,7 +61,6 @@ export class LocalAdminConnection {
         for (const { group, user: successor } of continuitySuccessors(state, request)) successor.contentAdminGroups = [...new Set([...(successor.contentAdminGroups || []), group])];
         switch (request.op) {
           case 'status': break;
-          case 'offline_policy': state.offlineHours = request.hours; break;
           case 'initialize': break;
           case 'configure_sftp': state.sftpConfigured = true; break;
           case 'group_create': {

@@ -42,6 +42,6 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     const before = alice.store.settings.localWorkspace;
     await assert.rejects(alice.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
     assert.equal(alice.workspaceReady, true); assert.equal(alice.store.settings.localWorkspace, before);
-    await assert.rejects(alice.createSession('cursor', root), /离线授权/); const offline = await alice.createSession('cursor', root, project.id); assert.equal(offline.binding?.project.id, project.id);
+    await assert.rejects(alice.createSession('cursor', root), /请先选择所属工作组下的项目/); const offline = await alice.createSession('cursor', root, project.id); assert.equal(offline.binding?.project.id, project.id);
   } finally { await alice.close(); await bob.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

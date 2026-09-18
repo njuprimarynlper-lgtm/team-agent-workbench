@@ -25,13 +25,12 @@ async function chooseFiles() { return (await dialog.showOpenDialog(window, { tit
 async function dispatch(action: string, raw: unknown): Promise<unknown> {
   const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'profile.import', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
-  if (workbench.accessMode() === 'readonly' && !setupActions.has(action) && !['draft.export', 'open.local', 'provider.catalog', 'provider.permissions'].includes(action)) throw new Error('离线授权已过期，当前只读；请重新连接团队账号');
   switch (action) {
     case 'snapshot': return workbench.snapshot();
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
-      next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.offlineAuthorization = workbench.store.settings.offlineAuthorization; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
+      next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
     case 'providers.detect': return workbench.detect();
     case 'provider.auth': {

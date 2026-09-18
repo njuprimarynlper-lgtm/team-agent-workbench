@@ -7,7 +7,6 @@ import type { ProjectBrief } from '../shared/project-brief';
 export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
   constructor(private changed: () => void) { this.backend = new SftpConnection(changed); }
-  get offlineHours() { return this.backend.offlineHours; }
   get profile() { return this.backend.profile; }
   get workspaces() { return this.backend.workspaces; }
   get workspace() { return this.backend.workspace; }

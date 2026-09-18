@@ -18,7 +18,7 @@ import uuid
 import contextlib
 import unicodedata
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover", "offline_policy"}
+OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -239,7 +239,7 @@ def load(root):
     return json.loads(file.read_text(encoding="utf-8"))
 
 def write_roles(root, state):
-    roles = {"version": 1, "membershipVersion": 1, "root": str(root), "storageVersion": state.get("storageVersion", 0), "offlineHours": state.get("offlineHours", 8), "users": {}}
+    roles = {"version": 1, "membershipVersion": 1, "root": str(root), "storageVersion": state.get("storageVersion", 0), "users": {}}
     for username, user in state["users"].items():
         if user["enabled"] and not user.get("missing") and not user.get("provisioning"):
             groups = [{"id": name, "name": state["groups"][name]["label"], "workspace": state["groups"][name].get("workspace") if not state["groups"][name].get("provisioning") else None} for name in user.get("groups", []) if name in state["groups"]]
@@ -315,7 +315,6 @@ def install_content_worker(root, state):
         if user.get('enabled') and not user.get('provisioning'):
             terminate_connections(user_login(state, username))
     state['storageVersion'] = 1
-    state.setdefault('offlineHours', 8)
 
 
 def prepare_workspace(root, state, group_name):
@@ -569,11 +568,6 @@ def _execute(request):
         if role == 'admin': admins.add(group)
         else: admins.discard(group)
         assign_groups(root, state, {**request, 'groups': sorted(groups), 'contentAdminGroups': sorted(admins)})
-    elif op == "offline_policy":
-        hours = request.get("hours")
-        if type(hours) is not int or not 1 <= hours <= 24:
-            raise ValueError("离线有效期应为 1 到 24 小时")
-        state["offlineHours"] = hours
     elif op == "configure_sftp":
         config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
         config_dir.mkdir(exist_ok=True)

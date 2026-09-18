@@ -6,9 +6,9 @@ export interface PermissionReport { provider: Provider; checkedAt: string; sourc
 export interface PermissionIssue { kind: 'sandbox' | 'policy' | 'filesystem'; message: string; at: string; }
 export interface Project { briefRevision?: number; id: string; name: string; remoteRoot: string; uploadPath: string; historyPath: string; managed?: boolean; groupName?: string; groupLabel?: string }
 export interface ConnectionProfile { mode?: 'sftp' | 'local'; localRoot?: string; id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
-export interface OfflineAuthorization { profile: ConnectionProfile; workspaces: WorkspaceAccess[]; verifiedAt: string; expiresAt: string; }
+export interface WorkspaceSnapshot { profile: ConnectionProfile; workspaces: WorkspaceAccess[] }
 export interface ProjectBriefState { brief?: ProjectBrief; revision: number; updatedAt?: string }
-export interface Settings { offlineAuthorization?: OfflineAuthorization; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
+export interface Settings { workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
 export interface SessionInput { text: string; sourceIds: string[]; answers: Record<string, string> }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
@@ -36,7 +36,7 @@ export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated'
 export interface ModelOption { id: string; name: string; isDefault?: boolean }
 export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
 export interface ProviderCatalog { models: ModelOption[]; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
-export interface Snapshot { settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; accessMode?: 'online' | 'offline' | 'readonly' | 'unassigned'; offlineExpiresAt?: string }
+export interface Snapshot { settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

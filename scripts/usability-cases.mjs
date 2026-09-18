@@ -20,7 +20,8 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect(input).toHaveValue('A 独立输入'); await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(1);
   await select(b.id); await expect(input).toHaveValue('B 独立输入'); await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(0);
   // Failed asynchronous B request must leave both A and B text untouched.
-  await auth.write({ status: 'network', delay: 1500 });
+  // Long enough that the assertion below still observes the pending check on a slow machine.
+  await auth.write({ status: 'network', delay: 8000 });
   await call('provider.auth', { provider: 'codex', cwd: data });
   await page.getByRole('button', { name: '发送任务', exact: true }).click(); await select(a.id);
   assert.equal((await call('snapshot')).auth.codex.status, 'checking', 'The user must have switched to A while B is still awaiting authentication.');

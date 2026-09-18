@@ -402,15 +402,13 @@ class AdminRecoveryTests(unittest.TestCase):
         self.assertTrue(state['initialized']); self.assertFalse(journal.exists())
         self.assertEqual(state['operations']['initialize']['status'],'done')
 
-    def test_offline_policy_is_validated_and_published(self):
-        self.execute('offline_policy', hours=4)
-        state=admin.load(self.root)
-        self.assertEqual(state['offlineHours'],4)
+    def test_membership_manifest_has_no_offline_validity_field(self):
+        self.execute('status')
         import json
         roles=json.loads((self.root/'.workbench/roles.json').read_text(encoding='utf-8'))
-        self.assertEqual(roles['offlineHours'],4)
-        for hours in [0,25,True,'8']:
-            with self.assertRaises(ValueError): self.execute('offline_policy', hours=hours)
+        self.assertNotIn('offlineHours',roles)
+        with self.assertRaises(ValueError): self.execute('offline_policy', hours=4)
+
 
     def test_last_admin_requires_explicit_handoff_or_vacancy(self):
         self.execute('group_create',label='ocr')

@@ -73,8 +73,7 @@ try {
   await expect(page.getByRole('alert')).toHaveCount(0);
   await importConnection({ app, page }, files.ssh);
   await expect(page.getByLabel('团队连接说明')).toContainText('team.example.test:22');
-  await expect(page.getByLabel('服务器地址', { exact: true })).toBeHidden();
-  await page.getByText('服务器连接设置', { exact: true }).click();
+  await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();
   await expect(page.getByLabel('服务器地址', { exact: true })).toHaveValue('team.example.test');
   await page.getByLabel('服务器地址', { exact: true }).fill('new.example.test');
   await expect(page.getByLabel('管理员提供的服务器指纹')).toHaveValue('');

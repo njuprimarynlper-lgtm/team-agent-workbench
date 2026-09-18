@@ -85,8 +85,8 @@ test('project briefs are independently versioned; adopted session context stays 
     await x.bob.refreshProjectContext(s.id); assert.equal(s.projectBrief?.revision, 2);
     assert((await fs.readFile(s.sources.find(f => f.id === s.projectBrief?.sourceId)!.localPath, 'utf8')).includes('第二版目标'));
     x.bob.remote.disconnect(); const offline = await x.bob.createSession('codex', x.root, second.id); assert(offline.binding);
-    x.bob.store.settings.offlineAuthorization!.expiresAt = new Date(Date.now() - 1).toISOString();
-    assert.equal(x.bob.snapshot().accessMode, 'readonly'); await assert.rejects(x.bob.send(offline.id, 'must not start'), /离线授权/);
+    // Disconnected work carries no time limit: the same project keeps accepting new offline sessions.
+    assert(await x.bob.createSession('cursor', x.root, second.id));
   } finally { await x.close(); }
 });
 
@@ -144,8 +144,6 @@ test('file replacement respects author/admin revisions and reusable text snapsho
     const session = await x.bob.createSession('codex', x.root, x.project.id), source = await x.bob.attachContent(session.id, item.id);
     assert.match(await fs.readFile(source.localPath, 'utf8'), /统一口径/); assert.equal(source.sourcePath, replacement?.path);
     assert.match(await fs.readFile(source.localPath, 'utf8'), /维护人：alice/);
-    await x.admin.operation({ op: 'offline_policy', hours: 3 }); await x.bob.refreshGroups();
-    const lease = x.bob.store.settings.offlineAuthorization!; assert.equal(Date.parse(lease.expiresAt) - Date.parse(lease.verifiedAt), 3 * 3600000);
     const legacy = path.join(x.shared, ...b.project.remoteRoot.slice(1).split('/'), 'legacy.txt'); await fs.writeFile(legacy, '旧版共享资料');
     await assert.rejects(x.bob.remote.contentAdopt(b, b.project.remoteRoot + '/legacy.txt'), /子管理员/);
     const adopted = await x.alice.remote.contentAdopt(x.alice.remote.binding(x.project.id), b.project.remoteRoot + '/legacy.txt');

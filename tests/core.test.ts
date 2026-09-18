@@ -57,6 +57,24 @@ test('restart marks unfinished uploads retryable and does not auto resume', asyn
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
+test('a settings file written by an older build keeps its verified workspace after the lease is dropped', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-migrate-'));
+  try {
+    // 0.7.0 dev builds stored the verified workspace as a lease with timestamps.
+    await fs.writeFile(path.join(root, 'settings.json'), JSON.stringify({
+      connections: [], providerPaths: { codex: '', cursor: '' }, lastWorkspace: root, verifiedLocalWorkspace: root,
+      offlineAuthorization: { profile: { id: 'legacy', name: '旧连接', host: 'legacy.invalid', port: 22, username: 'alice', fingerprint: 'legacy', manifestPath: '', projects: [project] }, workspaces: [{ path: '/projects/alpha', canonicalPath: '/projects/alpha', groupName: 'alpha_group', canCreateProject: true }], verifiedAt: '2026-09-01T00:00:00.000Z', expiresAt: '2026-09-01T08:00:00.000Z' },
+    }));
+    const store = new Store(root); await store.init();
+    assert.equal(store.settings.workspaceSnapshot!.workspaces.length, 1);
+    assert.equal(store.settings.workspaceSnapshot!.profile.projects[0].id, project.id);
+    assert(!('offlineAuthorization' in store.settings));
+    await store.save();
+    const again = new Store(root); await again.init();
+    assert.deepEqual(again.settings.workspaceSnapshot, store.settings.workspaceSnapshot);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
 test('autosave tolerates a transient Windows file lock; permanent failure preserves the previous file', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-atomic-')), file = path.join(root, 'data.json');
   const original = fs.rename;

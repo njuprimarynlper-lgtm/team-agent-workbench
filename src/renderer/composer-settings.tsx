@@ -5,11 +5,11 @@ import { permissionEffects, permissionLabels, sessionPermissionDescription, sess
 
 type Choice = { kind: 'model' | 'permission'; value: string; label: string };
 
-export function ComposerSettings({ session, readOnly }: { session: AgentSession; readOnly: boolean }) {
+export function ComposerSettings({ session }: { session: AgentSession }) {
   const [open, setOpen] = useState<Choice['kind']>(), [catalog, setCatalog] = useState<ProviderCatalog>(), [report, setReport] = useState<PermissionReport>();
   const [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState<Choice>();
   const root = useRef<HTMLDivElement>(null), modelButton = useRef<HTMLButtonElement>(null), permissionButton = useRef<HTMLButtonElement>(null), sequence = useRef(0);
-  const running = ['running', 'approval'].includes(session.status), disabled = readOnly || session.status === 'starting' || saving;
+  const running = ['running', 'approval'].includes(session.status), disabled = session.status === 'starting' || saving;
   const close = () => { setOpen(undefined); setPending(undefined); setError(''); };
   const refresh = async (kind: Choice['kind']) => {
     const n = ++sequence.current; setLoading(true); setError('');
@@ -50,7 +50,6 @@ export function ComposerSettings({ session, readOnly }: { session: AgentSession;
       <div className="composer-options">
         {loading && <p className="muted small" role="status">读取中…</p>}
         {error && <p className="inline-error" role="alert">{error}</p>}
-        {readOnly && <p className="muted small">离线授权已过期，重新连接后可修改。</p>}
         {session.status === 'starting' && <p className="muted small">正在启动，完成后可切换。</p>}
         {open === 'model' ? <>
           {session.model && !models.some(m => m.id === session.model) && <div className="current-model">当前：{session.model}</div>}

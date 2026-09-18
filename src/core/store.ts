@@ -27,7 +27,15 @@ export class Store {
   constructor(public root: string) {}
   async init() {
     await fs.mkdir(this.root, { recursive: true });
-    try { this.settings = settingsSchema.parse(JSON.parse(await fs.readFile(path.join(this.root, 'settings.json'), 'utf8'))); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地设置损坏，请保留文件并检查：' + path.join(this.root, 'settings.json')); }
+    try {
+      const raw = JSON.parse(await fs.readFile(path.join(this.root, 'settings.json'), 'utf8'));
+      // Older builds stored the verified workspace as a time-limited lease; carry it over without the timestamps.
+      if (raw && typeof raw === 'object') {
+        if (raw.offlineAuthorization && !raw.workspaceSnapshot) raw.workspaceSnapshot = { profile: raw.offlineAuthorization.profile, workspaces: raw.offlineAuthorization.workspaces };
+        delete raw.offlineAuthorization;
+      }
+      this.settings = settingsSchema.parse(raw);
+    } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地设置损坏，请保留文件并检查：' + path.join(this.root, 'settings.json')); }
     for (const key of ['sessions', 'transfers', 'drafts'] as const) {
       try { const data = JSON.parse(await fs.readFile(path.join(this.root, key + '.json'), 'utf8')); if (!Array.isArray(data)) throw new Error('Invalid array'); (this[key] as unknown[]) = data; } catch (e: any) { if (e.code !== 'ENOENT') throw new Error(`本地 ${key}.json 无法读取`); }
     }

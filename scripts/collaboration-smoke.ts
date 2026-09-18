@@ -45,10 +45,9 @@ try {
   assert.equal(exitCode, 0); assert.equal((await call(bp, 'snapshot')).sessions.length, 1);
   await mp.getByLabel('共享区类型').selectOption('local'); await mp.getByLabel('本地共享区根目录').fill(share);
   await mp.getByRole('button', { name: '打开共享目录', exact: true }).click();
-  await mp.getByRole('button', { name: '设置有效期', exact: true }).click(); await mp.getByLabel('断网后仍可继续工作（小时）').fill('4'); await mp.getByRole('button', { name: '确认执行', exact: true }).click();
-  await expect(mp.locator('.admin-content')).toContainText('成员离线工作有效期：4 小时');
-  await call(bp, 'remote.manifest'); const lease = (await call(bp, 'snapshot')).settings.offlineAuthorization;
-  assert.equal(Date.parse(lease.expiresAt) - Date.parse(lease.verifiedAt), 4 * 3600000);
+  // The admin window shares the same team state but no longer carries an offline validity setting.
+  await expect(mp.locator('.admin-content')).not.toContainText('离线工作');
+  await call(bp, 'remote.manifest');
   await ap.getByRole('button', { name: '项目资料 · v1', exact: true }).click();
   await expect(ap.getByLabel('项目背景', { exact: true })).toHaveValue('项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('提高质量和效率'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
   // Wait for Alice's asynchronous save before Bob re-reads the manifest, or Bob legitimately still sees version 1.
@@ -84,9 +83,9 @@ try {
   await expect(ap.getByRole('button', { name: '项目资料 · v1', exact: true })).toBeVisible();
   await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('公共成果', { exact: true }).click();
   await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card').click();
-  await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-policy.png') });
+  await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'same-directory instance lock', 'admin offline policy', 'project brief versions and explicit adoption', 'author revision', 'subadmin edit/merge/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'same-directory instance lock', 'admin window without an offline setting', 'project brief versions and explicit adoption', 'author revision', 'subadmin edit/merge/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
 } catch (error) {
   for (const [i, page] of pages.entries()) { await page.screenshot({ path: path.join(data, 'failure-' + i + '.png') }).catch(() => {}); await fs.writeFile(path.join(data, 'failure-' + i + '.txt'), await page.locator('body').innerText().catch(() => 'closed')); }
   throw error;

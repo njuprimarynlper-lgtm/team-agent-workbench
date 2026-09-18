@@ -10,7 +10,7 @@ const root = process.cwd(), data = path.join(root, '.test-data', 'session-contex
 await fs.mkdir(data, { recursive: true });
 const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
 const settings = { ...offlineSettings(), connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, localWorkspace: data, lastWorkspace: data, verifiedLocalWorkspace: data };
-const profile = settings.offlineAuthorization.profile;
+const profile = settings.workspaceSnapshot.profile;
 const seeds = [];
 for (const provider of ['codex', 'cursor']) {
   const id = randomUUID(), sourceId = randomUUID(), localPath = path.join(data, id + '.md'), content = '# 项目说明\n目标：改善 OCR 识别。';

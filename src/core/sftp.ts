@@ -25,7 +25,6 @@ export function friendlySftp(error: any): Error {
 }
 export class SftpConnection {
   private storageVersion = 0;
-  offlineHours = 8;
   private client?: Client; private sftp?: SFTPWrapper;
   profile?: ConnectionProfile;
   workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] = [];
@@ -94,7 +93,6 @@ export class SftpConnection {
       if (data.truncated) throw new Error('工作组记录过大');
       const roles = JSON.parse(data.buffer.toString('utf8'));
       this.storageVersion = roles.storageVersion || 0;
-      this.offlineHours = Number.isInteger(roles.offlineHours) ? Math.max(1, Math.min(24, roles.offlineHours)) : 8;
       if (roles.version !== 1 || roles.membershipVersion !== 1) throw new Error('请管理员使用新版管理员端刷新成员信息');
       const user = Object.hasOwn(roles.users || {}, username) ? roles.users[username] : undefined;
       if (!user) throw new Error('当前账号未启用或不属于此团队，请联系管理员');

@@ -73,9 +73,9 @@ test('#2/#3/#5 session inputs, handoffs and drafts persist independently and off
     assert.equal(wb.store.inputs[a.id].text, 'unsent secret A'); assert.deepEqual(wb.store.inputs[a.id].sourceIds, [ref.id]); assert.equal(wb.store.inputs[b.id].answers.question, 'B');
     assert.equal(await wb.readHandoff(a.id), 'A newest'); assert.equal(await wb.readHandoff(b.id), 'B only');
     assert.equal(wb.draft(a.id).body, 'saved after retry'); assert.equal(wb.draft(a.id).target, '/target');
-    await wb.createSession('codex', root, wb.store.settings.offlineAuthorization!.profile.projects[0].id);
+    await wb.createSession('codex', root, project.id);
     await assert.rejects(wb.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
-    assert.equal(wb.workspaceReady, true); await wb.createSession('cursor', root, wb.store.settings.offlineAuthorization!.profile.projects[0].id);
+    assert.equal(wb.workspaceReady, true); await wb.createSession('cursor', root, project.id);
     await assert.rejects(wb.createProject('offline'), /连接/);
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

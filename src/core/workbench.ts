@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { workspaceMode, authorizeOffline, makeAuthorization } from './workspace-access';
+import { assertKnownWorkspace, makeWorkspaceSnapshot } from './workspace-access';
 import { gitRevision } from './git-revision';
 import { projectBriefMarkdown } from '../shared/project-brief';
 import fs from 'node:fs/promises';
@@ -41,7 +41,6 @@ export class Workbench {
     const next = this.edits.catch(() => {}).then(fn).then(value => { if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); return value; });
     this.edits = next; return next;
   }
-  private accessTimer?: NodeJS.Timeout;
   workspaceReady = false;
   private configuring = false;
   private configuringCursorPermissions = false;
@@ -53,22 +52,21 @@ export class Workbench {
       for (const [id, runtime] of this.runtimes) if (runtime.session.provider === provider && !['running', 'approval', 'starting'].includes(runtime.session.status)) { runtime.close(); this.runtimes.delete(id); }
     });
   }
-  async init() { await this.store.init(); await this.restoreLocalWorkspace(); await this.detect(); this.accessTimer = setInterval(() => { if (this.accessMode() === 'readonly') for (const session of this.store.sessions.filter(s => ['running', 'approval', 'starting'].includes(s.status))) { void this.stop(session.id); this.notice('离线授权已过期，工作台已转为只读，请重新连接团队账号'); } this.broadcast(); }, 10000); }
+  async init() { await this.store.init(); await this.restoreLocalWorkspace(); await this.detect(); }
   async restoreLocalWorkspace() {
     const settings = this.store.settings;
     const verified = settings.verifiedLocalWorkspace;
-    this.workspaceReady = !!verified && !!settings.offlineAuthorization?.workspaces.length && await fs.stat(verified).then(s => s.isDirectory(), () => false);
+    this.workspaceReady = !!verified && !!settings.workspaceSnapshot?.workspaces.length && await fs.stat(verified).then(s => s.isDirectory(), () => false);
   }
-  accessMode() { return workspaceMode(this.remote.connected, this.remote.workspaces, this.store.settings.offlineAuthorization); }
   assertCanWork(binding?: RemoteBinding) {
     this.assertWorkspace();
     if (this.remote.connected) { if (!binding) throw new Error('请先选择所属工作组下的项目'); this.remote.channel(binding); if (!this.remote.workspaces.some(w => !w.accessError && w.groupName === binding.project.groupName)) throw new Error('当前账号没有此工作组权限'); }
-    else authorizeOffline(binding, this.store.settings.offlineAuthorization);
+    else { if (!binding) throw new Error('请先选择所属工作组下的项目'); assertKnownWorkspace(binding, this.store.settings.workspaceSnapshot); }
   }
   async refreshGroups() {
     const projects = await this.remote.loadManifest();
     const profile = this.remote.profile!;
-    this.store.settings.offlineAuthorization = makeAuthorization(profile, this.remote.workspaces, this.remote.offlineHours);
+    this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
     this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? structuredClone(profile) : p);
     this.workspaceReady = !!this.remote.workspaces.length; await this.store.save(); this.broadcast(); return projects;
   }
@@ -78,7 +76,7 @@ export class Workbench {
     this.store.inputs[id] = structuredClone(input); return this.store.save();
   }
   async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
-  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, accessMode: this.accessMode(), offlineExpiresAt: this.store.settings.offlineAuthorization?.expiresAt, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
+  snapshot(): Snapshot { return { settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
   async requireAuth(provider: Provider, cwd: string) {
     const prior = this.accounts.states[provider];
     const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
@@ -102,7 +100,7 @@ export class Workbench {
       await this.remote.loadManifest();
       this.store.settings.verifiedLocalWorkspace = canonicalLocal; this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
       this.store.settings.connections = [...this.store.settings.connections.filter(x => x.id !== result.id), result];
-      this.store.settings.offlineAuthorization = makeAuthorization(result, this.remote.workspaces, this.remote.offlineHours);
+      this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(result, this.remote.workspaces);
       await this.store.save(); this.workspaceReady = !!this.remote.workspaces.length; this.broadcast(); return result;
     } catch (error) { this.remote.disconnect(); throw error; }
     finally { this.configuring = false; this.broadcast(); }
@@ -118,7 +116,7 @@ export class Workbench {
   async createProject(name: string, groupName?: string, brief?: ProjectBrief) {
     this.assertWorkspace(); const project = await this.remote.createProject(name, groupName, brief);
     const profile = this.remote.profile!; this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? profile : p);
-    this.store.settings.offlineAuthorization = makeAuthorization(profile, this.remote.workspaces, this.remote.offlineHours); await this.store.save(); this.broadcast(); return project;
+    this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces); await this.store.save(); this.broadcast(); return project;
   }
   changed = () => { this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
   session(id: string) { const s = this.store.sessions.find(x => x.id === id); if (!s) throw new Error('会话不存在'); return s; }
@@ -176,7 +174,7 @@ export class Workbench {
     if (purpose === 'prepare') permissionMode = 'full';
     if (provider === 'cursor' && purpose === 'work' && permissionMode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本地工作目录');
-    const cached = this.store.settings.offlineAuthorization?.profile;
+    const cached = this.store.settings.workspaceSnapshot?.profile;
     const binding = purpose === 'prepare' && parentId ? this.session(parentId).binding : projectId ? this.remote.connected ? this.remote.binding(projectId) : cached && cached.projects.some(p => p.id === projectId) ? { connectionId: cached.id, host: cached.host, port: cached.port, username: cached.username, fingerprint: cached.fingerprint, project: structuredClone(cached.projects.find(p => p.id === projectId)!) } : undefined : undefined;
     this.assertCanWork(binding);
     const id = randomUUID(); const dir = purpose === 'work' ? path.join(cwd, '.workbench', 'sessions', id) : cwd;
@@ -449,5 +447,5 @@ export class Workbench {
   async readHandoff(id: string) { return (await fs.readFile(this.session(id).handoffPath, 'utf8')).replace(/^# Agent 工作记录\s*/u, '# 阶段摘要\n\n'); }
   saveHandoff(id: string, text: string) { return this.edit('handoff:' + id, async () => { const s = this.session(id); if (!localWithin(s.cwd, s.handoffPath)) throw new Error('交接文件路径越界'); await fs.writeFile(s.handoffPath, text, 'utf8'); }); }
   async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await this.store.save(); }
-  async close() { this.closing = true; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearInterval(this.accessTimer); clearTimeout(this.timer); this.timer = undefined; await this.flushEdits(); this.closing = true; for (const timer of this.preparationTimers.values()) clearTimeout(timer); this.preparationTimers.clear(); for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.accounts.close(); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); await Promise.all(this.eventWrites.values()); await this.store.save(); }
+  async close() { this.closing = true; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; await this.flushEdits(); this.closing = true; for (const timer of this.preparationTimers.values()) clearTimeout(timer); this.preparationTimers.clear(); for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.accounts.close(); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); await Promise.all(this.eventWrites.values()); await this.store.save(); }
 }

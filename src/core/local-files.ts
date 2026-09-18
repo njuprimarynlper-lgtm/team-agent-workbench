@@ -12,7 +12,6 @@ import { sameEndpoint } from './sftp';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 
 export class LocalFileConnection {
-  offlineHours = 8;
   profile?: ConnectionProfile; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] = [];
   private root = ''; private proof = ''; private ready = false;
   constructor(private changed: () => void = () => {}) {}
@@ -20,7 +19,7 @@ export class LocalFileConnection {
   disconnect() { this.ready = false; this.proof = ''; this.workspace = undefined; this.workspaces = []; this.changed(); }
   async connect(profile: ConnectionProfile, password: string, _trust: (s: string) => Promise<boolean>) {
     this.disconnect(); this.root = await localRoot(profile.localRoot);
-    const data = await readRegistry(this.root); this.offlineHours = data.state.offlineHours || 8;
+    const data = await readRegistry(this.root);
     if (!passwordMatches(password, data.credentials[profile.username])) throw new Error('模拟账号或密码错误');
     const proof = data.credentials[profile.username]; authorizeUser(data, profile.username, proof);
     const fingerprint = 'LOCAL:' + data.state.teamId;
@@ -39,7 +38,7 @@ export class LocalFileConnection {
   }
   private async access(target: string, create = false) {
     const connection = this.channel(), proof = this.proof, profile = this.profile!;
-    const data = await readRegistry(this.root); this.offlineHours = data.state.offlineHours || 8;
+    const data = await readRegistry(this.root);
     if (connection !== this.channel() || proof !== this.proof || profile !== this.profile) throw new Error('连接已改变');
     const user = authorizeUser(data, profile.username, proof);
     const group = Object.values(data.state.groups).find(g => g.workspace && withinRemote(g.workspace, target));
