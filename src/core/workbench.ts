@@ -91,7 +91,7 @@ export class Workbench {
   }
   assertWorkspace() { if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号并选择本机工作目录'); }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
-    if (this.configuring) throw new Error('正在登录并发现工作组，请等待结果');
+    if (this.configuring) throw new Error('正在登录，请等待结果');
     this.configuring = true; this.broadcast();
     try {
       if (!path.isAbsolute(localPath) || !(await fs.stat(localPath)).isDirectory()) throw new Error('请选择已存在的本机工作目录');
@@ -99,7 +99,7 @@ export class Workbench {
       const result = await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       this.store.settings.verifiedLocalWorkspace = canonicalLocal; this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
-      this.store.settings.connections = [...this.store.settings.connections.filter(x => x.id !== result.id), result];
+      this.store.settings.connections = [result];
       this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(result, this.remote.workspaces);
       await this.store.save(); this.workspaceReady = !!this.remote.workspaces.length; this.broadcast(); return result;
     } catch (error) { this.remote.disconnect(); throw error; }

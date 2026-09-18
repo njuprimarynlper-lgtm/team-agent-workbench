@@ -103,7 +103,7 @@ test('#6 contribution ZIP accepts conclusions and optional repository links, nev
 });
 
 test('#8 test profile fixture uses actual member access and chroot path, excludes credentials and keeps one identity across groups', () => {
-  const state: AdminState = { initialized: true, teamId: 'test', sftpConfigured: true, users: { alice: { username: 'alice', name: 'Alice', enabled: true, groups: ['wb_t_ocr', 'wb_t_nlp'] } }, groups: { wb_t_ocr: { name: 'wb_t_ocr', label: 'ocr', adminGroup: 'wb_t_ocr_admin', workspace: '/projects/ocr' }, wb_t_nlp: { name: 'wb_t_nlp', label: 'nlp', adminGroup: 'wb_t_nlp_admin', workspace: '/projects/nlp' } } };
+  const state: AdminState = { initialized: true, teamId: 'test', sftpConfigured: true, storageVersion: 1, users: { alice: { username: 'alice', name: 'Alice', enabled: true, groups: ['wb_t_ocr', 'wb_t_nlp'] } }, groups: { wb_t_ocr: { name: 'wb_t_ocr', label: 'ocr', adminGroup: 'wb_t_ocr_admin', workspace: '/projects/ocr' }, wb_t_nlp: { name: 'wb_t_nlp', label: 'nlp', adminGroup: 'wb_t_nlp_admin', workspace: '/projects/nlp' } } };
   const profile = { host: 'host', port: 2222, username: 'root', fingerprint: 'SHA256:verified', root: '/srv/teamspace', password: 'never-export' };
   const result = memberProfile(profile, state, 'alice', 'wb_t_ocr');
   assert.equal(result.username, 'alice'); assert.equal(result.workPath, ''); assert.equal(result.port, 2222); assert.equal(result.fingerprint, profile.fingerprint);
@@ -111,7 +111,7 @@ test('#8 test profile fixture uses actual member access and chroot path, exclude
   assert.equal(memberProfile(profile, state, 'alice', 'wb_t_nlp').id, result.id);
   state.users.alice.groups = []; assert.equal(memberProfile(profile, state, 'alice').workPath, '');
   state.users.alice.groups = ['wb_t_ocr']; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_nlp'), /授权/);
-  state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('待配置 SFTP 接入')); assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
+  state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('成员接入尚未完成')); assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
   state.sftpConfigured = true; state.users.alice.provisioning = true; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /未完成/);
   state.users.alice.provisioning = false; state.users.alice.enabled = false; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /未启用/);
 });

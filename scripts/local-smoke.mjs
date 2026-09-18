@@ -28,20 +28,19 @@ async function launch(edition, name) {
 async function confirm(page) { await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0); }
 async function connectUser(user, username, profile) {
   const { page } = user;
-  await expect(page.getByLabel('团队连接说明')).toContainText('填写团队服务器和登录账号');
   await setConnectionProfile(user, profile);
-  await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '添加其他服务器', exact: true })).toHaveCount(0);
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   await expect(page.getByLabel('共享工作路径', { exact: true })).toHaveCount(0);
   await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill(memberPassword);
-  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
+  await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
 try {
   const admin = await launch('admin', 'admin'); const ap = admin.page;
   await ap.getByLabel('共享区类型').selectOption('local'); await ap.getByLabel('本地共享区根目录').fill(share);
   await expect(ap.getByLabel('管理账号', { exact: true })).toHaveCount(0); await expect(ap.getByLabel('登录密码', { exact: true })).toHaveCount(0);
   await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
-  await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
+  await ap.getByRole('button', { name: '初始化团队空间', exact: true }).click(); await confirm(ap);
   await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('用户组名称').fill('competition'); await confirm(ap);
   for (const username of [aliceName, bobName]) {
     await ap.getByRole('button', { name: '创建用户', exact: true }).click();

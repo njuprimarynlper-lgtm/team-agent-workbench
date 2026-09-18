@@ -46,7 +46,7 @@
 
 成员只需要 SSH/SFTP；不新增产品账号、HTTP 端口或项目 Agent。要保证原作者无法绕过客户端按钮，正式公共文件统一由 root 持有（目录 2750、文件 0640），所属组只读。不能只依赖普通文件属主权限，否则原作者可以 chmod 或删除后再上传。
 
-管理员版“限制成员账号只能访问团队共享区”（旧版界面称“配置或升级成员文件访问”）会配置 internal-sftp、安装 `server/content.py` 为受限 systemd 文件操作器，服务名 `team-agent-storage-<teamId>`。依赖 Linux、Python 3.10+、OpenSSH、systemd、acl 工具以及管理账号 sudo 权限。操作器无模型调用，只处理固定的创建项目、资料保存、上传、内容修订/替换/合并/删除/纳入操作。
+管理员版初始化团队空间时会自动配置 internal-sftp，并安装 `server/content.py` 为受限 systemd 文件操作器，服务名 `team-agent-storage-<teamId>`；不会留下“账号已创建但成员无法登录”的正常状态。旧环境配置不完整时显示一次性的“完成成员接入配置”修复入口。依赖 Linux、Python 3.10+、OpenSSH、systemd、acl 工具以及管理账号 sudo 权限。操作器无模型调用，只处理固定的创建项目、资料保存、上传、内容修订/替换/合并/删除/纳入操作。
 
 ```text
 <团队根路径>/

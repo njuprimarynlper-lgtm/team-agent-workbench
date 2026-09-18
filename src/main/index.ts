@@ -53,8 +53,8 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
       return workbench.configureWorkspace(profile, p.password, p.localPath, async fingerprint => {
         const accepted = (await dialog.showMessageBox(window, {
         type: 'question', title: '首次连接团队服务器', message: p.profile.name || '团队共享服务器',
-        detail: `当前电脑尚未连接过 ${p.profile.host}:${p.profile.port}。确认后，本机会记住服务器身份；以后身份发生变化时会在发送密码前停止连接。\n\n技术信息：${fingerprint}`,
-        buttons: ['取消', '确认并连接'], defaultId: 0, cancelId: 0,
+        detail: `这是本机第一次连接 ${p.profile.host}:${p.profile.port}，请确认服务器地址填写正确。`,
+        buttons: ['取消', '继续登录'], defaultId: 0, cancelId: 0,
         })).response === 1;
         if (accepted) {
           workbench.store.settings.trustedServerIdentities = { ...(workbench.store.settings.trustedServerIdentities || {}), [key]: fingerprint };

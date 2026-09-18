@@ -39,6 +39,17 @@ export async function adminCases({ app, page, data }) {
     await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
     assert.deepEqual(server.state.users.alice.groups, ['wb_test_ocr']);
     assert.deepEqual(server.state.users.alice.contentAdminGroups, ['wb_test_ocr']);
-    console.log('Admin UI passed: partial operation status/recovery, create with group and subadmin assignment, and a login-ready member state without a config-export action.');
+    server.state.sftpConfigured = false; server.state.storageVersion = 0;
+    await page.evaluate(() => window.admin.call('operation', { op: 'status' }));
+    await expect(page.getByText('成员接入尚未完成', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: '完成配置', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '完成成员接入配置', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '确认执行', exact: true }).click();
+    await expect(page.getByText('成员接入尚未完成', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeEnabled();
+    assert.equal(server.requests.at(-1).op, 'configure_sftp');
+    console.log('Admin UI passed: recovery, member/group management, and legacy member-access repair gating.');
   } finally { await server.close(); }
 }

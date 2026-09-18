@@ -44,9 +44,9 @@ export class LocalAdminConnection {
           if (e.code !== 'ENOENT') throw e;
           if (this.teamId) throw new Error('本地共享区登记文件不存在，请重新连接并检查目录');
           if (request.op === 'status') return this.snapshot.state;
-          if (request.op !== 'initialize') throw new Error('请先初始化账号管理');
+          if (request.op !== 'initialize') throw new Error('请先初始化团队空间');
           if ((await fs.readdir(this.root)).some(s => s !== '.workbench-local.lock')) throw new Error('共享区不是空目录，不能初始化');
-          data = { version: 1, administrator: this.snapshot.profile!.username, credentials: {}, state: { initialized: true, teamId: randomUUID(), loginGroup: 'local_members', sftpConfigured: true, users: {}, groups: {}, operations: {} } }; created = true;
+          data = { version: 1, administrator: this.snapshot.profile!.username, credentials: {}, state: { initialized: true, teamId: randomUUID(), loginGroup: 'local_members', sftpConfigured: true, storageVersion: 1, users: {}, groups: {}, operations: {} } }; created = true;
           await fs.mkdir(await diskPath(this.root, '/.workbench-local', true));
           await fs.mkdir(await diskPath(this.root, '/projects', true));
         }
@@ -62,7 +62,7 @@ export class LocalAdminConnection {
         switch (request.op) {
           case 'status': break;
           case 'initialize': break;
-          case 'configure_sftp': state.sftpConfigured = true; break;
+          case 'configure_sftp': state.sftpConfigured = true; state.storageVersion = 1; break;
           case 'group_create': {
             const label = request.label, name = 'local_' + groupSlug(label), record = state.groups[name];
             if (!record) {

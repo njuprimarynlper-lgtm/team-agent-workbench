@@ -23,7 +23,7 @@ try {
   const admin = await launch('admin'), ap = admin.page;
   await ap.getByLabel('共享区类型').selectOption('local'); await ap.getByLabel('本地共享区根目录').fill(share);
   await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
-  await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
+  await ap.getByRole('button', { name: '初始化团队空间', exact: true }).click(); await confirm(ap);
   for (const label of ['ocr', 'nlp', 'secret']) {
     await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('用户组名称').fill(label); await confirm(ap);
   }
@@ -36,7 +36,7 @@ try {
   await setConnectionProfile(user, config); await up.getByLabel('本机工作路径', { exact: true }).fill(data);
   await up.getByLabel('成员账号').fill('test1'); await up.getByLabel('登录密码', { exact: true }).fill('1');
   await expect(up.getByLabel('共享工作路径', { exact: true })).toHaveCount(0); await expect(up.getByLabel('Linux 工作路径', { exact: true })).toHaveCount(0);
-  await up.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
+  await up.getByRole('button', { name: '登录', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
   await expect(up.getByText('还没有加入工作组', { exact: true })).toBeVisible(); await up.screenshot({ path: path.join(data, 'no-groups.png') });
   await expect(up.getByTitle('新建会话', { exact: true })).toHaveCount(0);
   const snap = () => up.evaluate(() => window.workbench.call('snapshot'));
@@ -56,10 +56,10 @@ try {
   await expect(up.locator('.workgroup-project')).toHaveCount(2);
   // One saved account/connection discovers both groups again on the next login.
   await up.locator('.connection-button').click();
-  await expect(up.getByLabel('团队连接（已保存）')).toHaveCount(0);
+  await expect(up.getByRole('button', { name: '添加其他服务器', exact: true })).toHaveCount(0);
   await expect(up.getByLabel('本地共享区根目录', { exact: true })).toHaveCount(0);
   await up.getByLabel('登录密码', { exact: true }).fill('1');
-  await up.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
+  await up.getByRole('button', { name: '登录', exact: true }).click();
   await expect(up.locator('.modal')).toHaveCount(0);
   await expect(up.locator('.workgroup')).toHaveCount(2);
   await expect(up.locator('.workgroup-project')).toHaveCount(2);

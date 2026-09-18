@@ -90,7 +90,7 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
 export async function restoredCases(page, expected) {
   await page.getByLabel('任务输入', { exact: true }).waitFor();
   await expect(page.getByText('先连接团队账号', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('团队账号与本机目录', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('登录团队工作台', { exact: true })).toHaveCount(0);
   for (const [session, text] of [[expected.a, 'A 独立输入'], [expected.b, 'B 独立输入']]) {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue(text);

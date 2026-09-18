@@ -28,7 +28,7 @@ test('only the local admin connection accepts omitted account and password', () 
 
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
-  const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true };
+  const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true, storageVersion: 1 };
   const control = { failNext: false, authenticationAttempts: 0 };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});

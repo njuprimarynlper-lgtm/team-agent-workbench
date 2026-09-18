@@ -34,7 +34,7 @@ class AdminSafetyTests(unittest.TestCase):
             self.assertNotIn('shell',run.call_args.kwargs)
 
     def test_removing_subadmin_revokes_only_managed_group_and_existing_connections(self):
-        state = {'initialized': True, 'users': {'alice': {'uid': 1001}}, 'groups': {'wb_t_ocr': {'adminGroup': 'wb_t_ocr_admin', 'workspace': '/projects/ocr'}}}
+        state = {'initialized': True, 'sftpConfigured': True, 'storageVersion': 1, 'users': {'alice': {'uid': 1001}}, 'groups': {'wb_t_ocr': {'adminGroup': 'wb_t_ocr_admin', 'workspace': '/projects/ocr'}}}
         fake_grp = types.SimpleNamespace(getgrall=lambda: [types.SimpleNamespace(gr_name=g, gr_mem=['alice']) for g in ['wb_t_ocr','wb_t_ocr_admin','external']])
         fake_pwd = types.SimpleNamespace(getpwnam=lambda name: types.SimpleNamespace(pw_uid=1001))
         import tempfile
@@ -224,7 +224,7 @@ class AdminRecoveryTests(unittest.TestCase):
         self.stack.enter_context(patch.object(admin,'root_directory',return_value=self.root))
         self.stack.enter_context(patch.object(admin,'actual_state',side_effect=copy.deepcopy))
         self.stack.enter_context(patch.object(admin,'run',side_effect=self.command))
-        admin.save(self.root, {'version':1,'teamId':'test','initialized':True,'loginGroup':'wb_test_members','users':{},'groups':{},'sftpConfigured':True})
+        admin.save(self.root, {'version':1,'teamId':'test','initialized':True,'loginGroup':'wb_test_members','users':{},'groups':{},'sftpConfigured':True,'storageVersion':1})
 
     def command(self, args, data=None, allowed=(0,)):
         self.calls.append(args)
@@ -377,9 +377,13 @@ class AdminRecoveryTests(unittest.TestCase):
                     values=list(info); values[0]=0o40755; values[4]=0
                     return admin.os.stat_result(values)
                 return info
-            with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',safe_stat):
+            def configure(root, state):
+                state['sftpConfigured']=True; state['storageVersion']=1
+            with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',safe_stat), patch.object(admin,'configure_member_access',side_effect=configure) as access:
                 restored=admin.initialize(root,{})
             self.assertTrue(restored['initialized'])
+            self.assertTrue(restored['sftpConfigured']); self.assertEqual(restored['storageVersion'],1)
+            access.assert_called_once()
             self.assertEqual(restored['teamId'],reservation['teamId'])
             self.assertFalse(journal.exists())
 
@@ -397,10 +401,26 @@ class AdminRecoveryTests(unittest.TestCase):
                 values=list(info); values[0]=0o40755; values[4]=0
                 return admin.os.stat_result(values)
             return info
-        with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',stat):
+        def configure(root, state):
+            state['sftpConfigured']=True; state['storageVersion']=1
+        with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',stat), patch.object(admin,'configure_member_access',side_effect=configure) as access:
             state=admin.initialize(self.root,{})
         self.assertTrue(state['initialized']); self.assertFalse(journal.exists())
+        self.assertTrue(state['sftpConfigured']); self.assertEqual(state['storageVersion'],1)
+        access.assert_called_once()
         self.assertEqual(state['operations']['initialize']['status'],'done')
+
+    def test_incomplete_legacy_member_access_blocks_management_until_repaired(self):
+        state=admin.load(self.root); state['sftpConfigured']=False; state['storageVersion']=0; admin.save(self.root,state)
+        with self.assertRaisesRegex(ValueError,'成员接入尚未完成'):
+            self.execute('user_create',username='alice',name='Alice',password='1')
+        def configure(root, current):
+            current['sftpConfigured']=True; current['storageVersion']=1
+        with patch.object(admin,'configure_member_access',side_effect=configure):
+            self.execute('configure_sftp')
+        repaired=admin.load(self.root)
+        self.assertTrue(repaired['sftpConfigured']); self.assertEqual(repaired['storageVersion'],1)
+        self.execute('user_create',username='alice',name='Alice',password='1')
 
     def test_membership_manifest_has_no_offline_validity_field(self):
         self.execute('status')

@@ -40,8 +40,8 @@ try {
     await adminCases({ app: admin, page: adminPage, data });
   } finally { await admin.close(); }
   const errors = []; page.on('pageerror', e => errors.push(e.message));
-  await page.getByText('团队账号与本机目录', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: '登录并发现工作组', exact: true }).isDisabled(), true);
+  await page.getByText('登录团队工作台', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '登录', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByText('先连接团队账号', { exact: true }).waitFor();
   await assert.rejects(page.evaluate(cwd => window.workbench.call('session.create', { provider: 'codex', cwd }), data));
@@ -61,11 +61,11 @@ try {
       return original(window, options);
     };
   });
-  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
+  await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'authentication' }).waitFor();
   assert.equal(await page.getByText('先连接团队账号', { exact: true }).count(), 1);
   await page.getByLabel('登录密码', { exact: true }).fill('test-password');
-  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
+  await page.getByRole('button', { name: '登录', exact: true }).click();
   await completeProjectSetup(page, '实体抽取');
   assert.equal(await app.evaluate(() => globalThis.__serverIdentityPrompts), 1);
   await page.locator('.workgroup-project').filter({ hasText: '实体抽取' }).click();
@@ -115,7 +115,8 @@ try {
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'settings.png') });
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.locator('.connection-button').click();
-  await page.getByLabel('团队连接说明').getByText('团队连接：' + profile.host + ':' + profile.port + ' · ' + profile.username, { exact: true }).waitFor();
+  await page.getByLabel('服务器地址', { exact: true }).waitFor();
+  assert.equal(await page.getByLabel('服务器地址', { exact: true }).inputValue(), profile.host);
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'connection.png') });
   await page.getByRole('button', { name: '取消', exact: true }).click();
   const state = await page.evaluate(() => window.workbench.call('snapshot'));

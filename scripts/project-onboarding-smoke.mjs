@@ -26,13 +26,13 @@ async function login(user, username, first = false, profile) {
   if (!first) await page.locator('.connection-button').click();
   if (first) await setConnectionProfile(user, profile);
   await page.getByLabel('本机工作路径', { exact: true }).fill(data); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
-  await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
+  await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
 try {
   const admin = await launch('admin', 'admin'), ap = admin.page;
   await ap.getByLabel('共享区类型').selectOption('local'); await ap.getByLabel('本地共享区根目录').fill(share);
   await ap.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(ap.locator('.modal')).toHaveCount(0);
-  await ap.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm(ap);
+  await ap.getByRole('button', { name: '初始化团队空间', exact: true }).click(); await confirm(ap);
   for (const username of ['bob', 'carol']) { await ap.getByRole('button', { name: '创建用户', exact: true }).click(); await fields(ap, username); await confirm(ap); }
   for (const label of ['alpha', 'beta', 'gamma']) { await ap.getByRole('button', { name: '创建用户组', exact: true }).click(); await ap.getByLabel('用户组名称').fill(label); await confirm(ap); }
   await ap.getByRole('tab', { name: '按组查看', exact: true }).click();

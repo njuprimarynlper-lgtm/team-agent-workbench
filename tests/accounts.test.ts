@@ -84,7 +84,7 @@ test('SFTP authenticates mapped names while protected roles and personal paths u
     for (const username of ['张三', '10086', 'ZhangSan']) {
       const c = new SftpConnection(); clients.push(c);
       const profile = memberProfile({ ...server.profile(username), username: 'root', root: '/srv/teamspace' },
-        { initialized: true, teamId: 'test', sftpConfigured: true, users: { [username]: { username, name: username, enabled: true, groups: ['wb_test_ocr'] } }, groups: { wb_test_ocr: { name: 'wb_test_ocr', label: 'ocr', adminGroup: 'wb_test_ocr_admin', workspace: '/projects/ocr' } } }, username, 'wb_test_ocr');
+        { initialized: true, teamId: 'test', sftpConfigured: true, storageVersion: 1, users: { [username]: { username, name: username, enabled: true, groups: ['wb_test_ocr'] } }, groups: { wb_test_ocr: { name: 'wb_test_ocr', label: 'ocr', adminGroup: 'wb_test_ocr_admin', workspace: '/projects/ocr' } } }, username, 'wb_test_ocr');
       await c.connect(profile, '1', async () => false);
       assert.equal(c.profile!.username, username);
       const workspace = await c.verifyWorkspace('/projects/ocr'); assert.equal(workspace.canCreateProject, username === '张三');

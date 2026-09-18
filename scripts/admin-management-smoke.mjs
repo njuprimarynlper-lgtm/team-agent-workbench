@@ -58,7 +58,7 @@ try {
   await page.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
   await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
   await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户组', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: '初始化账号管理', exact: true }).click(); await confirm();
+  await page.getByRole('button', { name: '初始化团队空间', exact: true }).click(); await confirm();
   await creationActions();
   const initialSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1100, 800));

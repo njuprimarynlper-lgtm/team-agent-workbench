@@ -26,7 +26,7 @@ try {
   await expect(page.getByRole('button', { name: '打开共享目录', exact: true })).toBeDisabled();
   await page.getByLabel('本地共享区根目录').fill(share);
   await page.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
-  await page.getByRole('button', { name: '初始化账号管理', exact: true }).click();
+  await page.getByRole('button', { name: '初始化团队空间', exact: true }).click();
   await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
   await page.evaluate(() => window.admin.call('operation', { op: 'group_create', label: 'demo' }));
   await page.evaluate(() => window.admin.call('operation', { op: 'user_create', username: '张三', name: '张三', password: '1', groups: ['local_demo'], contentAdminGroups: ['local_demo'] }));

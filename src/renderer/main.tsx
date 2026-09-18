@@ -159,32 +159,21 @@ function App() {
 type Run = <T>(fn: () => Promise<T>) => Promise<T | undefined>;
 function ConnectModal({ settings, connection, close, run, onConnected }: { settings: Settings; connection: Snapshot['connection']; close: () => void; run: Run; onConnected: () => void }) {
   const empty: ConnectionProfile = { id: crypto.randomUUID(), name: '团队共享空间', host: '', port: 22, username: '', fingerprint: '', manifestPath: '', projects: [], workPath: '' };
-  const [profile, setProfile] = useState(connection?.profile || settings.connections[0] || empty);
+  const [profile, setProfile] = useState(connection?.profile || settings.workspaceSnapshot?.profile || settings.connections.at(-1) || empty);
   const [localPath, setLocalPath] = useState(settings.localWorkspace || ''), [password, setPassword] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const [serverOpen, setServerOpen] = useState(true);
   const local = profile.mode === 'local';
-  const configured = !!profile.host;
-  const profiles = settings.connections;
-  const saved = profiles.some(p => p.id === profile.id);
-  const connectionLabel = (p: ConnectionProfile) => `${p.mode === 'local' ? '本地测试团队' : p.host + ':' + p.port} · ${p.username || '待填写账号'}`;
-  const select = (p: ConnectionProfile) => { setProfile(p); setPassword(''); setError(''); setServerOpen(true); };
   const update = (key: keyof ConnectionProfile, value: unknown) => setProfile({ ...profile, [key]: value, ...(['host', 'port'].includes(key) ? { fingerprint: '' } : {}) });
   const rememberedFingerprint = !local && profile.host ? settings.trustedServerIdentities?.[serverIdentityKey(profile.host, profile.port)] || '' : '';
   const effectiveFingerprint = profile.fingerprint || rememberedFingerprint;
+  const identityChanged = error.includes('服务器身份发生变化');
   const choose = (setter: (value: string) => void) => void run(async () => { const dir = await api.call<string>('choose.directory'); if (dir) setter(dir); });
-  return <Modal title="团队账号与本机目录" close={close} wide><div className="modal-body">
-    {error && <div className="inline-error" role="alert">{error}</div>}
+  return <Modal title="登录团队工作台" close={close} wide><div className="modal-body">
+    {error && <div className="inline-error" role="alert"><span>{error}</span>{identityChanged && <button className="text-button" type="button" onClick={() => void run(async () => { await api.call('server.identity.forget', { host: profile.host, port: profile.port }); setProfile({ ...profile, fingerprint: '' }); setError(''); })}>重新确认</button>}</div>}
     <fieldset className="connection-fields" disabled={busy}>
-    {profiles.length > 1 && <label className="field">团队连接（已保存）<select aria-label="团队连接（已保存）" value={saved ? profile.id : ''} onChange={e => { const p = profiles.find(x => x.id === e.target.value); if (p) select(p); }}>
-      {!saved && <option value="" disabled>正在设置新连接</option>}{profiles.map(p => <option key={p.id} value={p.id}>{connectionLabel(p)} · {p.name}</option>)}
-    </select></label>}
-    <div className="callout" aria-label="团队连接说明"><Server size={19}/><div><b>{configured ? '团队连接：' + connectionLabel(profile) : '填写团队服务器和登录账号'}</b></div></div>
-    {(configured || (profiles.length === 1 && !saved)) && <div className="row gap-bottom">{configured && <button className="text-button" onClick={() => select({ ...empty, mode: 'sftp' })}>添加其他服务器</button>}{profiles.length === 1 && !saved && <button className="text-button" onClick={() => select(profiles[0])}>返回已有团队连接</button>}</div>}
     {local && !profile.localRoot?.trim() && <div className="inline-error" role="alert">本地测试连接缺少共享目录，请重新生成联调配置。</div>}
-    {!local && <details className="connection-server-details" open={serverOpen} onToggle={e => setServerOpen(e.currentTarget.open)}><summary>服务器连接 · {effectiveFingerprint ? '身份自动验证' : '首次连接时确认'}</summary><div className="form-grid">
+    {!local && <div className="connection-server-details"><div className="form-grid">
       <label className="field">服务器地址<input value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label>
-      <div className="field full" aria-label="服务器身份状态"><b>{effectiveFingerprint ? '登录时自动验证服务器身份' : '首次连接时确认一次，随后自动验证'}</b><small>{effectiveFingerprint ? '身份信息保存在当前 Windows 账号的本机数据中。' : '不需要管理员提供指纹；确认发生在发送登录密码之前。'}</small>{effectiveFingerprint && <details><summary>查看技术信息</summary><code className="break">{effectiveFingerprint}</code><button className="text-button" type="button" onClick={() => void run(async () => { await api.call('server.identity.forget', { host: profile.host, port: profile.port }); setProfile({ ...profile, fingerprint: '' }); setError(''); })}>重新确认服务器身份</button></details>}</div>
-    </div></details>}
+    </div></div>}
     <div className="form-grid">
       <label className="field full">本机工作路径（必填）<div className="row"><input aria-label="本机工作路径" value={localPath} onChange={e => setLocalPath(e.target.value)}/><button className="secondary" onClick={() => choose(setLocalPath)}>选择目录</button></div></label>
 
@@ -192,7 +181,7 @@ function ConnectModal({ settings, connection, close, run, onConnected }: { setti
       <label className="field">登录密码<input aria-label="登录密码" type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/></label>
     </div>
     </fieldset>
-  </div><footer>{connection?.connected && <button className="secondary" onClick={() => void run(async () => { await api.call('remote.disconnect'); close(); })}><Unplug size={14}/>断开连接</button>}<span className="spacer"/><button className="secondary" onClick={close}>取消</button><button className="primary" disabled={busy || !profile.host || !profile.username || !password || !localPath.trim() || (local && !profile.localRoot?.trim())} onClick={async () => { setBusy(true); setError(''); try { await api.call('remote.connect', { profile: { ...profile, fingerprint: effectiveFingerprint, projects: [], workPath: '', manifestPath: '' }, password, localPath }); setPassword(''); onConnected(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{busy ? '正在登录并发现工作组…' : '登录并发现工作组'}</button></footer></Modal>;
+  </div><footer>{connection?.connected && <button className="secondary" onClick={() => void run(async () => { await api.call('remote.disconnect'); close(); })}><Unplug size={14}/>断开连接</button>}<span className="spacer"/><button className="secondary" onClick={close}>取消</button><button className="primary" disabled={busy || !profile.host || !profile.username || !password || !localPath.trim() || (local && !profile.localRoot?.trim())} onClick={async () => { setBusy(true); setError(''); try { await api.call('remote.connect', { profile: { ...profile, fingerprint: effectiveFingerprint, projects: [], workPath: '', manifestPath: '' }, password, localPath }); setPassword(''); onConnected(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{busy ? '正在登录…' : '登录'}</button></footer></Modal>;
 }
 
 function SettingsModal({ settings, providers, auth, close, run }: { settings: Settings; providers: Snapshot['providers']; auth: Snapshot['auth']; close: () => void; run: Run }) {

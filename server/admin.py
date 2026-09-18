@@ -186,6 +186,8 @@ def initialize(root, request):
     state["activeOperation"] = "initialize"
     save(root, state)
     provision_group(root, state, state, "loginGid", state["loginGroup"], "成员登录组已建立")
+    configure_member_access(root, state)
+    checkpoint(root, state, "成员接入已配置")
     state["initialized"] = True
     state["operations"]["initialize"]["status"] = "done"
     checkpoint(root, state, "团队登记已完成")
@@ -317,6 +319,35 @@ def install_content_worker(root, state):
     state['storageVersion'] = 1
 
 
+def configure_member_access(root, state):
+    """Install the required member login and controlled-storage plumbing.
+
+    Managed accounts use nologin, so they are usable only after this SFTP rule
+    exists. Keep this in initialization; configure_sftp remains an idempotent
+    repair path for installations created by older releases.
+    """
+    config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
+    config_dir.mkdir(exist_ok=True)
+    if "sshd_config.d" not in pathlib.Path("/etc/ssh/sshd_config").read_text(encoding="utf-8"):
+        raise ValueError("sshd_config 未启用 drop-in Include，请运维先启用；工具不会改写主配置")
+    file = config_dir / ("80-workbench-" + state["teamId"] + ".conf")
+    config = ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n    DisableForwarding yes\n    PermitTTY no\nMatch all\n')
+    previous = file.read_text(encoding="utf-8") if file.exists() else None
+    file.write_text(config, encoding="utf-8")
+    try:
+        run([shutil.which("sshd") or "/usr/sbin/sshd", "-t"])
+        unit = "sshd" if subprocess.run(["systemctl", "is-active", "--quiet", "sshd"]).returncode == 0 else "ssh"
+        run(["systemctl", "reload", unit])
+    except Exception:
+        if previous is None:
+            file.unlink(missing_ok=True)
+        else:
+            file.write_text(previous, encoding="utf-8")
+        raise
+    install_content_worker(root, state)
+    state["sftpConfigured"] = True
+
+
 def prepare_workspace(root, state, group_name):
     import grp
     group = state["groups"].get(group_name)
@@ -446,6 +477,8 @@ def _execute(request):
         if op != "status":
             if not state.get("initialized"):
                 raise ValueError("请先恢复并完成初始化")
+            if op == "user_create" and (not state.get("sftpConfigured") or state.get("storageVersion") != 1):
+                raise ValueError("成员接入尚未完成，请先完成成员接入配置")
             start_operation(root, state, request)
     result = None
     enforce_continuity(root, state, request)
@@ -569,26 +602,8 @@ def _execute(request):
         else: admins.discard(group)
         assign_groups(root, state, {**request, 'groups': sorted(groups), 'contentAdminGroups': sorted(admins)})
     elif op == "configure_sftp":
-        config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
-        config_dir.mkdir(exist_ok=True)
-        if "sshd_config.d" not in pathlib.Path("/etc/ssh/sshd_config").read_text():
-            raise ValueError("sshd_config 未启用 drop-in Include，请运维先启用；工具不会改写主配置")
-        file = config_dir / ("80-workbench-" + state["teamId"] + ".conf")
-        config = ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n    DisableForwarding yes\n    PermitTTY no\nMatch all\n')
-        previous = file.read_text() if file.exists() else None
-        file.write_text(config)
-        try:
-            run([shutil.which("sshd") or "/usr/sbin/sshd", "-t"])
-            unit = "sshd" if subprocess.run(["systemctl", "is-active", "--quiet", "sshd"]).returncode == 0 else "ssh"
-            run(["systemctl", "reload", unit])
-        except Exception:
-            if previous is None:
-                file.unlink(missing_ok=True)
-            else:
-                file.write_text(previous)
-            raise
-        install_content_worker(root, state)
-        state["sftpConfigured"] = True
+        configure_member_access(root, state)
+        checkpoint(root, state, "成员接入已配置")
     if op != "status":
         job = state.get("operations", {}).get(state.get("activeOperation"))
         if job:

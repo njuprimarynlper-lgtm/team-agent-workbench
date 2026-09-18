@@ -40,7 +40,7 @@ test('legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks
     let observed = '';
     await assert.rejects(remote.connect(profile, 'secret', async fingerprint => { observed = fingerprint; return false; }), /已取消首次连接.*登录密码尚未发送/);
     assert.match(observed, /^SHA256:/); assert.equal(authenticationAttempts, 0);
-    await assert.rejects(remote.connect({ ...profile, fingerprint: 'SHA256:wrong-server' }, 'secret', async () => { throw new Error('不应询问'); }), /服务器身份发生变化.*登录密码尚未发送/);
+    await assert.rejects(remote.connect({ ...profile, fingerprint: 'SHA256:wrong-server' }, 'secret', async () => { throw new Error('不应询问'); }), /服务器身份发生变化.*重新确认/);
     assert.equal(authenticationAttempts, 0);
     await remote.connect(profile, 'secret', async fingerprint => fingerprint === observed);
     assert.equal(remote.profile!.fingerprint, observed); assert.equal(authenticationAttempts, 1);
