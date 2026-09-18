@@ -1,7 +1,5 @@
 import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { adminServer } from '../tests/fixtures/admin-server.mjs';
 export async function adminCases({ app, page, data }) {
   const server = await adminServer();
@@ -28,13 +26,8 @@ export async function adminCases({ app, page, data }) {
     await page.getByText('开通完成', { exact: true }).waitFor();
     const created = server.requests.find(r => r.op === 'user_create');
     assert.deepEqual(created.groups, ['wb_test_ocr']); assert.deepEqual(created.contentAdminGroups, ['wb_test_ocr']);
-    const output = path.join(data, 'member-alice.json');
-    await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, output);
-    assert.equal(await page.evaluate(() => window.admin.call('member.export', { username: 'alice' })), true);
     await expect(page.getByRole('button', { name: '导出连接配置', exact: true })).toHaveCount(0);
-    const raw = await fs.readFile(output, 'utf8'), config = JSON.parse(raw);
-    assert.equal(config.username, 'alice'); assert.equal(config.workPath, ''); assert.equal(config.fingerprint, server.profile.fingerprint);
-    assert(!raw.includes('password')); assert(!raw.includes('/srv/teamspace')); assert.equal(server.requests.at(-1).op, 'status');
+    await assert.rejects(page.evaluate(() => window.admin.call('member.export', { username: 'alice' })), /不支持此操作/);
     await page.getByRole('button', { name: '加入用户组', exact: true }).click();
     await page.getByLabel('选择已有用户组').selectOption('wb_test_nlp');
     await page.getByLabel('成员身份').selectOption('admin');

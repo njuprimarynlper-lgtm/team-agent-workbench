@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 import { completeProjectSetup } from './onboarding-helpers.mjs';
-import { importConnection, exportConnection } from './connection-helpers.mjs';
+import { memberProfile, setConnectionProfile } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), packaged = process.argv.includes('--packaged');
@@ -26,10 +26,10 @@ async function launch(edition, name) {
   const page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message)); pages.push(page); return { app, page };
 }
 async function confirm(page) { await page.getByRole('button', { name: '确认执行', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0); }
-async function connectUser(user, username, configFile) {
+async function connectUser(user, username, profile) {
   const { page } = user;
   await expect(page.getByLabel('团队连接说明')).toContainText('填写团队服务器和登录账号');
-  await importConnection(user, configFile);
+  await setConnectionProfile(user, profile);
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   await expect(page.getByLabel('共享工作路径', { exact: true })).toHaveCount(0);
@@ -51,14 +51,12 @@ try {
     if (username === aliceName) await ap.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
     await confirm(ap);
   }
-  const exported = path.join(data, 'alice.json');
-  await admin.app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, exported);
-  assert.equal(await ap.evaluate(username => window.admin.call('member.export', { username }), aliceName), true);
-  const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.mode, 'local'); assert.equal(config.localRoot, share); assert(!JSON.stringify(config).includes('password'));
-  const alice = await launch('user', 'alice'); await connectUser(alice, aliceName, exported);
+  const aliceProfile = await memberProfile(admin, aliceName);
+  assert.equal(aliceProfile.mode, 'local'); assert.equal(aliceProfile.localRoot, share); assert(!JSON.stringify(aliceProfile).includes('password'));
+  const alice = await launch('user', 'alice'); await connectUser(alice, aliceName, aliceProfile);
   await completeProjectSetup(alice.page, '华为算法比赛');
-  const bobConfig = path.join(data, 'bob.json'); await exportConnection(admin, bobName, bobConfig);
-  const bob = await launch('user', 'bob'); await connectUser(bob, bobName, bobConfig);
+  const bobProfile = await memberProfile(admin, bobName);
+  const bob = await launch('user', 'bob'); await connectUser(bob, bobName, bobProfile);
   const snapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')), p = snapshot.connection.profile.projects[0];
   assert.equal(await bob.page.getByTitle('创建远端项目', { exact: true }).count(), 0);
   const source = path.join(data, 'competition-note.md'); await fs.writeFile(source, '# 比赛协同联调\n用户 A 与用户 B 各迭代两轮。');
@@ -107,7 +105,7 @@ try {
   assert((await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: p.remoteRoot })).length);
   assert.equal(await alice.page.evaluate(() => typeof window.admin), 'undefined'); assert.equal(await ap.evaluate(() => typeof window.workbench), 'undefined'); assert.deepEqual(errors, []);
   if (!packaged) { await ap.screenshot({ path: path.join(data, 'admin.png'), timeout: 10000 }); await bob.page.screenshot({ path: path.join(data, 'user-bob.png'), timeout: 10000 }); }
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'export local profile', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'uploaded histories are group-public', 'conclusion upload without repository link; teammate access and package contents', 'live disable/enable', 'edition isolation'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, packaged, extendedAccounts, sharedRoot: share, cases: ['admin bootstrap', 'create group', 'create members/subadmin', 'direct member login setup', 'concurrent admin and two users', 'project creation', 'real disk upload', 'teammate preview', 'Codex authentication UI', 'file approval includes exact diff', 'handoff editing', 'history archive', 'uploaded histories are group-public', 'conclusion upload without repository link; teammate access and package contents', 'live disable/enable', 'edition isolation'] }, null, 2));
   console.log('Local filesystem administrator + two users UI passed:', data);
 } catch (error) { for (const app of apps) await app.evaluate(({ app }) => app.exit(1)).catch(() => {}); throw error; }
 finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

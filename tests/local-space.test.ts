@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { LocalFileConnection } from '../src/core/local-files';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { readRegistry, diskPath, writeRegistry, passwordHash } from '../src/core/local-space';
 import { Workbench } from '../src/core/workbench';
 
@@ -19,7 +19,7 @@ async function setup() {
   await admin.operation({ op: 'group_create', label: 'workbench' });
   await admin.operation({ op: 'group_create', label: 'other' });
   for (const username of ['alice', 'bob', 'carol']) await admin.operation({ op: 'user_create', username, name: username, password: 'member-test-password', groups: [username === 'carol' ? 'local_other' : 'local_workbench'], contentAdminGroups: username === 'alice' ? ['local_workbench'] : [] });
-  const config = (username: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, username === 'carol' ? 'local_other' : 'local_workbench');
+  const config = (username: string) => memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username, username === 'carol' ? 'local_other' : 'local_workbench');
   const connect = async (username: string) => { const c = new LocalFileConnection(); const p = config(username); await c.connect(p, 'member-test-password', async () => false); await c.loadManifest(); await c.loadManifest(); return c; };
   const clean = async () => { admin.disconnect(); if (!base.startsWith(path.join(os.tmpdir(), 'workbench-local-'))) throw new Error('unsafe cleanup'); await fs.rm(base, { recursive: true, force: true, maxRetries: 4 }); };
   return { base, root, admin, profile, config, connect, clean };
@@ -66,14 +66,14 @@ test('unassigned users can join later; removing membership revokes live access a
     alice.disconnect(); member.disconnect();
   } finally { await x.clean(); }
 });
-test('local admin: empty-root bootstrap, hashed passwords, registration, group assignment, export and reconnect', async () => {
+test('local admin: empty-root bootstrap, hashed passwords, registration, group assignment and reconnect', async () => {
   const x = await setup();
   try {
     const data = await readRegistry(x.root), raw = JSON.stringify(data);
     assert(!raw.includes('admin-test-password')); assert(!raw.includes('member-test-password'));
     assert.equal(data.state.users.alice.contentAdminGroups![0], 'local_workbench');
     assert.deepEqual(data.state.users.bob.contentAdminGroups, []);
-    const exported = x.config('alice'); assert.equal(exported.mode, 'local'); assert.equal(exported.localRoot, await fs.realpath(x.root)); assert(!JSON.stringify(exported).includes('password'));
+    const profile = x.config('alice'); assert.equal(profile.mode, 'local'); assert.equal(profile.localRoot, await fs.realpath(x.root)); assert(!JSON.stringify(profile).includes('password'));
     assert((await fs.stat(path.join(x.root, 'projects/workbench'))).isDirectory());
     const another = new LocalAdminConnection(() => {});
     await another.connect({ ...x.profile, username: '' }, '', '', async () => false);
@@ -92,7 +92,7 @@ test('local admin: empty-root bootstrap, hashed passwords, registration, group a
     const longUser = 'u'.repeat(32), label = 'g'.repeat(14), group = 'local_' + label;
     await x.admin.operation({ op: 'group_create', label });
     await x.admin.operation({ op: 'user_create', username: longUser, name: longUser, password: 'long-user-password', groups: [group] });
-    const longProfile = memberConfig(x.admin.snapshot.profile!, x.admin.snapshot.state!, longUser, group);
+    const longProfile = memberProfile(x.admin.snapshot.profile!, x.admin.snapshot.state!, longUser, group);
     assert(longProfile.id.length <= 80); assert.equal(longProfile.username, longUser);
   } finally { await x.clean(); }
 });
@@ -212,7 +212,7 @@ test('local stub derives a Linux group name from a Chinese group name and keeps 
     // The same visible name in a decomposed Unicode form must land on the one record.
     await assert.rejects(x.admin.operation({ op: 'group_create', label: 'cafe\u0301' }), /项目组已存在/);
     await x.admin.operation({ op: 'user_create', username: '李四', name: '李四', password: 'member-test-password', groups: [group.name], contentAdminGroups: [group.name] });
-    const profile = memberConfig(x.admin.snapshot.profile!, x.admin.snapshot.state!, '李四', group.name);
+    const profile = memberProfile(x.admin.snapshot.profile!, x.admin.snapshot.state!, '李四', group.name);
     assert.equal(profile.username, '李四'); assert.equal(profile.mode, 'local');
   } finally { await x.clean(); }
 });

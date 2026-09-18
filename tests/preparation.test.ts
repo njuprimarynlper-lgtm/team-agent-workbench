@@ -10,7 +10,7 @@ import { Store } from '../src/core/store';
 import { applyPreparation, contributionDirectory, discoverDestinations } from '../src/core/preparation';
 import type { Draft, RemoteBinding } from '../src/shared/types';
 import { LocalAdminConnection } from '../src/admin/local-connection';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { diskPath } from '../src/core/local-space';
 // @ts-expect-error JS protocol fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -38,7 +38,7 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     await admin.connect({ mode: 'local', localRoot: share, root: '/srv/teamspace', host: 'local', port: 22, username: 'admin', fingerprint: '' }, 'admin-password', '', async () => false);
     await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'prepare' });
     for (const username of ['alice', 'bob']) await admin.operation({ op: 'user_create', username, name: username, password: 'member-password', groups: ['local_prepare'], contentAdminGroups: username === 'alice' ? ['local_prepare'] : [] });
-    const profile = (username: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_prepare');
+    const profile = (username: string) => memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_prepare');
     await wb.store.init(); wb.store.settings.providerPaths.codex = fixture.launcher;
     await wb.configureWorkspace(profile('alice'), 'member-password', root, async () => false);
     const p = await wb.createProject('整理成果测试'), dir = p.remoteRoot + '/方案说明';

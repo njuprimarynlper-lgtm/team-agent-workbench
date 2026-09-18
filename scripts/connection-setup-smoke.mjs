@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
-import { importConnection } from './connection-helpers.mjs';
+import { setConnectionProfile } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 15000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'connection-setup-' + Date.now());
 const store = path.join(data, 'user'), workspace = path.join(data, 'work'), share = path.join(data, 'admin-share');
@@ -13,10 +13,7 @@ await fs.writeFile(path.join(store, 'settings.json'), JSON.stringify({ connectio
 const alice = { id: 'alice', mode: 'local', name: 'competition.xxx', host: 'local', port: 22, username: 'alice', localRoot: share, fingerprint: 'local', projects: [], workPath: '', manifestPath: '' };
 const bob = { ...alice, id: 'bob', username: 'bob', name: 'competition.bob' };
 const ssh = { ...alice, id: 'ssh', mode: 'sftp', localRoot: undefined, host: 'team.example.test', username: 'alice', name: '研发团队', fingerprint: 'SHA256:test' };
-const files = {};
-for (const [key, profile] of Object.entries({ alice, bob, ssh, incomplete: { ...alice, localRoot: undefined } })) {
-  files[key] = path.join(data, key + '.json'); await fs.writeFile(files[key], JSON.stringify(profile));
-}
+const profiles = { alice, bob, ssh, incomplete: { ...alice, localRoot: undefined } };
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: store }; delete env.ELECTRON_RUN_AS_NODE;
 const errors = []; let app, page;
 async function launch() {
@@ -34,7 +31,7 @@ try {
   await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();
   await expect(page.locator('.connection-server-details')).toHaveAttribute('open', '');
   await page.screenshot({ path: path.join(data, 'first-start.png') });
-  await importConnection({ app, page }, files.alice);
+  await setConnectionProfile({ app, page }, profiles.alice);
   await expect(page.getByLabel('团队连接说明')).toContainText('本地测试团队 · alice');
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await expect(page.getByText('competition.xxx', { exact: true })).toHaveCount(0);
@@ -56,7 +53,7 @@ try {
   await page.getByRole('button', { name: '返回已有团队连接' }).click();
   await expect(page.getByLabel('团队连接说明')).toContainText('本地测试团队 · alice');
   await page.getByLabel('登录密码', { exact: true }).fill('not-persisted');
-  await importConnection({ app, page }, files.bob);
+  await setConnectionProfile({ app, page }, profiles.bob);
   await expect(page.getByLabel('成员账号')).toHaveValue('bob');
   await expect(page.getByLabel('登录密码', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('团队连接（已保存）')).toBeVisible();
@@ -67,13 +64,13 @@ try {
   await expect(page.getByLabel('本机工作路径', { exact: true })).toHaveValue('');
   await page.getByLabel('本机工作路径', { exact: true }).fill(workspace);
   await page.screenshot({ path: path.join(data, 'multiple-connections.png') });
-  await importConnection({ app, page }, files.incomplete);
+  await setConnectionProfile({ app, page }, profiles.incomplete);
   await expect(page.getByRole('alert')).toContainText('本地测试连接缺少共享目录');
   await page.getByLabel('登录密码', { exact: true }).fill('not-persisted');
   await expect(page.getByRole('button', { name: '登录并发现工作组' })).toBeDisabled();
-  await importConnection({ app, page }, files.alice);
+  await setConnectionProfile({ app, page }, profiles.alice);
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await importConnection({ app, page }, files.ssh);
+  await setConnectionProfile({ app, page }, profiles.ssh);
   await expect(page.getByLabel('团队连接说明')).toContainText('team.example.test:22');
   await expect(page.locator('.connection-server-details > summary')).toContainText('身份自动验证');
   await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();

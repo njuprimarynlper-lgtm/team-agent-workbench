@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { accountNameSchema, accountPasswordSchema } from '../src/shared/accounts';
 import { errorMessage } from '../src/shared/errors';
 import { systemUsername } from '../src/core/account-login';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { LocalFileConnection } from '../src/core/local-files';
 import { readRegistry, diskPath } from '../src/core/local-space';
@@ -36,7 +36,7 @@ test('Windows and Linux derive identical system logins and preserve legacy accou
   assert.equal(new Set(linux).size, names.length);
 });
 
-test('Local administrator and extended-name members: create, export, login, upload, reset, revoke and reconnect on disk', async () => {
+test('Local administrator and extended-name members: create, login, upload, reset, revoke and reconnect on disk', async () => {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-accounts-'));
   const root = path.join(base, 'share'); await fs.mkdir(root);
   const admin = new LocalAdminConnection(() => {}), alice = new LocalFileConnection(), bob = new LocalFileConnection();
@@ -45,7 +45,7 @@ test('Local administrator and extended-name members: create, export, login, uplo
     await admin.connect(profile, '1', '', async () => false); await admin.operation({ op: 'initialize' });
     await admin.operation({ op: 'group_create', label: 'demo' });
     for (const username of ['张三', '10086', 'ZhangSan', 'constructor']) await admin.operation({ op: 'user_create', username, name: username, password: '1', groups: ['local_demo'], contentAdminGroups: username === '张三' ? ['local_demo'] : [] });
-    const config = (name: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, name, 'local_demo');
+    const config = (name: string) => memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name, 'local_demo');
     for (const name of ['张三', '10086', 'ZhangSan', 'constructor']) { const c = new LocalFileConnection(); const p = config(name); await c.connect(p, '1', async () => false); await c.loadManifest(); c.disconnect(); }
     await alice.connect(config('张三'), '1', async () => false); await alice.verifyWorkspace('/projects/demo');
     const project = await alice.createProject('身份验证');
@@ -76,14 +76,14 @@ test('Local administrator and extended-name members: create, export, login, uplo
   }
 });
 
-test('SFTP authenticates mapped names while protected roles, exported config and personal paths use the account', async () => {
+test('SFTP authenticates mapped names while protected roles and personal paths use the account', async () => {
   const aliases = Object.fromEntries(['张三', '10086', 'ZhangSan'].map(name => [name, systemUsername(name)]));
   const server = await teamServer(aliases, '1'); server.state.admins = ['张三'];
   const clients: SftpConnection[] = [];
   try {
     for (const username of ['张三', '10086', 'ZhangSan']) {
       const c = new SftpConnection(); clients.push(c);
-      const profile = memberConfig({ ...server.profile(username), username: 'root', root: '/srv/teamspace' },
+      const profile = memberProfile({ ...server.profile(username), username: 'root', root: '/srv/teamspace' },
         { initialized: true, teamId: 'test', sftpConfigured: true, users: { [username]: { username, name: username, enabled: true, groups: ['wb_test_ocr'] } }, groups: { wb_test_ocr: { name: 'wb_test_ocr', label: 'ocr', adminGroup: 'wb_test_ocr_admin', workspace: '/projects/ocr' } } }, username, 'wb_test_ocr');
       await c.connect(profile, '1', async () => false);
       assert.equal(c.profile!.username, username);

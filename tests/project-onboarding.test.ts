@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { firstMemberIsAdmin } from '../src/admin/member-defaults';
 import { LocalAdminConnection } from '../src/admin/local-connection';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { Workbench } from '../src/core/workbench';
 import { briefFields, PROJECT_BRIEF_FILE, projectBriefSchema, projectSetupIdentity } from '../src/shared/project-brief';
 // @ts-expect-error Shared SFTP protocol fixture.
@@ -32,7 +32,7 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     await admin.operation({ op: 'user_create', username: 'bob', name: 'Bob', password: '1', groups, contentAdminGroups: groups.filter(g => firstMemberIsAdmin(admin.snapshot.state, g)) });
     assert.deepEqual(admin.snapshot.state!.users.alice.contentAdminGroups, groups); assert.deepEqual(admin.snapshot.state!.users.bob.contentAdminGroups, []);
     await fs.writeFile(path.join(share, 'projects/existing/原有资料.txt'), 'keep');
-    const config = (name: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, name);
+    const config = (name: string) => memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name);
     await owner.store.init(); await member.store.init();
     await owner.configureWorkspace(config('alice'), '1', root, async () => false); await member.configureWorkspace(config('bob'), '1', root, async () => false);
     const key = (wb: Workbench, group: string) => projectSetupIdentity(wb.remote.profile!, group);

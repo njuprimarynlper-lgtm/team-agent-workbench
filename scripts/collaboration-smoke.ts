@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { LocalAdminConnection } from '../src/admin/local-connection';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from '../tests/fixtures/member-profile';
 import { Workbench } from '../src/core/workbench';
 // @ts-expect-error fixture
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
@@ -18,7 +18,7 @@ const admin = new LocalAdminConnection(() => {});
 await admin.connect({ mode: 'local', localRoot: share, host: 'local', port: 22, username: '', root: '/srv/teamspace', fingerprint: '' }, '', '', async () => false);
 await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'research' });
 for (const username of ['alice', 'bob']) await admin.operation({ op: 'user_create', username, name: username, password: '1', groups: ['local_research'], contentAdminGroups: username === 'alice' ? ['local_research'] : [] });
-const profiles = Object.fromEntries(['alice', 'bob'].map(name => [name, memberConfig(admin.snapshot.profile!, admin.snapshot.state!, name)]));
+const profiles = Object.fromEntries(['alice', 'bob'].map(name => [name, memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name)]));
 const alice = new Workbench(path.join(data, 'alice'), () => {}, () => {}), bob = new Workbench(path.join(data, 'bob'), () => {}, () => {});
 const brief = { background: '项目背景', objectives: '提高质量', acceptance: '指标验收', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' };
 await alice.store.init(); await alice.configureWorkspace(profiles.alice, '1', data, async () => false);

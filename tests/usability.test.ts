@@ -6,7 +6,7 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { Workbench } from '../src/core/workbench';
 import { packageDraft, packageHistory } from '../src/core/artifacts';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { memberReadiness } from '../src/admin/member-readiness';
 import type { AdminState } from '../src/admin/types';
 // @ts-expect-error Protocol fixture shared with Electron tests.
@@ -102,18 +102,18 @@ test('#6 contribution ZIP accepts conclusions and optional repository links, nev
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('#8 export uses actual member access and chroot path, excludes credentials and discovers all groups with one stable identity', () => {
+test('#8 test profile fixture uses actual member access and chroot path, excludes credentials and keeps one identity across groups', () => {
   const state: AdminState = { initialized: true, teamId: 'test', sftpConfigured: true, users: { alice: { username: 'alice', name: 'Alice', enabled: true, groups: ['wb_t_ocr', 'wb_t_nlp'] } }, groups: { wb_t_ocr: { name: 'wb_t_ocr', label: 'ocr', adminGroup: 'wb_t_ocr_admin', workspace: '/projects/ocr' }, wb_t_nlp: { name: 'wb_t_nlp', label: 'nlp', adminGroup: 'wb_t_nlp_admin', workspace: '/projects/nlp' } } };
   const profile = { host: 'host', port: 2222, username: 'root', fingerprint: 'SHA256:verified', root: '/srv/teamspace', password: 'never-export' };
-  const result = memberConfig(profile, state, 'alice', 'wb_t_ocr');
+  const result = memberProfile(profile, state, 'alice', 'wb_t_ocr');
   assert.equal(result.username, 'alice'); assert.equal(result.workPath, ''); assert.equal(result.port, 2222); assert.equal(result.fingerprint, profile.fingerprint);
   assert(!JSON.stringify(result).includes('never-export')); assert(!JSON.stringify(result).includes('/srv/teamspace'));
-  assert.equal(memberConfig(profile, state, 'alice', 'wb_t_nlp').id, result.id);
-  state.users.alice.groups = []; assert.equal(memberConfig(profile, state, 'alice').workPath, '');
-  state.users.alice.groups = ['wb_t_ocr']; assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_nlp'), /授权/);
-  state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('待配置 SFTP 接入')); assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
-  state.sftpConfigured = true; state.users.alice.provisioning = true; assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_ocr'), /未完成/);
-  state.users.alice.provisioning = false; state.users.alice.enabled = false; assert.throws(() => memberConfig(profile, state, 'alice', 'wb_t_ocr'), /未启用/);
+  assert.equal(memberProfile(profile, state, 'alice', 'wb_t_nlp').id, result.id);
+  state.users.alice.groups = []; assert.equal(memberProfile(profile, state, 'alice').workPath, '');
+  state.users.alice.groups = ['wb_t_ocr']; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_nlp'), /授权/);
+  state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('待配置 SFTP 接入')); assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
+  state.sftpConfigured = true; state.users.alice.provisioning = true; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /未完成/);
+  state.users.alice.provisioning = false; state.users.alice.enabled = false; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /未启用/);
 });
 
 test('#3/#6 an in-flight submission locks its draft and duplicate submit; rejected edits do not block later saves or quit', async t => {

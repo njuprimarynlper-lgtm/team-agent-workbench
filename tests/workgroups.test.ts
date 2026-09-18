@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { Workbench } from '../src/core/workbench';
 import { LocalAdminConnection } from '../src/admin/local-connection';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { SftpConnection } from '../src/core/sftp';
 // @ts-expect-error Shared protocol fixture.
 import { teamServer } from './fixtures/team-server.mjs';
@@ -19,7 +19,7 @@ test('local account automatically discovers assigned groups, tolerates no member
     for (const label of ['ocr', 'nlp', 'secret']) await admin.operation({ op: 'group_create', label });
     await admin.operation({ op: 'user_create', username: 'alice', name: 'Alice', password: '1', groups: ['local_ocr', 'local_nlp'], contentAdminGroups: ['local_ocr', 'local_nlp'] });
     await admin.operation({ op: 'user_create', username: 'test1', name: 'Test', password: '1' });
-    const config = (name: string) => memberConfig(admin.snapshot.profile!, admin.snapshot.state!, name);
+    const config = (name: string) => memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name);
     await owner.store.init(); await member.store.init();
     await owner.configureWorkspace(config('alice'), '1', root, async () => false);
     await assert.rejects(owner.createProject('同名项目'), /请选择.*工作组/);

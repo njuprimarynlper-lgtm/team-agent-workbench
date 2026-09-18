@@ -23,7 +23,7 @@ export class LocalFileConnection {
     if (!passwordMatches(password, data.credentials[profile.username])) throw new Error('模拟账号或密码错误');
     const proof = data.credentials[profile.username]; authorizeUser(data, profile.username, proof);
     const fingerprint = 'LOCAL:' + data.state.teamId;
-    if (profile.fingerprint && profile.fingerprint !== fingerprint) throw new Error('本地共享区身份已改变，请导入此共享区的成员配置');
+    if (profile.fingerprint && profile.fingerprint !== fingerprint) throw new Error('本地测试共享区身份已改变，请重新打开对应的联调启动器');
     this.profile = { ...profile, mode: 'local', localRoot: this.root, host: 'local', port: 22, fingerprint, projects: [], workPath: '', manifestPath: '' };
     this.proof = proof; this.ready = true; this.changed(); return this.profile;
   }

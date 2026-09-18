@@ -4,7 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 import { completeProjectSetup } from './onboarding-helpers.mjs';
-import { importConnection } from './connection-helpers.mjs';
+import { memberProfile, setConnectionProfile } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), data = path.join(root, '.test-data', 'workgroups-ui-' + Date.now()), share = path.join(data, 'share');
@@ -31,12 +31,9 @@ try {
   await ap.getByLabel('成员姓名', { exact: true }).fill('测试成员'); await ap.getByLabel('登录账号', { exact: true }).fill('test1');
   await ap.getByLabel('初始密码', { exact: true }).fill('1'); await ap.getByLabel('再次输入密码', { exact: true }).fill('1'); await confirm(ap);
   const row = ap.locator('tbody tr').filter({ hasText: 'test1' });
-  const exported = path.join(data, 'test1.json');
-  await admin.app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, exported);
-  assert.equal(await ap.evaluate(username => window.admin.call('member.export', { username }), 'test1'), true);
-  const config = JSON.parse(await fs.readFile(exported, 'utf8')); assert.equal(config.workPath, ''); assert.deepEqual(config.projects, []);
+  const config = await memberProfile(admin, 'test1'); assert.equal(config.workPath, ''); assert.deepEqual(config.projects, []);
   const user = await launch('user'), up = user.page;
-  await importConnection(user, exported); await up.getByLabel('本机工作路径', { exact: true }).fill(data);
+  await setConnectionProfile(user, config); await up.getByLabel('本机工作路径', { exact: true }).fill(data);
   await up.getByLabel('成员账号').fill('test1'); await up.getByLabel('登录密码', { exact: true }).fill('1');
   await expect(up.getByLabel('共享工作路径', { exact: true })).toHaveCount(0); await expect(up.getByLabel('Linux 工作路径', { exact: true })).toHaveCount(0);
   await up.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);

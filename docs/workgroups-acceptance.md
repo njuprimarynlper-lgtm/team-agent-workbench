@@ -8,7 +8,7 @@
 
 - 用户填写服务器地址、账号、密码和本机工作目录；共享工作路径不再由用户输入。
 - 本地打桩仍需指定管理员提供的共享区根目录，相当于选择服务器。目录下的工作组和项目由登录身份决定。
-- 未分组账号可以登录、导出配置并创建仅本地会话，共享区域提示“还没有加入工作组”。
+- 未分组账号可以登录，但没有工作台和新建会话入口；共享区域提示“还没有加入工作组”。
 - 工作台按工作组分区展示项目，创建会话时也按组列出项目。同名项目依靠项目 ID 区分。
 - 项目子管理员只能在授权组中创建项目；普通成员不显示创建入口。
 - 刷新立即更新组成员与项目；窗口可见时每 30 秒自动刷新。Linux 组权限变更会断开旧连接，需重新登录；本地打桩刷新即可。
@@ -19,7 +19,7 @@
 
 | 用例 | 验证入口 |
 | --- | --- |
-| 未分组账号登录、只创建本地会话、导出配置 | `tests/workgroups.test.ts`、`scripts/workgroups-smoke.mjs` |
+| 未分组账号登录且不能创建工作会话 | `tests/workgroups.test.ts`、`scripts/workgroups-smoke.mjs` |
 | 用户指定旧路径、项目清单不能取得额外入口 | `tests/workgroups.test.ts`、`tests/sftp.test.ts` |
 | 登录后发现全部授权组，隐藏未授权组 | `tests/workgroups.test.ts`、`scripts/workgroups-smoke.mjs` |
 | 多组同名项目、分组显示、分组选择项目 | `tests/workgroups.test.ts`、`scripts/workgroups-smoke.mjs` |
@@ -31,7 +31,7 @@
 | 管理员发布普通成员、未分组用户及子管理员信息 | `tests/test_admin.py` |
 | 管理员刷新升级旧成员文件，其他操作不丢失旧成员关系 | `tests/test_admin.py` |
 | 管理员与两个用户并行使用、上传、预览、轨迹隐私 | `scripts/local-smoke.mjs` |
-| SFTP 交互、管理员恢复与导出、离线重启、会话资料 | `scripts/smoke.mjs` |
+| SFTP 交互、管理员恢复、成员直接登录、离线重启、会话资料 | `scripts/smoke.mjs` |
 
 运行：`npm run typecheck`、`npm test`、`python -m unittest discover -s tests -p test_admin.py`、`npm run build`、`npm run test:workgroups-ui`、`npm run test:local-ui`、`npm run test:ui`。多套 Electron 和 CLI 用例宜分别运行，避免进程启动争用导致等待超时。
 

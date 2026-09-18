@@ -1,8 +1,7 @@
 import { expect } from '@playwright/test';
-import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
-export async function importConnection({ page }, file) {
-  const profile = JSON.parse(await fs.readFile(file, 'utf8'));
+export async function setConnectionProfile({ page }, profile) {
   await page.evaluate(async profile => {
     const snapshot = await window.workbench.call('snapshot');
     await window.workbench.call('settings.save', { ...snapshot.settings, connections: [...snapshot.settings.connections.filter(item => item.id !== profile.id), profile] });
@@ -17,7 +16,10 @@ export async function importConnection({ page }, file) {
   await expect(page.getByRole('button', { name: '选择共享目录', exact: true })).toHaveCount(0);
 }
 
-export async function exportConnection({ app, page }, username, file) {
-  await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, file);
-  await page.evaluate(username => window.admin.call('member.export', { username }), username);
+export async function memberProfile({ page }, username) {
+  const snapshot = await page.evaluate(() => window.admin.call('snapshot'));
+  const user = snapshot.state?.users?.[username];
+  if (!snapshot.profile || !user) throw new Error('测试成员不存在：' + username);
+  const id = (snapshot.profile.mode === 'local' ? 'local_' : 'member_') + createHash('sha256').update(JSON.stringify([snapshot.state.teamId, username])).digest('hex').slice(0, 40);
+  return { mode: snapshot.profile.mode, localRoot: snapshot.profile.localRoot, id, name: user.name || username, host: snapshot.profile.host, port: snapshot.profile.port, username, fingerprint: snapshot.profile.fingerprint, manifestPath: '', projects: [], workPath: '' };
 }

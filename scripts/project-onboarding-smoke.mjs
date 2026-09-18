@@ -4,7 +4,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 import { completeProjectSetup } from './onboarding-helpers.mjs';
-import { importConnection, exportConnection } from './connection-helpers.mjs';
+import { memberProfile, setConnectionProfile } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'project-onboarding-ui-' + Date.now()), share = path.join(data, 'share'); await fs.mkdir(share, { recursive: true });
 const cli = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
@@ -21,10 +21,10 @@ async function fields(page, username) {
   await page.getByLabel('成员姓名', { exact: true }).fill(username); await page.getByLabel('登录账号', { exact: true }).fill(username);
   await page.getByLabel('初始密码', { exact: true }).fill('1'); await page.getByLabel('再次输入密码', { exact: true }).fill('1');
 }
-async function login(user, username, first = false) {
+async function login(user, username, first = false, profile) {
   const { page } = user;
   if (!first) await page.locator('.connection-button').click();
-  if (first) await importConnection(user, path.join(data, username + '.json'));
+  if (first) await setConnectionProfile(user, profile);
   await page.getByLabel('本机工作路径', { exact: true }).fill(data); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
@@ -54,9 +54,9 @@ try {
   assert.deepEqual(members.bob.contentAdminGroups, ['local_beta']); assert.deepEqual(members.carol.contentAdminGroups, []);
   await ap.screenshot({ path: path.join(data, 'admin-default-roles.png') });
 
-  for (const username of ['alice', 'dave']) await exportConnection(admin, username, path.join(data, username + '.json'));
+  const profiles = Object.fromEntries(await Promise.all(['alice', 'dave'].map(async username => [username, await memberProfile(admin, username)])));
   let owner = await launch('user', 'owner'), up = owner.page;
-  await login(owner, 'alice', true);
+  await login(owner, 'alice', true, profiles.alice);
   const guide = () => up.getByRole('dialog', { name: '完善项目资料', exact: true });
   await expect(guide()).toContainText('alpha · 项目初始化'); await expect(guide().getByRole('button', { name: '保存并创建项目' })).toBeDisabled();
   await guide().getByLabel('引导项目名称').fill('客户资料整理'); await guide().getByLabel('项目背景', { exact: true }).fill('暂存的背景：客户资料重复录入较多。');
@@ -85,7 +85,7 @@ try {
     const fs = process.getBuiltinModule('node:fs/promises'), rename = fs.rename;
     fs.rename = async (from, to) => { if (String(to).endsWith('settings.json')) { fs.rename = rename; await new Promise(resolve => setTimeout(resolve, 1200)); } return rename(from, to); };
   });
-  await login(teammate, 'dave', true); await expect(teammate.page.getByRole('dialog', { name: '完善项目资料' })).toHaveCount(0);
+  await login(teammate, 'dave', true, profiles.dave); await expect(teammate.page.getByRole('dialog', { name: '完善项目资料' })).toHaveCount(0);
   const sharedBrief = teammate.page.locator('.file-row').filter({ hasText: '项目说明.md' });
   await expect(sharedBrief).toBeVisible({ timeout: 5000 }); await sharedBrief.click(); await expect(teammate.page.locator('.preview-content')).toContainText('只使用脱敏样例');
   // Reconnect in the same desktop app: another account/group never receives Alice's draft.

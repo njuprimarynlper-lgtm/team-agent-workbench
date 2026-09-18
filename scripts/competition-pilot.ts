@@ -10,7 +10,7 @@ import { sourceDigest, completedRound, roundAttempts, canRecoverReportedRound } 
 import { resolveProvider } from '../src/core/providers';
 import { Workbench } from '../src/core/workbench';
 import { LocalAdminConnection } from '../src/admin/local-connection';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from '../tests/fixtures/member-profile';
 import type { AgentSession, Transfer } from '../src/shared/types';
 
 const exec = promisify(execFile), args = process.argv.slice(2);
@@ -104,7 +104,7 @@ async function main() {
     }
     const wb = new Workbench(path.join(output, username + '-data'), () => {}, message => console.log(username, message)); workbenches.push(wb); await wb.init();
     if (model) { const exe = await resolveProvider('codex'); const launcher = path.join(output, 'codex-' + username + '.ps1'); const quote = (v: string) => "'" + v.replace(/'/g, "''") + "'"; await fs.writeFile(launcher, '\uFEFF& ' + quote(exe) + ' -c ' + quote('model="' + model + '"') + ' -c ' + quote('model_reasoning_effort="high"') + ' @args\n', 'utf8'); wb.store.settings.providerPaths.codex = launcher; await wb.store.save(); }
-    const config = resume ? wb.store.settings.connections[0] : memberConfig(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_competition'); await wb.configureWorkspace(config, 'pilot-member-2026', cwd, async () => false);
+    const config = resume ? wb.store.settings.connections[0] : memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_competition'); await wb.configureWorkspace(config, 'pilot-member-2026', cwd, async () => false);
     await fs.writeFile(path.join(output, username + '-connection.json'), JSON.stringify(config, null, 2));
     if (username === 'alice') projectId = resume ? wb.store.sessions[0].binding!.project.id : (await wb.createProject('华为算法大赛 NVFP4 到 HiF4')).id;
     await wb.remote.loadManifest(); await wb.requireAuth('codex', cwd);

@@ -1,8 +1,11 @@
-import type { AdminProfile, AdminState } from './types';
-import { profileSchema } from '../core/config';
-import { memberReadiness } from './member-readiness';
 import { createHash } from 'node:crypto';
-export function memberConfig(profile: AdminProfile, state: AdminState, username: string, groupName?: string) {
+import { profileSchema } from '../../src/core/config';
+import { memberReadiness } from '../../src/admin/member-readiness';
+import type { AdminProfile, AdminState } from '../../src/admin/types';
+
+// Test-only profile builder. The product no longer exports or imports member
+// connection files; members enter the server address and their SSH account.
+export function memberProfile(profile: AdminProfile, state: AdminState, username: string, groupName?: string) {
   const user = state.users[username], group = groupName ? state.groups[groupName] : undefined;
   if (!user || (groupName && !group)) throw new Error('成员或项目组不存在');
   const pending = memberReadiness(state, user).filter(item => item !== '待分配项目组');

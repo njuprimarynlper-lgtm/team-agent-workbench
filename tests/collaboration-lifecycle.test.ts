@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { LocalAdminConnection } from '../src/admin/local-connection';
-import { memberConfig } from '../src/admin/member-config';
+import { memberProfile } from './fixtures/member-profile';
 import { Workbench } from '../src/core/workbench';
 import { preparationSnapshot } from '../src/core/preparation-snapshot';
 import { contributionStatus } from '../src/shared/contribution-status';
@@ -22,7 +22,7 @@ async function fixture() {
   for (const label of ['relation', 'ocr']) await admin.operation({ op: 'group_create', label });
   for (const username of ['alice', 'bob', 'newbie']) await admin.operation({ op: 'user_create', username, name: username, password: '1', groups: username === 'newbie' ? [] : ['local_relation', 'local_ocr'], contentAdminGroups: username === 'alice' ? ['local_relation'] : username === 'bob' ? ['local_ocr'] : [] });
   const clients: Workbench[] = [];
-  const connect = async (name: string) => { const wb = new Workbench(path.join(root, name), () => {}, () => {}); clients.push(wb); await wb.store.init(); await wb.configureWorkspace(memberConfig(admin.snapshot.profile!, admin.snapshot.state!, name), '1', root, async () => false); return wb; };
+  const connect = async (name: string) => { const wb = new Workbench(path.join(root, name), () => {}, () => {}); clients.push(wb); await wb.store.init(); await wb.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name), '1', root, async () => false); return wb; };
   const alice = await connect('alice'), bob = await connect('bob'), newbie = await connect('newbie');
   const project = await alice.createProject('实体抽取', 'local_relation', brief); await bob.refreshGroups();
   return { root, shared, admin, alice, bob, newbie, project, close: async () => { await Promise.all(clients.map(c => c.close())); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'team-lifecycle-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); } };
