@@ -159,7 +159,7 @@ function App() {
 type Run = <T>(fn: () => Promise<T>) => Promise<T | undefined>;
 function ConnectModal({ settings, connection, close, run, onConnected }: { settings: Settings; connection: Snapshot['connection']; close: () => void; run: Run; onConnected: () => void }) {
   const empty: ConnectionProfile = { id: crypto.randomUUID(), name: '团队共享空间', host: '', port: 22, username: '', fingerprint: '', manifestPath: '', projects: [], workPath: '' };
-  const [profile, setProfile] = useState(connection?.profile || settings.workspaceSnapshot?.profile || settings.connections.at(-1) || empty);
+  const [profile, setProfile] = useState(settings.connections.at(-1) || connection?.profile || settings.workspaceSnapshot?.profile || empty);
   const [localPath, setLocalPath] = useState(settings.localWorkspace || ''), [password, setPassword] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const local = profile.mode === 'local';
   const update = (key: keyof ConnectionProfile, value: unknown) => setProfile({ ...profile, [key]: value, ...(['host', 'port'].includes(key) ? { fingerprint: '' } : {}) });

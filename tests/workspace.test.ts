@@ -40,8 +40,16 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     await assert.rejects(alice.createProject('已撤权'), /子管理员/);
     assert.equal(alice.remote.workspace!.canCreateProject, false);
     const before = alice.store.settings.localWorkspace;
-    await assert.rejects(alice.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
+    const attempted = { ...server.profile('alice'), username: 'new-account' };
+    await assert.rejects(alice.configureWorkspace(attempted, 'wrong-password', root, async () => true));
     assert.equal(alice.workspaceReady, true); assert.equal(alice.store.settings.localWorkspace, before);
+    assert.equal(alice.store.settings.connections[0].host, attempted.host);
+    assert.equal(alice.store.settings.connections[0].port, attempted.port);
+    assert.equal(alice.store.settings.connections[0].username, 'new-account');
+    assert(!JSON.stringify(alice.store.settings).includes('wrong-password'));
+    const restarted = new Workbench(path.join(root, 'alice'), () => {}, () => {}); await restarted.store.init();
+    assert.equal(restarted.store.settings.connections[0].username, 'new-account');
+    await restarted.close();
     await assert.rejects(alice.createSession('cursor', root), /请先选择所属工作组下的项目/); const offline = await alice.createSession('cursor', root, project.id); assert.equal(offline.binding?.project.id, project.id);
   } finally { await alice.close(); await bob.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 });

@@ -78,14 +78,19 @@ try {
   await expect(page.getByLabel('服务器地址', { exact: true })).toHaveValue('new.example.test');
   await expect(page.getByRole('button', { name: '添加其他服务器', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
-  await app.close(); await launch();
+  await app.close();
+  const savedBeforeRestart = JSON.parse(await fs.readFile(path.join(store, 'settings.json'), 'utf8'));
+  savedBeforeRestart.workspaceSnapshot = { profile: { ...ssh, host: 'verified-old.example.test', username: 'old-account' }, workspaces: [] };
+  await fs.writeFile(path.join(store, 'settings.json'), JSON.stringify(savedBeforeRestart));
+  await launch();
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await expect(page.getByLabel('服务器地址', { exact: true })).toHaveValue('team.example.test');
+  await expect(page.getByLabel('成员账号', { exact: true })).toHaveValue('alice');
   await expect(page.getByLabel('登录密码', { exact: true })).toHaveValue('');
   const settings = await fs.readFile(path.join(store, 'settings.json'), 'utf8');
   assert(!settings.includes('not-persisted')); assert(!settings.includes('new.example.test'));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['fresh start shows a direct login form', 'local fixture hides shared root', 'only local work path chosen', 'legacy multiple profiles never add a connection selector', 'server and account change in the same form', 'incomplete local fixture is rejected', 'server identity details stay hidden', 'restart retains the saved server, never password or unsaved edits'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['fresh start shows a direct login form', 'local fixture hides shared root', 'only local work path chosen', 'legacy multiple profiles never add a connection selector', 'server and account change in the same form', 'incomplete local fixture is rejected', 'server identity details stay hidden', 'restart refills the latest server and account ahead of an older verified snapshot, never password or unsaved edits'] }));
 } catch (e) {
   await page?.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {}); throw e;
 } finally { await app?.close().catch(() => {}); }

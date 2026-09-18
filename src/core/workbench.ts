@@ -96,6 +96,12 @@ export class Workbench {
     try {
       if (!path.isAbsolute(localPath) || !(await fs.stat(localPath)).isDirectory()) throw new Error('请选择已存在的本机工作目录');
       const canonicalLocal = await fs.realpath(localPath);
+      // Keep only the non-secret fields needed to refill the next login form.
+      // Save before connecting so a rejected password or temporary network error
+      // does not force the member to enter the server and account again.
+      const remembered = { ...profile, projects: [], workPath: '', manifestPath: '' };
+      this.store.settings.connections = [structuredClone(remembered)];
+      await this.store.save(); this.broadcast();
       const result = await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       this.store.settings.verifiedLocalWorkspace = canonicalLocal; this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
