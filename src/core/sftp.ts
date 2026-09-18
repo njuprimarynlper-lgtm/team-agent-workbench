@@ -21,6 +21,11 @@ export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
 export function friendlySftp(error: any): Error {
   if (error.code === 3) return new Error('Linux 拒绝访问：当前账号没有此目录或文件的权限');
   if ((error as any).code === 2) return new Error('远端路径不存在，请核对管理员提供的 SFTP 路径');
+  // ssh2 interprets the first four bytes of a non-SFTP reply as a packet
+  // length. Linux nologin starts with "This" (0x54686973 = 1416128883),
+  // which means authentication succeeded but the server did not apply the
+  // team's ForceCommand internal-sftp rule to this managed account.
+  if (/Packet length 1416128883 exceeds max length/i.test(error.message || '')) return new Error('服务器成员接入尚未正确配置：账号已通过认证，但服务器没有启动 SFTP。请管理员在管理员版执行“完成成员接入配置”后重试');
   return new Error(error.message || String(error));
 }
 export class SftpConnection {

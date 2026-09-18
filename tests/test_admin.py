@@ -210,6 +210,7 @@ class AdminRecoveryTests(unittest.TestCase):
         self.calls = []
         self.inputs = []
         self.actual_state = admin.actual_state
+        self.member_access_ready = admin.member_access_ready
         self.fail = None
         def lookup(mapping, name):
             if name not in mapping: raise KeyError(name)
@@ -223,6 +224,7 @@ class AdminRecoveryTests(unittest.TestCase):
         self.stack.enter_context(patch.object(admin.shutil,'which',side_effect=lambda n:n))
         self.stack.enter_context(patch.object(admin,'root_directory',return_value=self.root))
         self.stack.enter_context(patch.object(admin,'actual_state',side_effect=copy.deepcopy))
+        self.stack.enter_context(patch.object(admin,'member_access_ready',side_effect=lambda root,state: bool(state.get('sftpConfigured')) and state.get('storageVersion') == 1))
         self.stack.enter_context(patch.object(admin,'run',side_effect=self.command))
         admin.save(self.root, {'version':1,'teamId':'test','initialized':True,'loginGroup':'wb_test_members','users':{},'groups':{},'sftpConfigured':True,'storageVersion':1})
 
@@ -421,6 +423,19 @@ class AdminRecoveryTests(unittest.TestCase):
         repaired=admin.load(self.root)
         self.assertTrue(repaired['sftpConfigured']); self.assertEqual(repaired['storageVersion'],1)
         self.execute('user_create',username='alice',name='Alice',password='1')
+
+    def test_stale_member_access_flag_is_rejected_when_ssh_rule_is_missing_or_changed(self):
+        state=admin.load(self.root)
+        config=self.root/'member-access.conf'
+        with patch.object(admin,'member_access_file',return_value=config):
+            self.assertFalse(self.member_access_ready(self.root,state))
+            config.write_text('stale rule\n',encoding='utf-8')
+            self.assertFalse(self.member_access_ready(self.root,state))
+            config.write_text(admin.member_access_config(self.root,state),encoding='utf-8')
+            self.assertTrue(self.member_access_ready(self.root,state))
+        with patch.object(admin,'member_access_ready',return_value=False):
+            with self.assertRaisesRegex(ValueError,'成员接入尚未完成'):
+                self.execute('user_create',username='stale',name='Stale',password='1')
 
     def test_membership_manifest_has_no_offline_validity_field(self):
         self.execute('status')

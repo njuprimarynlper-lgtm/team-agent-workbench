@@ -319,6 +319,25 @@ def install_content_worker(root, state):
     state['storageVersion'] = 1
 
 
+def member_access_file(state):
+    return pathlib.Path("/etc/ssh/sshd_config.d") / ("80-workbench-" + state["teamId"] + ".conf")
+
+
+def member_access_config(root, state):
+    return ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n    DisableForwarding yes\n    PermitTTY no\nMatch all\n')
+
+
+def member_access_ready(root, state):
+    """Reject stale state that claims SFTP is ready after its SSH rule changed."""
+    if not state.get("sftpConfigured") or state.get("storageVersion") != 1:
+        return False
+    file = member_access_file(state)
+    try:
+        return file.is_file() and file.read_text(encoding="utf-8") == member_access_config(root, state)
+    except OSError:
+        return False
+
+
 def configure_member_access(root, state):
     """Install the required member login and controlled-storage plumbing.
 
@@ -326,12 +345,12 @@ def configure_member_access(root, state):
     exists. Keep this in initialization; configure_sftp remains an idempotent
     repair path for installations created by older releases.
     """
-    config_dir = pathlib.Path("/etc/ssh/sshd_config.d")
+    config_dir = member_access_file(state).parent
     config_dir.mkdir(exist_ok=True)
     if "sshd_config.d" not in pathlib.Path("/etc/ssh/sshd_config").read_text(encoding="utf-8"):
         raise ValueError("sshd_config 未启用 drop-in Include，请运维先启用；工具不会改写主配置")
-    file = config_dir / ("80-workbench-" + state["teamId"] + ".conf")
-    config = ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n    DisableForwarding yes\n    PermitTTY no\nMatch all\n')
+    file = member_access_file(state)
+    config = member_access_config(root, state)
     previous = file.read_text(encoding="utf-8") if file.exists() else None
     file.write_text(config, encoding="utf-8")
     try:
@@ -477,13 +496,14 @@ def _execute(request):
         if op != "status":
             if not state.get("initialized"):
                 raise ValueError("请先恢复并完成初始化")
-            if op == "user_create" and (not state.get("sftpConfigured") or state.get("storageVersion") != 1):
+            if op == "user_create" and not member_access_ready(root, state):
                 raise ValueError("成员接入尚未完成，请先完成成员接入配置")
             start_operation(root, state, request)
     result = None
     enforce_continuity(root, state, request)
     if op == "status":
         current = actual_state(state)
+        current["sftpConfigured"] = member_access_ready(root, state)
         write_roles(root, current)
         return current
     if op == "user_create":
