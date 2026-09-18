@@ -17,16 +17,23 @@ export class AdminConnection {
     this.disconnect(); this.code = deflateSync(Buffer.concat([Buffer.from("CONTENT_WORKER_BASE64 = '" + (await fs.readFile(path.join(path.dirname(this.scriptPath), 'content.py'))).toString('base64') + "'\n"), await fs.readFile(this.scriptPath)])).toString('base64');
     const client = new Client(); this.client = client; this.sudoPassword = sudoPassword || password;
     try {
-      let fingerprint = '';
+      let fingerprint = '', identityChanged = false, firstConnectionCancelled = false;
       await new Promise<void>((resolve, reject) => {
         client.on('error', reject); client.on('ready', resolve);
         client.on('close', () => { if (this.client === client) this.disconnect(); });
         client.connect({ host: profile.host, port: profile.port, username: login, password, readyTimeout: 30000, keepaliveInterval: 15000,
           hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
             fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
-            if (profile.fingerprint) callback(profile.fingerprint === fingerprint); else void trust(fingerprint).then(callback, () => callback(false));
+            if (profile.fingerprint) {
+              identityChanged = profile.fingerprint !== fingerprint;
+              callback(!identityChanged);
+            } else void trust(fingerprint).then(accepted => { firstConnectionCancelled = !accepted; callback(accepted); }, () => { firstConnectionCancelled = true; callback(false); });
           },
         });
+      }).catch(error => {
+        if (identityChanged) throw new Error('服务器身份发生变化，已停止连接。请确认服务器是否重装或迁移，然后重新确认服务器身份；登录密码尚未发送。');
+        if (firstConnectionCancelled) throw new Error('已取消首次连接，服务器身份没有保存，登录密码尚未发送。');
+        throw error;
       });
       this.snapshot.profile = { ...profile, fingerprint }; this.rawReady = true;
       const contentGroups = await this.readContentRoles(profile);

@@ -54,7 +54,10 @@ try {
   await page.getByLabel('SFTP 端口', { exact: true }).fill(String(profile.port));
   await page.getByLabel('成员账号', { exact: true }).fill(profile.username);
   await page.getByLabel('登录密码', { exact: true }).fill('wrong-password');
-  await page.getByLabel('管理员提供的服务器指纹', { exact: true }).fill(profile.fingerprint);
+  await app.evaluate(({ dialog }) => {
+    const original = dialog.showMessageBox.bind(dialog);
+    dialog.showMessageBox = async (window, options) => options?.title === '首次连接团队服务器' ? { response: 1, checkboxChecked: false } : original(window, options);
+  });
   await page.getByRole('button', { name: '登录并发现工作组', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'authentication' }).waitFor();
   assert.equal(await page.getByText('先连接团队账号', { exact: true }).count(), 1);

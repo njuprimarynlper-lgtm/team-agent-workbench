@@ -160,13 +160,13 @@ function ConnectModal({ settings, connection, close, run, onConnected }: { setti
   const empty: ConnectionProfile = { id: crypto.randomUUID(), name: '团队共享空间', host: '', port: 22, username: '', fingerprint: '', manifestPath: '', projects: [], workPath: '' };
   const [profile, setProfile] = useState(connection?.profile || settings.connections[0] || empty);
   const [localPath, setLocalPath] = useState(settings.localWorkspace || ''), [password, setPassword] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const [manual, setManual] = useState(false), [serverOpen, setServerOpen] = useState(true);
+  const [manual, setManual] = useState(false), [serverOpen, setServerOpen] = useState(false);
   const local = profile.mode === 'local';
   const configured = !!profile.host;
   const profiles = settings.connections;
   const saved = profiles.some(p => p.id === profile.id);
   const connectionLabel = (p: ConnectionProfile) => `${p.mode === 'local' ? '本地测试团队' : p.host + ':' + p.port} · ${p.username || '待填写账号'}`;
-  const select = (p: ConnectionProfile) => { setProfile(p); setPassword(''); setError(''); setManual(false); };
+  const select = (p: ConnectionProfile) => { setProfile(p); setPassword(''); setError(''); setManual(false); setServerOpen(false); };
   const update = (key: keyof ConnectionProfile, value: unknown) => setProfile({ ...profile, [key]: value, ...(['host', 'port'].includes(key) ? { fingerprint: '' } : {}) });
   const choose = (setter: (value: string) => void) => void run(async () => { const dir = await api.call<string>('choose.directory'); if (dir) setter(dir); });
   return <Modal title="团队账号与本机目录" close={close} wide><div className="modal-body">
@@ -175,13 +175,13 @@ function ConnectModal({ settings, connection, close, run, onConnected }: { setti
     {profiles.length > 1 && <label className="field">团队连接（已保存）<select aria-label="团队连接（已保存）" value={saved ? profile.id : ''} onChange={e => { const p = profiles.find(x => x.id === e.target.value); if (p) select(p); }}>
       {!saved && <option value="" disabled>正在设置新连接</option>}{profiles.map(p => <option key={p.id} value={p.id}>{connectionLabel(p)} · {p.name}</option>)}
     </select></label>}
-    <div className="callout" aria-label="团队连接说明"><Server size={19}/><div><b>{configured ? '团队连接：' + connectionLabel(profile) : '尚未配置团队连接'}</b>{!configured && <small>请导入管理员提供的连接配置。</small>}</div></div>
-    <div className="row gap-bottom"><button className="secondary" onClick={() => void run(async () => { const p = await api.call<ConnectionProfile | null>('profile.import'); if (p) select(p); })}>导入管理员配置</button><button className="text-button" onClick={() => { select({ ...empty, mode: 'sftp' }); setManual(true); }}>手动设置 SSH 连接</button>{profiles.length === 1 && !saved && <button className="text-button" onClick={() => select(profiles[0])}>返回已有团队连接</button>}</div>
-    <p className="muted small">导入的是管理员导出的 JSON 文件：包含服务器地址、端口、服务器指纹和成员账号。文件里没有密码，密码由管理员另行告知。</p>
-    {local && !profile.localRoot?.trim() && <div className="inline-error" role="alert">管理员配置缺少共享目录，请重新导入完整的连接配置。</div>}
-    {!local && (configured || manual) && <details className="connection-server-details" open={serverOpen} onToggle={e => setServerOpen(e.currentTarget.open)}><summary>服务器连接设置</summary><div className="form-grid">
+    <div className="callout" aria-label="团队连接说明"><Server size={19}/><div><b>{configured ? '团队连接：' + connectionLabel(profile) : '尚未配置团队连接'}</b>{!configured && <small>请导入团队连接配置。</small>}</div></div>
+    <div className="row gap-bottom"><button className="secondary" onClick={() => void run(async () => { const p = await api.call<ConnectionProfile | null>('profile.import'); if (p) select(p); })}>导入团队连接配置</button><button className="text-button" onClick={() => { select({ ...empty, mode: 'sftp' }); setManual(true); setServerOpen(true); }}>手动设置 SSH 连接</button>{profiles.length === 1 && !saved && <button className="text-button" onClick={() => select(profiles[0])}>返回已有团队连接</button>}</div>
+    <p className="muted small">团队连接配置包含服务器地址、成员账号和用于自动验证服务器身份的信息，不包含密码。</p>
+    {local && !profile.localRoot?.trim() && <div className="inline-error" role="alert">团队连接配置缺少共享目录，请重新导入完整配置。</div>}
+    {!local && (configured || manual) && <details className="connection-server-details" open={serverOpen} onToggle={e => setServerOpen(e.currentTarget.open)}><summary>服务器连接 · {profile.fingerprint ? '身份自动验证' : '首次连接时确认'}</summary><div className="form-grid">
       <label className="field">服务器地址<input value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label>
-      <label className="field full">管理员提供的服务器指纹<input aria-label="管理员提供的服务器指纹" value={profile.fingerprint} onChange={e => update('fingerprint', e.target.value)}/><small>导入管理员配置后自动填入。连接时会用它核对服务器身份，避免连到冒充的服务器；手动填写时请向管理员索取这一串 SHA256 指纹。</small></label>
+      <div className="field full" aria-label="服务器身份状态"><b>{profile.fingerprint ? '登录时自动验证服务器身份' : '首次连接时确认一次，随后自动验证'}</b><small>{profile.fingerprint ? '身份信息来自团队连接配置或本机此前的确认。' : '确认发生在发送登录密码之前，本机会记住确认结果。'}</small>{profile.fingerprint && <details><summary>查看技术信息</summary><code className="break">{profile.fingerprint}</code></details>}</div>
     </div></details>}
     <div className="form-grid">
       <label className="field full">本机工作路径（必填）<div className="row"><input aria-label="本机工作路径" value={localPath} onChange={e => setLocalPath(e.target.value)}/><button className="secondary" onClick={() => choose(setLocalPath)}>选择目录</button></div></label>

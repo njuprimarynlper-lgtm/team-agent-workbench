@@ -33,7 +33,7 @@ export class SftpConnection {
   async connect(profile: ConnectionProfile, password: string, trust: (fingerprint: string) => Promise<boolean>) {
     this.disconnect(); this.storageVersion = 0;
     const client = new Client(); this.client = client;
-    let fingerprint = '';
+    let fingerprint = '', identityChanged = false, firstConnectionCancelled = false;
     await new Promise<void>((resolve, reject) => {
       client.on('error', reject);
       client.on('close', () => { if (this.client === client) { this.sftp = undefined; this.workspace = undefined; this.workspaces = []; this.changed(); } });
@@ -44,11 +44,19 @@ export class SftpConnection {
       client.connect({ host: profile.host, port: profile.port, username: systemUsername(profile.username), password, readyTimeout: 30000, keepaliveInterval: 15000,
         hostVerifier: (key: Buffer, callback: (valid: boolean) => void) => {
           fingerprint = 'SHA256:' + createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
-          if (profile.fingerprint) { callback(profile.fingerprint === fingerprint); return; }
-          trust(fingerprint).then(callback, () => callback(false));
+          if (profile.fingerprint) {
+            identityChanged = profile.fingerprint !== fingerprint;
+            callback(!identityChanged); return;
+          }
+          trust(fingerprint).then(accepted => { firstConnectionCancelled = !accepted; callback(accepted); }, () => { firstConnectionCancelled = true; callback(false); });
         }
       });
-    }).catch(e => { client.end(); throw friendlySftp(e); });
+    }).catch(e => {
+      client.end();
+      if (identityChanged) throw new Error('服务器身份发生变化，已停止连接。请向管理员获取新的团队连接配置；登录密码尚未发送。');
+      if (firstConnectionCancelled) throw new Error('已取消首次连接，服务器身份没有保存，登录密码尚未发送。');
+      throw friendlySftp(e);
+    });
     return this.profile!;
   }
   disconnect() { this.workspace = undefined; this.workspaces = []; this.sftp = undefined; this.client?.end(); this.client = undefined; this.changed(); }

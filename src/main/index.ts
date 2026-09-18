@@ -52,7 +52,11 @@ async function dispatch(action: string, raw: unknown): Promise<unknown> {
     }
     case 'remote.connect': {
       const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().min(1) }).parse(raw);
-      return workbench.configureWorkspace(p.profile, p.password, p.localPath, async fingerprint => (await dialog.showMessageBox(window, { type: 'question', title: '核对共享服务器', message: `${p.profile.host}:${p.profile.port}`, detail: `首次连接，请与管理员提供的指纹核对：\n\n${fingerprint}\n\n确认后此连接将固定校验该指纹。`, buttons: ['取消', '指纹一致，连接'], defaultId: 0, cancelId: 0 })).response === 1);
+      return workbench.configureWorkspace(p.profile, p.password, p.localPath, async fingerprint => (await dialog.showMessageBox(window, {
+        type: 'question', title: '首次连接团队服务器', message: p.profile.name || '团队共享服务器',
+        detail: `当前电脑尚未连接过 ${p.profile.host}:${p.profile.port}。确认后，本机会记住服务器身份；以后身份发生变化时会在发送密码前停止连接。\n\n技术信息：${fingerprint}`,
+        buttons: ['取消', '确认并连接'], defaultId: 0, cancelId: 0,
+      })).response === 1);
     }
     case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional(), brief: projectBriefSchema.optional() }).parse(raw); return workbench.createProject(p.name, p.groupName, p.brief); }
     case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }

@@ -30,7 +30,7 @@ try {
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await expect(page.getByRole('button', { name: '登录并发现工作组' })).toBeDisabled();
   await app.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
-  await page.getByRole('button', { name: '导入管理员配置' }).click();
+  await page.getByRole('button', { name: '导入团队连接配置' }).click();
   await expect(page.getByLabel('团队连接说明')).toContainText('尚未配置团队连接');
   await page.screenshot({ path: path.join(data, 'first-start.png') });
   await importConnection({ app, page }, files.alice);
@@ -66,17 +66,24 @@ try {
   await expect(page.getByLabel('本机工作路径', { exact: true })).toHaveValue(workspace);
   await page.screenshot({ path: path.join(data, 'multiple-connections.png') });
   await importConnection({ app, page }, files.incomplete);
-  await expect(page.getByRole('alert')).toContainText('管理员配置缺少共享目录');
+  await expect(page.getByRole('alert')).toContainText('团队连接配置缺少共享目录');
   await page.getByLabel('登录密码', { exact: true }).fill('not-persisted');
   await expect(page.getByRole('button', { name: '登录并发现工作组' })).toBeDisabled();
   await importConnection({ app, page }, files.alice);
   await expect(page.getByRole('alert')).toHaveCount(0);
   await importConnection({ app, page }, files.ssh);
   await expect(page.getByLabel('团队连接说明')).toContainText('team.example.test:22');
-  await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();
+  await expect(page.locator('.connection-server-details > summary')).toContainText('身份自动验证');
+  await expect(page.getByLabel('服务器地址', { exact: true })).toBeHidden();
+  await page.locator('.connection-server-details > summary').click();
   await expect(page.getByLabel('服务器地址', { exact: true })).toHaveValue('team.example.test');
+  await expect(page.getByLabel('服务器身份状态')).toContainText('登录时自动验证服务器身份');
+  await page.getByText('查看技术信息', { exact: true }).click();
+  await expect(page.getByText('SHA256:test', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('管理员提供的服务器指纹')).toHaveCount(0);
   await page.getByLabel('服务器地址', { exact: true }).fill('new.example.test');
-  await expect(page.getByLabel('管理员提供的服务器指纹')).toHaveValue('');
+  await expect(page.locator('.connection-server-details > summary')).toContainText('首次连接时确认');
+  await expect(page.getByLabel('服务器身份状态')).toContainText('随后自动验证');
   await page.getByRole('button', { name: '手动设置 SSH 连接' }).click();
   await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();
   await expect(page.getByLabel('服务器地址', { exact: true })).toHaveValue('');
@@ -90,7 +97,7 @@ try {
   const settings = await fs.readFile(path.join(store, 'settings.json'), 'utf8');
   assert(!settings.includes('not-persisted')); assert(!settings.includes('new.example.test'));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['fresh start and cancelled import', 'admin config import hides shared root', 'legacy single profile has no unexplained dropdown', 'only local work path chosen', 'multiple connections labeled separately from groups', 'switch/import clears password', 'incomplete config requires admin replacement', 'SSH details and manual setup', 'changed host clears fingerprint', 'restart retains config, never password'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['fresh start and cancelled import', 'team connection import hides shared root', 'legacy single profile has no unexplained dropdown', 'only local work path chosen', 'multiple connections labeled separately from groups', 'switch/import clears password', 'incomplete config requires replacement', 'server identity is automatic and technical details stay collapsed', 'changed host requires first-connection confirmation', 'restart retains config, never password'] }));
 } catch (e) {
   await page?.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {}); throw e;
 } finally { await app?.close().catch(() => {}); }

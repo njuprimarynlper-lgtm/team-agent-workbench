@@ -9,8 +9,9 @@ import os from 'node:os';
 const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
 test('legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks escaping symlinks', async () => {
   const CODE = utils.sftp.STATUS_CODE, files = new Map([['/project/readme.md', Buffer.from('项目说明：中文')]]), clients: any[] = [], renames: string[][] = [];
+  let authenticationAttempts = 0;
   const server = new Server({ hostKeys: [key] }, client => {
-    clients.push(client); client.on('error', () => {}); client.on('authentication', c => c.method === 'password' && c.password === 'secret' ? c.accept() : c.reject());
+    clients.push(client); client.on('error', () => {}); client.on('authentication', c => { if (c.method === 'password') authenticationAttempts++; c.method === 'password' && c.password === 'secret' ? c.accept() : c.reject(); });
     client.on('ready', () => client.on('session', accept => accept().on('sftp', accept => {
       const s = accept(), handles = new Map<string, string>(); let seq = 0;
       const stat = (target: string) => ({ mode: files.has(target) ? 0o100644 : 0o40755, uid: 1001, gid: 1001, size: files.get(target)?.length || 0, atime: 0, mtime: 0 });
@@ -36,7 +37,13 @@ test('legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks
   const port = (server.address() as { port: number }).port, remote = new SftpConnection(), dir = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-sftp-'));
   try {
     const profile = { id: 'test', name: 'fixture', host: '127.0.0.1', port, username: 'alice', fingerprint: '', manifestPath: '', projects: [{ id: 'p', name: 'p', remoteRoot: '/project', uploadPath: '/project', historyPath: '/project' }] };
-    await remote.connect(profile, 'secret', async () => true);
+    let observed = '';
+    await assert.rejects(remote.connect(profile, 'secret', async fingerprint => { observed = fingerprint; return false; }), /已取消首次连接.*登录密码尚未发送/);
+    assert.match(observed, /^SHA256:/); assert.equal(authenticationAttempts, 0);
+    await assert.rejects(remote.connect({ ...profile, fingerprint: 'SHA256:wrong-server' }, 'secret', async () => { throw new Error('不应询问'); }), /服务器身份发生变化.*登录密码尚未发送/);
+    assert.equal(authenticationAttempts, 0);
+    await remote.connect(profile, 'secret', async fingerprint => fingerprint === observed);
+    assert.equal(remote.profile!.fingerprint, observed); assert.equal(authenticationAttempts, 1);
     assert.deepEqual(remote.profile!.projects, []); // Client-supplied entries cannot grant access.
     // This transport-only fixture has no team metadata; discovery is covered by workspace/workgroup tests.
     remote.profile!.projects = profile.projects;

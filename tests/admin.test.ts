@@ -29,10 +29,10 @@ test('only the local admin connection accepts omitted account and password', () 
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
   const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true };
-  const control = { failNext: false };
+  const control = { failNext: false, authenticationAttempts: 0 };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
-    client.on('authentication', context => context.method === 'password' && context.password === 'login-secret' && (!login || context.username === login) ? context.accept() : context.reject());
+    client.on('authentication', context => { if (context.method === 'password') control.authenticationAttempts++; context.method === 'password' && context.password === 'login-secret' && (!login || context.username === login) ? context.accept() : context.reject(); });
     client.on('ready', () => client.on('session', accept => {
       const session = accept();
       session.on('sftp', (accept, reject) => {
@@ -75,6 +75,13 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
   const address = server.address() as { port: number };
   return { requests, commands, control, port: address.port, close: async () => { clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); } };
 }
+test('admin rejects a changed server identity before sending login credentials', async () => {
+  const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  try {
+    await assert.rejects(remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', fingerprint: 'SHA256:wrong-server', root: '/srv/teamspace' }, 'login-secret', '', async () => { throw new Error('不应询问'); }), /服务器身份发生变化.*登录密码尚未发送/);
+    assert.equal(f.control.authenticationAttempts, 0);
+  } finally { remote.disconnect(); await f.close(); }
+});
 for (const role of ['root', 'sudo'] as const) test(role + ': SSH verifies privilege and sends passwords only over stdin', async () => {
   const f = await fixture(role), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
   try {
