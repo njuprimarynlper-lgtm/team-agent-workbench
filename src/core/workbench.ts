@@ -94,8 +94,8 @@ export class Workbench {
             if (change && item.updatedBy !== profile.username) updates.push({ projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, change });
           }
         } else {
-          const recent = Date.now() - 10 * 60 * 1000;
-          for (const item of items) if (item.updatedBy !== profile.username && Date.parse(item.updatedAt) >= recent) updates.push({ projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, change: 'new' });
+          const recent = Date.now() - 24 * 60 * 60 * 1000;
+          for (const item of items.filter(item => item.updatedBy !== profile.username && Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 5)) updates.push({ projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, change: 'new' });
         }
         if (JSON.stringify(prior || {}) !== JSON.stringify(current)) { seen[key] = current; changed = true; }
       } catch { /* One inaccessible project must not suppress updates from the others. */ }
