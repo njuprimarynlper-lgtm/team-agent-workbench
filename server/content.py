@@ -17,6 +17,21 @@ import sys
 import time
 import uuid
 
+CONTRIBUTION_FOLDERS = {
+    'experiment_result': 'experiments',
+    'failed_direction': 'failed-directions',
+    'finding': 'findings',
+    'issue': 'issues',
+    'baseline_change_proposal': 'baseline-change-proposals',
+}
+CONTRIBUTION_FIELDS = {
+    'experiment_result': {'objective', 'change', 'environment', 'baseline', 'result', 'evidence', 'scope', 'limitations', 'nextSteps'},
+    'failed_direction': {'objective', 'approach', 'failure', 'evidence', 'likelyCause', 'avoidWhen', 'reusableInsight'},
+    'finding': {'statement', 'evidence', 'scope', 'uncertainty', 'nextSteps'},
+    'issue': {'problem', 'trigger', 'impact', 'evidence', 'reproduction', 'workaround', 'nextAction'},
+    'baseline_change_proposal': {'baselineItem', 'currentValue', 'proposedValue', 'rationale', 'evidence', 'impact', 'validationNeeded'},
+}
+
 MAX_FILE = 2 * 1024 ** 3
 BRIEF_FIELDS = [('background', '项目背景'), ('objectives', '项目目标'), ('acceptance', '验收标准'), ('scope', '范围与非目标'), ('deliverables', '交付物与里程碑'), ('resources', '现有资料与入口'), ('constraints', '约束与风险'), ('collaboration', '协作约定')]
 
@@ -189,6 +204,7 @@ def handle(root, state, username, request, incoming=None):
         return item
     if op == 'publish':
         target = text(request.get('target'), 4096)
+        meta = request.get('metadata') or {}
         prefix = '/' + str(directory.relative_to(root)).replace('\\', '/') + '/'
         if not target.startswith(prefix):
             raise PermissionError('上传目标不属于项目')
@@ -197,6 +213,18 @@ def handle(root, state, username, request, incoming=None):
             raise PermissionError('不可写入管理记录')
         if not admin and not any(relative.startswith(folder + '/' + username + '/') for folder in ('submissions', 'trajectories')):
             raise PermissionError('只能写入自己的公共提交目录')
+        category = meta.get('category')
+        if meta.get('kind') == 'contribution' and category:
+            if category not in CONTRIBUTION_FOLDERS:
+                raise ValueError('不支持的成果类别')
+            expected = 'submissions/' + username + '/' + CONTRIBUTION_FOLDERS[category] + '/'
+            if not relative.startswith(expected) or '/' in relative[len(expected):]:
+                raise PermissionError('成果类别与上传目录不一致')
+            fields = meta.get('fields') or {}
+            if not isinstance(fields, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in fields.items()):
+                raise ValueError('成果字段格式无效')
+            if any(key not in CONTRIBUTION_FIELDS[category] for key in fields):
+                raise ValueError('成果字段与类别不一致')
         if not incoming or digest(incoming) != request.get('sha256'):
             raise ValueError('上传内容校验失败')
         receipt_file = safe(root, '.workbench/admin/uploads.json')
@@ -221,8 +249,8 @@ def handle(root, state, username, request, incoming=None):
             os.replace(temp, file)
         finally:
             temp.unlink(missing_ok=True)
-        meta = request.get('metadata') or {}
         item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
+        item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'category': category, 'fields': meta.get('fields'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'snapshotHash': meta.get('snapshotHash'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
         items.insert(0, item)
         atom(index, items, gid)
         receipts[key] = item

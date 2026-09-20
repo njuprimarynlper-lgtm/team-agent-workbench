@@ -5,7 +5,7 @@ import { diskPath, registryLock } from './local-space';
 import { atomicJson } from './store';
 import { hashFile } from './artifacts';
 import { assertRemote, childRemote } from './paths';
-import { contentEditSchema, contentMetadataSchema, type ContentEdit, type ContentMetadata, type SharedContent } from '../shared/content';
+import { contentEditSchema, contentMetadataSchema, contributionCategoryFields, contributionCategoryInfo, type ContentEdit, type ContentMetadata, type SharedContent } from '../shared/content';
 import type { RemoteBinding } from '../shared/types';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
@@ -28,10 +28,16 @@ export class ContentFiles {
   async publish(binding: RemoteBinding, source: string, target: string, raw?: ContentMetadata, expectedHash?: string) {
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), project = binding.project;
+      const metadata = contentMetadataSchema.parse(raw || { title: path.posix.basename(target), kind: target.includes('/trajectories/') ? 'trajectory' : 'file' });
       target = assertRemote(project.remoteRoot, target);
       const relative = target.slice(project.remoteRoot.length + 1).split('/');
       if (relative.some(p => p.startsWith('.')) || !relative.at(-1)) throw new Error('不可写入管理记录');
       if (!actor.admin && ![project.uploadPath, project.historyPath].some(p => target.startsWith(p + '/'))) throw new Error('只能上传到自己的公共提交目录');
+      if (metadata.kind === 'contribution' && metadata.category) {
+        const expected = path.posix.join(project.uploadPath, contributionCategoryInfo[metadata.category].folder);
+        if (path.posix.dirname(target) !== expected) throw new Error('成果类别与上传目录不一致');
+        if (Object.keys(metadata.fields || {}).some(key => !contributionCategoryFields[metadata.category!].includes(key))) throw new Error('成果字段与类别不一致');
+      }
       if (!(await fs.lstat(source)).isFile()) throw new Error('只能上传普通文件，不支持符号链接');
       const sha256 = await hashFile(source); if (expectedHash && expectedHash !== sha256) throw new Error('上传快照已改变，请重新提交');
       const receiptFile = await diskPath(this.root, '/.workbench-local/upload-receipts.json', true);
@@ -46,7 +52,7 @@ export class ContentFiles {
       const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
       try { await fs.copyFile(source, file, fs.constants.COPYFILE_EXCL); }
       catch (e: any) { if (e.code !== 'EEXIST' || await hashFile(file) !== sha256) throw e; }
-      const now = new Date().toISOString(), item: SharedContent = { ...contentMetadataSchema.parse(raw || { title: path.posix.basename(target), kind: target.includes('/trajectories/') ? 'trajectory' : 'file' }), id: randomUUID(), path: target, author: actor.username, revision: 1, state: 'submitted', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256, size: (await fs.stat(file)).size };
+      const now = new Date().toISOString(), item: SharedContent = { ...metadata, id: randomUUID(), path: target, author: actor.username, revision: 1, state: 'submitted', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256, size: (await fs.stat(file)).size };
       items.unshift(item); await atomicJson(await this.index(binding), items); receipts[requestKey] = item; await atomicJson(receiptFile, receipts); return item;
     });
   }

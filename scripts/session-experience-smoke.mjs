@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { dismissStartupLogin } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
 const root = process.cwd(), data = path.join(root, '.test-data', 'session-experience-' + Date.now());
@@ -17,6 +18,7 @@ const app = await electron.launch({ ...(packaged ? { executablePath: path.join(r
 const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  await dismissStartupLogin(page);
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const snap = () => call('snapshot');
   await page.getByRole('button', { name: '新建工作会话', exact: true }).click();
@@ -81,7 +83,7 @@ try {
   await page.getByRole('button', { name: '重试', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('正在整理');
   await expect(page.getByLabel('整理已用时间')).toHaveText(/\d+ 秒|\d+ 分/);
-  await expect(page.getByRole('button', { name: '确认上传', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^确认上传/ })).toBeDisabled();
   await expect(page.getByLabel('成果提醒')).toHaveText('整理中');
   const preparingId = (await snap()).drafts[0].id;
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-waiting.png') });
@@ -106,9 +108,9 @@ try {
   await expect(page.getByLabel('给团队的补充（可选）')).toHaveJSProperty('rows', 3);
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-ready.png') });
   await page.setViewportSize({ width: 1100, height: 760 });
-  await page.getByRole('button', { name: '确认上传', exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole('button', { name: /^确认上传/ }).scrollIntoViewIfNeeded();
   const smallBox = await page.getByLabel('给团队的补充（可选）').boundingBox(); assert(smallBox && smallBox.height < 150);
-  const submitBox = await page.getByRole('button', { name: '确认上传', exact: true }).boundingBox(); assert(submitBox && submitBox.y >= 0 && submitBox.y + submitBox.height <= 760);
+  const submitBox = await page.getByRole('button', { name: /^确认上传/ }).boundingBox(); assert(submitBox && submitBox.y >= 0 && submitBox.y + submitBox.height <= 760);
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-compact.png') });
   await page.setViewportSize({ width: 1520, height: 980 });
   // Ready drafts can be canceled without discarding the review or accidentally uploading.
@@ -130,7 +132,7 @@ try {
   await expect(page.getByLabel('整理状态')).toContainText('已停止');
   await expect(page.getByLabel('整理已用时间')).toHaveCount(0);
   await expect(page.getByLabel('给团队的补充（可选）')).toHaveValue('我已经编辑过的说明');
-  await expect(page.getByRole('button', { name: '确认上传', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^确认上传/ })).toBeDisabled();
   // Approval remains actionable even though the helper is hidden.
   await fixture.write({ status: 'ready', fileApproval: true });
   await page.getByRole('button', { name: '重新整理', exact: true }).click();

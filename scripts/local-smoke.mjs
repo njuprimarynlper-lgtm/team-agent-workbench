@@ -80,21 +80,27 @@ try {
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0]?.status).toBe('done');
   const history = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers[0];
   const sharedHistory = await bob.page.evaluate(x => window.workbench.call('remote.preview', x), { projectId: p.id, path: history.target }); assert.equal(sharedHistory.type, 'binary');
-  await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '方向性结论', body: '建议先检查数据覆盖范围，再评估是否调整方案。当前只是方向性判断，收益尚待验证。', repoUrl: '', destinationId: 'default' } });
+  await fixture.write({ status: 'ready', turn: 'success', preparationResult: { artifacts: [
+    { category: 'finding', title: '方向性结论', fields: { statement: '建议先检查数据覆盖范围，再评估是否调整方案。', uncertainty: '当前只是方向性判断，收益尚待验证。' }, repoUrl: '' },
+    { category: 'issue', title: '数据覆盖风险', fields: { problem: '样本覆盖范围尚未核对', impact: '可能误判方案收益' } }
+  ] } });
   await alice.page.getByRole('button', { name: '整理成果', exact: true }).click();
   await expect(alice.page.getByLabel('整理状态')).toContainText('已整理好', { timeout: 20000 });
   await expect(alice.page.getByText('补充仓库链接后即可上传', { exact: true })).toHaveCount(0);
   await expect(alice.page.getByLabel('GitHub 仓库链接')).toBeHidden();
-  await expect(alice.page.getByRole('button', { name: '确认上传', exact: true })).toBeEnabled();
+  await expect(alice.page.getByText('结论与发现', { exact: true })).toBeVisible(); await expect(alice.page.getByText('问题与风险', { exact: true })).toBeVisible();
+  const riskChoice = alice.page.getByLabel('选择成果：数据覆盖风险'); await riskChoice.click(); await expect(alice.page.getByRole('button', { name: '确认上传 1 项', exact: true })).toBeEnabled(); await riskChoice.click();
+  await expect(alice.page.getByRole('button', { name: '确认上传 2 项', exact: true })).toBeEnabled();
   await alice.page.getByLabel('给团队的补充（可选）').fill('同事可先复核样本，再决定下一轮工作。');
-  await alice.page.getByRole('button', { name: '确认上传', exact: true }).click();
-  await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.find(t => t.name.includes('方向性结论'))?.status, { timeout: 20000 }).toBe('done');
-  const conclusion = (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.find(t => t.name.includes('方向性结论'));
+  await alice.page.getByRole('button', { name: /^确认上传/ }).click();
+  await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.filter(t => t.metadata?.category).map(t => t.status), { timeout: 20000 }).toEqual(['done', 'done']);
+  const resultSnapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')); const conclusion = resultSnapshot.transfers.find(t => t.name.includes('方向性结论')); const risk = resultSnapshot.transfers.find(t => t.name.includes('数据覆盖风险'));
+  assert.equal(path.posix.dirname(conclusion.target).endsWith('/findings'), true); assert.equal(path.posix.dirname(risk.target).endsWith('/issues'), true);
   const conclusionFile = path.join(share, ...conclusion.target.split('/').filter(Boolean));
   const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', conclusionFile], { encoding: 'utf8' }));
   assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']);
   assert.match(zip['README.md'], /建议先检查数据覆盖范围/); assert.match(zip['README.md'], /同事可先复核样本/);
-  assert(!zip['README.md'].includes('GitHub 仓库：')); assert.equal('repoUrl' in JSON.parse(zip['manifest.json']), false);
+  assert(!zip['README.md'].includes('GitHub 仓库：')); assert.equal('repoUrl' in JSON.parse(zip['manifest.json']), false); assert.equal(JSON.parse(zip['manifest.json']).category, 'finding');
   const visible = await bob.page.evaluate(x => window.workbench.call('remote.list', x), { projectId: p.id, path: path.posix.dirname(conclusion.target) });
   assert(visible.some(entry => entry.path === conclusion.target));
   const row = ap.locator('tbody tr').filter({ hasText: bobName });

@@ -71,9 +71,9 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   await fs.rmdir(draft.outputPath); await page.getByRole('button', { name: '重试保存', exact: true }).click();
   await expect(page.getByText('已保存', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: '确认上传', exact: true }).click();
+  await page.getByRole('button', { name: /^确认上传/ }).click();
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '确认上传', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^确认上传/ })).toHaveCount(0);
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
   const evidence = (await call('snapshot')).drafts[0].files;
   assert.equal(evidence.length, a.sources.length + 1); // Existing project context plus the attachment, retained locally.

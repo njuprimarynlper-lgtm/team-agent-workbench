@@ -14,7 +14,9 @@ export class AdminConnection {
   constructor(private scriptPath: string, private changed: () => void) {}
   disconnect() { this.client?.end(); this.client = undefined; this.sudoPassword = ''; this.rawReady = false; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
   async connect(profile: AdminProfile, password: string, sudoPassword: string, trust: (key: string) => Promise<boolean>, login = profile.username): Promise<AdminProfile> {
-    this.disconnect(); this.code = deflateSync(Buffer.concat([Buffer.from("CONTENT_WORKER_BASE64 = '" + (await fs.readFile(path.join(path.dirname(this.scriptPath), 'content.py'))).toString('base64') + "'\n"), await fs.readFile(this.scriptPath)])).toString('base64');
+    this.disconnect();
+    const worker = deflateSync(await fs.readFile(path.join(path.dirname(this.scriptPath), 'content.py'))).toString('base64');
+    this.code = deflateSync(Buffer.concat([Buffer.from("CONTENT_WORKER_ZLIB_BASE64 = '" + worker + "'\n"), await fs.readFile(this.scriptPath)])).toString('base64');
     const client = new Client(); this.client = client; this.sudoPassword = sudoPassword || password;
     try {
       let fingerprint = '', identityChanged = false, firstConnectionCancelled = false;

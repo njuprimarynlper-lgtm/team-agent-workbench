@@ -35,7 +35,7 @@ else if (command === 'login') {
 } else {
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const m = JSON.parse(line), current = read(), turnId = current.turnId || 'fake-turn';
-    const preparation = JSON.stringify(m.params || {}).includes('destinationId');
+    const preparation = /destinationId|artifacts/.test(JSON.stringify(m.params || {}));
     const answer = provider => preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: '模型验证结果', body: '已根据阶段摘要整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' }) : provider === 'codex' ? '# 模型验证结果\n已根据阶段摘要整理。测试已通过。' : '# Cursor 验证结果\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m.method === 'account/login/start' ? { ...m, params: { type: m.params.type } } : m) + '\n');
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });

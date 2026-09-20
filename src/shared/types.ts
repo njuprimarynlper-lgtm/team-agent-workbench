@@ -1,4 +1,4 @@
-import type { ContentMetadata, GitRevision } from './content';
+import type { ContentMetadata, ContributionCategory, GitRevision } from './content';
 import type { ProjectBrief } from './project-brief';
 export type Provider = 'codex' | 'cursor';
 export type PermissionMode = 'inherit' | 'review' | 'auto' | 'full';
@@ -30,7 +30,8 @@ export interface AgentSession {
 }
 export interface Transfer { metadata?: ContentMetadata; trajectoryHash?: string; cacheCleared?: boolean; sha256?: string; completedAt?: string; id: string; kind: 'upload' | 'history' | 'download'; name: string; status: 'queued' | 'running' | 'done' | 'error'; bytes: number; total: number; target: string; projectName: string; createdAt: string; error?: string; sessionId?: string; localPath: string; binding: RemoteBinding }
 export interface DraftDestination { id: string; path: string; description: string }
-export interface Draft { git?: GitRevision; includeGit?: boolean; snapshot?: { capturedAt: string; messageCount: number; lastMessageId?: string; conversationHash: string }; id: string; sessionId: string; prepareSessionId?: string; generation?: 'running' | 'ready' | 'error' | 'canceled'; generationError?: string; generationStartedAt?: string; generationFinishedAt?: string; generationStage?: 'directories' | 'agent'; preparationVersion?: number; supplement?: string; repoUrlOverride?: string; destinations?: DraftDestination[]; destinationNote?: string; title: string; body: string; repoUrl?: string; target?: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
+export interface DraftArtifact { id: string; category: ContributionCategory; title: string; fields: Record<string, string>; body: string; repoUrl?: string; target: string; selected: boolean; submitted?: string }
+export interface Draft { git?: GitRevision; includeGit?: boolean; snapshot?: { capturedAt: string; messageCount: number; lastMessageId?: string; conversationHash: string }; id: string; sessionId: string; prepareSessionId?: string; generation?: 'running' | 'ready' | 'error' | 'canceled'; generationError?: string; generationStartedAt?: string; generationFinishedAt?: string; generationStage?: 'directories' | 'agent'; preparationVersion?: number; supplement?: string; repoUrlOverride?: string; destinations?: DraftDestination[]; destinationNote?: string; artifacts?: DraftArtifact[]; title: string; body: string; repoUrl?: string; target?: string; generatedBody?: string; files: SourceFile[]; binding?: RemoteBinding; inputDir: string; outputPath: string; createdAt: string; submitted?: string }
 export interface ProviderInfo { provider: Provider; path: string; available: boolean; version: string; detail: string }
 export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated' | 'configured' | 'unauthenticated' | 'error' | 'not-required' | 'logging-in'; detail: string; identity?: string; plan?: string; cwd?: string; checkedAt?: string; loginUrl?: string }
 export interface ModelOption { id: string; name: string; isDefault?: boolean }

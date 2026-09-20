@@ -138,8 +138,10 @@ export class LocalFileConnection {
     const file = await diskPath(this.root, target, missing); this.channel(binding); return file;
   }
   async ensurePersonalFolder(binding: RemoteBinding, target: string) {
-    if (![binding.project.uploadPath, binding.project.historyPath].includes(target)) { await this.checked(binding, target, true); return; }
-    const dir = await this.checked(binding, target, true, true); await fs.mkdir(dir, { recursive: true });
+    const base = [binding.project.uploadPath, binding.project.historyPath].find(folder => target === folder || target.startsWith(folder + '/'));
+    if (!base) { await this.checked(binding, target, true); return; }
+    const personal = await this.checked(binding, base, true, true); await fs.mkdir(personal, { recursive: true });
+    if (target !== base) { const nested = await this.checked(binding, target, true, true); await fs.mkdir(nested, { recursive: true }); }
   }
   async list(binding: RemoteBinding, target: string): Promise<RemoteEntry[]> {
     const dir = await this.checked(binding, target), entries = await fs.readdir(dir, { withFileTypes: true }), result: RemoteEntry[] = [];

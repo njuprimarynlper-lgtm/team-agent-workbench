@@ -92,7 +92,7 @@ npm run test:local-ui
 - 一个账号加入多个组后可一次登录发现全部授权组。
 - 移出组、停用账号或修改密码后，旧共享访问不再有效。
 - 用户只能选择本机工作路径，共享路径由账号权限与配置确定。
-- 成果上传进入项目 `submissions/账号/`，轨迹上传进入 `trajectories/账号/`。
+- 成果按类别进入项目 `submissions/账号/{experiments,failed-directions,findings,issues,baseline-change-proposals}/`，轨迹上传进入 `trajectories/账号/`。分类子目录由受控文件操作器在首次上传时创建。
 - 网络中断和应用重启不会把待上传内容改投其他项目或身份。
 
 本地模式的详细目录与权限桩行为见 [本地文件系统联调](local-filesystem.md)，正式身份边界见 [身份与协作说明](identity-content.md)。

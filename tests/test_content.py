@@ -124,6 +124,17 @@ class ContentRules(unittest.TestCase):
         for target in ['/projects/relation/实体抽取/../outside', '/projects/relation/实体抽取/.workbench-project.json', '/projects/ocr/a']:
             with self.assertRaises((PermissionError, ValueError)): self.call('alice', op='publish', target=target, sha256=content.digest(self.incoming))
 
+    def test_categorized_contribution_is_bound_to_its_server_path(self):
+        metadata = {'title': '覆盖率结论', 'description': '有证据的结论', 'kind': 'contribution', 'category': 'finding', 'fields': {'statement': '覆盖不足'}}
+        with self.assertRaises(PermissionError):
+            self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/issues/wrong.zip', sha256=content.digest(self.incoming), metadata=metadata)
+        item = self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/findings/right.zip', sha256=content.digest(self.incoming), metadata=metadata)
+        self.assertEqual(item['category'], 'finding'); self.assertEqual(item['fields']['statement'], '覆盖不足')
+        with self.assertRaises(ValueError):
+            self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/findings/bad.zip', sha256=content.digest(self.incoming), metadata={**metadata, 'fields': ['wrong']})
+        with self.assertRaises(ValueError):
+            self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/findings/extra.zip', sha256=content.digest(self.incoming), metadata={**metadata, 'fields': {'problem': '属于 issue 的字段'}})
+
     def test_legacy_files_can_be_adopted_and_maintained_only_by_subadmin(self):
         file = self.directory / 'legacy.txt'; file.write_text('历史内容', encoding='utf-8')
         target = '/projects/relation/实体抽取/legacy.txt'

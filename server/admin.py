@@ -20,6 +20,7 @@ import sys
 import uuid
 import contextlib
 import unicodedata
+import zlib
 
 OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
 
@@ -297,11 +298,12 @@ def protect_public_tree(root, state):
 
 
 def install_content_worker(root, state):
-    encoded = globals().get('CONTENT_WORKER_BASE64')
+    encoded = globals().get('CONTENT_WORKER_ZLIB_BASE64') or globals().get('CONTENT_WORKER_BASE64')
     if not encoded:
         raise ValueError('管理员程序缺少文件操作器，请使用完整新版管理员包')
     program = child(root, '.workbench/admin/content.py')
-    program.write_bytes(base64.b64decode(encoded, validate=True))
+    payload = base64.b64decode(encoded, validate=True)
+    program.write_bytes(zlib.decompress(payload) if globals().get('CONTENT_WORKER_ZLIB_BASE64') else payload)
     os.chown(program, 0, 0)
     os.chmod(program, 0o700)
     prepare_request_directories(root, state)

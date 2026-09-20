@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { offlineSettings } from '../tests/fixtures/offline-workspace.mjs';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { dismissStartupLogin } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 30000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'session-context-ui-' + Date.now());
 await fs.mkdir(data, { recursive: true });
@@ -29,6 +30,7 @@ const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout
 const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  await dismissStartupLogin(page);
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const get = async id => (await call('snapshot')).sessions.find(s => s.id === id);
   const send = async (id, text, count) => {

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { dismissStartupLogin } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 25000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'preparation-permissions-ui-' + Date.now());
 const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success', permissionRuntime: true, policyApproval: true, permissionConfig: { sandbox: 'read-only', approval: 'on-request' } });
@@ -12,6 +13,7 @@ const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data, CUR
 const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  await dismissStartupLogin(page);
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   for (const provider of ['codex', 'cursor']) {
     await page.getByRole('button', { name: '工作会话', exact: true }).click();
@@ -33,7 +35,7 @@ try {
     assert.equal(after.sessions.find(s => s.id === session.id).permissionMode, 'review');
     assert.equal(after.transfers.length, 0, 'preparation never uploads automatically');
     await expect(page.getByLabel('给团队的补充（可选）')).toHaveValue('保留的补充');
-    await expect(page.getByRole('button', { name: '确认上传', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^确认上传/ })).toBeEnabled();
     await fs.mkdir(path.join(root, 'artifacts'), { recursive: true });
     await page.screenshot({ path: path.join(root, 'artifacts', `preparation-full-access-${provider}.png`) });
     await page.locator('.draft-back').click();

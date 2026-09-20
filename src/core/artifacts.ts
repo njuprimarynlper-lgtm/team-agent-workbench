@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { ZipArchive } from 'archiver';
-import type { AgentSession, Draft, SourceFile } from '../shared/types';
+import type { AgentSession, Draft, DraftArtifact, SourceFile } from '../shared/types';
 import { safeFilename, localWithin } from './paths';
 export async function hashFile(file: string) {
   const hash = createHash('sha256'); for await (const chunk of fs.createReadStream(file)) hash.update(chunk); return hash.digest('hex');
@@ -39,6 +39,8 @@ export function githubRepository(value: string): string {
   return url.href.replace(/\/$/, '');
 }
 export async function packageDraft(draft: Draft, root: string): Promise<string> {
+  const artifact = draft.artifacts?.[0];
+  if (artifact) return packageDraftArtifact(draft, artifact, root);
   draft = structuredClone(draft);
   const repository = draft.repoUrlOverride?.trim() || draft.repoUrl?.trim() || '';
   const repoUrl = repository ? githubRepository(repository) : undefined;
@@ -52,8 +54,26 @@ export async function packageDraft(draft: Draft, root: string): Promise<string> 
   // Local preparation inputs and legacy attachments are deliberately never included.
   const zip = path.join(dir, safeFilename(draft.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
 }
+export async function packageDraftArtifact(draft: Draft, artifact: DraftArtifact, root: string): Promise<string> {
+  const repository = draft.repoUrlOverride?.trim() || artifact.repoUrl?.trim() || '';
+  const repoUrl = repository ? githubRepository(repository) : undefined;
+  const description = artifactContributionBody(draft, artifact);
+  if (!description.trim()) throw new Error('成果内容为空');
+  const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
+  const entries = [
+    { name: 'README.md', text: `# ${artifact.title}\n\n${repoUrl ? `GitHub 仓库：${repoUrl}\n\n` : ''}${description}` },
+    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 4, kind: 'project-contribution', category: artifact.category, fields: artifact.fields, title: artifact.title, repoUrl, git: draft.includeGit ? draft.git : undefined, description, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, snapshotHash: draft.snapshot?.conversationHash, projectId: draft.binding?.project.id }, null, 2) }
+  ];
+  const zip = path.join(dir, safeFilename(artifact.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
+}
+export function artifactContributionBody(draft: Draft, artifact: DraftArtifact) {
+  return artifact.body + gitAndSupplement(draft);
+}
 export function contributionBody(draft: Draft) {
-  return draft.body + (draft.includeGit && draft.git ? `\n\n## 代码版本（整理时快照）\n\n分支：${draft.git.branch}\n\nCommit：${draft.git.commit || '尚无提交'}\n\n未提交改动：${draft.git.dirty ? '存在，commit 无法代表全部本地改动' : '无'}\n\n记录时间：${draft.git.capturedAt}` : '') + (draft.supplement?.trim() ? '\n\n## 补充说明\n\n' + draft.supplement.trim() : '');
+  return draft.body + gitAndSupplement(draft);
+}
+function gitAndSupplement(draft: Draft) {
+  return (draft.includeGit && draft.git ? `\n\n## 代码版本（整理时快照）\n\n分支：${draft.git.branch}\n\nCommit：${draft.git.commit || '尚无提交'}\n\n未提交改动：${draft.git.dirty ? '存在，commit 无法代表全部本地改动' : '无'}\n\n记录时间：${draft.git.capturedAt}` : '') + (draft.supplement?.trim() ? '\n\n## 补充说明\n\n' + draft.supplement.trim() : '');
 }
 export function historyMarkdown(session: AgentSession) {
   return `# ${session.title}\n\n提供方：${session.provider}\n原生会话 ID：${session.nativeId || '尚未创建'}\n项目：${session.binding?.project.name || '本地会话'}\n\n> 这是工作台采集的对话与工具事件，不代表厂商隐藏推理或完整训练轨迹。\n\n` + session.messages.map(m => `## ${m.role} · ${m.createdAt}\n\n${m.text}\n`).join('\n');

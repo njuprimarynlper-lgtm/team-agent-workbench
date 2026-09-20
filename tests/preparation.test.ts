@@ -20,12 +20,15 @@ async function until(fn: () => boolean) { const end = Date.now() + 20000; while 
 const binding: RemoteBinding = { connectionId: 'c', host: 'local', port: 22, username: 'alice', fingerprint: 'f', project: { id: 'p', name: '项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } };
 const result = { title: '更新说明', body: '已完成的验证与限制。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' };
 
-test('structured results select only observed directories; invalid IDs fall back; no fabricated repository or lost supplement', () => {
-  const d = { binding, body: '', supplement: '人补充的说明', repoUrlOverride: 'https://github.com/human/repo', destinations: [{ id: 'default', path: binding.project.uploadPath }, { id: 'notes', path: '/p/方案说明' }] } as Draft;
-  applyPreparation(d, '```json\n' + JSON.stringify({ ...result, destinationId: 'notes' }) + '\n```');
-  assert.equal(d.target, '/p/方案说明'); assert.equal(d.body, result.body); assert.equal(d.supplement, '人补充的说明'); assert.equal(d.repoUrlOverride, 'https://github.com/human/repo');
-  for (const destinationId of ['/outside', '../..', '/p/trajectories/alice', 'unknown']) { applyPreparation(d, JSON.stringify({ ...result, destinationId })); assert.equal(d.target, binding.project.uploadPath); }
-  applyPreparation(d, JSON.stringify({ ...result, repoUrl: 'https://github.com/owner/repo/pull/123' })); assert.equal(d.repoUrl, '');
+test('structured results classify independent artifacts, keep only category fields and use fixed paths', () => {
+  const d = { id: 'draft', binding, body: '', supplement: '人补充的说明', repoUrlOverride: 'https://github.com/human/repo', preparationVersion: 3 } as Draft;
+  applyPreparation(d, '```json\n' + JSON.stringify({ artifacts: [
+    { category: 'experiment_result', title: '阈值实验', fields: { objective: '验证阈值', result: 'F1 提升 1.2', unknown: '不得保留' }, repoUrl: 'https://github.com/owner/repo' },
+    { category: 'baseline_change_proposal', title: '调整验收阈值', fields: { baselineItem: 'F1 下限', proposedValue: '0.91', rationale: '新数据分布' } }
+  ] }) + '\n```');
+  assert.equal(d.artifacts?.length, 2); assert.equal(d.artifacts?.[0].target, '/p/submissions/alice/experiments'); assert.equal(d.artifacts?.[1].target, '/p/submissions/alice/baseline-change-proposals');
+  assert.equal(d.artifacts?.[0].fields.unknown, undefined); assert.match(d.artifacts?.[0].body || '', /F1 提升/); assert.equal(d.supplement, '人补充的说明'); assert.equal(d.repoUrlOverride, 'https://github.com/human/repo');
+  applyPreparation(d, JSON.stringify({ ...result, repoUrl: 'https://github.com/owner/repo/pull/123' })); assert.equal(d.repoUrl, ''); assert.equal(d.target, '/p/submissions/alice/findings');
   assert.throws(() => applyPreparation(d, 'A partial or malformed answer'), /格式不完整/);
   for (const p of ['/outside', '/p/../other', '/p/trajectories', '/p/submissions/bob', '/p/.workbench']) assert.throws(() => contributionDirectory(binding, p));
 });
@@ -52,7 +55,7 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     const [d, same] = await Promise.all([wb.prepare(s.id), wb.prepare(s.id)]); assert.equal(d.id, same.id);
     await wb.saveDraftSupplement(d.id, '人工补充：下轮补充边界用例。', '');
     await assert.rejects(wb.submitDraft(d.id));
-    await until(() => d.generation === 'ready'); assert.equal(d.target, dir); assert.equal(wb.store.transfers.length, 0); assert(d.generationStartedAt); assert(d.generationFinishedAt);
+    await until(() => d.generation === 'ready'); assert.equal(d.target, p.uploadPath + '/findings'); assert.equal(wb.store.transfers.length, 0); assert(d.generationStartedAt); assert(d.generationFinishedAt);
     assert.equal((await wb.prepare(s.id)).id, d.id, 'ready contribution opens the same panel');
     await assert.rejects(wb.submitDraft(d.id, p.remoteRoot + '/trajectories/alice'), /不能在提交时改变/);
     // Refresh from the latest handoff only when explicitly regenerating completed work.
@@ -61,15 +64,20 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     const index = JSON.parse(await fs.readFile(path.join(d.inputDir, 'source-index.json'), 'utf8'));
     assert.match(await fs.readFile(index.handoff.localPath, 'utf8'), /继续推进/);
     assert.match(d.supplement!, /人工补充/);
-    await fixture.write({ status: 'ready', turn: 'success', preparationResult: { title: '方向性结论', body: '建议先验证数据覆盖率。已有依据来自当前材料，尚未验证最终收益。', repoUrl: '', destinationId: selected.id } });
-    await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.repoUrl, '');
-    const transfer = await wb.submitDraft(d.id); await until(() => !['queued', 'running'].includes(transfer.status)); assert.equal(transfer.status, 'done', transfer.error || '');
-    assert.equal(path.posix.dirname(transfer.target), dir);
+    await fixture.write({ status: 'ready', turn: 'success', preparationResult: { artifacts: [
+      { category: 'finding', title: '方向性结论', fields: { statement: '建议先验证数据覆盖率。', evidence: '当前材料显示收益尚未验证。' }, repoUrl: '' },
+      { category: 'issue', title: '覆盖率风险', fields: { problem: '数据覆盖不足', impact: '收益判断可能失真' } }
+    ] } });
+    await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.repoUrl, ''); assert.equal(d.artifacts?.length, 2);
+    const transfer = await wb.submitDraft(d.id); await until(() => wb.store.transfers.slice(0, 2).every(item => !['queued', 'running'].includes(item.status))); assert.equal(transfer.status, 'done', transfer.error || '');
+    assert.deepEqual(new Set(wb.store.transfers.slice(0, 2).map(item => path.posix.dirname(item.target))), new Set([p.uploadPath + '/findings', p.uploadPath + '/issues']));
     const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', transfer.localPath], { encoding: 'utf8' }));
-    assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']); assert.match(zip['README.md'], /建议先验证数据覆盖率/); assert.equal('repoUrl' in JSON.parse(zip['manifest.json']), false); assert.match(zip['README.md'], /人工补充/); assert(!JSON.stringify(zip).includes('材料原始内容'));
+    const manifest = JSON.parse(zip['manifest.json']);
+    assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']); assert.match(zip['README.md'], /建议先验证数据覆盖率/); assert.equal('repoUrl' in manifest, false); assert.equal(manifest.schemaVersion, 4); assert.equal(manifest.category, 'finding'); assert.equal(manifest.snapshotHash, d.snapshot?.conversationHash); assert.match(zip['README.md'], /人工补充/); assert(!JSON.stringify(zip).includes('材料原始内容'));
     assert.throws(() => wb.saveDraftSupplement(d.id, 'late', ''), /已提交/);
     await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
-    assert((await bob.remote.list(bob.remote.binding(p.id), dir)).some(x => x.path === transfer.target));
+    assert((await bob.remote.list(bob.remote.binding(p.id), p.uploadPath + '/findings')).some(x => x.path === transfer.target));
+    const shared = await bob.remote.contentList(bob.remote.binding(p.id)); assert.deepEqual(new Set(shared.filter(x => x.kind === 'contribution').map(x => x.category)), new Set(['finding', 'issue']));
     const next = await wb.prepare(s.id); await until(() => next.generation === 'ready'); assert.notEqual(next.id, d.id);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove', handoffs: { local_prepare: 'bob' } });
     const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于/);

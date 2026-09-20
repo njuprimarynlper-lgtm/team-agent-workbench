@@ -11,10 +11,15 @@ export class TransferQueue {
   private active = false;
   constructor(private store: Store, private remote: SharedFiles, private changed: () => void) {}
   async enqueue(local: string, binding: RemoteBinding, folder: string, kind: Transfer['kind'], sessionId?: string, metadata?: ContentMetadata, trajectoryHash?: string) {
-    assertRemote(binding.project.remoteRoot, folder);
-    const id = randomUUID();
-    const transfer: Transfer = { id, sha256: await hashFile(local), metadata, trajectoryHash, kind, name: path.basename(local), status: 'queued', bytes: 0, total: (await fsp.stat(local)).size, target: childRemote(folder, `${new Date().toISOString().replace(/[:.]/g, '-')}-${id.slice(0, 8)}-${safeFilename(path.basename(local))}`), projectName: binding.project.name, createdAt: new Date().toISOString(), sessionId, localPath: local, binding: structuredClone(binding) };
-    this.store.transfers.unshift(transfer); await this.store.save(); this.changed(); void this.pump(); return transfer;
+    return (await this.enqueueMany([{ local, binding, folder, kind, sessionId, metadata, trajectoryHash }]))[0];
+  }
+  async enqueueMany(inputs: { local: string; binding: RemoteBinding; folder: string; kind: Transfer['kind']; sessionId?: string; metadata?: ContentMetadata; trajectoryHash?: string }[]): Promise<Transfer[]> {
+    const transfers: Transfer[] = await Promise.all(inputs.map(async input => {
+      assertRemote(input.binding.project.remoteRoot, input.folder);
+      const id = randomUUID();
+      return { id, sha256: await hashFile(input.local), metadata: input.metadata, trajectoryHash: input.trajectoryHash, kind: input.kind, name: path.basename(input.local), status: 'queued', bytes: 0, total: (await fsp.stat(input.local)).size, target: childRemote(input.folder, `${new Date().toISOString().replace(/[:.]/g, '-')}-${id.slice(0, 8)}-${safeFilename(path.basename(input.local))}`), projectName: input.binding.project.name, createdAt: new Date().toISOString(), sessionId: input.sessionId, localPath: input.local, binding: structuredClone(input.binding) };
+    }));
+    this.store.transfers.unshift(...transfers.slice().reverse()); await this.store.save(); this.changed(); void this.pump(); return transfers;
   }
   async retry(id: string) { const item = this.store.transfers.find(t => t.id === id); if (!item || item.status !== 'error') throw new Error('只能重试失败的传输'); if (item.cacheCleared) throw new Error('此上传缓存已清理，无法重试'); this.remote.channel(item.binding); item.status = 'queued'; item.error = undefined; await this.store.save(); this.changed(); void this.pump(); }
   private async pump() {

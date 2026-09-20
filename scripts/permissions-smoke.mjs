@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+import { dismissStartupLogin } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 25000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'permissions-ui-' + Date.now());
 await fs.mkdir(data, { recursive: true });
@@ -17,6 +18,7 @@ const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout
 const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  await dismissStartupLogin(page);
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const snap = () => call('snapshot');
   const calls = async () => (await fs.readFile(path.join(data, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(x => JSON.parse(x));
