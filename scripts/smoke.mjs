@@ -82,6 +82,11 @@ try {
   assert.equal((await secondUser.evaluate(() => window.workbench.call('snapshot'))).connection.profile.username, 'bob');
   assert.equal(await app.evaluate(() => globalThis.__serverIdentityPrompts), 1);
   await secondUser.close(); await expect.poll(() => app.windows().length).toBe(1);
+  const splitter = page.getByRole('separator', { name: '调整项目与会话区域高度', exact: true });
+  const splitterBox = await splitter.boundingBox(), sessionBefore = await page.locator('.session-list').boundingBox();
+  await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y + splitterBox.height / 2); await page.mouse.down(); await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y - 60); await page.mouse.up();
+  const sessionAfter = await page.locator('.session-list').boundingBox(); assert(sessionAfter.height > sessionBefore.height + 40);
+  await splitter.dblclick();
   await page.locator('.workgroup-project').filter({ hasText: '实体抽取' }).click();
   assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
   await page.getByRole('button', { name: '新建工作会话', exact: true }).waitFor();
