@@ -30,7 +30,7 @@ try {
     await adminPage.getByText('管理员服务器连接', { exact: true }).waitFor();
     if (!packaged) await adminPage.screenshot({ path: path.join(data, 'admin-connection.png') });
     await adminPage.getByRole('button', { name: '取消', exact: true }).click();
-    await adminPage.locator('.admin-deferred').waitFor();
+    await expect(adminPage.getByRole('button', { name: '共享空间', exact: true })).toBeDisabled();
     if (!packaged) await adminPage.screenshot({ path: path.join(data, 'admin-main.png') });
     const isolation = await adminPage.evaluate(async () => ({ userAPI: typeof window.workbench, denied: await window.admin.call('session.create').then(() => false, () => true) }));
     assert.deepEqual(isolation, { userAPI: 'undefined', denied: true });

@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
-import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
+import type { AdminOperation, AdminProfile, AdminSnapshot, StorageScanRequest, StorageUsageReport } from './types';
+import { storageScanSchema } from './types';
 import { systemUsername } from '../core/account-login';
 
 // Only a fixed, packaged program is executed. Request data (including passwords)
@@ -101,16 +102,19 @@ export class AdminConnection {
       });
     });
   }
-  private execute(payload: object, useSudo: boolean): Promise<any> {
+  private execute(payload: object, useSudo: boolean, signal?: AbortSignal, timeoutMs = 90000): Promise<any> {
     if (!this.rawReady || !this.client) return Promise.reject(new Error('请先连接服务器'));
+    if (signal?.aborted) return Promise.reject(new Error('已取消空间统计'));
     // Keep the fixed script below SSH's request-packet limit as it grows.
     const program = `python3 -c 'import base64,zlib;exec(zlib.decompress(base64.b64decode("${this.code}")).decode("utf-8"))'`;
     const command = useSudo ? 'sudo -S -p WORKBENCH_SUDO -- ' + program : program;
     const request = { ...payload, root: this.snapshot.profile!.root };
     return new Promise((resolve, reject) => {
       let channel: ClientChannel | undefined, settled = false, buffer = '', diagnostic = '', ready = false, passwordSent = false;
-      const finish = (error?: Error, value?: unknown) => { if (settled) return; settled = true; clearTimeout(timer); channel?.end(); error ? reject(error) : resolve(value); };
-      const timer = setTimeout(() => { channel?.close(); finish(new Error('远端命令超时；可能已部分执行，请刷新状态后再决定是否重试')); }, 90000);
+      const abort = () => { channel?.close(); finish(new Error('已取消空间统计')); };
+      const finish = (error?: Error, value?: unknown) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); channel?.end(); error ? reject(error) : resolve(value); };
+      const timer = setTimeout(() => { channel?.close(); finish(new Error('远端命令超时；可能已部分执行，请刷新状态后再决定是否重试')); }, timeoutMs);
+      signal?.addEventListener('abort', abort, { once: true });
       this.client!.exec(command, (error, stream) => {
         if (error) { finish(error); return; } channel = stream; stream.setEncoding('utf8'); stream.stderr.setEncoding('utf8');
         stream.stderr.on('data', (data: Buffer) => {
@@ -145,5 +149,11 @@ export class AdminConnection {
       throw error;
     }
     finally { this.snapshot.busy = false; this.changed(); }
+  }
+  async storageUsage(raw: StorageScanRequest, signal?: AbortSignal): Promise<StorageUsageReport> {
+    const request = storageScanSchema.parse(raw);
+    if (!this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以查看共享空间统计');
+    if (!this.snapshot.state?.initialized) throw new Error('请先初始化团队空间');
+    return await this.execute({ op: 'storage_usage', ...request }, this.useSudo, signal, 5 * 60 * 1000) as StorageUsageReport;
   }
 }

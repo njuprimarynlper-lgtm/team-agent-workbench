@@ -22,7 +22,7 @@ import contextlib
 import unicodedata
 import zlib
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
+OPS = {"probe", "initialize", "status", "storage_usage", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -114,6 +114,167 @@ def root_directory(request):
     if str(root.resolve()) != str(root):
         raise ValueError("共享根路径及其上级不得包含符号链接或不规范路径")
     return root
+
+STORAGE_LABELS = {
+    "submissions": "成员成果", "trajectories": "会话轨迹", "curated": "团队整理",
+    "project": "项目公共内容", "system": "系统数据", "unassigned": "未归属",
+}
+
+def storage_metrics():
+    return {"bytes": 0, "files": 0, "directories": 0, "directBytes": 0}
+
+def storage_add_file(target, size, modified):
+    target["bytes"] += size
+    target["files"] += 1
+    if not target.get("modifiedAt") or modified > target["modifiedAt"]:
+        target["modifiedAt"] = modified
+
+def storage_add_directory(target, source):
+    target["bytes"] += source["bytes"]
+    target["files"] += source["files"]
+    target["directories"] += source["directories"] + 1
+    if source.get("modifiedAt") and (not target.get("modifiedAt") or source["modifiedAt"] > target["modifiedAt"]):
+        target["modifiedAt"] = source["modifiedAt"]
+
+def storage_time(value):
+    return datetime.datetime.fromtimestamp(value, datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+def storage_usage(root, state, request):
+    relative = request.get("path", "")
+    offset, limit = request.get("offset", 0), request.get("limit", 100)
+    if (not isinstance(relative, str) or len(relative) > 2048 or relative.startswith("/") or "\\" in relative
+            or "\x00" in relative or (relative and str(pathlib.PurePosixPath(relative)) != relative)
+            or any(part in (".", "..") for part in pathlib.PurePosixPath(relative).parts)):
+        raise ValueError("目录必须位于共享空间内")
+    if not isinstance(offset, int) or not 0 <= offset <= 1000000 or not isinstance(limit, int) or not 1 <= limit <= 200:
+        raise ValueError("目录分页参数无效")
+    target = child(root, relative) if relative else root
+    try:
+        target_info = target.lstat()
+    except FileNotFoundError:
+        raise ValueError("统计目录不存在")
+    if stat.S_ISLNK(target_info.st_mode) or not stat.S_ISDIR(target_info.st_mode):
+        raise ValueError("统计路径不是共享空间内的普通目录")
+
+    categories = {key: {"key": key, "label": label, **storage_metrics()} for key, label in STORAGE_LABELS.items()}
+    groups, users, project_names = {}, {}, {}
+    for group_id, group in state.get("groups", {}).items():
+        if not group.get("workspace") or group.get("provisioning"):
+            continue
+        group_path = group["workspace"].lstrip("/")
+        groups[group_id] = {
+            "id": group_id, "label": group.get("label", group_id), "path": group_path, "projects": 0,
+            "members": sum(group_id in user.get("groups", []) for user in state.get("users", {}).values()),
+            "submissionsBytes": 0, "trajectoriesBytes": 0, "curatedBytes": 0,
+            "projectBytes": 0, "unassignedBytes": 0, **storage_metrics(),
+        }
+        project_names[group_id] = set()
+    for username, user in state.get("users", {}).items():
+        users[username] = {
+            "username": username, "name": user.get("name", username), "groups": user.get("groups", []),
+            "submissionsBytes": 0, "trajectoriesBytes": 0, **storage_metrics(),
+        }
+    group_paths = sorted(groups.values(), key=lambda group: len(group["path"]), reverse=True)
+    warnings, warning_count = [], 0
+
+    def warn(item, message):
+        nonlocal warning_count
+        warning_count += 1
+        if len(warnings) < 50:
+            warnings.append({"path": item, "message": message})
+
+    def classify(item, size, modified):
+        segments = [part for part in item.split("/") if part]
+        group = next((candidate for candidate in group_paths if item == candidate["path"] or item.startswith(candidate["path"] + "/")), None)
+        key = "system" if segments and segments[0].startswith(".workbench") else "unassigned"
+        if group:
+            storage_add_file(group, size, modified)
+            prefix = len(group["path"].split("/"))
+            inside = segments[prefix:]
+            project_name = inside[0] if inside else None
+            if project_name and len(inside) > 1 and inside[-1] == ".workbench-project.json":
+                project_names[group["id"]].add(project_name)
+            section = inside[1] if len(inside) > 1 else None
+            username = inside[2] if len(inside) > 2 else None
+            if section in ("submissions", "trajectories") and username in users:
+                key = section
+                storage_add_file(users[username], size, modified)
+                if section == "submissions":
+                    users[username]["submissionsBytes"] += size
+                    group["submissionsBytes"] += size
+                else:
+                    users[username]["trajectoriesBytes"] += size
+                    group["trajectoriesBytes"] += size
+            elif section == "curated":
+                key = "curated"
+                group["curatedBytes"] += size
+            elif len(inside) > 1 and section not in ("submissions", "trajectories"):
+                key = "project"
+                group["projectBytes"] += size
+            else:
+                key = "unassigned"
+                group["unassignedBytes"] += size
+        storage_add_file(categories[key], size, modified)
+
+    def walk(directory, current, depth):
+        result = {**storage_metrics(), "children": []}
+        if depth > 128:
+            warn(current, "目录层级超过 128 层，已停止继续扫描")
+            return result
+        try:
+            with os.scandir(directory) as scan:
+                entries = list(scan)
+        except PermissionError:
+            warn(current, "没有读取权限")
+            return result
+        except OSError:
+            warn(current, "目录读取失败")
+            return result
+        for entry in entries:
+            item = posixpath.join(current, entry.name) if current else entry.name
+            try:
+                info = entry.stat(follow_symlinks=False)
+                modified = storage_time(info.st_mtime)
+                if stat.S_ISLNK(info.st_mode):
+                    warn(item, "已跳过符号链接")
+                elif stat.S_ISDIR(info.st_mode):
+                    value = walk(pathlib.Path(entry.path), item, depth + 1)
+                    if not value.get("modifiedAt") or modified > value["modifiedAt"]:
+                        value["modifiedAt"] = modified
+                    storage_add_directory(result, value)
+                    result["children"].append({key: value[key] for key in ("bytes", "files", "directories", "directBytes", "modifiedAt")} | {"name": entry.name, "path": item})
+                elif stat.S_ISREG(info.st_mode):
+                    storage_add_file(result, info.st_size, modified)
+                    result["directBytes"] += info.st_size
+                    if not relative:
+                        classify(item, info.st_size, modified)
+                else:
+                    warn(item, "已跳过非普通文件")
+            except FileNotFoundError:
+                warn(item, "扫描过程中已被移动或删除")
+            except OSError:
+                warn(item, "无法读取文件信息")
+        return result
+
+    total = walk(target, relative, 0)
+    for group_id, names in project_names.items():
+        groups[group_id]["projects"] = len(names)
+    children = sorted(total.pop("children"), key=lambda item: (-item["bytes"], item["name"]))
+    try:
+        volume_info = os.statvfs(root)
+        volume = {"totalBytes": volume_info.f_blocks * volume_info.f_frsize, "freeBytes": volume_info.f_bavail * volume_info.f_frsize}
+    except (OSError, AttributeError):
+        volume = {"totalBytes": 0, "freeBytes": 0}
+    return {
+        "scannedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+        "path": relative, "name": pathlib.PurePosixPath(relative).name if relative else "共享空间", "total": total,
+        "volume": volume,
+        "categories": [] if relative else list(categories.values()),
+        "groups": [] if relative else sorted(groups.values(), key=lambda item: -item["bytes"]),
+        "users": [] if relative else sorted(users.values(), key=lambda item: -item["bytes"]),
+        "children": children[offset:offset + limit], "childCount": len(children), "offset": offset, "limit": limit,
+        "warningCount": warning_count, "warnings": warnings,
+    }
 
 def allocate_id(records, field, reserved=()):
     used = {getattr(r, field) for r in records} | set(reserved)
@@ -532,6 +693,10 @@ def _execute(request):
     if request["op"] == "status" and not (root / ".workbench/admin/state.json").is_file():
         journal = bootstrap_file(root)
         return {"initialized": False, "users": {}, "groups": {}, "bootstrapPending": journal.exists()}
+    if request["op"] == "storage_usage":
+        if not (root / ".workbench/admin/state.json").is_file():
+            raise ValueError("请先初始化团队空间")
+        return storage_usage(root, load(root), request)
     if missing:
         raise ValueError("服务器缺少命令：" + ", ".join(missing) + "。请先安装发行版的 OpenSSH、shadow/passwd、procps 软件包。")
     op = request["op"]
@@ -696,7 +861,7 @@ def execute(request):
     try:
         return _execute(request)
     except Exception as error:
-        if request["op"] not in ["status", "probe"]:
+        if request["op"] not in ["status", "probe", "storage_usage"]:
             try:
                 state = load(root)
                 key = operation_key(request)
@@ -713,7 +878,7 @@ def main(request):
     validate_request(request)
     if sys.platform != "linux" or os.geteuid() != 0:
         raise PermissionError("需要已有 Linux root 或 sudo 管理权限")
-    if request["op"] == "probe":
+    if request["op"] in ["probe", "storage_usage"]:
         return execute(request)
     with state_lock(request):
         return execute(request)

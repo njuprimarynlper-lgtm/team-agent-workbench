@@ -29,7 +29,7 @@ test('only the local admin connection accepts omitted account and password', () 
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
   const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true, storageVersion: 1 };
-  const control = { failNext: false, authenticationAttempts: 0 };
+  const control = { failNext: false, holdStorage: false, authenticationAttempts: 0 };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
     client.on('authentication', context => { if (context.method === 'password') control.authenticationAttempts++; context.method === 'password' && context.password === 'login-secret' && (!login || context.username === login) ? context.accept() : context.reject(); });
@@ -58,12 +58,13 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
             const line = buffer.slice(0, n); buffer = buffer.slice(n + 1);
             if (!authorized) { assert.equal(line, 'sudo-secret'); authorized = true; channel.write('WORKBENCH_READY\n'); continue; }
             const input = JSON.parse(line); requests.push(input);
+            if (input.op === 'storage_usage' && control.holdStorage) continue;
             if (control.failNext && !['probe', 'status'].includes(input.op)) {
               control.failNext = false;
               state.operations = { 'group_create:ocr': { id: 'group_create:ocr', op: 'group_create', request: { op: 'group_create', label: 'ocr' }, status: 'failed', completed: ['成员用户组已创建'], error: 'injected failure' } };
               channel.write(JSON.stringify({ ok: false, error: 'injected failure' }) + '\n'); channel.exit(1); channel.end(); continue;
             }
-            const result = input.op === 'probe' ? { administrator: true, actor: role, missingCommands: [] } : input.op === 'status' ? state : { state };
+            const result = input.op === 'probe' ? { administrator: true, actor: role, missingCommands: [] } : input.op === 'status' ? state : input.op === 'storage_usage' ? { scannedAt: '2026-09-20T00:00:00.000Z', path: input.path, name: '共享空间', total: { bytes: 10, files: 1, directories: 1, directBytes: 0 }, volume: { totalBytes: 100, freeBytes: 60 }, categories: [], groups: [], users: [], children: [], childCount: 0, offset: input.offset, limit: input.limit, warningCount: 0, warnings: [] } : { state };
             channel.write(JSON.stringify({ ok: true, value: result }) + '\n'); channel.exit(0); channel.end();
           }
         });
@@ -92,12 +93,27 @@ for (const role of ['root', 'sudo'] as const) test(role + ': SSH verifies privil
     assert(!JSON.stringify(remote.snapshot).includes('secret')); assert(!f.commands.some(c => c.includes('secret')));
   } finally { remote.disconnect(); await f.close(); }
 });
+test('remote storage usage is a scoped read-only administrator operation', async () => {
+  const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  try {
+    await remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true);
+    const report = await remote.storageUsage({ path: 'projects/OCR', offset: 20, limit: 50 });
+    assert.equal(report.total.bytes, 10);
+    assert.deepEqual(f.requests.at(-1), { op: 'storage_usage', path: 'projects/OCR', offset: 20, limit: 50, root: '/srv/teamspace' });
+    assert.equal(remote.snapshot.busy, false);
+    f.control.holdStorage = true;
+    const controller = new AbortController(), pending = remote.storageUsage({ path: '', offset: 0, limit: 100 }, controller.signal);
+    setTimeout(() => controller.abort(), 10);
+    await assert.rejects(pending, /取消空间统计/);
+  } finally { remote.disconnect(); await f.close(); }
+});
 test('project subadmin authenticates through protected server assignment and cannot manage users', async () => {
   const f = await fixture('project'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
   try {
     await remote.connect({ host: '127.0.0.1', port: f.port, username: 'worker', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', '', async () => true);
     assert.equal(remote.snapshot.role, 'project_admin'); assert.deepEqual(remote.snapshot.contentGroups, [{ id: 'wb_test_ocr', name: 'OCR' }]);
     await assert.rejects(remote.operation({ op: 'user_create', username: 'bad', name: 'bad', password: 'new-secret' }), /只有总管理员/);
+    await assert.rejects(remote.storageUsage({ path: '', offset: 0, limit: 100 }), /只有总管理员/);
     assert.equal(f.commands.length, 0);
   } finally { remote.disconnect(); await f.close(); }
 });

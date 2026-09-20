@@ -2,9 +2,10 @@ import { continuitySuccessors } from './continuity';
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { groupSlug } from './group-name';
-import type { AdminOperation, AdminProfile, AdminSnapshot } from './types';
-import { adminOperationSchema } from './types';
+import type { AdminOperation, AdminProfile, AdminSnapshot, StorageScanRequest } from './types';
+import { adminOperationSchema, storageScanSchema } from './types';
 import { diskPath, localRoot, passwordHash, readRegistry, registryLock, writeRegistry, type LocalRegistry } from '../core/local-space';
+import { scanLocalStorage } from './storage-usage';
 
 export class LocalAdminConnection {
   snapshot: AdminSnapshot = { connected: false, verified: false, busy: false };
@@ -101,5 +102,13 @@ export class LocalAdminConnection {
         this.teamId = state.teamId; this.snapshot.state = state; this.snapshot.profile!.fingerprint = 'LOCAL:' + state.teamId; return state;
       });
     } finally { this.snapshot.busy = false; this.changed(); }
+  }
+  async storageUsage(raw: StorageScanRequest, signal?: AbortSignal) {
+    const request = storageScanSchema.parse(raw);
+    if (!this.snapshot.connected || !this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以查看共享空间统计');
+    if (!this.snapshot.state?.initialized || !this.teamId) throw new Error('请先初始化团队空间');
+    const generation = this.generation, data = await readRegistry(this.root);
+    if (data.state.teamId !== this.teamId || generation !== this.generation) throw new Error('本地共享区已改变，请重新连接');
+    return scanLocalStorage(this.root, data.state, request, signal);
   }
 }

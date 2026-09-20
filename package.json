@@ -23,6 +23,7 @@
     "test:workgroups-ui": "node scripts/workgroups-smoke.mjs",
     "test:connection-ui": "node scripts/connection-setup-smoke.mjs",
     "test:admin-ui": "node scripts/admin-management-smoke.mjs",
+    "test:storage-ui": "node scripts/admin-storage-smoke.mjs",
     "test:competition": "tsx scripts/competition-pilot.ts",
     "test:collaboration-ui": "tsx scripts/collaboration-smoke.ts",
     "test:server": "python -m unittest discover -s tests -p test_*.py",

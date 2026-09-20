@@ -82,6 +82,47 @@ class AdminSafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'非空'): admin.prepare_workspace(root,state,'wb_test_ocr')
             self.assertEqual((root/'projects/ocr/existing.txt').read_text(),'preserve')
 
+    def test_storage_usage_is_read_only_scoped_and_attributes_member_content(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            state = {
+                'initialized': True,
+                'users': {'alice': {'username': 'alice', 'name': 'Alice', 'groups': ['wb_test_ocr']}},
+                'groups': {'wb_test_ocr': {'name': 'wb_test_ocr', 'label': 'OCR', 'adminGroup': 'wb_test_ocr_admin', 'workspace': '/projects/OCR'}},
+            }
+            files = {
+                'projects/OCR/demo/.workbench-project.json': b'{}',
+                'projects/OCR/demo/submissions/alice/result.bin': b'a' * 10,
+                'projects/OCR/demo/trajectories/alice/run.zip': b'b' * 20,
+                'projects/OCR/demo/curated/final.md': b'c' * 30,
+                '.workbench/roles.json': b'd' * 5,
+            }
+            for name, content in files.items():
+                file = root/name; file.parent.mkdir(parents=True, exist_ok=True); file.write_bytes(content)
+            outside = root.parent/'outside-storage-test'; outside.mkdir(exist_ok=True)
+            (outside/'secret.bin').write_bytes(b'x' * 200)
+            try:
+                linked = True
+                try:
+                    (root/'linked').symlink_to(outside, target_is_directory=True)
+                except OSError:
+                    linked = False
+                result = admin.storage_usage(root, state, {'path': '', 'offset': 0, 'limit': 100})
+                categories = {item['key']: item['bytes'] for item in result['categories']}
+                self.assertEqual(categories['submissions'], 10)
+                self.assertEqual(categories['trajectories'], 20)
+                self.assertEqual(categories['curated'], 30)
+                self.assertEqual(categories['system'], 5)
+                self.assertEqual(result['groups'][0]['projects'], 1)
+                self.assertEqual(result['users'][0]['bytes'], 30)
+                self.assertEqual(result['warningCount'], 1 if linked else 0)
+                self.assertEqual(result['total']['bytes'], sum(map(len, files.values())))
+                with self.assertRaises(ValueError): admin.storage_usage(root, state, {'path': '../outside-storage-test', 'offset': 0, 'limit': 100})
+            finally:
+                import shutil
+                shutil.rmtree(outside, ignore_errors=True)
+
 class AdminRecoveryTests(unittest.TestCase):
     def test_saving_legacy_state_preserves_ordinary_membership_from_system(self):
         import json
