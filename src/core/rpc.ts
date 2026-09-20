@@ -58,12 +58,12 @@ export class JsonRpc extends EventEmitter {
   }
   private finish(error: Error) { if (this.closed) return; this.closed = true; for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(error); } this.pending.clear(); this.emit('closed', error); }
   private write(value: RpcMessage) { if (this.closed) throw new Error('CLI 连接已关闭'); this.process.stdin.write(JSON.stringify(this.envelope ? { jsonrpc: '2.0', ...value } : value) + '\n'); }
-  request(method: string, params: unknown = {}, timeout = 60000): Promise<any> {
+  request(method: string, params: unknown = {}, timeout = 60000, onWritten?: () => void): Promise<any> {
     return new Promise((resolve, reject) => {
       const id = ++this.seq;
       const timer = timeout ? setTimeout(() => { this.pending.delete(id); reject(new Error(method + ' 超时')); }, timeout) : undefined;
       this.pending.set(id, { resolve, reject, timer });
-      try { this.write({ id, method, params }); } catch (e) { this.pending.delete(id); clearTimeout(timer); reject(e); }
+      try { this.write({ id, method, params }); onWritten?.(); } catch (e) { this.pending.delete(id); clearTimeout(timer); reject(e); }
     });
   }
   notify(method: string, params: unknown = {}) { this.write({ method, params }); }

@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPermissions, setCursorManualReview } from './permissions';
 import type { PermissionMode } from '../shared/types';
 import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
-import type { AgentSession, ContentMergeSource, ContentUpdate, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
+import type { AgentCapabilitySelection, AgentSession, ContentMergeSource, ContentUpdate, Draft, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { preparationSnapshot } from './preparation-snapshot';
 import { SharedFiles } from './shared-files';
@@ -106,6 +106,7 @@ export class Workbench {
   saveInput(id: string, input: SessionInput) {
     this.session(id);
     if (input.sourceIds.some(sourceId => !this.session(id).sources.some(s => s.id === sourceId))) throw new Error('引用不属于当前会话');
+    if ((input.capabilities?.length || 0) > 20 || input.capabilities?.some(item => !item.id || !item.name || item.id.length > 500 || item.name.length > 200)) throw new Error('能力选择无效');
     this.store.inputs[id] = structuredClone(input); return this.store.save();
   }
   async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
@@ -121,6 +122,21 @@ export class Workbench {
     const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, controller.signal))();
     const job = { controller, promise }; this.catalogJobs.set(provider, job);
     try { return await promise; } finally { if (this.catalogJobs.get(provider) === job) this.catalogJobs.delete(provider); }
+  }
+  private async runtime(s: AgentSession) {
+    let runtime = this.runtimes.get(s.id);
+    if (runtime) return runtime;
+    const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
+    const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
+    runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage);
+    this.runtimes.set(s.id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
+    return runtime;
+  }
+  async capabilities(id: string, forceRefresh = false) {
+    const s = this.session(id); this.assertCanWork(s.binding);
+    if (s.closedAt || s.purpose !== 'work') throw new Error('此会话不能选择 Skill 或插件');
+    await this.requireAuth(s.provider, s.cwd);
+    return (await this.runtime(s)).capabilities(forceRefresh);
   }
   assertWorkspace() { if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号并选择本机工作目录'); }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
@@ -230,7 +246,7 @@ export class Workbench {
     const write = previous.then(() => this.store.event(id, value)).catch(e => this.notice('会话事件保存失败：' + e.message));
     this.eventWrites.set(id, write);
   }
-  async send(id: string, userText: string, sourceIds: string[] = []) {
+  async send(id: string, userText: string, sourceIds: string[] = [], capabilitySelections: AgentCapabilitySelection[] = [], submitted?: () => void) {
     this.assertWorkspace();
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
     if (!userText.trim()) throw new Error('请输入任务内容');
@@ -242,15 +258,7 @@ export class Workbench {
     try {
       await this.requireAuth(s.provider, s.cwd);
       if (s.closedAt) throw new Error('此会话已关闭');
-      let runtime = this.runtimes.get(id);
-      if (!runtime) {
-        const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
-        if (s.closedAt) throw new Error('此会话已关闭');
-        const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
-        if (s.closedAt) throw new Error('此会话已关闭');
-        runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(id, value), done: () => void this.onDone(id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage);
-        this.runtimes.set(id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(id) === runtime) this.runtimes.delete(id); });
-      }
+      const runtime = await this.runtime(s);
       // Resolve the actual native conversation before deciding what it already knows.
       await runtime.ensureStarted();
       if (s.closedAt) throw new Error('此会话已关闭');
@@ -258,7 +266,9 @@ export class Workbench {
       const input = sessionContext(s, userText, sourceIds);
       for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
       if (s.closedAt) throw new Error('此会话已关闭');
-      s.status = 'idle'; await runtime.prompt(input.text, { userText, context: input.context });
+      const capabilities = await runtime.resolveCapabilities(capabilitySelections);
+      s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted });
+      if (!started) throw new Error(s.error || '任务未能提交给 CLI，请重试');
       await this.store.save();
     } catch (e: any) { if (!s.closedAt) { s.status = 'error'; s.error = e.message; this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
     finally { this.sending.delete(id); }

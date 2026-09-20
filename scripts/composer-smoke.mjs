@@ -8,6 +8,8 @@ import { dismissStartupLogin } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'composer-' + Date.now());
 const fixture = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
+await fs.mkdir(path.join(data, '.cursor'), { recursive: true });
+await fs.writeFile(path.join(data, '.cursor', 'mcp.json'), JSON.stringify({ mcpServers: { 'fixture-mcp': { type: 'http', url: 'https://example.invalid/mcp' } } }));
 await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify({ ...offlineSettings(), connections: [], providerPaths: { codex: fixture.launcher, cursor: fixture.launcher }, lastWorkspace: data, localWorkspace: data, verifiedLocalWorkspace: data }));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data, CURSOR_CONFIG_DIR: path.join(data, 'cursor-config') }; delete env.ELECTRON_RUN_AS_NODE;
 const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
@@ -15,6 +17,7 @@ try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
   await dismissStartupLogin(page);
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
+  const rpcCalls = async () => (await fs.readFile(path.join(data, 'cli', 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   await page.setViewportSize({ width: 1100, height: 760 });
   const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
   const input = page.getByLabel('任务输入', { exact: true });
@@ -27,6 +30,7 @@ try {
     await expect(page.locator('.composer-bottom')).toContainText('Enter 发送 · Shift+Enter 换行');
     await expect(page.locator('.composer').getByLabel('选择模型')).toBeVisible();
     await expect(page.locator('.composer').getByLabel('当前执行权限')).toBeVisible();
+    await expect(page.locator('.composer').getByLabel('选择 Skill 和插件')).toBeVisible();
     await expect(page.locator('.session-permission-line')).toHaveCount(0);
     const chatBox = await page.locator('.messages').boundingBox();
     assert(chatBox.height >= 420 && chatBox.y < 170, 'chat must occupy the main area at 1100 × 760');
@@ -44,6 +48,16 @@ try {
     await expect(page.getByRole('dialog', { name: '执行权限', exact: true })).toBeVisible();
     if (provider === 'cursor') await expect(page.getByRole('button', { name: 'Auto-review（自动审查）', exact: true })).toBeDisabled();
     await input.click(); await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByLabel('选择 Skill 和插件').click();
+    const capabilities = page.getByRole('dialog', { name: 'Skill 与插件', exact: true });
+    const skillName = provider === 'codex' ? 'codex-fixture-skill' : 'cursor-fixture-skill', pluginName = provider === 'codex' ? 'Fixture Plugin' : 'fixture-mcp';
+    await expect(capabilities.getByRole('group', { name: '可用 Skills' }).getByRole('button').filter({ hasText: skillName })).toBeVisible();
+    await capabilities.getByRole('group', { name: '可用 Skills' }).getByRole('button').filter({ hasText: skillName }).click();
+    await expect(capabilities.getByRole('group', { name: '可用插件' }).getByRole('button').filter({ hasText: pluginName })).toBeVisible();
+    await capabilities.getByRole('group', { name: '可用插件' }).getByRole('button').filter({ hasText: pluginName }).click();
+    await page.screenshot({ path: path.join(artifacts, 'composer-capabilities-' + provider + '.png') });
+    await capabilities.getByRole('button', { name: '关闭选项' }).click();
+    await expect(page.getByLabel('下一条消息使用的能力').getByRole('button')).toHaveCount(2);
     await input.fill('   '); await input.press('Enter'); await expect(input).toHaveValue('   '); assert.equal((await current()).messages.length, 0);
     await input.fill('中文选词');
     // Chromium IME confirmation, Windows legacy 229, and held-key repeats must not submit.
@@ -56,7 +70,18 @@ try {
     await expect(input).toHaveValue('第一行\n第二行'); assert.equal((await current()).messages.length, 0);
     await input.press('Enter');
     await expect.poll(async () => (await current()).messages.some(m => m.role === 'assistant')).toBe(true);
-    await expect(input).toHaveValue(''); assert((await current()).messages.find(m => m.role === 'user').text.startsWith('第一行\n第二行'));
+    await expect(input).toHaveValue(''); assert((await current()).messages.find(m => m.role === 'user').userText.startsWith('第一行\n第二行'));
+    await expect(page.getByLabel('下一条消息使用的能力')).toHaveCount(0);
+    await expect(page.locator('.message.user .message-capabilities')).toContainText(skillName);
+    const invocation = (await rpcCalls()).filter(message => message.method === (provider === 'codex' ? 'turn/start' : 'session/prompt')).at(-1);
+    if (provider === 'codex') {
+      assert(invocation.params.input[0].text.startsWith('$codex-fixture-skill @fixture-plugin 第一行\n第二行'));
+      assert(invocation.params.input.some(item => item.type === 'skill' && item.name === 'codex-fixture-skill'));
+      assert(invocation.params.input.some(item => item.type === 'mention' && item.path === 'plugin://fixture-plugin@fixture-marketplace'));
+    } else {
+      assert(invocation.params.prompt[0].text.startsWith('/cursor-fixture-skill 第一行\n第二行'));
+      assert(invocation.params.prompt[0].text.includes('fixture-mcp'));
+    }
     const native = (await current()).nativeId;
     await input.fill('切换模型也保留草稿');
     await page.getByLabel('选择模型').click();
@@ -96,5 +121,5 @@ try {
     await call('session.close', { id: session.id });
   }
   assert.deepEqual(errors, []);
-  console.log('Composer UI passed: inline model/permission menus, quotas, switch preserving native identity and drafts, stop/cancel, retry, compact viewport geometry;  for Codex and Cursor: Enter sends, Shift+Enter inserts newline, Chinese IME confirmation and repeat do not send, empty input does not send, Ctrl+Enter stays supported, busy-session draft remains intact.');
+  console.log('Composer UI passed: native Skill/plugin selection and one-message chips/invocation, inline model/permission menus, quotas, switch preserving native identity and drafts, stop/cancel, retry, compact viewport geometry; for Codex and Cursor: Enter sends, Shift+Enter inserts newline, Chinese IME confirmation and repeat do not send, empty input does not send, Ctrl+Enter stays supported, busy-session draft remains intact.');
 } finally { await app.close(); }

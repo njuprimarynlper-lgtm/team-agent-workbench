@@ -9,12 +9,16 @@ export interface ConnectionProfile { mode?: 'sftp' | 'local'; localRoot?: string
 export interface WorkspaceSnapshot { profile: ConnectionProfile; workspaces: WorkspaceAccess[] }
 export interface ProjectBriefState { brief?: ProjectBrief; revision: number; updatedAt?: string }
 export interface Settings { workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; sidebarProjectHeight?: number; trustedServerIdentities?: Record<string, string>; contentSeen?: Record<string, Record<string, number>>; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
-export interface SessionInput { text: string; sourceIds: string[]; answers: Record<string, string> }
+export type AgentCapabilityKind = 'skill' | 'plugin';
+export interface AgentCapabilitySelection { id: string; kind: AgentCapabilityKind; name: string }
+export interface AgentCapabilityOption extends AgentCapabilitySelection { description: string; invocation: string; path?: string; source?: string; enabled: boolean; unavailableReason?: string }
+export interface AgentCapabilityCatalog { provider: Provider; skills: AgentCapabilityOption[]; plugins: AgentCapabilityOption[]; checkedAt: string; skillError?: string; pluginError?: string }
+export interface SessionInput { text: string; sourceIds: string[]; answers: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
 export interface SourceFile { id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string }
-export interface MessageContext { nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string> }
+export interface MessageContext { nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
 export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; userText?: string; context?: MessageContext; createdAt: string }
 export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'deny' | 'answer' }
 export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }

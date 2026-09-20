@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentSession, Approval, Message, MessageContext } from '../shared/types';
+import type { AgentCapabilityCatalog, AgentCapabilityOption, AgentSession, Approval, Message, MessageContext } from '../shared/types';
 import { JsonRpc, type RpcMessage } from './rpc';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, permissionIssue, probeCodexCommand } from './permissions';
 import { validateCodexStorage, type CodexStorage } from './codex-storage';
 import { CodexAuthBridge } from './codex-auth-bridge';
 import { permissionLabels } from '../shared/permission-presentation';
+import { codexCapabilities, cursorCommandCapabilities, cursorPluginCapabilities, emptyCapabilityCatalog } from './provider-capabilities';
 export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: () => void; }
 const now = () => new Date().toISOString();
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
@@ -18,6 +19,9 @@ export class AgentRuntime {
   private closing = false;
   private turnActive = false;
   private authBridge?: CodexAuthBridge;
+  private cursorCommands: any[] = [];
+  private cursorCommandWaiters = new Set<() => void>();
+  private codexCapabilityCatalog?: AgentCapabilityCatalog;
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage) {
     // Preparation has its own execution policy, including helpers saved by older builds.
     if (session.purpose === 'prepare') session.permissionMode = 'full';
@@ -36,7 +40,7 @@ export class AgentRuntime {
     if (this.initialized) return;
     const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
     if (s.provider === 'codex') {
-      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.7.0' }, ...(this.storage ? { capabilities: { experimentalApi: true } } : {}) });
+      await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.7.0' }, capabilities: { experimentalApi: true } });
       this.rpc.notify('initialized');
       if (this.storage) await validateCodexStorage(this.rpc, this.storage);
       await this.authBridge?.login(this.rpc);
@@ -71,21 +75,56 @@ export class AgentRuntime {
   async ensureStarted() {
     try { await this.start(); } catch (error) { const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else this.hooks.authFailed?.(error); throw error; }
   }
-  async prompt(text: string, options?: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'> }) {
+  async capabilities(forceRefresh = false): Promise<AgentCapabilityCatalog> {
+    await this.ensureStarted();
+    if (this.session.provider === 'cursor') {
+      if (!this.cursorCommands.length) await new Promise<void>(resolve => {
+        let timer: NodeJS.Timeout;
+        const done = () => { clearTimeout(timer); this.cursorCommandWaiters.delete(done); resolve(); };
+        this.cursorCommandWaiters.add(done); timer = setTimeout(done, 1500);
+      });
+      return { ...emptyCapabilityCatalog('cursor'), skills: cursorCommandCapabilities(this.cursorCommands), plugins: await cursorPluginCapabilities(this.session.cwd) };
+    }
+    if (!forceRefresh && this.codexCapabilityCatalog) return this.codexCapabilityCatalog;
+    let skillsResult: any = { data: [] }, installedPlugins: any = { marketplaces: [] }, skillError: string | undefined, pluginError: string | undefined;
+    try { skillsResult = await this.rpc.request('skills/list', { cwds: [this.session.cwd], forceReload: forceRefresh }, 20000); }
+    catch { skillError = 'Skill 列表读取失败，请检查 Codex 版本后重试。'; }
+    try { installedPlugins = await this.rpc.request('plugin/installed', { cwds: [this.session.cwd] }, 20000); }
+    catch { pluginError = '已安装插件读取失败，请更新 Codex 后重试；Skill 仍可使用。'; }
+    this.codexCapabilityCatalog = { ...codexCapabilities(skillsResult, installedPlugins), skillError, pluginError };
+    return this.codexCapabilityCatalog;
+  }
+  async resolveCapabilities(selections: { id: string; kind: 'skill' | 'plugin' }[]): Promise<AgentCapabilityOption[]> {
+    if (!selections.length) return [];
+    const catalog = await this.capabilities(false), available = new Map([...catalog.skills, ...catalog.plugins].map(item => [item.id, item]));
+    const resolved = selections.map(selection => {
+      const item = available.get(selection.id);
+      if (!item || item.kind !== selection.kind) throw new Error(`所选 ${selection.kind === 'skill' ? 'Skill' : '插件'} 已不可用，请重新选择`);
+      if (!item.enabled) throw new Error(item.unavailableReason || '所选能力当前不可用');
+      return item;
+    });
+    if (this.session.provider === 'cursor' && resolved.filter(item => item.kind === 'skill').length > 1) throw new Error('Cursor 每条消息只能显式调用一个 Skill，请重新选择');
+    return resolved;
+  }
+  async prompt(text: string, options?: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'>; capabilities?: AgentCapabilityOption[]; submitted?: () => void }) {
     if (!text.trim()) throw new Error('请输入任务内容');
     if (this.session.status === 'running' || this.session.status === 'approval') throw new Error('当前会话仍在运行，可以新建独立会话继续工作');
     await this.ensureStarted();
     if (this.closing) return false;
-    const context = options ? { ...options.context, nativeId: this.session.nativeId!, accepted: false } : undefined;
-    this.message(randomUUID(), 'user', text, false, options ? { userText: options.userText, context } : {});
-    this.hooks.event({ direction: 'user', text, ...(options ? { userText: options.userText } : {}) });
+    const selected = options?.capabilities || [], prefixes = selected.filter(item => item.kind === 'skill' || this.session.provider === 'codex').map(item => this.session.provider === 'cursor' ? '/' + item.invocation : item.kind === 'skill' ? '$' + item.invocation : '@' + item.invocation);
+    const cursorPlugins = this.session.provider === 'cursor' ? selected.filter(item => item.kind === 'plugin') : [];
+    const nativeText = [prefixes.join(' '), text].filter(Boolean).join(' ') + (cursorPlugins.length ? `\n\n[本轮用户选择的插件工具：${cursorPlugins.map(item => item.name).join('、')}。请在与当前任务相关时使用这些已由 Cursor CLI 加载的工具。]` : '');
+    const context = options ? { ...options.context, capabilities: selected.map(({ id, kind, name }) => ({ id, kind, name })), nativeId: this.session.nativeId!, accepted: false } : undefined;
+    this.message(randomUUID(), 'user', nativeText, false, options ? { userText: options.userText, context } : {});
+    this.hooks.event({ direction: 'user', text: nativeText, ...(options ? { userText: options.userText, capabilities: context?.capabilities } : {}) });
     this.turnId = undefined; this.turnActive = true; this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
     try {
       if (this.session.provider === 'codex') {
-        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...(this.session.model ? { model: this.session.model } : {}), input: [{ type: 'text', text, text_elements: [] }] });
+        const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
+        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...(this.session.model ? { model: this.session.model } : {}), input }, 60000, options?.submitted);
         if (this.turnActive) this.turnId = result.turn.id;
       } else {
-        const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text }] }, 0);
+        const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, options?.submitted);
         this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
       }
       if (context) { context.accepted = true; this.hooks.changed(); }
@@ -124,6 +163,7 @@ export class AgentRuntime {
     } else if (method === 'session/update') {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
       const u = p.update || {};
+      if (u.sessionUpdate === 'available_commands_update') { this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
       if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') this.message(this.cursorMessageId, 'assistant', u.content.text, true);
       if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
         const text = [u.title, u.status, ...(u.content || []).map((x: any) => x.content?.text || pretty(x))].filter(Boolean).join('\n');
@@ -189,5 +229,5 @@ export class AgentRuntime {
     else if (this.session.provider === 'cursor' && this.session.nativeId) this.rpc.notify('session/cancel', { sessionId: this.session.nativeId });
     else this.close();
   }
-  async close() { this.closing = true; this.turnActive = false; this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); await Promise.all([this.rpc.close(), this.authBridge?.close()]); }
+  async close() { this.closing = true; this.turnActive = false; for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); await Promise.all([this.rpc.close(), this.authBridge?.close()]); }
 }

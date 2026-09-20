@@ -35,6 +35,7 @@ async function syncServerIdentities(clearKey?: string) {
 }
 const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider = z.enum(['codex', 'cursor']);
 const sessionInput = z.object({ id });
+const capability = z.object({ id: z.string().min(1).max(500), kind: z.enum(['skill', 'plugin']), name: z.string().min(1).max(200) });
 async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpenDialog(owner, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
 async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Promise<unknown> {
   const context = contexts.get(owner); if (!context) throw new Error('当前窗口的独立工作台尚未就绪');
@@ -56,6 +57,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     }
     case 'provider.login.cancel': workbench.accounts.cancel(z.object({ provider }).parse(raw).provider); return true;
     case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.catalog(p.provider, p.cwd); }
+    case 'session.capabilities': { const p = z.object({ id, forceRefresh: z.boolean().optional() }).parse(raw); return workbench.capabilities(p.id, p.forceRefresh); }
     case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd); }
     case 'provider.cursorReview': return workbench.configureCursorReview(z.object({ cwd: text.min(1) }).parse(raw).cwd);
     case 'session.permissions': { const p = z.object({ id, mode: z.enum(['inherit', 'review', 'auto', 'full']), stop: z.boolean().optional() }).parse(raw); return workbench.changePermissions(p.id, p.mode, p.stop); }
@@ -117,12 +119,15 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }
     case 'cache.clean': return workbench.cleanUploadCache();
     case 'session.send': {
-      const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]) }).parse(raw); const s = workbench.session(p.id); workbench.assertCanWork(s.binding);
+      const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw); const s = workbench.session(p.id); workbench.assertCanWork(s.binding);
       await workbench.requireAuth(s.provider, s.cwd);
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
-      void workbench.send(p.id, p.text, p.sourceIds).catch(e => notice(e.message)); return true;
+      return new Promise<boolean>((resolve, reject) => {
+        let submitted = false;
+        void workbench.send(p.id, p.text, p.sourceIds, p.capabilities, () => { submitted = true; resolve(true); }).catch(error => { notice(error.message); if (!submitted) reject(error); });
+      });
     }
-    case 'session.input': { const p = z.object({ id, input: z.object({ text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()) }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
+    case 'session.input': { const p = z.object({ id, input: z.object({ text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
     case 'session.close': return workbench.closeSession(sessionInput.parse(raw).id);
     case 'session.reopen': return workbench.reopenSession(sessionInput.parse(raw).id);

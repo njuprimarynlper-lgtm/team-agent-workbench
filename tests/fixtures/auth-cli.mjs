@@ -57,6 +57,8 @@ else if (command === 'login') {
       if (current.quota === 'error') send({ id: m.id, error: { code: -32000, message: 'quota network failure DO_NOT_FORWARD_THIS_SECRET' } });
       else send({ id: m.id, result: { rateLimitsByLimitId: { codex: { primary: { usedPercent: 23, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: { usedPercent: 48, windowDurationMins: 10080, resetsAt: 1800600000 } } } } });
     }
+    else if (m.method === 'skills/list') send({ id: m.id, result: { data: [{ cwd: process.cwd(), skills: [{ name: 'codex-fixture-skill', description: 'Codex fixture skill', enabled: true, path: path.join(root, 'skills', 'codex-fixture-skill', 'SKILL.md'), scope: 'user' }], errors: [] }] } });
+    else if (m.method === 'plugin/installed') send({ id: m.id, result: { marketplaces: [{ name: 'fixture-marketplace', interface: { displayName: 'Fixture Marketplace' }, plugins: [{ id: 'fixture-plugin@fixture-marketplace', name: 'fixture-plugin', installed: true, enabled: true, availability: 'AVAILABLE', interface: { displayName: 'Fixture Plugin', shortDescription: 'Codex fixture plugin', enabled: true, capabilities: ['skills', 'mcp'] } }] }], marketplaceLoadErrors: [] } });
     else if (m.method === 'account/read') {
       log('account/read');
       if (current.status === 'hang') return;
@@ -71,7 +73,7 @@ else if (command === 'login') {
       if (current.rejectPermissionMode) send({ id: m.id, error: { code: -32000, message: 'sandbox mode not allowed by administrator policy' } });
       else send({ id: m.id, result: { thread: { id: 'fake-thread' }, ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: m.params.approvalsReviewer || current.permissionConfig?.reviewer || 'user', ...current.permissionRuntimeOverride } : {}) } });
     }
-    else if (m.method === 'session/new' || m.method === 'session/load') send({ id: m.id, result: { sessionId: 'fake-session' } });
+    else if (m.method === 'session/new' || m.method === 'session/load') { send({ id: m.id, result: { sessionId: 'fake-session' } }); send({ method: 'session/update', params: { sessionId: 'fake-session', update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'copy-request-id', description: 'internal' }, { name: 'cursor-fixture-skill', description: 'Cursor fixture skill' }] } } }); }
     else if (m.method === 'turn/start') {
       log('turn/start');
       if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
