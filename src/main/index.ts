@@ -12,18 +12,18 @@ import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
-const windows = new Set<BrowserWindow>(); let workbench: Workbench; let quitting = false; let closing = false; let windowsReady = false; let pendingWindows = 0;
+type WindowContext = { workbench: Workbench; slot: number; broadcast: () => void; notice: (message: string) => void };
+const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
+let quitting = false; let closing = false; let windowsReady = false; let pendingWindows = 0;
 const entry = path.join(__dirname, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
-function emit(event: WorkbenchEvent) { for (const window of windows) if (!window.isDestroyed()) window.webContents.send('workbench:event', event); }
-let emitTimer: NodeJS.Timeout | undefined;
-function broadcast() { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); }
-const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：')) for (const window of windows) if (!window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
 const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider = z.enum(['codex', 'cursor']);
 const sessionInput = z.object({ id });
 async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpenDialog(owner, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
 async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Promise<unknown> {
+  const context = contexts.get(owner); if (!context) throw new Error('当前窗口的独立工作台尚未就绪');
+  const { workbench, broadcast, notice } = context;
   const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
@@ -148,17 +148,31 @@ function latestWindow() {
   for (let index = list.length - 1; index >= 0; index -= 1) if (!list[index].isDestroyed() && list[index].isFocused()) return list[index];
   for (let index = list.length - 1; index >= 0; index -= 1) if (!list[index].isDestroyed()) return list[index];
 }
+function claimSlot() { let slot = 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
+function instanceRoot(slot: number) { return slot === 1 ? app.getPath('userData') : path.join(app.getPath('userData'), 'instances', String(slot)); }
 async function createWindow() {
+  const slot = claimSlot();
   const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   windows.add(window);
+  const emit = (event: WorkbenchEvent) => { if (!window.isDestroyed()) window.webContents.send('workbench:event', event); };
+  let emitTimer: NodeJS.Timeout | undefined;
+  const broadcast = () => { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
+  const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：') && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
+  const workbench = new Workbench(instanceRoot(slot), broadcast, notice);
+  try { await workbench.init(); contexts.set(window, { workbench, slot, broadcast, notice }); }
+  catch (error) { windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }
   window.setMenuBarVisibility(false);
   window.on('focus', () => window.flashFrame(false));
   window.on('close', event => {
-    if (quitting) return;
-    if (windows.size === 1) { event.preventDefault(); void finishQuit(window); }
-    else windows.delete(window);
+    if (quitting || closingWindows.has(window)) return;
+    event.preventDefault();
+    if (windows.size === 1) void finishQuit(window);
+    else void closeWindow(window);
   });
-  window.on('closed', () => windows.delete(window));
+  window.on('closed', () => {
+    windows.delete(window); const context = contexts.get(window); contexts.delete(window);
+    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void context.workbench.close(); }
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -171,7 +185,6 @@ function openAdditionalWindow() {
   void createWindow().catch(error => dialog.showErrorBox('工作台窗口启动失败', error.message));
 }
 if (ownDataDirectory(latestWindow, openAdditionalWindow)) app.whenReady().then(async () => {
-  workbench = new Workbench(app.getPath('userData'), broadcast, notice); await workbench.init();
   ipcMain.handle('workbench', async (event, action, payload) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     if (!owner || !windows.has(owner) || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
@@ -182,10 +195,20 @@ if (ownDataDirectory(latestWindow, openAdditionalWindow)) app.whenReady().then(a
   while (pendingWindows > 0) { pendingWindows -= 1; await createWindow(); }
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
 app.on('window-all-closed', () => { if (!closing) void finishQuit(); });
+async function closeWindow(window: BrowserWindow) {
+  if (closingWindows.has(window) || window.isDestroyed()) return;
+  const context = contexts.get(window); if (!context) { window.destroy(); return; }
+  closingWindows.add(window);
+  try {
+    await context.workbench.close(); contexts.delete(window); activeSlots.delete(context.slot); windows.delete(window); window.destroy();
+  } catch (e: any) {
+    if (!window.isDestroyed()) await dialog.showMessageBox(window, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留此账号窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试关闭。', buttons: ['返回工作台'] });
+  } finally { closingWindows.delete(window); }
+}
 async function finishQuit(owner = latestWindow()) {
   if (closing) return; closing = true;
-  try { await workbench.close(); quitting = true; app.quit(); }
+  try { await Promise.all([...contexts.values()].map(context => context.workbench.close())); quitting = true; app.quit(); }
   catch (e: any) { if (owner && !owner.isDestroyed()) await dialog.showMessageBox(owner, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试保存或退出。', buttons: ['返回工作台'] }); }
   finally { closing = false; }
 }
-app.on('before-quit', event => { if (!quitting && workbench) { event.preventDefault(); void finishQuit(); } });
+app.on('before-quit', event => { if (!quitting && contexts.size) { event.preventDefault(); void finishQuit(); } });

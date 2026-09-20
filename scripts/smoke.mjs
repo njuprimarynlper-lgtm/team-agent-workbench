@@ -45,7 +45,7 @@ try {
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByText('先连接团队账号', { exact: true }).waitFor();
   await assert.rejects(page.evaluate(cwd => window.workbench.call('session.create', { provider: 'codex', cwd }), data));
-  await page.getByRole('button', { name: '配置账号与本机目录', exact: true }).click();
+  await page.getByRole('button', { name: '连接团队账号', exact: true }).click();
   const profile = server.profile('alice');
   await page.getByLabel('本机工作路径', { exact: true }).fill(data);
   assert.equal(await page.getByLabel('Linux 工作路径', { exact: true }).count(), 0);
