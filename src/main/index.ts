@@ -12,12 +12,27 @@ import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
+import { ServerIdentityStore } from '../core/server-identities';
 type WindowContext = { workbench: Workbench; slot: number; broadcast: () => void; notice: (message: string) => void };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
 let quitting = false; let closing = false; let windowsReady = false; let pendingWindows = 0;
 const entry = path.join(__dirname, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
+const serverIdentities = new ServerIdentityStore(path.join(app.getPath('userData'), 'server-identities.json'));
+async function syncServerIdentities(clearKey?: string) {
+  const identities = serverIdentities.snapshot();
+  await Promise.all([...contexts.values()].map(async context => {
+    const settings = context.workbench.store.settings;
+    settings.trustedServerIdentities = { ...identities };
+    if (clearKey) {
+      if (context.workbench.remote.profile && serverIdentityKey(context.workbench.remote.profile.host, context.workbench.remote.profile.port) === clearKey) context.workbench.remote.disconnect();
+      settings.connections = settings.connections.map(profile => serverIdentityKey(profile.host, profile.port) === clearKey ? { ...profile, fingerprint: '' } : profile);
+      if (settings.workspaceSnapshot && serverIdentityKey(settings.workspaceSnapshot.profile.host, settings.workspaceSnapshot.profile.port) === clearKey) settings.workspaceSnapshot.profile.fingerprint = '';
+    }
+    await context.workbench.store.save(); context.broadcast();
+  }));
+}
 const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider = z.enum(['codex', 'cursor']);
 const sessionInput = z.object({ id });
 async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpenDialog(owner, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
@@ -49,7 +64,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'remote.connect': {
       const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().min(1) }).parse(raw);
       const key = serverIdentityKey(p.profile.host, p.profile.port);
-      const profile = { ...p.profile, fingerprint: p.profile.fingerprint || workbench.store.settings.trustedServerIdentities?.[key] || '' };
+      const profile = { ...p.profile, fingerprint: p.profile.mode === 'local' ? p.profile.fingerprint : serverIdentities.get(key) };
       return workbench.configureWorkspace(profile, p.password, p.localPath, async fingerprint => {
         const accepted = (await dialog.showMessageBox(owner, {
         type: 'question', title: '首次连接团队服务器', message: p.profile.name || '团队共享服务器',
@@ -57,20 +72,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
         buttons: ['取消', '继续登录'], defaultId: 0, cancelId: 0,
         })).response === 1;
         if (accepted) {
-          workbench.store.settings.trustedServerIdentities = { ...(workbench.store.settings.trustedServerIdentities || {}), [key]: fingerprint };
-          await workbench.store.save(); broadcast();
+          await serverIdentities.remember(key, fingerprint); await syncServerIdentities();
         }
         return accepted;
       });
     }
     case 'server.identity.forget': {
       const p = z.object({ host: z.string().min(1), port: z.number().int().min(1).max(65535) }).parse(raw), key = serverIdentityKey(p.host, p.port);
-      workbench.remote.disconnect();
-      const identities = { ...(workbench.store.settings.trustedServerIdentities || {}) }; delete identities[key];
-      workbench.store.settings.trustedServerIdentities = identities;
-      workbench.store.settings.connections = workbench.store.settings.connections.map(profile => serverIdentityKey(profile.host, profile.port) === key ? { ...profile, fingerprint: '' } : profile);
-      if (workbench.store.settings.workspaceSnapshot && serverIdentityKey(workbench.store.settings.workspaceSnapshot.profile.host, workbench.store.settings.workspaceSnapshot.profile.port) === key) workbench.store.settings.workspaceSnapshot.profile.fingerprint = '';
-      await workbench.store.save(); broadcast(); return true;
+      await serverIdentities.forget(key); await syncServerIdentities(key); return true;
     }
     case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional(), brief: projectBriefSchema.optional() }).parse(raw); return workbench.createProject(p.name, p.groupName, p.brief); }
     case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }
@@ -159,7 +168,10 @@ async function createWindow() {
   const broadcast = () => { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：') && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
   const workbench = new Workbench(instanceRoot(slot), broadcast, notice);
-  try { await workbench.init(); contexts.set(window, { workbench, slot, broadcast, notice }); }
+  try {
+    await workbench.init(); await serverIdentities.init(slot === 1 ? workbench.store.settings.trustedServerIdentities || {} : {});
+    workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot(); contexts.set(window, { workbench, slot, broadcast, notice });
+  }
   catch (error) { windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }
   window.setMenuBarVisibility(false);
   window.on('focus', () => window.flashFrame(false));
@@ -190,8 +202,8 @@ if (ownDataDirectory(latestWindow, openAdditionalWindow)) app.whenReady().then(a
     if (!owner || !windows.has(owner) || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
     try { return { ok: true, value: await dispatch(z.string().parse(action), payload, owner) }; } catch (e: any) { return { ok: false, error: errorMessage(e) }; }
   });
-  windowsReady = true;
   await createWindow();
+  windowsReady = true;
   while (pendingWindows > 0) { pendingWindows -= 1; await createWindow(); }
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
 app.on('window-all-closed', () => { if (!closing) void finishQuit(); });

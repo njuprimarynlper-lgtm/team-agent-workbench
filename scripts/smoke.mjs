@@ -1,5 +1,7 @@
 import { releaseRoot } from './release-paths.mjs';
-import { _electron as electron } from '@playwright/test';
+import { _electron as electron, expect } from '@playwright/test';
+import electronPath from 'electron';
+import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -68,6 +70,18 @@ try {
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await completeProjectSetup(page, '实体抽取');
   assert.equal(await app.evaluate(() => globalThis.__serverIdentityPrompts), 1);
+  const duplicateLaunch = launch('user');
+  const duplicate = spawn(packaged ? duplicateLaunch.executablePath : electronPath, packaged ? [] : ['dist/user'], { cwd: root, env, windowsHide: true, stdio: 'ignore' });
+  const exitCode = await new Promise((resolve, reject) => { const timer = setTimeout(() => { duplicate.kill(); reject(new Error('duplicate user instance did not exit')); }, 10000); duplicate.on('exit', code => { clearTimeout(timer); resolve(code); }); duplicate.on('error', reject); });
+  assert.equal(exitCode, 0); await expect.poll(() => app.windows().length).toBe(2);
+  const secondUser = app.windows().find(candidate => candidate !== page);
+  await secondUser.getByText('登录团队工作台', { exact: true }).waitFor();
+  const bobProfile = server.profile('bob');
+  await secondUser.evaluate(([profile, localPath]) => window.workbench.call('remote.connect', { profile, password: 'test-password', localPath }), [bobProfile, data]);
+  assert.equal((await page.evaluate(() => window.workbench.call('snapshot'))).connection.profile.username, 'alice');
+  assert.equal((await secondUser.evaluate(() => window.workbench.call('snapshot'))).connection.profile.username, 'bob');
+  assert.equal(await app.evaluate(() => globalThis.__serverIdentityPrompts), 1);
+  await secondUser.close(); await expect.poll(() => app.windows().length).toBe(1);
   await page.locator('.workgroup-project').filter({ hasText: '实体抽取' }).click();
   assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
   await page.getByRole('button', { name: '新建工作会话', exact: true }).waitFor();
