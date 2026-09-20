@@ -67,7 +67,7 @@ export class SftpConnection {
   }
   disconnect() { this.workspace = undefined; this.workspaces = []; this.sftp = undefined; this.sessionPassword = ''; this.client?.end(); this.client = undefined; this.changed(); }
   channel(binding?: RemoteBinding) {
-    if (!this.sftp || !this.profile) throw new Error('连接已断开，请点击“连接团队账号”重新登录后再试');
+    if (!this.sftp || !this.profile) throw new Error('连接已断开，请重新登录后再试');
     if (binding && !sameEndpoint(binding, this.profile)) throw new Error('当前服务器或账号与任务绑定的身份不一致，请切回原连接后重试');
     if (binding) {
       const project = this.profile.projects.find(p => p.id === binding.project.id);

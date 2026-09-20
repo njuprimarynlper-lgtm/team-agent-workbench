@@ -128,6 +128,11 @@ try {
   assert.deepEqual(errors, []);
   console.log(packaged ? 'Packaged EXE:' : 'Development build:', 'UI smoke passed: workspace/project setup, provider selection, login gating and recovery, network errors, preserved input, handoff and history defaults.');
   expected = await usabilityCases({ page, app, data, auth, profile });
+  await page.getByTitle('上传文件到当前目录', { exact: true }).click();
+  const disconnected = page.locator('.toast').filter({ hasText: '连接已断开' });
+  await disconnected.getByRole('button', { name: '连接团队账号', exact: true }).click();
+  await page.getByText('登录团队工作台', { exact: true }).waitFor();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
 } catch (error) {
   console.error('UI case failed:', error);
   // A deliberately failed save can correctly block normal quit. Force only this test instance closed.
