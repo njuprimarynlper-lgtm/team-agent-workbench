@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "algorithm": "RSA-OAEP-SHA256+A256GCM",
+  "taskId": "proxy-pilot-20260920",
+  "inReplyTo": "client-0001",
+  "encryptedKey": "U+e8oBNo/FGKRMyr/5HUvkY0Lu8PNZvQsMK9PKAC7DXiB4NuwUvdSP7gxWtSvVSp8N67u9KfnTaPaQAFSVYm4s0roM+SLyyuIvF9WPZPwW5lcmbK0O1CQRzqphELJ6uitlBXLxIliNJSG6e5Qfzr2FtuNzwVip/NcxvUGRSGuLOwP1blQ9mrWGtiqs5VDVUCUxHt5M0w4r1g4zEadOc5HENfAlNeF+jWBZDF6mg7MomUqGr0idjpyghPj3Yg9nieVEPVytWn0+a/XvcYGcqhSChZhrLiE9wtmDt4D55o8UFead+bnumETYtruZlxcgNYzgb9Fw9qo++pvrUr4bXiz0uPFZvur1zZqUWRkIilu6u0PUB6hA3AiKJMKmdqVLO2e1jqzzLtyeMWySWXFVqcq2mRCJgS/SBQfamBVesJZnX//H49CghEE2RNCmKvGU4WobKuS36Xz3NPoBAeAsQtTmO1y04c7ktQaa500i/27Wp9QSoKSUFe5MNlZlOZS2Ti",
+  "nonce": "+cmQ4jZk3om0VVuE",
+  "aad": "cHJveHktcGlsb3QtMjAyNjA5MjA6Y2xpZW50LTAwMDE=",
+  "tag": "cyJpU0raYlSBdPymc1xJDg==",
+  "ciphertext": "VMScThLuWDalHcoDh8/ZlV1Z9+yZ/dRY3MQsc2dseR3p9lJprqSl3Wp+GaijsKiG8KBi+uIADDKvmsm9cUTlZxgBs3oXTMGc6fk5BGKRMq86v29l3GYrSmWEpexMgTqgBlYVkWxWlEuutT9KqGdhKg4yTXDSDIIq0Rw2ONXvbaHvtyKHJzeOt92xjrGXMaU9NT90LRYeT/Q3NXhaFt/gbeBQaR8LPxopcRDAsdP4Cpml35B/HB8Uvq7OFLDvTspRr9kRwSpqs7gd/n0idAGVuUhGpAmDEhzHi9qXrQ9ByRDQCiA1YwZM+ZafeWnUB3M4/CT6Ly3G96yJouDTxHyUkWyzZmCjKC6ui+tcasTRFArbL9yB/EwtYnJ6QVSs5HM3WPoj/THqCYpC4N+xCETC1LBZRcfLIYLRMSpIo4rp"
+}
