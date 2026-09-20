@@ -37,7 +37,12 @@ async function launch(edition: string, user: string) {
 const call = (page: Page, action: string, payload?: unknown): Promise<any> => page.evaluate(([a, p]) => (window as any).workbench.call(a, p), [action, payload]);
 try {
   const a = await launch('user', 'alice'), b = await launch('user', 'bob'), management = await launch('admin', 'admin');
-  for (const [client, name] of [[a, 'alice'], [b, 'bob']] as const) await call(client.page, 'remote.connect', { profile: profiles[name], password: '1', localPath: data });
+  for (const [client, name] of [[a, 'alice'], [b, 'bob']] as const) {
+    const login = client.page.locator('.modal').filter({ hasText: '登录团队工作台' });
+    await login.waitFor();
+    await call(client.page, 'remote.connect', { profile: profiles[name], password: '1', localPath: data });
+    await login.getByRole('button', { name: '取消', exact: true }).click();
+  }
   const ap = a.page, bp = b.page, mp = management.page;
   // Reopening one user edition creates an isolated account window in the owning process.
   const duplicate = spawn(electronPath as unknown as string, ['dist/user'], { cwd: root, env: b.env, windowsHide: true, stdio: 'ignore' });
@@ -69,15 +74,15 @@ try {
   // The adoption action and the version note live behind the collapsed materials summary.
   await bp.locator('.session-materials > summary').click(); await expect(bp.locator('.session-materials-content')).toContainText('有新版本'); await bp.getByRole('button', { name: '更新项目说明', exact: true }).click();
   await expect.poll(async () => (await call(bp, 'snapshot')).sessions[0].projectBrief.revision).toBe(2);
-  await bp.getByTitle('公共成果', { exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).click();
+  await bp.getByTitle('公共成果', { exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).locator('.content-card-summary').click();
   await bp.getByRole('button', { name: '修改自己的提交', exact: true }).click(); await bp.getByLabel('公共成果内容').fill('Bob 补充的验证依据'); await bp.getByRole('button', { name: '保存修改', exact: true }).click();
   await expect(bp.locator('.content-detail')).toContainText('Bob 补充的验证依据');
-  await ap.getByTitle('公共成果', { exact: true }).click(); await ap.locator('.content-card').filter({ hasText: '第一项结论' }).click();
-  await ap.getByRole('button', { name: '整理 / 编辑', exact: true }).click(); await ap.getByLabel('公共成果内容').fill('Alice 统一整理的结论');
+  await ap.locator('.sidebar').getByRole('button', { name: '整理项目文档', exact: true }).click(); await ap.locator('.content-card').filter({ hasText: '第一项结论' }).getByRole('button', { name: '整理文档', exact: true }).click();
+  await ap.getByLabel('公共成果内容').fill('Alice 统一整理的结论');
   await ap.getByText('合并其他成果（保存后替代所选原件）', { exact: true }).click(); await ap.locator('.content-detail .check-row input').check(); await ap.getByRole('button', { name: '保存整理结果', exact: true }).click();
   await expect(ap.locator('.content-card')).toHaveCount(1);
   await bp.getByRole('button', { name: '刷新', exact: true }).click(); await bp.getByLabel('搜索公共成果').fill('统一整理');
-  await expect(bp.locator('.content-card')).toHaveCount(1); await bp.locator('.content-card').click();
+  await expect(bp.locator('.content-card')).toHaveCount(1); await bp.locator('.content-card-summary').click();
   await expect(bp.getByRole('button', { name: '修改自己的提交', exact: true })).toHaveCount(0);
   await expect(bp.locator('.content-detail')).toContainText('已整理，原作者不可覆盖');
   await bp.getByRole('button', { name: '加入当前会话', exact: true }).click(); await bp.getByTitle('工作会话', { exact: true }).click();
@@ -93,8 +98,8 @@ try {
   await ap.getByRole('button', { name: '项目资料 · 待完善', exact: true }).click();
   await ap.getByLabel('项目背景', { exact: true }).fill('新项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('新目标'); await ap.getByLabel('验收标准', { exact: true }).fill('新指标'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
   await expect(ap.getByRole('button', { name: '项目资料 · v1', exact: true })).toBeVisible();
-  await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('公共成果', { exact: true }).click();
-  await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card').click();
+  await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('整理项目文档', { exact: true }).click();
+  await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card-summary').click();
   await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with isolated accounts and sessions', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin edit/merge/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
