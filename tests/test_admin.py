@@ -379,13 +379,11 @@ class AdminRecoveryTests(unittest.TestCase):
                     values=list(info); values[0]=0o40755; values[4]=0
                     return admin.os.stat_result(values)
                 return info
-            def configure(root, state):
-                state['sftpConfigured']=True; state['storageVersion']=1
-            with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',safe_stat), patch.object(admin,'configure_member_access',side_effect=configure) as access:
+            with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',safe_stat), patch.object(admin,'configure_member_access') as access:
                 restored=admin.initialize(root,{})
             self.assertTrue(restored['initialized'])
-            self.assertTrue(restored['sftpConfigured']); self.assertEqual(restored['storageVersion'],1)
-            access.assert_called_once()
+            self.assertFalse(restored['sftpConfigured']); self.assertNotIn('storageVersion',restored)
+            access.assert_not_called()
             self.assertEqual(restored['teamId'],reservation['teamId'])
             self.assertFalse(journal.exists())
 
@@ -403,39 +401,57 @@ class AdminRecoveryTests(unittest.TestCase):
                 values=list(info); values[0]=0o40755; values[4]=0
                 return admin.os.stat_result(values)
             return info
-        def configure(root, state):
-            state['sftpConfigured']=True; state['storageVersion']=1
-        with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',stat), patch.object(admin,'configure_member_access',side_effect=configure) as access:
+        with patch.object(admin,'bootstrap_file',return_value=journal), patch.object(pathlib.Path,'stat',stat), patch.object(admin,'configure_member_access') as access:
             state=admin.initialize(self.root,{})
         self.assertTrue(state['initialized']); self.assertFalse(journal.exists())
         self.assertTrue(state['sftpConfigured']); self.assertEqual(state['storageVersion'],1)
-        access.assert_called_once()
+        access.assert_not_called()
         self.assertEqual(state['operations']['initialize']['status'],'done')
 
-    def test_incomplete_legacy_member_access_blocks_management_until_repaired(self):
+    def test_user_creation_configures_member_access_in_the_same_operation(self):
         state=admin.load(self.root); state['sftpConfigured']=False; state['storageVersion']=0; admin.save(self.root,state)
-        with self.assertRaisesRegex(ValueError,'成员接入尚未完成'):
-            self.execute('user_create',username='alice',name='Alice',password='1')
         def configure(root, current):
             current['sftpConfigured']=True; current['storageVersion']=1
-        with patch.object(admin,'configure_member_access',side_effect=configure):
-            self.execute('configure_sftp')
-        repaired=admin.load(self.root)
-        self.assertTrue(repaired['sftpConfigured']); self.assertEqual(repaired['storageVersion'],1)
-        self.execute('user_create',username='alice',name='Alice',password='1')
+        with patch.object(admin,'configure_member_access',side_effect=configure) as access:
+            self.execute('user_create',username='alice',name='Alice',password='1')
+        created=admin.load(self.root)
+        self.assertTrue(created['sftpConfigured']); self.assertEqual(created['storageVersion'],1)
+        self.assertFalse(created['users']['alice']['provisioning'])
+        self.assertIn('成员登录能力已配置',created['operations']['user_create:alice']['completed'])
+        access.assert_called_once_with(self.root,unittest.mock.ANY)
 
     def test_stale_member_access_flag_is_rejected_when_ssh_rule_is_missing_or_changed(self):
         state=admin.load(self.root)
         config=self.root/'member-access.conf'
-        with patch.object(admin,'member_access_file',return_value=config):
+        with patch.object(admin,'member_access_file',return_value=config), patch.object(admin,'sshd_includes_member_access',return_value=True):
             self.assertFalse(self.member_access_ready(self.root,state))
             config.write_text('stale rule\n',encoding='utf-8')
             self.assertFalse(self.member_access_ready(self.root,state))
             config.write_text(admin.member_access_config(self.root,state),encoding='utf-8')
             self.assertTrue(self.member_access_ready(self.root,state))
-        with patch.object(admin,'member_access_ready',return_value=False):
-            with self.assertRaisesRegex(ValueError,'成员接入尚未完成'):
-                self.execute('user_create',username='stale',name='Stale',password='1')
+
+    def test_member_access_requires_an_active_global_sshd_include(self):
+        config=self.root/'sshd_config'
+        member=pathlib.Path('/etc/ssh/sshd_config.d/80-workbench-test.conf')
+        for text in [
+            '# Include /etc/ssh/sshd_config.d/*.conf\n',
+            'Match User root\n    Include /etc/ssh/sshd_config.d/*.conf\n',
+            'Include /etc/ssh/other.d/*.conf\n',
+        ]:
+            config.write_text(text,encoding='utf-8')
+            self.assertFalse(admin.sshd_includes_member_access(member,config))
+        config.write_text('Match User root\nMatch all\nInclude "/etc/ssh/sshd_config.d/*.conf" # managed drop-ins\n',encoding='utf-8')
+        self.assertTrue(admin.sshd_includes_member_access(member,config))
+
+    def test_member_creation_can_enable_a_missing_global_sshd_include(self):
+        config=self.root/'sshd_config'
+        member=pathlib.Path('/etc/ssh/sshd_config.d/80-workbench-test.conf')
+        original='#Include /etc/ssh/sshd_config.d/*.conf\nMatch User root\n    PermitTTY no\n'
+        config.write_text(original,encoding='utf-8')
+        previous=admin.enable_member_access_include(member,config)
+        self.assertEqual(previous,original)
+        self.assertTrue(admin.sshd_includes_member_access(member,config))
+        self.assertTrue(config.read_text(encoding='utf-8').startswith('Include /etc/ssh/sshd_config.d/*.conf\n'))
 
     def test_membership_manifest_has_no_offline_validity_field(self):
         self.execute('status')

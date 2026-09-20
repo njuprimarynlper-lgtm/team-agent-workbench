@@ -64,7 +64,12 @@ export class Workbench {
     else { if (!binding) throw new Error('请先选择所属工作组下的项目'); assertKnownWorkspace(binding, this.store.settings.workspaceSnapshot); }
   }
   async refreshGroups() {
-    const projects = await this.remote.loadManifest();
+    let projects;
+    try { projects = await this.remote.loadManifest(); }
+    catch (error: any) {
+      if (!this.remote.connected) throw new Error('无法刷新最新账号身份：' + error.message);
+      throw error;
+    }
     const profile = this.remote.profile!;
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
     this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? structuredClone(profile) : p);

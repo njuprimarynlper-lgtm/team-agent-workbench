@@ -62,7 +62,6 @@ export class LocalAdminConnection {
         switch (request.op) {
           case 'status': break;
           case 'initialize': break;
-          case 'configure_sftp': state.sftpConfigured = true; state.storageVersion = 1; break;
           case 'group_create': {
             const label = request.label, name = 'local_' + groupSlug(label), record = state.groups[name];
             if (!record) {

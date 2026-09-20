@@ -25,12 +25,12 @@ export function friendlySftp(error: any): Error {
   // length. Linux nologin starts with "This" (0x54686973 = 1416128883),
   // which means authentication succeeded but the server did not apply the
   // team's ForceCommand internal-sftp rule to this managed account.
-  if (/Packet length 1416128883 exceeds max length/i.test(error.message || '')) return new Error('服务器成员接入尚未正确配置：账号已通过认证，但服务器没有启动 SFTP。请管理员在管理员版执行“完成成员接入配置”后重试');
+  if (/Packet length 1416128883 exceeds max length/i.test(error.message || '')) return new Error('服务器成员登录配置异常：账号已通过认证，但服务器没有启动 SFTP。请管理员使用新版管理员端检查并重新创建该成员账号');
   return new Error(error.message || String(error));
 }
 export class SftpConnection {
   private storageVersion = 0;
-  private client?: Client; private sftp?: SFTPWrapper;
+  private client?: Client; private sftp?: SFTPWrapper; private sessionPassword = ''; private reconnecting?: Promise<void>;
   profile?: ConnectionProfile;
   workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] = [];
   constructor(private changed: () => void = () => {}) {}
@@ -41,7 +41,7 @@ export class SftpConnection {
     let fingerprint = '', identityChanged = false, firstConnectionCancelled = false;
     await new Promise<void>((resolve, reject) => {
       client.on('error', reject);
-      client.on('close', () => { if (this.client === client) { this.sftp = undefined; this.workspace = undefined; this.workspaces = []; this.changed(); } });
+      client.on('close', () => { if (this.client === client) { this.client = undefined; this.sftp = undefined; this.workspace = undefined; this.workspaces = []; this.changed(); } });
       client.on('ready', () => client.sftp((error, channel) => {
         if (error) { reject(error); return; }
         this.sftp = channel; this.profile = { ...profile, fingerprint, projects: [], workPath: '', manifestPath: '' }; resolve(); this.changed();
@@ -62,9 +62,10 @@ export class SftpConnection {
       if (firstConnectionCancelled) throw new Error('已取消首次连接，服务器身份没有保存，登录密码尚未发送。');
       throw friendlySftp(e);
     });
+    this.sessionPassword = password;
     return this.profile!;
   }
-  disconnect() { this.workspace = undefined; this.workspaces = []; this.sftp = undefined; this.client?.end(); this.client = undefined; this.changed(); }
+  disconnect() { this.workspace = undefined; this.workspaces = []; this.sftp = undefined; this.sessionPassword = ''; this.client?.end(); this.client = undefined; this.changed(); }
   channel(binding?: RemoteBinding) {
     if (!this.sftp || !this.profile) throw new Error('请先连接共享服务器');
     if (binding && !sameEndpoint(binding, this.profile)) throw new Error('当前服务器或账号与任务绑定的身份不一致，请切回原连接后重试');
@@ -203,7 +204,21 @@ export class SftpConnection {
     if (!withinRemote(canonicalRoot, canonicalTarget)) throw new Error('符号链接指向项目范围之外，已拒绝访问');
     return { s, target: parent ? childRemote(canonicalTarget, path.posix.basename(p)) : canonicalTarget };
   }
-  loadManifest(): Promise<Project[]> { return this.discoverProjects(); }
+  async loadManifest(): Promise<Project[]> {
+    if (!this.connected) {
+      try {
+        if (this.reconnecting) await this.reconnecting;
+        else {
+          const profile = this.profile && structuredClone(this.profile), password = this.sessionPassword;
+          if (!profile || !password) throw new Error('共享连接已失效，请重新登录后刷新账号身份与工作组');
+          this.reconnecting = this.connect(profile, password, async () => false).then(() => {}).finally(() => { this.reconnecting = undefined; });
+          await this.reconnecting;
+        }
+      }
+      catch { throw new Error('共享连接已失效，自动恢复失败。请重新登录后刷新账号身份与工作组'); }
+    }
+    return this.discoverProjects();
+  }
   async list(binding: RemoteBinding, target: string): Promise<RemoteEntry[]> {
     const { s, target: canonical } = await this.checked(binding, target);
     return new Promise((resolve, reject) => s.readdir(canonical, (e, list) => {

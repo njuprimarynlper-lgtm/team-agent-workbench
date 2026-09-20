@@ -111,7 +111,9 @@ try {
   assert.equal(await page.locator('.check-row input').isChecked(), false);
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByText('CLI 与本地设置', { exact: true }).waitFor();
+  await page.getByText('设置', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: '本机与 CLI', exact: true }).click();
+  await page.getByText('Codex · GPT', { exact: true }).waitFor();
   if (!packaged) await page.screenshot({ path: path.join(root, 'artifacts', 'settings.png') });
   await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
   await page.locator('.connection-button').click();

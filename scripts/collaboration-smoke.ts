@@ -39,17 +39,25 @@ try {
   const a = await launch('user', 'alice'), b = await launch('user', 'bob'), management = await launch('admin', 'admin');
   for (const [client, name] of [[a, 'alice'], [b, 'bob']] as const) await call(client.page, 'remote.connect', { profile: profiles[name], password: '1', localPath: data });
   const ap = a.page, bp = b.page, mp = management.page;
-  // Two user data directories coexist; a duplicate of either must focus its owner and exit.
+  // Two user data directories coexist; reopening one user edition creates another window
+  // in the owning process so all windows share one safely serialized local state.
   const duplicate = spawn(electronPath as unknown as string, ['dist/user'], { cwd: root, env: b.env, windowsHide: true, stdio: 'ignore' });
   const exitCode = await new Promise<number | null>((resolve, reject) => { const timer = setTimeout(() => { duplicate.kill(); reject(new Error('duplicate instance did not exit')); }, 10000); duplicate.on('exit', code => { clearTimeout(timer); resolve(code); }); duplicate.on('error', reject); });
-  assert.equal(exitCode, 0); assert.equal((await call(bp, 'snapshot')).sessions.length, 1);
+  assert.equal(exitCode, 0); await expect.poll(() => b.app.windows().length).toBe(2);
+  const secondBobWindow = b.app.windows().find(page => page !== bp)!; pages.push(secondBobWindow); secondBobWindow.on('pageerror', error => errors.push(error.message));
+  await secondBobWindow.getByTitle('工作会话', { exact: true }).waitFor(); assert.equal((await call(secondBobWindow, 'snapshot')).sessions.length, 1);
+  await secondBobWindow.close(); await expect.poll(() => b.app.windows().length).toBe(1);
   await mp.getByLabel('共享区类型').selectOption('local'); await mp.getByLabel('本地共享区根目录').fill(share);
   await mp.getByRole('button', { name: '打开共享目录', exact: true }).click();
   // The admin window shares the same team state but no longer carries an offline validity setting.
   await expect(mp.locator('.admin-content')).not.toContainText('离线工作');
   await call(bp, 'remote.manifest');
-  await ap.getByRole('button', { name: '项目资料 · v1', exact: true }).click();
-  await expect(ap.getByLabel('项目背景', { exact: true })).toHaveValue('项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('提高质量和效率'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
+  await ap.getByTitle('设置', { exact: true }).click();
+  await expect(ap.getByRole('tab', { name: '项目设置', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(ap.getByLabel('项目背景', { exact: true })).toHaveValue('项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('提高质量和效率'); await ap.getByRole('button', { name: '保存项目设置', exact: true }).click();
+  await expect(ap.locator('.project-settings-form')).toContainText('资料版本：v2');
+  const briefMarkdown = await fs.readFile(path.join(share, ...project.remoteRoot.split('/').filter(Boolean), '项目说明.md'), 'utf8');
+  assert.match(briefMarkdown, /## 项目目标\s+提高质量和效率/); await ap.getByRole('button', { name: '关闭窗口', exact: true }).click();
   // Wait for Alice's asynchronous save before Bob re-reads the manifest, or Bob legitimately still sees version 1.
   await expect(ap.getByRole('button', { name: '项目资料 · v2', exact: true })).toBeVisible();
   await call(bp, 'remote.manifest'); await expect(bp.locator('.session-materials .materials-update')).toBeVisible();
@@ -85,7 +93,7 @@ try {
   await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card').click();
   await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'same-directory instance lock', 'admin window without an offline setting', 'project brief versions and explicit adoption', 'author revision', 'subadmin edit/merge/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with shared state', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin edit/merge/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
 } catch (error) {
   for (const [i, page] of pages.entries()) { await page.screenshot({ path: path.join(data, 'failure-' + i + '.png') }).catch(() => {}); await fs.writeFile(path.join(data, 'failure-' + i + '.txt'), await page.locator('body').innerText().catch(() => 'closed')); }
   throw error;

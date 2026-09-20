@@ -71,6 +71,23 @@ test('SFTP accepts a Chinese workgroup name and still rejects unrecognised works
   } finally { alice.disconnect(); await server.close(); }
 });
 
+test('SFTP refresh reconnects the current login after an administrator changes membership or role', async () => {
+  const server = await teamServer(), alice = new SftpConnection();
+  server.nodes.set('/projects/nlp', { mode: 0o40755, uid: 0, gid: 100, data: Buffer.alloc(0) });
+  try {
+    await alice.connect(server.profile('alice'), 'test-password', async () => true);
+    await alice.loadManifest(); assert.equal(alice.workspaces.length, 1);
+    server.state.memberships.alice = ['ocr', 'nlp']; server.state.groupAdmins.nlp = ['alice'];
+    await server.disconnectClients();
+    const deadline = Date.now() + 3000;
+    while (alice.connected && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(alice.connected, false);
+    await alice.loadManifest();
+    assert.equal(alice.connected, true); assert.deepEqual(alice.workspaces.map(group => group.groupName).sort(), ['wb_test_nlp', 'wb_test_ocr']);
+    assert.equal(alice.workspaces.find(group => group.groupName === 'wb_test_nlp')!.canCreateProject, true);
+  } finally { alice.disconnect(); await server.close(); }
+});
+
 test('SFTP discovers trusted memberships across groups, refreshes roles, isolates access errors and rejects legacy/untrusted metadata', async () => {
   const server = await teamServer(), alice = new SftpConnection(), bob = new SftpConnection();
   server.nodes.set('/projects/nlp', { mode: 0o40755, uid: 0, gid: 100, data: Buffer.alloc(0) });

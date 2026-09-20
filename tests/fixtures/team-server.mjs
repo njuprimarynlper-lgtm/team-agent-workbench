@@ -82,5 +82,5 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
     })));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  return { nodes, state, profile: username => ({ id: 'fixture-' + username, host: '127.0.0.1', port: server.address().port, username, fingerprint, name: '测试团队', manifestPath: '', projects: [], workPath: '/projects/ocr' }), close: async () => { clients.forEach(c => c.end()); await new Promise(resolve => server.close(resolve)); } };
+  return { nodes, state, profile: username => ({ id: 'fixture-' + username, host: '127.0.0.1', port: server.address().port, username, fingerprint, name: '测试团队', manifestPath: '', projects: [], workPath: '/projects/ocr' }), disconnectClients: async () => { clients.splice(0).forEach(c => c.end()); await new Promise(resolve => setTimeout(resolve, 30)); }, close: async () => { clients.forEach(c => c.end()); await new Promise(resolve => server.close(resolve)); } };
 }

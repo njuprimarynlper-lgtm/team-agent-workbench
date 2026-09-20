@@ -46,7 +46,7 @@ try {
     await row.getByRole('button', { name: '加入用户组', exact: true }).click(); await ap.getByLabel('选择已有用户组').selectOption(group);
     await ap.getByLabel('成员身份', { exact: true }).selectOption('admin'); await confirm(ap);
   }
-  await up.getByRole('button', { name: '刷新工作组', exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(2);
+  await up.getByRole('button', { name: '刷新账号身份与工作组', exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(2);
   await expect(up.getByText('还没有加入工作组', { exact: true })).toHaveCount(0); await expect(up.locator('[data-group-name="local_secret"]')).toHaveCount(0);
   for (const group of ['ocr', 'nlp']) {
     if (group !== 'ocr') await up.getByTitle('在 ' + group + ' 创建项目', { exact: true }).click();
@@ -77,7 +77,7 @@ try {
   await up.screenshot({ path: path.join(data, 'two-groups.png') });
   // Change role and membership through administrator UI while the user stays connected.
   await row.getByTitle('管理 nlp 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('member'); await ap.getByLabel('nlp 接任安排').selectOption('__vacant__'); await confirm(ap);
-  await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.getByTitle('在 nlp 创建项目', { exact: true })).toHaveCount(0);
+  await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.toast')).toContainText('账号身份与工作组已刷新'); await expect(up.getByTitle('在 nlp 创建项目', { exact: true })).toHaveCount(0);
   await expect(up.getByTitle('在 ocr 创建项目', { exact: true })).toHaveCount(1);
   await assert.rejects(up.evaluate(() => window.workbench.call('project.create', { name: '越权创建', groupName: 'local_nlp' })), /子管理员|权限|管理/);
   await up.screenshot({ path: path.join(data, 'independent-roles.png') });
@@ -89,6 +89,6 @@ try {
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup .inline-error')).toBeVisible();
   await expect(up.getByText('还没有加入工作组', { exact: true })).toHaveCount(0);
   assert.deepEqual(errors, []);
-  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, cases: ['unassigned login and admin config import', 'no shared root or shared path input', 'unassigned users have no workbench', 'live group assignment', 'one saved account login discovers two groups', 'separate groups and same-name projects', 'independent subadmin/member roles and backend denial', 'session stays bound after switching groups', 'membership revocation blocks upload', 'inaccessible group differs from no groups'], screenshots: ['no-groups.png', 'two-groups.png', 'independent-roles.png'] }, null, 2));
+  await fs.writeFile(path.join(data, 'result.json'), JSON.stringify({ passed: true, cases: ['unassigned login and admin config import', 'no shared root or shared path input', 'unassigned users have no workbench', 'live group assignment', 'one saved account login discovers two groups', 'separate groups and same-name projects', 'independent subadmin/member roles and backend denial', 'user refreshes identity after administrator changes', 'session stays bound after switching groups', 'membership revocation blocks upload', 'inaccessible group differs from no groups'], screenshots: ['no-groups.png', 'two-groups.png', 'independent-roles.png'] }, null, 2));
   console.log(JSON.stringify({ passed: true, data }));
 } finally { for (const app of apps.reverse()) await app.close().catch(() => {}); }

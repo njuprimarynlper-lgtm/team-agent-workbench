@@ -111,7 +111,7 @@ test('#8 test profile fixture uses actual member access and chroot path, exclude
   assert.equal(memberProfile(profile, state, 'alice', 'wb_t_nlp').id, result.id);
   state.users.alice.groups = []; assert.equal(memberProfile(profile, state, 'alice').workPath, '');
   state.users.alice.groups = ['wb_t_ocr']; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_nlp'), /授权/);
-  state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('成员接入尚未完成')); assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
+  state.sftpConfigured = false; assert(memberReadiness(state, state.users.alice).includes('服务器成员登录配置异常')); assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /尚未开通/);
   state.sftpConfigured = true; state.users.alice.provisioning = true; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /未完成/);
   state.users.alice.provisioning = false; state.users.alice.enabled = false; assert.throws(() => memberProfile(profile, state, 'alice', 'wb_t_ocr'), /未启用/);
 });

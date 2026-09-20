@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
 test('nologin SFTP reply identifies incomplete member access configuration', () => {
-  assert.match(friendlySftp(new Error('Packet length 1416128883 exceeds max length of 262144')).message, /成员接入尚未正确配置.*完成成员接入配置/);
+  assert.match(friendlySftp(new Error('Packet length 1416128883 exceeds max length of 262144')).message, /成员登录配置异常.*重新创建该成员账号/);
 });
 test('legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks escaping symlinks', async () => {
   const CODE = utils.sftp.STATUS_CODE, files = new Map([['/project/readme.md', Buffer.from('项目说明：中文')]]), clients: any[] = [], renames: string[][] = [];

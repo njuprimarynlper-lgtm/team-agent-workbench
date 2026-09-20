@@ -41,15 +41,18 @@ export async function adminCases({ app, page, data }) {
     assert.deepEqual(server.state.users.alice.contentAdminGroups, ['wb_test_ocr']);
     server.state.sftpConfigured = false; server.state.storageVersion = 0;
     await page.evaluate(() => window.admin.call('operation', { op: 'status' }));
-    await expect(page.getByText('成员接入尚未完成', { exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
-    await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toBeEnabled();
-    await page.getByRole('button', { name: '完成配置', exact: true }).click();
-    await expect(page.getByRole('heading', { name: '完成成员接入配置', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: '确认执行', exact: true }).click();
-    await expect(page.getByText('成员接入尚未完成', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '完成配置', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeEnabled();
-    assert.equal(server.requests.at(-1).op, 'configure_sftp');
-    console.log('Admin UI passed: recovery, member/group management, and legacy member-access repair gating.');
+    await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: '创建用户', exact: true }).click();
+    await page.getByLabel('成员姓名', { exact: true }).fill('Bob');
+    await page.getByLabel('登录账号', { exact: true }).fill('bob');
+    await page.getByLabel('初始密码', { exact: true }).fill('new-user-password');
+    await page.getByLabel('再次输入密码', { exact: true }).fill('new-user-password');
+    await page.getByRole('button', { name: '确认执行', exact: true }).click();
+    await expect(page.locator('.modal')).toHaveCount(0);
+    assert.equal(server.requests.at(-1).op, 'user_create');
+    assert.equal(server.state.sftpConfigured, true); assert.equal(server.state.storageVersion, 1);
+    console.log('Admin UI passed: recovery, member/group management, and automatic member access during user creation.');
   } finally { await server.close(); }
 }

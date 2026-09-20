@@ -5,11 +5,14 @@ The Windows admin app sends this fixed program and a JSON request on stdin.
 """
 import base64
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
 import pathlib
+import posixpath
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -18,7 +21,7 @@ import uuid
 import contextlib
 import unicodedata
 
-OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "configure_sftp", "workspace_prepare", "recover"}
+OPS = {"probe", "initialize", "status", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -186,8 +189,6 @@ def initialize(root, request):
     state["activeOperation"] = "initialize"
     save(root, state)
     provision_group(root, state, state, "loginGid", state["loginGroup"], "成员登录组已建立")
-    configure_member_access(root, state)
-    checkpoint(root, state, "成员接入已配置")
     state["initialized"] = True
     state["operations"]["initialize"]["status"] = "done"
     checkpoint(root, state, "团队登记已完成")
@@ -327,33 +328,77 @@ def member_access_config(root, state):
     return ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n    DisableForwarding yes\n    PermitTTY no\nMatch all\n')
 
 
+def sshd_includes_member_access(file, config_file=pathlib.Path("/etc/ssh/sshd_config")):
+    """Return whether sshd's global config includes the generated rule file.
+
+    A commented Include, or an Include inside another Match block, does not load
+    the team's rule for arbitrary members. Merely searching for the directory
+    name caused both cases to be reported as configured while nologin answered
+    the member's SFTP subsystem request.
+    """
+    target = posixpath.normpath(str(file).replace("\\", "/"))
+    config_name = str(config_file).replace("\\", "/")
+    global_scope = True
+    for raw in config_file.read_text(encoding="utf-8").splitlines():
+        try:
+            parts = shlex.split(raw, comments=True, posix=True)
+        except ValueError:
+            return False
+        if not parts:
+            continue
+        keyword = parts[0].lower()
+        if keyword == "match":
+            global_scope = len(parts) == 2 and parts[1].lower() == "all"
+            continue
+        if keyword != "include" or not global_scope:
+            continue
+        for value in parts[1:]:
+            pattern = value if value.startswith("/") else posixpath.join(posixpath.dirname(config_name), value)
+            if fnmatch.fnmatchcase(target, posixpath.normpath(pattern)):
+                return True
+    return False
+
+
+def enable_member_access_include(file, config_file=pathlib.Path("/etc/ssh/sshd_config")):
+    """Enable the team's drop-in directory and return prior main config text."""
+    if sshd_includes_member_access(file, config_file):
+        return None
+    if config_file.is_symlink() or not config_file.is_file():
+        raise ValueError("sshd_config 不是可安全更新的普通文件")
+    previous = config_file.read_text(encoding="utf-8")
+    include = "Include " + posixpath.dirname(str(file).replace("\\", "/")) + "/*.conf\n"
+    config_file.write_text(include + previous, encoding="utf-8")
+    if not sshd_includes_member_access(file, config_file):
+        config_file.write_text(previous, encoding="utf-8")
+        raise ValueError("无法启用 sshd_config drop-in Include")
+    return previous
+
+
 def member_access_ready(root, state):
     """Reject stale state that claims SFTP is ready after its SSH rule changed."""
     if not state.get("sftpConfigured") or state.get("storageVersion") != 1:
         return False
     file = member_access_file(state)
     try:
-        return file.is_file() and file.read_text(encoding="utf-8") == member_access_config(root, state)
+        return (file.is_file()
+                and file.read_text(encoding="utf-8") == member_access_config(root, state)
+                and sshd_includes_member_access(file))
     except OSError:
         return False
 
 
 def configure_member_access(root, state):
-    """Install the required member login and controlled-storage plumbing.
-
-    Managed accounts use nologin, so they are usable only after this SFTP rule
-    exists. Keep this in initialization; configure_sftp remains an idempotent
-    repair path for installations created by older releases.
-    """
-    config_dir = member_access_file(state).parent
-    config_dir.mkdir(exist_ok=True)
-    if "sshd_config.d" not in pathlib.Path("/etc/ssh/sshd_config").read_text(encoding="utf-8"):
-        raise ValueError("sshd_config 未启用 drop-in Include，请运维先启用；工具不会改写主配置")
+    """Install member login and storage plumbing as part of user creation."""
     file = member_access_file(state)
+    config_dir = file.parent
+    config_dir.mkdir(exist_ok=True)
+    main_config = pathlib.Path("/etc/ssh/sshd_config")
     config = member_access_config(root, state)
     previous = file.read_text(encoding="utf-8") if file.exists() else None
-    file.write_text(config, encoding="utf-8")
+    previous_main = None
     try:
+        previous_main = enable_member_access_include(file, main_config)
+        file.write_text(config, encoding="utf-8")
         run([shutil.which("sshd") or "/usr/sbin/sshd", "-t"])
         unit = "sshd" if subprocess.run(["systemctl", "is-active", "--quiet", "sshd"]).returncode == 0 else "ssh"
         run(["systemctl", "reload", unit])
@@ -362,6 +407,8 @@ def configure_member_access(root, state):
             file.unlink(missing_ok=True)
         else:
             file.write_text(previous, encoding="utf-8")
+        if previous_main is not None:
+            main_config.write_text(previous_main, encoding="utf-8")
         raise
     install_content_worker(root, state)
     state["sftpConfigured"] = True
@@ -496,8 +543,6 @@ def _execute(request):
         if op != "status":
             if not state.get("initialized"):
                 raise ValueError("请先恢复并完成初始化")
-            if op == "user_create" and not member_access_ready(root, state):
-                raise ValueError("成员接入尚未完成，请先完成成员接入配置")
             start_operation(root, state, request)
     result = None
     enforce_continuity(root, state, request)
@@ -514,6 +559,9 @@ def _execute(request):
         groups = request.get("groups", [])
         if any(g not in state["groups"] or not state["groups"][g].get("workspace") for g in groups) or any(g not in groups for g in request.get("contentAdminGroups", [])):
             raise ValueError("请选择已准备好的用户组，子管理员须属于对应组")
+        if not member_access_ready(root, state):
+            configure_member_access(root, state)
+            checkpoint(root, state, "成员登录能力已配置")
         record = state["users"].get(username)
         if not record:
             if any(n.lower() == username.lower() or user_login(state, n) == login for n in state['users']):
@@ -621,9 +669,6 @@ def _execute(request):
         if role == 'admin': admins.add(group)
         else: admins.discard(group)
         assign_groups(root, state, {**request, 'groups': sorted(groups), 'contentAdminGroups': sorted(admins)})
-    elif op == "configure_sftp":
-        configure_member_access(root, state)
-        checkpoint(root, state, "成员接入已配置")
     if op != "status":
         job = state.get("operations", {}).get(state.get("activeOperation"))
         if job:

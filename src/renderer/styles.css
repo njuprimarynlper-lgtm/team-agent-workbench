@@ -30,6 +30,7 @@
 .connection-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
 .connection-server-details { margin-bottom: 18px; }
 .connection-server-details > summary { cursor: pointer; color: var(--muted); margin-bottom: 12px; }
+.settings-tabs{display:flex;gap:4px;padding:10px 25px 0;border-bottom:1px solid #edf0ed;background:#fbfcfb}.settings-tabs button{padding:10px 14px;border-radius:7px 7px 0 0;background:transparent;color:#718177;font-size:12px;border-bottom:2px solid transparent}.settings-tabs button[aria-selected=true]{color:#286646;border-bottom-color:#39825d;background:#f1f6f2}.project-settings-form textarea{resize:vertical;min-height:70px;line-height:1.65}.project-file-icon{display:grid;place-items:center;width:31px;height:31px;border-radius:7px;background:#dcece1;color:#2d6c49;font-size:10px;font-weight:700;flex:none}
 
 /* Keep the conversation central; infrequent details open without taking chat height. */
 .topbar{height:52px;padding:0 22px}.topbar strong{font-size:16px}

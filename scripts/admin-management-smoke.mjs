@@ -90,10 +90,12 @@ try {
   checks.push('cancel role change leaves membership and permissions unchanged');
   await group('ocr').getByRole('button', { name: '添加已有用户', exact: true }).click();
   await expect(page.getByLabel('选择用户 alice', { exact: true })).toHaveCount(0);
-  await page.getByLabel('查找已有用户').fill('独立');
-  await page.getByLabel('选择用户 solo', { exact: true }).check(); await page.getByLabel('成员身份').selectOption('admin'); await confirm();
+  await page.getByLabel('选择用户 solo', { exact: true }).check(); await page.getByLabel('选择用户 bob', { exact: true }).check();
+  await expect(page.getByText('已选择 2 位', { exact: true })).toBeVisible(); await page.getByLabel('成员身份').selectOption('member'); await confirm();
+  assert((await state()).users.solo.groups.includes('local_ocr')); assert((await state()).users.bob.groups.includes('local_ocr'));
+  await group('ocr').locator('[data-user="solo"]').getByRole('button', { name: '设为子管理员', exact: true }).click(); await confirm();
   assert.deepEqual((await state()).users.solo.contentAdminGroups, ['local_ocr']);
-  checks.push('group adds searchable existing user with subadmin role; existing members excluded');
+  checks.push('group multi-selects existing users, applies one role, and excludes existing members');
   await page.getByRole('tab', { name: '全部用户', exact: true }).click();
   await userRow('solo').getByRole('button', { name: '加入用户组', exact: true }).click();
   await expect(page.getByLabel('选择已有用户组').locator('option[value="local_ocr"]')).toHaveCount(0);
@@ -115,7 +117,7 @@ try {
   await group('nlp').locator('[data-user="bob"]').getByRole('button', { name: '设为子管理员', exact: true }).click(); await confirm();
   await expect(group('nlp').locator('[data-user="bob"]')).toContainText('本组子管理员');
   await group('nlp').locator('[data-user="bob"]').getByRole('button', { name: '取消子管理员', exact: true }).click(); await confirm();
-  assert.deepEqual((await state()).users.bob.groups, ['local_nlp']); assert.deepEqual((await state()).users.bob.contentAdminGroups, []);
+  assert.deepEqual(new Set((await state()).users.bob.groups), new Set(['local_nlp', 'local_ocr'])); assert.deepEqual((await state()).users.bob.contentAdminGroups, []);
   await group('nlp').locator('[data-user="solo"]').getByRole('button', { name: '移出本组', exact: true }).click(); await confirm();
   assert((await state()).users.solo.enabled); await expect(page.locator('[data-group="unassigned"] [data-user="solo"]')).toBeVisible();
   checks.push('group-side promotion/demotion and removal; user remains enabled and appears unassigned');

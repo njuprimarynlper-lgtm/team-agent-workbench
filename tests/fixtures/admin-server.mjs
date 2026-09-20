@@ -32,8 +32,10 @@ export async function adminServer() {
             const label = job.request.label, name = 'wb_test_' + label;
             state.groups[name] = { name, label, adminGroup: name + '_admin', workspace: '/projects/' + label };
           }
-          if (request.op === 'user_create') state.users[request.username] = { username: request.username, name: request.name, enabled: true, uid: 1001, groups: request.groups || [], contentAdminGroups: request.contentAdminGroups || [] };
-          if (request.op === 'configure_sftp') { state.sftpConfigured = true; state.storageVersion = 1; }
+          if (request.op === 'user_create') {
+            state.sftpConfigured = true; state.storageVersion = 1;
+            state.users[request.username] = { username: request.username, name: request.name, enabled: true, uid: 1001, groups: request.groups || [], contentAdminGroups: request.contentAdminGroups || [] };
+          }
           if (request.op === 'group_member') {
             const user = state.users[request.username];
             if (request.role === 'remove') user.groups = user.groups.filter(g => g !== request.group);
