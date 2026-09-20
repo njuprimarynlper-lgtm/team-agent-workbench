@@ -80,6 +80,7 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(ValueError): self.edit('alice', one)
         result = self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}])
         self.assertEqual(result['sources'], [two['id']])
+        self.assertEqual({source['id'] for source in result['provenance']}, {updated['id'], two['id']})
         self.assertFalse((self.directory / 'submissions/bob/second.zip').exists())
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
 

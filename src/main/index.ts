@@ -39,7 +39,7 @@ async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpen
 async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Promise<unknown> {
   const context = contexts.get(owner); if (!context) throw new Error('当前窗口的独立工作台尚未就绪');
   const { workbench, broadcast, notice } = context;
-  const setupActions = new Set(['snapshot', 'settings.save', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
+  const setupActions = new Set(['snapshot', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'snapshot': return workbench.snapshot();
@@ -48,6 +48,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
+    case 'layout.sidebar': { const p = z.object({ height: z.number().int().min(180).max(4000) }).parse(raw); workbench.store.settings.sidebarProjectHeight = p.height; await workbench.store.save(); return true; }
     case 'providers.detect': return workbench.detect();
     case 'provider.auth': {
       const p = z.object({ provider, cwd: z.string().optional() }).parse(raw);
@@ -97,6 +98,10 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'project.brief': return workbench.remote.projectBrief(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
     case 'project.brief.save': { const p = z.object({ projectId: z.string(), brief: projectBriefSchema, revision: z.number().int().nonnegative() }).parse(raw); const value = await workbench.remote.saveProjectBrief(workbench.remote.binding(p.projectId), p.brief, p.revision); await workbench.refreshGroups(); return value; }
     case 'content.list': return workbench.remote.contentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'content.sync': return workbench.syncContentUpdates();
+    case 'content.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(z.string().uuid()).min(2).max(20) }).parse(raw); return workbench.prepareContentMerge(p.projectId, p.sessionId, p.sourceIds); }
+    case 'content.merge.save': { const p = z.object({ id, title: z.string().max(200), body: text }).parse(raw); return workbench.saveContentMerge(p.id, p.title, p.body); }
+    case 'content.merge.commit': return workbench.commitContentMerge(sessionInput.parse(raw).id);
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
     case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.remote.contentEdit(workbench.remote.binding(p.projectId), p.change); }
     case 'content.replace': {

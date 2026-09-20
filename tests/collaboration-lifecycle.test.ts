@@ -50,7 +50,7 @@ test('one SSH identity spans groups; author revisions, admin curation, merge and
     await x.bob.remote.upload(b, file, b.project.uploadPath + '/补充.md', () => {}, { kind: 'contribution', title: '新的补充', description: '补充' });
     const second = (await x.bob.remote.contentList(b)).find(i => i.id !== item.id)!;
     const merged = await x.alice.remote.contentEdit(a, { id: item.id, revision: item.revision, action: 'save', title: '合并结论', description: '已合并', curate: true, merge: [{ id: second.id, revision: second.revision }] });
-    assert.deepEqual(merged?.sources, [second.id]); assert.equal((await x.bob.remote.contentList(b)).length, 1);
+    assert.deepEqual(merged?.sources, [second.id]); assert.deepEqual(new Set(merged?.provenance?.map(source => source.id)), new Set([item.id, second.id])); assert.equal((await x.bob.remote.contentList(b)).length, 1);
   } finally { await x.close(); }
 });
 

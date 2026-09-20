@@ -275,6 +275,10 @@ def handle(root, state, username, request, incoming=None):
         if not other or other is item or other['revision'] != source.get('revision') or other['kind'] != 'contribution':
             raise ValueError('待合并内容已改变，请刷新')
         merged.append(other)
+    provenance = list(item.get('provenance', [])) + [dict(id=item['id'], revision=item['revision'], title=item['title'], author=item['author'], updatedAt=item['updatedAt'])]
+    for source in merged:
+        provenance += list(source.get('provenance', [])) + [dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt'])]
+    provenance = list({(source['id'], source['revision']): source for source in provenance}.values())
     paths = [i['path'] for i in [item] + merged]
     if change.get('action') == 'save' and item['kind'] != 'contribution':
         if merged:
@@ -304,7 +308,7 @@ def handle(root, state, username, request, incoming=None):
         file = safe(directory, relative)
         repo = text(change.get('repoUrl', ''), 2048)
         publish_bytes(file, ('# ' + title + '\n\n' + (repo + '\n\n' if repo else '') + description).encode(), gid)
-        item.update(title=title, description=description, repoUrl=repo, path='/' + str(file.relative_to(root)).replace('\\', '/'), revision=item['revision'] + 1, state='curated' if admin else 'submitted', updatedAt=now(), updatedBy=username, sha256=digest(file), size=file.stat().st_size, sources=list(dict.fromkeys(item.get('sources', []) + [i['id'] for i in merged])))
+        item.update(title=title, description=description, repoUrl=repo, path='/' + str(file.relative_to(root)).replace('\\', '/'), revision=item['revision'] + 1, state='curated' if admin else 'submitted', updatedAt=now(), updatedBy=username, sha256=digest(file), size=file.stat().st_size, sources=list(dict.fromkeys(item.get('sources', []) + [i['id'] for i in merged])), **({'provenance': provenance} if merged else {}))
     elif change.get('action') != 'delete':
         raise ValueError('不支持的修改操作')
     items = [i for i in items if i not in merged and (change['action'] != 'delete' or i is not item)]

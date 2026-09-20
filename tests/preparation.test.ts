@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import { applyPreparation, contributionDirectory, discoverDestinations } from '../src/core/preparation';
+import { applyContentMerge } from '../src/core/content-merge';
 import type { Draft, RemoteBinding } from '../src/shared/types';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { memberProfile } from './fixtures/member-profile';
@@ -19,6 +20,23 @@ import { teamServer } from './fixtures/team-server.mjs';
 async function until(fn: () => boolean) { const end = Date.now() + 20000; while (!fn()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(r => setTimeout(r, 20)); } }
 const binding: RemoteBinding = { connectionId: 'c', host: 'local', port: 22, username: 'alice', fingerprint: 'f', project: { id: 'p', name: '项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } };
 const result = { title: '更新说明', body: '已完成的验证与限制。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' };
+
+test('semantic content merge preserves consensus, conflicts, evidence and source traceability', () => {
+  const first = '11111111-1111-4111-8111-111111111111', second = '22222222-2222-4222-8222-222222222222';
+  const draft = { title: '', body: '', mergeSources: [
+    { id: first, revision: 2, title: '实验结论', author: 'alice', updatedAt: '2026-09-20T01:00:00.000Z' },
+    { id: second, revision: 1, title: '风险复核', author: 'bob', updatedAt: '2026-09-20T02:00:00.000Z' }
+  ] } as Draft;
+  applyContentMerge(draft, JSON.stringify({
+    title: '项目统一结论', overview: '当前证据支持灰度推进。', consensus: ['两份材料都支持补充验证。'],
+    conflicts: [{ topic: '上线范围', positions: [{ sourceIds: [first], statement: '可以全量上线。' }, { sourceIds: [second], statement: '应先灰度。' }], requiresDecision: true }],
+    evidence: [{ claim: '覆盖率仍需补齐。', sourceIds: [second] }], scope: '当前数据集', unresolved: ['确认灰度比例。']
+  }));
+  assert.equal(draft.title, '项目统一结论');
+  assert.match(draft.body, /综合结论/); assert.match(draft.body, /差异与冲突/); assert.match(draft.body, /仍需子管理员确认/);
+  assert.match(draft.body, /风险复核（bob · v1）/); assert.match(draft.body, /来源记录/);
+  assert.throws(() => applyContentMerge(draft, JSON.stringify({ title: '错误引用', overview: '无效', consensus: [], conflicts: [], evidence: [{ claim: '伪造', sourceIds: ['33333333-3333-4333-8333-333333333333'] }], unresolved: [] })), /未选择的来源/);
+});
 
 test('structured results classify independent artifacts, keep only category fields and use fixed paths', () => {
   const d = { id: 'draft', binding, body: '', supplement: '人补充的说明', repoUrlOverride: 'https://github.com/human/repo', preparationVersion: 3 } as Draft;
@@ -78,10 +96,22 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
     assert((await bob.remote.list(bob.remote.binding(p.id), p.uploadPath + '/findings')).some(x => x.path === transfer.target));
     const shared = await bob.remote.contentList(bob.remote.binding(p.id)); assert.deepEqual(new Set(shared.filter(x => x.kind === 'contribution').map(x => x.category)), new Set(['finding', 'issue']));
+    assert.deepEqual(await wb.syncContentUpdates(), [], 'the first scan records a baseline without alerting on the current user');
+    const teammateFile = path.join(root, 'teammate.md'); await fs.writeFile(teammateFile, 'Bob 的新结论');
+    await bob.remote.upload(bob.remote.binding(p.id), teammateFile, bob.remote.binding(p.id).project.uploadPath + '/findings/teammate.md', () => {}, { kind: 'contribution', category: 'finding', fields: { statement: 'Bob 的新结论' }, title: '队友新成果', description: '用于验证后台提醒' });
+    const updates = await wb.syncContentUpdates(); assert.equal(updates.length, 1); assert.equal(updates[0].title, '队友新成果'); assert.equal(updates[0].updatedBy, 'bob');
+    assert.deepEqual(await wb.syncContentUpdates(), [], 'the same revision is only reported once');
+    await fixture.write({ status: 'ready', turn: 'success', mergeResult: { title: '统一项目结论', overview: '融合而非拼接的综合判断。', consensus: ['两项材料可共同支撑后续验证。'], conflicts: [], evidence: [], scope: '当前项目', unresolved: ['补齐回归数据。'] } });
+    const mergeDraft = await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id)); await until(() => mergeDraft.generation === 'ready');
+    assert.match(mergeDraft.body, /综合结论/); assert.match(mergeDraft.body, /来源记录/); assert.equal((await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id))).id, mergeDraft.id);
+    await wb.saveContentMerge(mergeDraft.id, '人工复核后的统一结论', mergeDraft.body + '\n\n人工确认：保留冲突记录。');
+    const merged = await wb.commitContentMerge(mergeDraft.id); assert.equal(merged.title, '人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path);
+    assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).filter(item => shared.some(source => source.id === item.id)).length, 1);
+    assert.equal(merged.provenance?.length, 2); assert.deepEqual(new Set(merged.provenance?.map(item => item.id)), new Set(shared.map(item => item.id)));
     const next = await wb.prepare(s.id); await until(() => next.generation === 'ready'); assert.notEqual(next.id, d.id);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove', handoffs: { local_prepare: 'bob' } });
     const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于/);
-    const original = await diskPath(share, transfer.target); assert((await fs.stat(original)).size > 0);
+    const original = await diskPath(share, merged.path); assert((await fs.stat(original)).size > 0);
   } finally { await Promise.all([wb.close(), bob.close()]); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-prepare-local-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 

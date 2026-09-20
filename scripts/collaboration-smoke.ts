@@ -55,6 +55,14 @@ try {
   assert.equal((await call(bp, 'snapshot')).connection.profile.username, 'bob');
   assert.equal((await call(secondBobWindow, 'snapshot')).connection.profile.username, 'alice');
   assert.equal((await call(bp, 'snapshot')).sessions.length, 1); assert.equal((await call(secondBobWindow, 'snapshot')).sessions.length, 0);
+  const primarySidebarHeight = Number(await bp.getByRole('separator', { name: '调整项目与会话区域高度' }).getAttribute('aria-valuenow'));
+  const secondarySplitter = secondBobWindow.getByRole('separator', { name: '调整项目与会话区域高度' });
+  const secondarySidebarHeight = Number(await secondarySplitter.getAttribute('aria-valuenow'));
+  await secondarySplitter.press('ArrowDown');
+  await expect(secondarySplitter).toHaveAttribute('aria-valuenow', String(secondarySidebarHeight + 24));
+  await expect(bp.getByRole('separator', { name: '调整项目与会话区域高度' })).toHaveAttribute('aria-valuenow', String(primarySidebarHeight));
+  assert.equal((await call(secondBobWindow, 'snapshot')).settings.sidebarProjectHeight, secondarySidebarHeight + 24);
+  assert.notEqual((await call(bp, 'snapshot')).settings.sidebarProjectHeight, secondarySidebarHeight + 24);
   await secondBobWindow.close(); await expect.poll(() => b.app.windows().length).toBe(1);
   await mp.getByLabel('共享区类型').selectOption('local'); await mp.getByLabel('本地共享区根目录').fill(share);
   await mp.getByRole('button', { name: '打开共享目录', exact: true }).click();
@@ -74,20 +82,24 @@ try {
   // The adoption action and the version note live behind the collapsed materials summary.
   await bp.locator('.session-materials > summary').click(); await expect(bp.locator('.session-materials-content')).toContainText('有新版本'); await bp.getByRole('button', { name: '更新项目说明', exact: true }).click();
   await expect.poll(async () => (await call(bp, 'snapshot')).sessions[0].projectBrief.revision).toBe(2);
+  await expect(ap.locator('.content-update-toast')).toContainText('bob');
   await bp.getByTitle('公共成果', { exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).locator('.content-card-summary').click();
   await bp.getByRole('button', { name: '修改自己的提交', exact: true }).click(); await bp.getByLabel('公共成果内容').fill('Bob 补充的验证依据'); await bp.getByRole('button', { name: '保存修改', exact: true }).click();
   await expect(bp.locator('.content-detail')).toContainText('Bob 补充的验证依据');
-  await ap.locator('.sidebar').getByRole('button', { name: '整理项目文档', exact: true }).click(); await ap.locator('.content-card').filter({ hasText: '第一项结论' }).getByRole('button', { name: '整理文档', exact: true }).click();
-  await ap.getByLabel('公共成果内容').fill('Alice 统一整理的结论');
-  await ap.getByText('合并其他成果（保存后替代所选原件）', { exact: true }).click(); await ap.locator('.content-detail .check-row input').check(); await ap.getByRole('button', { name: '保存整理结果', exact: true }).click();
+  await ap.locator('.sidebar').getByRole('button', { name: '整理项目文档', exact: true }).click(); await ap.getByRole('button', { name: '多选语义合并', exact: true }).click();
+  await ap.getByLabel('选择合并：第一项结论').check(); await ap.getByLabel('选择合并：第二项结论').check();
+  await ap.getByRole('button', { name: '开始语义合并（2 条）', exact: true }).click();
+  await expect(ap.getByLabel('融合后的项目文档')).toContainText('综合结论');
+  await ap.getByLabel('合并后标题').fill('Alice 统一整理的结论');
+  await ap.getByRole('button', { name: '确认合并并归档 2 条原文', exact: true }).click();
   await expect(ap.locator('.content-card')).toHaveCount(1);
   await bp.getByRole('button', { name: '刷新', exact: true }).click(); await bp.getByLabel('搜索公共成果').fill('统一整理');
   await expect(bp.locator('.content-card')).toHaveCount(1); await bp.locator('.content-card-summary').click();
   await expect(bp.getByRole('button', { name: '修改自己的提交', exact: true })).toHaveCount(0);
   await expect(bp.locator('.content-detail')).toContainText('已整理，原作者不可覆盖');
   await bp.getByRole('button', { name: '加入当前会话', exact: true }).click(); await bp.getByTitle('工作会话', { exact: true }).click();
-  await expect(bp.locator('.source-chips')).toContainText('第一项结论 · v3');
-  const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name === '第一项结论 · v3');
+  await expect(bp.locator('.source-chips')).toContainText('Alice 统一整理的结论 · v3');
+  const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name === 'Alice 统一整理的结论 · v3');
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
   // An existing group still requires a brief for every new project, or explicit deferral.
@@ -102,7 +114,7 @@ try {
   await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card-summary').click();
   await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with isolated accounts and sessions', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin edit/merge/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with isolated accounts, sessions and sidebar proportions', 'teammate content notification', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin semantic merge/review/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
 } catch (error) {
   for (const [i, page] of pages.entries()) { await page.screenshot({ path: path.join(data, 'failure-' + i + '.png') }).catch(() => {}); await fs.writeFile(path.join(data, 'failure-' + i + '.txt'), await page.locator('body').innerText().catch(() => 'closed')); }
   throw error;

@@ -65,6 +65,7 @@ export class ContentFiles {
       if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组子管理员可以整理或合并内容');
       if (new Set(change.merge.map(m => m.id)).size !== change.merge.length) throw new Error('不能重复合并同一成果');
       const merged = change.merge.map(m => { const source = items.find(i => i.id === m.id); if (!source || source.id === item.id || source.revision !== m.revision || source.kind !== 'contribution') throw new Error('待合并内容已改变或不是文字成果，请刷新'); return source; });
+      const provenance = [...(item.provenance || []), { id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt }, ...merged.flatMap(source => [...(source.provenance || []), { id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt }])].filter((source, index, all) => all.findIndex(value => value.id === source.id && value.revision === source.revision) === index);
       const oldPaths = [item, ...merged].map(i => i.path);
       if (change.action === 'save' && item.kind !== 'contribution') {
         if (!change.title || change.description === undefined || merged.length) throw new Error('文件说明不能为空，文件不能按文字成果合并');
@@ -84,7 +85,7 @@ export class ContentFiles {
         const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
         const temp = file + '.' + randomUUID() + '.tmp';
         try { await fs.writeFile(temp, `# ${change.title}\n\n${change.repoUrl ? change.repoUrl + '\n\n' : ''}${change.description}`, { flag: 'wx' }); await fs.rename(temp, file); } finally { await fs.rm(temp, { force: true }); }
-        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])] });
+        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
       }
       await this.authorize(binding);
       await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id)));
