@@ -33,10 +33,10 @@ export function cursorAuth(output: string, code: number | null, environmentCrede
   return state('error', 'CLI 返回了无法识别的认证状态，请检查版本后重试。');
 }
 
-export async function inspectAuth(provider: Provider, executable: string, cwd: string, signal?: AbortSignal, timeout = 20000): Promise<ProviderAuth> {
+export async function inspectAuth(provider: Provider, executable: string, cwd: string, signal?: AbortSignal, timeout = 20000, env: NodeJS.ProcessEnv = {}): Promise<ProviderAuth> {
   if (signal?.aborted) return state('error', '登录检测已取消。');
   if (provider === 'codex') {
-    const rpc = new JsonRpc(executable, ['app-server'], cwd, false);
+    const rpc = new JsonRpc(executable, ['app-server'], cwd, false, env);
     const abort = () => { void rpc.close(); }; signal?.addEventListener('abort', abort, { once: true });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; abort(); }, timeout);
@@ -48,7 +48,7 @@ export async function inspectAuth(provider: Provider, executable: string, cwd: s
     finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); await rpc.close(); }
   }
   return new Promise(resolve => {
-    const child = spawnCLI(executable, ['status', '--format', 'json'], cwd);
+    const child = spawnCLI(executable, ['status', '--format', 'json'], cwd, env);
     let output = '', settled = false;
     const finish = (auth: ProviderAuth, stop = false) => {
       if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
@@ -83,7 +83,7 @@ export class ProviderAccounts {
   private logins = new Map<Provider, () => void>();
   private stopping = new Set<Promise<void>>();
   private closed = false;
-  constructor(private configuredPath: (p: Provider) => string, private changed: () => void, private loggedIn: (p: Provider) => void = () => {}) {}
+  constructor(private configuredPath: (p: Provider) => string, private changed: () => void, private loggedIn: (p: Provider) => void = () => {}, private environment: () => NodeJS.ProcessEnv = () => ({})) {}
   private set(provider: Provider, auth: ProviderAuth) { this.states[provider] = auth; if (!this.closed) this.changed(); return auth; }
   async check(provider: Provider, cwd: string): Promise<ProviderAuth> {
     if (this.closed) return state('error', '工作台正在关闭');
@@ -98,7 +98,7 @@ export class ProviderAccounts {
     this.jobs.set(key, job);
     job.promise = (async () => {
       let result: ProviderAuth;
-      try { result = await inspectAuth(provider, await resolveProvider(provider, configured), cwd, controller.signal); }
+      try { result = await inspectAuth(provider, await resolveProvider(provider, configured), cwd, controller.signal, 20000, this.environment()); }
       catch { result = state('error', '无法启动 CLI，请检查程序路径和安装状态。'); }
       if (controller.signal.aborted || this.configuredPath(provider) !== configured) return state('error', 'CLI 配置或工作目录已改变，请重新检测。');
       result = { ...result, cwd, checkedAt: new Date().toISOString() };
@@ -129,7 +129,7 @@ export class ProviderAccounts {
     try { executable = await resolveProvider(provider, this.configuredPath(provider)); }
     catch { reservation(); this.set(provider, state('error', '无法启动 CLI，请检查程序路径。')); return; }
     if (canceled || this.closed) return;
-    const child = spawnCLI(executable, ['login'], cwd); let output = '', settled = false;
+    const child = spawnCLI(executable, ['login'], cwd, this.environment()); let output = '', settled = false;
     const finish = (kind: 'exit' | 'cancel' | 'timeout' | 'error', code?: number | null) => {
       if (settled) return; settled = true; clearTimeout(timer); this.logins.delete(provider);
       if (kind !== 'exit') { const stopped = stopCLI(child); this.stopping.add(stopped); void stopped.finally(() => this.stopping.delete(stopped)); }

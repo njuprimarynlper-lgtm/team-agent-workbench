@@ -22,11 +22,11 @@ export class AgentRuntime {
   private cursorCommands: any[] = [];
   private cursorCommandWaiters = new Set<() => void>();
   private codexCapabilityCatalog?: AgentCapabilityCatalog;
-  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage) {
+  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}) {
     // Preparation has its own execution policy, including helpers saved by older builds.
     if (session.purpose === 'prepare') session.permissionMode = 'full';
-    this.rpc = new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', storage?.env);
-    if (session.provider === 'codex' && storage) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome);
+    this.rpc = new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', { ...networkEnv, ...storage?.env });
+    if (session.provider === 'codex' && storage) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
     this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) this.finish(e.message); });
   }

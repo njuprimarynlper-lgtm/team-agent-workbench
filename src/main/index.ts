@@ -1,7 +1,7 @@
 import { ownDataDirectory } from '../shared/single-instance';
 import { contentEditSchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,7 +13,9 @@ import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
 import { ServerIdentityStore } from '../core/server-identities';
-type WindowContext = { workbench: Workbench; slot: number; broadcast: () => void; notice: (message: string) => void };
+import { EgressClientProxy } from '../core/egress';
+import { decodeEgressInvite } from '../core/egress-config';
+type WindowContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; slot: number; broadcast: () => void; notice: (message: string) => void };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
 let quitting = false; let closing = false; let windowsReady = false; let pendingWindows = 0;
 const entry = path.join(__dirname, 'index.html');
@@ -39,11 +41,26 @@ const capability = z.object({ id: z.string().min(1).max(500), kind: z.enum(['ski
 async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpenDialog(owner, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
 async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Promise<unknown> {
   const context = contexts.get(owner); if (!context) throw new Error('当前窗口的独立工作台尚未就绪');
-  const { workbench, broadcast, notice } = context;
-  const setupActions = new Set(['snapshot', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read']);
+  const { workbench, egress, broadcast, notice } = context;
+  const setupActions = new Set(['snapshot', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
-    case 'snapshot': return workbench.snapshot();
+    case 'snapshot': return { ...workbench.snapshot(), egress: egress.status() };
+    case 'egress.configure': {
+      const p = z.object({ enabled: z.boolean(), inviteCode: z.string().max(4096).optional(), username: z.string().max(64).optional() }).parse(raw);
+      let settings = workbench.store.settings.egress, accessCode = await readProtected(context.egressSecretFile);
+      if (p.inviteCode?.trim()) {
+        const invite = decodeEgressInvite(p.inviteCode); settings = { enabled: p.enabled, host: invite.host, port: invite.port, certificateFingerprint: invite.fingerprint }; accessCode = invite.accessCode;
+      } else if (settings) settings = { ...settings, enabled: p.enabled };
+      else if (p.enabled) throw new Error('请粘贴管理端生成的接入码');
+      if (p.enabled && !accessCode) throw new Error('已保存的接入信息不完整，请重新粘贴接入码');
+      await workbench.networkChanged();
+      workbench.store.settings.egress = settings; await workbench.store.save();
+      if (accessCode) await writeProtected(context.egressSecretFile, accessCode);
+      const username = p.username || workbench.remote.profile?.username || workbench.store.settings.connections.at(-1)?.username || '';
+      await egress.configure(settings ? { ...settings, accessCode, username } : undefined); if (settings?.enabled) void egress.probe().catch(() => {}); broadcast(); return egress.status();
+    }
+    case 'egress.test': await egress.probe(); broadcast(); return egress.status();
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
@@ -170,6 +187,13 @@ function latestWindow() {
 }
 function claimSlot() { let slot = 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
 function instanceRoot(slot: number) { return slot === 1 ? app.getPath('userData') : path.join(app.getPath('userData'), 'instances', String(slot)); }
+async function readProtected(file: string) {
+  try { const data = await fs.readFile(file); return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(data) : data.toString('utf8'); }
+  catch { return ''; }
+}
+async function writeProtected(file: string, value: string) {
+  await fs.mkdir(path.dirname(file), { recursive: true }); const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(value) : Buffer.from(value, 'utf8'); await fs.writeFile(file, data, { mode: 0o600 });
+}
 async function createWindow() {
   const slot = claimSlot();
   const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
@@ -178,10 +202,16 @@ async function createWindow() {
   let emitTimer: NodeJS.Timeout | undefined;
   const broadcast = () => { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：') && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
-  const workbench = new Workbench(instanceRoot(slot), broadcast, notice);
+  const root = instanceRoot(slot); let egress: EgressClientProxy;
+  const workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, () => egress?.environment() || {});
   try {
     await workbench.init(); await serverIdentities.init(slot === 1 ? workbench.store.settings.trustedServerIdentities || {} : {});
-    workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot(); contexts.set(window, { workbench, slot, broadcast, notice });
+    workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot();
+    const egressSecretFile = path.join(root, 'egress-access.bin'), settings = workbench.store.settings.egress, accessCode = await readProtected(egressSecretFile);
+    const username = workbench.store.settings.connections.at(-1)?.username || workbench.store.settings.workspaceSnapshot?.profile.username || '';
+    egress = new EgressClientProxy(settings ? { ...settings, accessCode, username } : undefined); egress.on('changed', broadcast);
+    if (settings?.enabled && accessCode) { await egress.start().catch(() => {}); void egress.probe().catch(() => {}); }
+    contexts.set(window, { workbench, egress, egressSecretFile, slot, broadcast, notice });
   }
   catch (error) { windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }
   window.setMenuBarVisibility(false);
@@ -194,7 +224,7 @@ async function createWindow() {
   });
   window.on('closed', () => {
     windows.delete(window); const context = contexts.get(window); contexts.delete(window);
-    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void context.workbench.close(); }
+    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void Promise.all([context.workbench.close(), context.egress.stop()]); }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -223,14 +253,14 @@ async function closeWindow(window: BrowserWindow) {
   const context = contexts.get(window); if (!context) { window.destroy(); return; }
   closingWindows.add(window);
   try {
-    await context.workbench.close(); contexts.delete(window); activeSlots.delete(context.slot); windows.delete(window); window.destroy();
+    await Promise.all([context.workbench.close(), context.egress.stop()]); contexts.delete(window); activeSlots.delete(context.slot); windows.delete(window); window.destroy();
   } catch (e: any) {
     if (!window.isDestroyed()) await dialog.showMessageBox(window, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留此账号窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试关闭。', buttons: ['返回工作台'] });
   } finally { closingWindows.delete(window); }
 }
 async function finishQuit(owner = latestWindow()) {
   if (closing) return; closing = true;
-  try { await Promise.all([...contexts.values()].map(context => context.workbench.close())); quitting = true; app.quit(); }
+  try { await Promise.all([...contexts.values()].flatMap(context => [context.workbench.close(), context.egress.stop()])); quitting = true; app.quit(); }
   catch (e: any) { if (owner && !owner.isDestroyed()) await dialog.showMessageBox(owner, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试保存或退出。', buttons: ['返回工作台'] }); }
   finally { closing = false; }
 }

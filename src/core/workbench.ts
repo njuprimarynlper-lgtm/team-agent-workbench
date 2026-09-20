@@ -48,11 +48,11 @@ export class Workbench {
   private configuringCursorPermissions = false;
   private closing = false;
   accounts: ProviderAccounts;
-  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000) {
+  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000, private providerEnvironment: () => NodeJS.ProcessEnv = () => ({})) {
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.accounts = new ProviderAccounts(p => this.store.settings.providerPaths[p], broadcast, provider => {
       for (const [id, runtime] of this.runtimes) if (runtime.session.provider === provider && !['running', 'approval', 'starting'].includes(runtime.session.status)) { runtime.close(); this.runtimes.delete(id); }
-    });
+    }, this.providerEnvironment);
   }
   async init() { await this.store.init(); await this.restoreLocalWorkspace(); await this.detect(); }
   async restoreLocalWorkspace() {
@@ -119,7 +119,7 @@ export class Workbench {
   async catalog(provider: Provider, cwd: string) {
     this.catalogJobs.get(provider)?.controller.abort();
     const controller = new AbortController();
-    const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, controller.signal))();
+    const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, controller.signal, 20000, this.providerEnvironment()))();
     const job = { controller, promise }; this.catalogJobs.set(provider, job);
     try { return await promise; } finally { if (this.catalogJobs.get(provider) === job) this.catalogJobs.delete(provider); }
   }
@@ -128,7 +128,7 @@ export class Workbench {
     if (runtime) return runtime;
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
-    runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage);
+    runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage, this.providerEnvironment());
     this.runtimes.set(s.id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
     return runtime;
   }
@@ -178,7 +178,7 @@ export class Workbench {
   draft(id: string) { const d = this.store.drafts.find(x => x.id === id); if (!d) throw new Error('草稿不存在'); return d; }
   async inspectPermissions(provider: Provider, cwd: string) {
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
-    return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd);
+    return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, this.providerEnvironment());
   }
   async configureCursorReview(cwd: string) {
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
@@ -193,6 +193,12 @@ export class Workbench {
       }
       await this.store.save(); this.broadcast(); return report;
     } finally { this.configuringCursorPermissions = false; }
+  }
+  async networkChanged() {
+    if (this.store.sessions.some(s => ['starting', 'running', 'approval'].includes(s.status))) throw new Error('请等待正在运行的任务结束或先停止任务，再切换网络出口');
+    for (const provider of ['codex', 'cursor'] as Provider[]) this.accounts.invalidate(provider);
+    for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
+    const runtimes = [...this.runtimes.values()]; this.runtimes.clear(); await Promise.all(runtimes.map(runtime => runtime.close()));
   }
   async changePermissions(id: string, mode: PermissionMode, stop = false) {
     const s = this.session(id);
@@ -267,8 +273,11 @@ export class Workbench {
       for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
       if (s.closedAt) throw new Error('此会话已关闭');
       const capabilities = await runtime.resolveCapabilities(capabilitySelections);
-      s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted });
-      if (!started) throw new Error(s.error || '任务未能提交给 CLI，请重试');
+      let written = false;
+      s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted: () => { written = true; submitted?.(); } });
+      // Once the CLI has accepted the request bytes, keep the recorded user turn and expose
+      // its error state through the session. The renderer has already received submission.
+      if (!started && !written) throw new Error(s.error || '任务未能提交给 CLI，请重试');
       await this.store.save();
     } catch (e: any) { if (!s.closedAt) { s.status = 'error'; s.error = e.message; this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
     finally { this.sending.delete(id); }

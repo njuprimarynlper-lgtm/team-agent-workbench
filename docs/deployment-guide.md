@@ -19,6 +19,8 @@
 
 本地模式不能证明生产权限隔离。拥有 Windows 共享目录系统权限的人仍可绕过应用直接访问文件。
 
+团队共享与模型网络是两条独立通路。SSH/SFTP 始终用于共享空间；只有部分成员无法直接访问 Codex/Cursor 时，才需要另行部署可选的[管理端网络出口](network-egress.md)。
+
 ## 本地文件系统部署
 
 1. 准备一个专用空目录作为共享区，例如 `D:\TeamAgentDemo\shared`。业务代码目录与共享区分开。
@@ -66,6 +68,7 @@ npm run build
 npm run test:ui
 npm run test:session-ui
 npm run test:local-ui
+npm run test:egress-ui
 ```
 
 开发启动：
@@ -94,5 +97,7 @@ npm run test:local-ui
 - 用户只能选择本机工作路径，共享路径由账号权限与配置确定。
 - 成果按类别进入项目 `submissions/账号/{experiments,failed-directions,findings,issues,baseline-change-proposals}/`，轨迹上传进入 `trajectories/账号/`。分类子目录由受控文件操作器在首次上传时创建。
 - 网络中断和应用重启不会把待上传内容改投其他项目或身份。
+- 未启用管理端出口时，CLI 保持原有直连环境；启用后，仅工作台启动的 Codex/Cursor CLI 收到本机代理变量。
+- 管理端出口只允许配置中的 Codex/Cursor HTTPS 域名和 443 端口，并由用户端校验接入码中的 TLS 证书指纹。
 
 本地模式的详细目录与权限桩行为见 [本地文件系统联调](local-filesystem.md)，正式身份边界见 [身份与协作说明](identity-content.md)。

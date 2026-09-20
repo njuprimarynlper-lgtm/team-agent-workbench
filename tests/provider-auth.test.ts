@@ -96,3 +96,16 @@ test('simultaneous work and preparation directories do not cancel one another du
     assert.equal(accounts.states.codex.cwd, second);
   } finally { await accounts.close(); await cleanup(root); }
 });
+
+test('provider account checks and login inherit the optional workbench network route', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-auth-proxy-'));
+  const fixture = await authLauncher(root, { status: 'ready' });
+  const environment = () => ({ HTTP_PROXY: 'http://127.0.0.1:18001', HTTPS_PROXY: 'http://127.0.0.1:18001', NODE_USE_ENV_PROXY: '1' });
+  const accounts = new ProviderAccounts(() => fixture.launcher, () => {}, () => {}, environment);
+  try {
+    assert.equal((await accounts.check('cursor', root)).status, 'authenticated');
+    await accounts.login('cursor', root); await until(() => accounts.states.cursor.status === 'authenticated');
+    const launches = await fixture.environments(); assert(launches.length >= 2);
+    for (const env of launches) { assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:18001'); assert.equal(env.NODE_USE_ENV_PROXY, '1'); }
+  } finally { await accounts.close(); await cleanup(root); }
+});

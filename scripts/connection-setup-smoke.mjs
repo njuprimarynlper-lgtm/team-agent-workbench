@@ -29,6 +29,14 @@ try {
   await expect(page.getByRole('button', { name: '手动设置 SSH 连接' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '添加其他服务器', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();
+  await expect(page.getByText('通过管理端访问 Codex 和 Cursor', { exact: true })).toBeVisible();
+  const egressToggle = page.locator('.member-egress-option input[type="checkbox"]');
+  await expect(egressToggle).not.toBeChecked();
+  await expect(page.getByLabel('管理端网络出口接入码')).toHaveCount(0);
+  await egressToggle.check();
+  await expect(page.getByLabel('管理端网络出口接入码')).toBeVisible();
+  await expect(page.getByText('尚未配置接入信息', { exact: true })).toBeVisible();
+  await egressToggle.uncheck();
   await expect(page.locator('.connection-server-details')).toBeVisible();
   await expect(page.getByLabel('服务器身份状态')).toHaveCount(0);
   await expect(page.getByText('查看技术信息', { exact: true })).toHaveCount(0);
@@ -90,7 +98,7 @@ try {
   const settings = await fs.readFile(path.join(store, 'settings.json'), 'utf8');
   assert(!settings.includes('not-persisted')); assert(!settings.includes('new.example.test'));
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['fresh start shows a direct login form', 'local fixture hides shared root', 'only local work path chosen', 'legacy multiple profiles never add a connection selector', 'server and account change in the same form', 'incomplete local fixture is rejected', 'server identity details stay hidden', 'restart refills the latest server and account ahead of an older verified snapshot, never password or unsaved edits'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['fresh start shows a direct login form', 'admin egress is visibly optional and only asks for an invite code when enabled', 'local fixture hides shared root', 'only local work path chosen', 'legacy multiple profiles never add a connection selector', 'server and account change in the same form', 'incomplete local fixture is rejected', 'server identity details stay hidden', 'restart refills the latest server and account ahead of an older verified snapshot, never password or unsaved edits'] }));
 } catch (e) {
   await page?.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {}); throw e;
 } finally { await app?.close().catch(() => {}); }

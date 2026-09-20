@@ -9,11 +9,11 @@ export class CodexAuthBridge {
   private accountId?: string;
   private closed = false;
   private closeOperation?: Promise<void>;
-  constructor(private executable: string, private cwd: string, private sourceHome: string) {}
+  constructor(private executable: string, private cwd: string, private sourceHome: string, private networkEnv: NodeJS.ProcessEnv = {}) {}
   private async credential(): Promise<Credential | undefined> {
     if (this.closed) throw new Error('登录连接已关闭');
     if (!this.source) {
-      this.source = new JsonRpc(this.executable, ['app-server'], this.cwd, false, { CODEX_HOME: this.sourceHome });
+      this.source = new JsonRpc(this.executable, ['app-server'], this.cwd, false, { ...this.networkEnv, CODEX_HOME: this.sourceHome });
       this.source.on('message', m => { if (m.id !== undefined) this.source?.reject(m.id, '登录检测不执行操作'); });
       await this.source.request('initialize', { clientInfo: { name: 'team_agent_account_bridge', version: '0.7.0' } }); this.source.notify('initialized');
     }

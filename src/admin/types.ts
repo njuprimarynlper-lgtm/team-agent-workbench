@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
 import { groupLabelMessage, groupLabelPattern } from '../shared/groups';
+import type { AdminEgressSnapshot } from '../shared/egress';
 export const adminProfileSchema = z.object({
   mode: z.enum(['sftp', 'local']).optional(), localRoot: z.string().optional(),
   host: z.string().trim().min(1).max(255), port: z.number().int().min(1).max(65535),
@@ -15,7 +16,7 @@ export type ManagedUser = { username: string; systemUsername?: string; name: str
 export type ManagedGroup = AdminState['groups'][string];
 export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string };
 export type AdminState = { initialized: boolean; bootstrapPending?: boolean; operations?: Record<string, AdminJob>; storageVersion?: number; teamId?: string; loginGroup?: string; sftpConfigured?: boolean; users: Record<string, ManagedUser>; groups: Record<string, { name: string; label: string; adminGroup: string; workspace?: string; provisioning?: boolean }> };
-export type AdminSnapshot = { profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[] };
+export type AdminSnapshot = { profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[]; egress?: AdminEgressSnapshot };
 export type StorageMetrics = { bytes: number; files: number; directories: number; directBytes: number; modifiedAt?: string };
 export type StorageCategoryKey = 'submissions' | 'trajectories' | 'curated' | 'project' | 'system' | 'unassigned';
 export type StorageCategoryUsage = StorageMetrics & { key: StorageCategoryKey; label: string };

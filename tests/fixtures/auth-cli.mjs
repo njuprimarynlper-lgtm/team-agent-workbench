@@ -10,6 +10,7 @@ const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 const mode = read();
 const command = process.argv[2];
 fs.appendFileSync(path.join(root, 'cli-launches.jsonl'), JSON.stringify(process.argv.slice(2)) + '\n');
+fs.appendFileSync(path.join(root, 'cli-env.jsonl'), JSON.stringify({ HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY }) + '\n');
 let approvalPolicy = mode.permissionConfig?.approval || 'on-request';
 if (command === '--version') console.log('fixture-cli-1.0');
 else if (command === 'login') {

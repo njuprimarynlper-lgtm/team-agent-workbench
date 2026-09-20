@@ -1,5 +1,6 @@
 import type { ContentMetadata, ContributionCategory, GitRevision } from './content';
 import type { ProjectBrief } from './project-brief';
+import type { UserEgressSettings, UserEgressStatus } from './egress';
 export type Provider = 'codex' | 'cursor';
 export type PermissionMode = 'inherit' | 'review' | 'auto' | 'full';
 export interface PermissionReport { provider: Provider; checkedAt: string; source: 'config' | 'runtime'; sandbox: string; approval: string; reviewer?: string; warnings: string[]; allowedModes?: PermissionMode[]; execution?: 'passed' | 'blocked' | 'unknown'; executionDetail?: string; cursorConfig?: { files: string[]; allow: string[]; deny: string[] }; }
@@ -8,7 +9,7 @@ export interface Project { briefRevision?: number; id: string; name: string; rem
 export interface ConnectionProfile { mode?: 'sftp' | 'local'; localRoot?: string; id: string; name: string; host: string; port: number; username: string; fingerprint: string; manifestPath: string; projects: Project[]; workPath?: string }
 export interface WorkspaceSnapshot { profile: ConnectionProfile; workspaces: WorkspaceAccess[] }
 export interface ProjectBriefState { brief?: ProjectBrief; revision: number; updatedAt?: string }
-export interface Settings { workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; sidebarProjectHeight?: number; trustedServerIdentities?: Record<string, string>; contentSeen?: Record<string, Record<string, number>>; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
+export interface Settings { workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; sidebarProjectHeight?: number; trustedServerIdentities?: Record<string, string>; contentSeen?: Record<string, Record<string, number>>; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string; egress?: UserEgressSettings }
 export type AgentCapabilityKind = 'skill' | 'plugin';
 export interface AgentCapabilitySelection { id: string; kind: AgentCapabilityKind; name: string }
 export interface AgentCapabilityOption extends AgentCapabilitySelection { description: string; invocation: string; path?: string; source?: string; enabled: boolean; unavailableReason?: string }
@@ -44,7 +45,7 @@ export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated'
 export interface ModelOption { id: string; name: string; isDefault?: boolean }
 export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
 export interface ProviderCatalog { models: ModelOption[]; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
-export interface Snapshot { settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean }
+export interface Snapshot { settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

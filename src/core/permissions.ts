@@ -90,9 +90,9 @@ export async function setCursorManualReview(cwd: string) {
   }
   return cursorPermissions(cwd);
 }
-export async function inspectPermissions(provider: Provider, executable: string, cwd: string): Promise<PermissionReport> {
+export async function inspectPermissions(provider: Provider, executable: string, cwd: string, env: NodeJS.ProcessEnv = {}): Promise<PermissionReport> {
   if (provider === 'cursor') return cursorPermissions(cwd);
-  const rpc = new JsonRpc(executable, ['app-server'], cwd, false), timeout = 8000;
+  const rpc = new JsonRpc(executable, ['app-server'], cwd, false, env), timeout = 8000;
   const timer = setTimeout(() => void rpc.close(), timeout + 1000);
   rpc.on('message', m => { if (m.id !== undefined) rpc.reject(m.id, '权限检测不执行 Agent 请求'); });
   try {
