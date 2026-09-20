@@ -47,9 +47,9 @@
 
 ## 加密回传接入信息
 
-客户端公钥位于本目录 `client-public.pem`，SHA256 为：
+客户端公钥位于本目录 `client-public.pem`，其 SPKI DER 编码的 SHA256 为（不受 Windows/Git 换行转换影响）：
 
-`2cdfa76f67da87796f46d8a45cdb40f33baafa3b07f946d57e227aa76543f422`
+`008f81f7c7080d821ece380e2dfe18368a05c276407b408452c0961d4aff149f`
 
 把需要传递的秘密写入**本机忽略目录**中的 UTF-8 JSON，例如 `.test-data/proxy-pilot/server-private.json`：
 
