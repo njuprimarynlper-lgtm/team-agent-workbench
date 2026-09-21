@@ -42,7 +42,7 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_existing')!.isEmpty, true);
     await owner.initializeProject('不覆盖', 'local_existing', brief, key(owner, 'local_existing')); assert.equal(await fs.readFile(path.join(share, 'projects/existing/原有资料.txt'), 'utf8'), 'keep');
     await assert.rejects(owner.initializeProject('错误账号', 'local_one', brief, key(member, 'local_one')), /账号已改变/);
-    await assert.rejects(member.initializeProject('越权', 'local_one', brief, key(member, 'local_one')), /子管理员/);
+    await assert.rejects(member.initializeProject('越权', 'local_one', brief, key(member, 'local_one')), /组管理员/);
     await assert.rejects(owner.initializeProject('缺少说明', 'local_one', { ...brief, acceptance: ' ' }, key(owner, 'local_one')));
     assert.deepEqual(await fs.readdir(path.join(share, 'projects/one')), []);
     const project = await owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one'));
@@ -54,7 +54,7 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     await assert.rejects(owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one')), /EEXIST|已存在/);
     assert.equal(await fs.readFile(path.join(share, 'projects/one/客户信息整理', PROJECT_BRIEF_FILE), 'utf8'), text);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_two', role: 'member', handoffs: { 'local_two': null } });
-    await assert.rejects(owner.initializeProject('撤权后创建', 'local_two', brief, key(owner, 'local_two')), /子管理员/);
+    await assert.rejects(owner.initializeProject('撤权后创建', 'local_two', brief, key(owner, 'local_two')), /组管理员/);
     assert.deepEqual(await fs.readdir(path.join(share, 'projects/two')), []);
   } finally { admin.disconnect(); await owner.close(); await member.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });
@@ -67,7 +67,7 @@ test('SFTP onboarding publishes complete UTF-8 brief, respects permissions, remo
     await owner.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
     await member.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
     const key = projectSetupIdentity(owner.remote.profile!, 'wb_test_ocr'); assert(owner.remote.workspace!.isEmpty);
-    await assert.rejects(member.initializeProject('越权', 'wb_test_ocr', brief, projectSetupIdentity(member.remote.profile!, 'wb_test_ocr')), /子管理员/);
+    await assert.rejects(member.initializeProject('越权', 'wb_test_ocr', brief, projectSetupIdentity(member.remote.profile!, 'wb_test_ocr')), /组管理员/);
     server.state.failWrite = PROJECT_BRIEF_FILE;
     await assert.rejects(owner.initializeProject('失败项目', 'wb_test_ocr', brief, key), /未创建成功/);
     assert(![...server.nodes.keys()].some((p: string) => p.startsWith('/projects/ocr/失败项目')));

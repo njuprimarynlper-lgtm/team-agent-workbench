@@ -152,6 +152,7 @@ export class AgentRuntime {
       if (method === 'item/started' && p.item?.type === 'fileChange' && Array.isArray(p.item.changes)) this.fileChanges.set(p.item.id, { turnId: p.turnId, changes: p.item.changes });
       if (method === 'item/completed') {
         const i = p.item || {};
+        if (i.type === 'fileChange' && i.status !== 'failed') s.outputFiles = [...new Set([...(s.outputFiles || []), ...(i.changes || this.fileChanges.get(i.id)?.changes || []).map((change: any) => change.path).filter((value: unknown): value is string => typeof value === 'string')])];
         this.fileChanges.delete(i.id);
         if (i.type === 'agentMessage') this.message(i.id, 'assistant', i.text || '');
         else if (i.type === 'commandExecution') { if (i.exitCode !== 0 || i.status === 'failed') { const issue = permissionIssue(i.aggregatedOutput); if (issue) { s.permissionIssue = issue; this.hooks.changed(); } } this.message(i.id, 'tool', '$ ' + i.command + '\n' + (i.aggregatedOutput || '') + '\n退出码：' + i.exitCode); }
@@ -166,6 +167,7 @@ export class AgentRuntime {
       if (u.sessionUpdate === 'available_commands_update') { this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
       if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') this.message(this.cursorMessageId, 'assistant', u.content.text, true);
       if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
+        if (u.status !== 'failed' && Array.isArray(u.locations)) s.outputFiles = [...new Set([...(s.outputFiles || []), ...u.locations.map((location: any) => location.path).filter((value: unknown): value is string => typeof value === 'string')])];
         const text = [u.title, u.status, ...(u.content || []).map((x: any) => x.content?.text || pretty(x))].filter(Boolean).join('\n');
         if (u.status === 'failed') { const issue = permissionIssue(text); if (issue) { s.permissionIssue = issue; this.hooks.changed(); } }
         this.message(u.toolCallId, 'tool', text, u.sessionUpdate === 'tool_call_update');

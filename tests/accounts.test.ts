@@ -50,7 +50,7 @@ test('Local administrator and extended-name members: create, login, upload, rese
     await alice.connect(config('张三'), '1', async () => false); await alice.verifyWorkspace('/projects/demo');
     const project = await alice.createProject('身份验证');
     await bob.connect(config('10086'), '1', async () => false); await bob.verifyWorkspace('/projects/demo'); await bob.discoverProjects();
-    await assert.rejects(bob.createProject('不该创建'), /子管理员/);
+    await assert.rejects(bob.createProject('不该创建'), /组管理员/);
     const source = path.join(base, '成果.md'); await fs.writeFile(source, '工号账号的成果');
     const binding = bob.binding(project.id); await bob.ensurePersonalFolder(binding, binding.project.uploadPath);
     const target = binding.project.uploadPath + '/成果.md'; await bob.upload(binding, source, target, () => {});

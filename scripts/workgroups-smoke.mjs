@@ -79,7 +79,7 @@ try {
   await row.getByTitle('管理 nlp 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('member'); await ap.getByLabel('nlp 接任安排').selectOption('__vacant__'); await confirm(ap);
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.toast')).toContainText('账号身份与工作组已刷新'); await expect(up.getByTitle('在 nlp 创建项目', { exact: true })).toHaveCount(0);
   await expect(up.getByTitle('在 ocr 创建项目', { exact: true })).toHaveCount(1);
-  await assert.rejects(up.evaluate(() => window.workbench.call('project.create', { name: '越权创建', groupName: 'local_nlp' })), /子管理员|权限|管理/);
+  await assert.rejects(up.evaluate(() => window.workbench.call('project.create', { name: '越权创建', groupName: 'local_nlp' })), /组管理员|权限|管理/);
   await up.screenshot({ path: path.join(data, 'independent-roles.png') });
   await row.getByTitle('管理 ocr 成员身份', { exact: true }).click(); await ap.getByLabel('成员身份', { exact: true }).selectOption('remove'); await ap.getByLabel('ocr 接任安排').selectOption('__vacant__'); await confirm(ap);
   await up.getByTitle('刷新工作组与项目', { exact: true }).click(); await expect(up.locator('.workgroup')).toHaveCount(1);

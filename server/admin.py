@@ -22,7 +22,7 @@ import contextlib
 import unicodedata
 import zlib
 
-OPS = {"probe", "initialize", "status", "storage_usage", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
+OPS = {"probe", "initialize", "status", "storage_usage", "storage_upgrade", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -381,7 +381,7 @@ def assign_groups(root, state, request):
         raise ValueError("仅可分配已准备好工作目录的团队用户组")
     content_admin_groups = request.get("contentAdminGroups", [])
     if not isinstance(content_admin_groups, list) or any(g not in groups for g in content_admin_groups):
-        raise ValueError("子管理员必须是对应项目组成员")
+        raise ValueError("组管理员必须是对应项目组成员")
     desired = set(groups) | {state["groups"][g]["adminGroup"] for g in content_admin_groups}
     managed = set(state["groups"]) | {g["adminGroup"] for g in state["groups"].values()}
     import grp
@@ -392,7 +392,7 @@ def assign_groups(root, state, request):
         run(["usermod", "-a", "-G", ",".join(sorted(desired)), login])
     state["users"][username]["groups"] = list(groups)
     state["users"][username]["contentAdminGroups"] = content_admin_groups
-    checkpoint(root, state, "成员组与子管理员角色已设置")
+    checkpoint(root, state, "成员组与组管理员角色已设置")
     terminate_connections(login)
     checkpoint(root, state, "旧连接已失效")
 
@@ -458,7 +458,7 @@ def protect_public_tree(root, state):
             os.chmod(file, 0o2750 if file.is_dir() else 0o640)
 
 
-def install_content_worker(root, state):
+def install_content_worker(root, state, reconnect=True):
     encoded = globals().get('CONTENT_WORKER_ZLIB_BASE64') or globals().get('CONTENT_WORKER_BASE64')
     if not encoded:
         raise ValueError('管理员程序缺少文件操作器，请使用完整新版管理员包')
@@ -478,7 +478,7 @@ def install_content_worker(root, state):
     run(['systemctl', 'enable', '--now', name])
     run(['systemctl', 'restart', name])
     for username, user in state['users'].items():
-        if user.get('enabled') and not user.get('provisioning'):
+        if reconnect and user.get('enabled') and not user.get('provisioning'):
             terminate_connections(user_login(state, username))
     state['storageVersion'] = 1
 
@@ -668,7 +668,7 @@ def enforce_continuity(root, state, request):
             continue
         handoffs = request.get('handoffs', {})
         if group not in handoffs:
-            raise ValueError('此操作将移除最后一位子管理员，请选择接任人或明确保留空缺：' + current['groups'][group]['label'])
+            raise ValueError('此操作将移除最后一位组管理员，请选择接任人或明确保留空缺：' + current['groups'][group]['label'])
         successor = handoffs[group]
         if successor is None:
             continue
@@ -725,7 +725,7 @@ def _execute(request):
         password = check_password(request.get("password", ""))
         groups = request.get("groups", [])
         if any(g not in state["groups"] or not state["groups"][g].get("workspace") for g in groups) or any(g not in groups for g in request.get("contentAdminGroups", [])):
-            raise ValueError("请选择已准备好的用户组，子管理员须属于对应组")
+            raise ValueError("请选择已准备好的用户组，组管理员须属于对应组")
         if not member_access_ready(root, state):
             configure_member_access(root, state)
             checkpoint(root, state, "成员登录能力已配置")
@@ -803,13 +803,18 @@ def _execute(request):
         elif not record.get("provisioning"):
             raise ValueError("用户组已存在且创建完成")
         provision_group(root, state, record, "gid", name, "成员用户组已创建")
-        provision_group(root, state, record, "adminGid", record["adminGroup"], "子管理员用户组已创建")
+        provision_group(root, state, record, "adminGid", record["adminGroup"], "组管理员用户组已创建")
         prepare_workspace(root, state, name)
         record["provisioning"] = False
         checkpoint(root, state, "工作目录与 ACL 已配置")
     elif op == "workspace_prepare":
         prepare_workspace(root, state, request.get("group"))
         checkpoint(root, state, "工作目录与 ACL 已配置")
+    elif op == "storage_upgrade":
+        if not member_access_ready(root, state):
+            raise ValueError('请先完成成员 SFTP 登录配置')
+        install_content_worker(root, state, reconnect=False)
+        checkpoint(root, state, '文件操作器已更新')
     elif op == "user_groups":
         assign_groups(root, state, request)
     elif op == "group_member":

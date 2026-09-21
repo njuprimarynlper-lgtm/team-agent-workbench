@@ -16,12 +16,12 @@ export class ContentFiles {
   async list(binding: RemoteBinding) { await this.authorize(binding); return this.read(binding); }
   async adopt(binding: RemoteBinding, target: string) {
     return registryLock(this.root, async () => {
-      const actor = await this.authorize(binding); if (!actor.admin) throw new Error('只有子管理员可以纳入已有文件');
+      const actor = await this.authorize(binding); if (!actor.admin) throw new Error('只有组管理员可以纳入已有文件');
       target = assertRemote(binding.project.remoteRoot, target); const relative = path.posix.relative(binding.project.remoteRoot, target);
       if (relative.split('/').some(p => p.startsWith('.')) || relative === '项目说明.md') throw new Error('管理文件请使用对应入口维护');
       const file = await diskPath(this.root, target), stat = await fs.lstat(file); if (!stat.isFile()) throw new Error('请选择普通文件');
       const items = await this.read(binding), existing = items.find(i => i.path === target); if (existing) return existing;
-      const now = new Date().toISOString(), item: SharedContent = { id: randomUUID(), title: path.posix.basename(target), description: /\.(md|txt)$/i.test(target) && stat.size <= 512 * 1024 ? await fs.readFile(file, 'utf8') : '从已有公共文件纳入，由子管理员统一维护。', kind: 'file', path: target, author: /^(submissions|trajectories)\/[^/]+\//.test(relative) ? relative.split('/')[1] : '历史文件', state: 'curated', revision: 1, createdAt: stat.mtime.toISOString(), updatedAt: now, updatedBy: actor.username, size: stat.size, sha256: await hashFile(file) };
+      const now = new Date().toISOString(), item: SharedContent = { id: randomUUID(), title: path.posix.basename(target), description: /\.(md|txt)$/i.test(target) && stat.size <= 512 * 1024 ? await fs.readFile(file, 'utf8') : '从已有公共文件纳入，由组管理员统一维护。', kind: 'file', path: target, author: /^(submissions|trajectories)\/[^/]+\//.test(relative) ? relative.split('/')[1] : '历史文件', state: 'curated', revision: 1, createdAt: stat.mtime.toISOString(), updatedAt: now, updatedBy: actor.username, size: stat.size, sha256: await hashFile(file) };
       items.unshift(item); await atomicJson(await this.index(binding), items); return item;
     });
   }
@@ -61,8 +61,8 @@ export class ContentFiles {
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), items = await this.read(binding), item = items.find(i => i.id === change.id);
       if (!item || item.revision !== change.revision) throw new Error('内容已更新或删除，请刷新后再操作；本地编辑仍保留');
-      if (!actor.admin && (item.author !== actor.username || item.state === 'curated')) throw new Error('只能修改自己尚未被子管理员整理的提交；可另提补充');
-      if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组子管理员可以整理或合并内容');
+      if (!actor.admin && (item.author !== actor.username || item.state === 'curated')) throw new Error('只能修改自己尚未被组管理员整理的提交；可另提补充');
+      if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组组管理员可以整理或合并内容');
       if (new Set(change.merge.map(m => m.id)).size !== change.merge.length) throw new Error('不能重复合并同一成果');
       const merged = change.merge.map(m => { const source = items.find(i => i.id === m.id); if (!source || source.id === item.id || source.revision !== m.revision || source.kind !== 'contribution') throw new Error('待合并内容已改变或不是文字成果，请刷新'); return source; });
       const provenance = [...(item.provenance || []), { id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt }, ...merged.flatMap(source => [...(source.provenance || []), { id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt }])].filter((source, index, all) => all.findIndex(value => value.id === source.id && value.revision === source.revision) === index);
@@ -85,7 +85,7 @@ export class ContentFiles {
         const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
         const temp = file + '.' + randomUUID() + '.tmp';
         try { await fs.writeFile(temp, `# ${change.title}\n\n${change.repoUrl ? change.repoUrl + '\n\n' : ''}${change.description}`, { flag: 'wx' }); await fs.rename(temp, file); } finally { await fs.rm(temp, { force: true }); }
-        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
+        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, ...(change.sourceSessionTitle ? { sourceSessionTitle: change.sourceSessionTitle } : {}), path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
       }
       await this.authorize(binding);
       await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id)));

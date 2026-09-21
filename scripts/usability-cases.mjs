@@ -9,6 +9,7 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   const state = await call('snapshot'), a = state.sessions[0];
   const b = await call('session.create', { provider: 'codex', cwd: data, projectId: state.connection.profile.projects[0].id });
   const select = id => page.locator(`.session-row[data-session-id="${id}"]`).click();
+  const openDraft = async id => { await page.getByRole('button', { name: '打开整理任务', exact: true }).click(); await expect(page.getByRole('heading', { name: '整理任务', exact: true })).toBeVisible(); await page.locator(`.draft-task-card[data-draft-id="${id}"] .draft-task-open`).click(); };
   const input = page.getByLabel('任务输入', { exact: true });
   await select(a.id); await input.fill('A 独立输入');
   const source = path.join(data, 'reference-code.py'); await fs.writeFile(source, 'CODE_MUST_STAY_LOCAL = True');
@@ -49,11 +50,11 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   // Preparation is independent; AI text and optional human supplement are separate.
   await auth.write({ status: 'ready', turn: 'success' });
   const draft = await call('draft.prepare', { id: a.id });
-  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await openDraft(draft.id);
   await expect(page.getByLabel('整理状态')).toContainText('已整理好', { timeout: 20000 });
   await page.getByLabel('给团队的补充（可选）', { exact: true }).fill('只提交修改说明；验证通过，不附带代码。');
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
-  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await openDraft(draft.id);
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('只提交修改说明；验证通过，不附带代码。');
   await expect(page.getByRole('region', { name: '整理结果', exact: true })).toContainText('https://github.com/owner/repo');
   await expect(page.getByText('已保存', { exact: true })).toHaveCount(0);
@@ -61,7 +62,7 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await page.getByLabel('给团队的补充（可选）', { exact: true }).fill('保存失败后仍保留的说明');
   await expect(page.getByRole('status')).toContainText('保存失败');
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
-  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await openDraft(draft.id);
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   await app.evaluate(({ dialog, BrowserWindow }) => {
     dialog.showMessageBox = async (_window, options) => { dialog.closeGuardMessage = options.message; return { response: 0, checkboxChecked: false }; };
@@ -74,7 +75,10 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await page.getByRole('button', { name: /^确认上传/ }).click();
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: /^确认上传/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '删除整理任务', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
+  await page.getByRole('button', { name: '打开整理任务', exact: true }).click();
+  await expect(page.locator(`.draft-task-card[data-draft-id="${draft.id}"]`)).toContainText('已保留，不可删除');
   const evidence = (await call('snapshot')).drafts[0].files;
   assert.equal(evidence.length, a.sources.length + 1); // Existing project context plus the attachment, retained locally.
   assert.equal(evidence.filter(f => f.name === 'reference-code.py').length, 1);
@@ -97,7 +101,8 @@ export async function restoredCases(page, expected) {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue(text);
   }
-  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await page.getByRole('button', { name: '打开整理任务', exact: true }).click();
+  await page.locator(`.draft-task-card[data-draft-id="${expected.draft.id}"] .draft-task-open`).click();
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   const snapshot = await page.evaluate(() => window.workbench.call('snapshot'));
   assert.equal(snapshot.connection, undefined); assert.equal(snapshot.workspaceReady, true);

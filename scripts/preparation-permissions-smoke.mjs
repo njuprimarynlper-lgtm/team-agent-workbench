@@ -21,6 +21,7 @@ try {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await call('provider.auth', { provider, cwd: data });
     await page.getByRole('button', { name: '整理成果', exact: true }).click();
+    await page.getByRole('button', { name: '整理所选类型（2）', exact: true }).click();
     await expect(page.getByLabel('整理状态')).toContainText('已整理好');
     const initial = await call('snapshot'), draft = initial.drafts.find(d => d.sessionId === session.id);
     const helper = initial.sessions.find(s => s.id === draft.prepareSessionId);

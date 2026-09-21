@@ -1,4 +1,5 @@
 import { storageRequest } from './storage-requests';
+import type { AssignmentCreate, AssignmentMember, AssignmentStatusChange, ProjectAssignment } from '../shared/assignments';
 import { hashFile } from './artifacts';
 import type { ContentEdit, ContentMetadata, SharedContent } from '../shared/content';
 import { Client, type SFTPWrapper, type Stats } from 'ssh2';
@@ -181,7 +182,7 @@ export class SftpConnection {
   async createProject(name: string, groupName?: string, brief?: ProjectBrief): Promise<Project> {
     await this.loadManifest();
     const workspace = groupName ? this.workspaces.find(w => w.groupName === groupName) : this.workspaces.length === 1 ? this.workspaces[0] : undefined;
-    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('请选择可管理的工作组；只有本组子管理员可以创建项目');
+    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('请选择可管理的工作组；只有本组组管理员可以创建项目');
     const result = await this.request({ op: 'create_project', name: projectName(name), groupName: workspace.groupName, brief });
     await this.loadManifest(); const project = this.profile!.projects.find(p => p.id === result.projectId); if (!project) throw new Error('项目已创建，请刷新工作组查看'); return project;
   }
@@ -190,6 +191,14 @@ export class SftpConnection {
     const s = this.channel(binding); await this.checked(binding, binding.project.remoteRoot);
     return new Promise((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) resolve([]); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
   }
+  private async assignmentRequest(binding: RemoteBinding, input: Record<string, unknown>) {
+    try { return await this.request({ ...input, projectId: binding.project.id }, binding); }
+    catch (error: any) { if (/不支持的内容操作|不支持的任务操作/.test(error.message)) throw new Error('服务器尚未更新任务功能，请管理员在新版管理端点击“更新服务端功能”'); throw error; }
+  }
+  assignmentMembers(binding: RemoteBinding): Promise<AssignmentMember[]> { return this.assignmentRequest(binding, { op: 'assignment_members' }); }
+  assignmentList(binding: RemoteBinding): Promise<ProjectAssignment[]> { return this.assignmentRequest(binding, { op: 'assignment_list' }); }
+  assignmentCreate(binding: RemoteBinding, input: AssignmentCreate): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_create', task: input }); }
+  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_status', change: input }); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.request({ op: 'edit_content', projectId: binding.project.id, change }, binding) as Promise<SharedContent | undefined>; }
   contentAdopt(binding: RemoteBinding, target: string) { return this.request({ op: 'adopt_content', projectId: binding.project.id, target }, binding); }
   async contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.request({ op: 'edit_content', projectId: binding.project.id, change, replacement: { extension: path.extname(file), sha256: await hashFile(file) } }, binding, file); }

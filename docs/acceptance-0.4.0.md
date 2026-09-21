@@ -5,12 +5,12 @@
 | 场景 | 验证内容 | 用例入口 |
 |---|---|---|
 | 首次管理员 | 专用空目录初始化；拒绝接管非空目录；登记测试管理员；错误密码与普通成员不能进入管理员操作；重连保留记录 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
-| 用户与项目组 | 创建组自动建立目录；创建成员时分组与任命子管理员；重复账号拒绝；最长账号和组名可以直接登录 | `tests/local-space.test.ts` |
+| 用户与项目组 | 创建组自动建立目录；创建成员时分组与任命组管理员；重复账号拒绝；最长账号和组名可以直接登录 | `tests/local-space.test.ts` |
 | 成员登录 | 本地桩直接绑定共享目录和成员身份；正式使用由成员填写服务器地址与个人账号；密码只以加盐哈希保存在桩记录 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
-| 项目创建 | 只有子管理员能建项目；自动建立 submissions/trajectories；同名不覆盖；普通成员刷新发现项目 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
+| 项目创建 | 只有组管理员能建项目；自动建立 submissions/trajectories；同名不覆盖；普通成员刷新发现项目 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
 | 文件共享 | 上传写入真实磁盘；队列完成后另一成员可预览和下载；不能覆盖已有成果，不能向他人成果目录写入 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
 | 轨迹与来源 | 每会话独立交接；历史 ZIP 真实落盘；他人轨迹不可读；共享资料引用冻结为本机快照 | `tests/local-space.test.ts`、已有 `tests/core.test.ts` / `tests/usability.test.ts` |
-| 动态撤权 | 已连接成员停用后下一次读写拒绝；恢复启用后恢复访问；换组与撤销子管理员立即重新校验；改密码后旧凭据拒绝 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
+| 动态撤权 | 已连接成员停用后下一次读写拒绝；恢复启用后恢复访问；换组与撤销组管理员立即重新校验；改密码后旧凭据拒绝 | `tests/local-space.test.ts`、`scripts/local-smoke.mjs` |
 | 路径与身份 | 拒绝越界、Windows 保留名/ADS、大小写绕过、符号链接与目录联接；拒绝伪造绑定与项目标记变更 | `tests/local-space.test.ts` |
 | 本地持续工作 | 不同 session 输入/交接独立；退出重启可离线恢复；共享操作仍需重连 | `tests/local-space.test.ts`、`scripts/smoke.mjs` |
 | 三个窗口并行 | 同时打开管理员、Alice、Bob；接口隔离、数据目录独立、共享区同一目录；模拟 CLI 登录前置检查 | `scripts/local-smoke.mjs`，支持 `--packaged` |

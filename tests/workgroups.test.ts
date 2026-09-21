@@ -36,7 +36,7 @@ test('local account automatically discovers assigned groups, tolerates no member
     assert.equal(member.remote.profile!.projects.length, 2); assert(!member.remote.workspaces.some(w => w.groupName === 'local_secret'));
     assert.equal(member.remote.workspaces.find(w => w.groupName === 'local_ocr')!.canCreateProject, true);
     assert.equal(member.remote.workspaces.find(w => w.groupName === 'local_nlp')!.canCreateProject, false);
-    await assert.rejects(member.createProject('越权', 'local_nlp'), /子管理员/);
+    await assert.rejects(member.createProject('越权', 'local_nlp'), /组管理员/);
     const session = await member.createSession('codex', root, ocr.id), before = structuredClone(session.binding!);
     const own = await member.createProject('新增项目', 'local_ocr'); assert.equal(own.groupName, 'local_ocr');
     await admin.operation({ op: 'group_member', username: 'test1', group: 'local_ocr', role: 'remove' });
@@ -103,7 +103,7 @@ test('SFTP discovers trusted memberships across groups, refreshes roles, isolate
     await assert.rejects(bob.verifyWorkspace('/projects/ocr'), /所属工作组/);
     server.state.memberships.bob = ['ocr', 'nlp']; await bob.loadManifest();
     assert.equal(bob.profile!.projects.length, 2); assert(bob.workspaces.every(w => !w.canCreateProject));
-    await assert.rejects(bob.createProject('越权', 'wb_test_ocr'), /子管理员/);
+    await assert.rejects(bob.createProject('越权', 'wb_test_ocr'), /组管理员/);
     const binding = bob.binding(ocr.id);
     server.state.memberships.bob = ['nlp']; await assert.rejects(bob.list(binding, ocr.remoteRoot), /拒绝访问/);
     await bob.loadManifest(); assert.deepEqual(bob.profile!.projects.map(p => p.id), [nlp.id]);

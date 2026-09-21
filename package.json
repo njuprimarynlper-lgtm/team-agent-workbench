@@ -27,6 +27,8 @@
     "test:storage-ui": "node scripts/admin-storage-smoke.mjs",
     "test:competition": "tsx scripts/competition-pilot.ts",
     "test:collaboration-ui": "tsx scripts/collaboration-smoke.ts",
+    "test:activity-ui": "tsx scripts/activity-results-smoke.ts",
+    "test:assignments-files-ui": "tsx scripts/assignments-files-smoke.ts",
     "test:server": "python -m unittest discover -s tests -p test_*.py",
     "test:preparation-permissions-ui": "node scripts/preparation-permissions-smoke.mjs",
     "test:permission-presets": "tsx scripts/permission-presets-smoke.ts",

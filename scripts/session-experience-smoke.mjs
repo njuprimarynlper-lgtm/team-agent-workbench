@@ -63,6 +63,7 @@ try {
   // Failed preparations are visible on the draft itself, never in the session list.
   await fixture.write({ status: 'ready', turn: 'network' });
   await page.getByRole('button', { name: '整理成果', exact: true }).click();
+  await page.getByRole('button', { name: '整理所选类型（2）', exact: true }).click();
   await expect(page.getByLabel('成果整理进度').getByRole('alert')).toContainText('网络连接中断', { timeout: 20000 });
   await expect(page.getByText('Network timeout: connection reset', { exact: true })).toHaveCount(0);
   await expect(page.locator('.toast').filter({ hasText: '整理失败' })).toHaveCount(0);
@@ -72,8 +73,7 @@ try {
   await expect(page.getByRole('button', { name: '查看整理会话' })).toHaveCount(0);
   await page.getByLabel('给团队的补充（可选）', { exact: true }).fill('我已经编辑过的说明');
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-failure.png') });
-  await expect(page.getByRole('heading', { name: '整理结果', exact: true })).toBeVisible();
-  await expect(page.getByLabel('选择整理结果')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '删除整理任务', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '返回“GPT 模型验证”', exact: true }).first().click();
   await expect(page.getByLabel('任务输入')).toBeVisible();
   assert.equal((await snap()).transfers.length, 0);
@@ -98,7 +98,11 @@ try {
   await expect(page.getByLabel('成果提醒')).toHaveText('待确认');
   await expect(page.locator('.toast')).toContainText('整理完成');
   assert.equal((await snap()).transfers.length, 0);
-  await page.getByRole('button', { name: '打开整理结果', exact: true }).click();
+  await page.getByRole('button', { name: '打开整理任务', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '整理任务', exact: true })).toBeVisible();
+  await expect(page.locator(`.draft-task-card[data-draft-id="${preparingId}"]`)).toContainText('待确认');
+  await expect(page.locator(`.draft-task-card[data-draft-id="${preparingId}"]`)).toContainText('来源：GPT 模型验证');
+  await page.locator(`.draft-task-card[data-draft-id="${preparingId}"] .draft-task-open`).click();
   await expect(page.locator('.toast').filter({ hasText: '整理完成' })).toHaveCount(0);
   await expect(page.locator('.generated-preview')).toContainText('已根据阶段摘要整理', { timeout: 20000 });
   await expect(page.locator('.generated-preview h1')).toHaveCount(0);
@@ -114,7 +118,9 @@ try {
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-compact.png') });
   await page.setViewportSize({ width: 1520, height: 980 });
   // Ready drafts can be canceled without discarding the review or accidentally uploading.
-  await page.getByRole('button', { name: '返回“GPT 模型验证”', exact: true }).first().click();
+  await page.getByRole('button', { name: '返回整理任务列表', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: '整理任务', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '工作会话', exact: true }).click();
   await expect(page.getByLabel('任务输入')).toHaveValue('整理期间继续准备下一项任务');
   assert.equal((await snap()).drafts[0].generation, 'ready');
   assert.equal((await snap()).transfers.length, 0);
@@ -122,7 +128,13 @@ try {
   assert.equal((await snap()).drafts[0].id, preparingId);
   await expect(page.getByLabel('给团队的补充（可选）')).toHaveValue('我已经编辑过的说明');
   await fixture.write({ status: 'ready', turn: 'hang' });
-  await page.getByRole('button', { name: '重新整理', exact: true }).click();
+  await page.getByRole('button', { name: '再次整理', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '选择整理范围', exact: true })).toBeVisible();
+  await expect(page.getByLabel('增量整理', { exact: true })).toBeDisabled();
+  await expect(page.getByText('上次整理后没有新增消息', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: '开始全量整理', exact: true }).click();
+  await expect.poll(async () => (await snap()).drafts.length).toBe(2);
+  assert.equal((await snap()).drafts[0].preparationScope, 'full');
   await page.getByRole('button', { name: '停止整理', exact: true }).click();
   await expect(page.getByLabel('任务输入')).toBeVisible();
   assert.equal((await snap()).drafts[0].generation, 'canceled');
@@ -159,8 +171,14 @@ try {
   await expect(page.getByLabel('GitHub 仓库链接')).toHaveValue('https://github.com/human/corrected');
   await page.getByRole('button', { name: '展开详情', exact: true }).click();
   await expect(page.getByRole('button', { name: '收起详情', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '修改名称', exact: true }).click();
+  await page.getByLabel('成果名称', { exact: true }).fill('人工命名的验证结论');
+  await page.getByRole('button', { name: '保存名称', exact: true }).click();
+  await expect(page.getByRole('region', { name: '整理结果', exact: true })).toContainText('人工命名的验证结论');
+  await expect.poll(async () => (await snap()).drafts.some(d => d.artifacts?.some(item => item.title.includes('人工命名的验证结论')))).toBe(true);
   await fixture.write({ status: 'ready', turn: 'success' });
-  await page.getByRole('button', { name: '重新整理', exact: true }).click();
+  await page.getByRole('button', { name: '再次整理', exact: true }).click();
+  await page.getByRole('button', { name: '开始全量整理', exact: true }).click();
   await expect(page.getByLabel('整理状态')).toContainText('已整理好');
   await expect(page.getByRole('region', { name: '整理结果', exact: true })).toContainText('https://github.com/human/corrected');
   await expect(page.getByLabel('给团队的补充（可选）')).toHaveValue('我已经编辑过的说明');
@@ -178,6 +196,8 @@ try {
   await page.getByRole('button', { name: '创建会话', exact: true }).click();
   const cursor = (await snap()).sessions.find(s => s.provider === 'cursor' && s.purpose === 'work'); assert.equal(cursor.model, 'other-fixture');
   await page.getByLabel('任务输入', { exact: true }).fill('Cursor 模型验证'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '选择这次会话要参考的结论', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '不带入结论，直接发送', exact: true }).click();
   await expect.poll(async () => (await snap()).sessions.find(s => s.id === cursor.id)?.status, { timeout: 20000 }).toBe('idle');
   await expect(page.locator('.message.assistant')).toContainText('Cursor 验证结果');
   await fixture.write({ status: 'ready', turn: 'hang' });

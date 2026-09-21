@@ -1,5 +1,7 @@
 import { atomicJson } from './store';
 import { ContentFiles } from './content-files';
+import { AssignmentFiles } from './assignment-files';
+import type { AssignmentCreate, AssignmentStatusChange } from '../shared/assignments';
 import type { ContentEdit, ContentMetadata } from '../shared/content';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -43,7 +45,7 @@ export class LocalFileConnection {
     const user = authorizeUser(data, profile.username, proof);
     const group = Object.values(data.state.groups).find(g => g.workspace && withinRemote(g.workspace, target));
     if (!group || !user.groups?.includes(group.name)) throw new Error('模拟权限拒绝：不属于此项目组');
-    if (create && !user.contentAdminGroups?.includes(group.name)) throw new Error('当前账号不是此工作路径的项目子管理员');
+    if (create && !user.contentAdminGroups?.includes(group.name)) throw new Error('当前账号不是此工作路径的项目组管理员');
     return { user, group };
   }
   binding(id: string): RemoteBinding {
@@ -192,6 +194,19 @@ export class LocalFileConnection {
       return { brief, revision: revision + 1, updatedAt };
     });
   }
+  private assignments() {
+    return new AssignmentFiles(this.root, async binding => {
+      this.channel(binding); const { user, group } = await this.access(binding.project.remoteRoot);
+      if ((await this.readProject(binding.project.remoteRoot))?.id !== binding.project.id) throw new Error('项目身份已改变');
+      const data = await readRegistry(this.root);
+      const members = Object.values(data.state.users).filter(item => item.enabled && !item.missing && !item.provisioning && item.groups?.includes(group.name)).map(item => ({ username: item.username, name: item.name || item.username }));
+      return { username: user.username, admin: !!user.contentAdminGroups?.includes(group.name), members };
+    });
+  }
+  assignmentMembers(binding: RemoteBinding) { return this.assignments().members(binding); }
+  assignmentList(binding: RemoteBinding) { return this.assignments().list(binding); }
+  assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.assignments().create(binding, input); }
+  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.assignments().status(binding, input); }
   private content() { return new ContentFiles(this.root, async binding => { this.channel(binding); const { user, group } = await this.access(binding.project.remoteRoot); const project = await this.readProject(binding.project.remoteRoot); if (project?.id !== binding.project.id) throw new Error('项目身份已改变'); return { username: user.username, admin: !!user.contentAdminGroups?.includes(group.name) }; }); }
   contentList(binding: RemoteBinding) { return this.content().list(binding); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.content().adopt(binding, target); }

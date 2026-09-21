@@ -44,7 +44,7 @@ try {
     await login.getByRole('button', { name: '取消', exact: true }).click();
   }
   const ap = a.page, bp = b.page, mp = management.page;
-  // Reopening one user edition creates an isolated account window in the owning process.
+  // Reopening loads the next existing account dataset; it must not create an unrelated empty slot.
   const duplicate = spawn(electronPath as unknown as string, ['dist/user'], { cwd: root, env: b.env, windowsHide: true, stdio: 'ignore' });
   const exitCode = await new Promise<number | null>((resolve, reject) => { const timer = setTimeout(() => { duplicate.kill(); reject(new Error('duplicate instance did not exit')); }, 10000); duplicate.on('exit', code => { clearTimeout(timer); resolve(code); }); duplicate.on('error', reject); });
   assert.equal(exitCode, 0); await expect.poll(() => b.app.windows().length).toBe(2);
@@ -83,25 +83,51 @@ try {
   await bp.locator('.session-materials > summary').click(); await expect(bp.locator('.session-materials-content')).toContainText('有新版本'); await bp.getByRole('button', { name: '更新项目说明', exact: true }).click();
   await expect.poll(async () => (await call(bp, 'snapshot')).sessions[0].projectBrief.revision).toBe(2);
   await expect(ap.locator('.content-update-toast')).toContainText('bob');
+  await ap.getByTitle('关闭本轮动态提示', { exact: true }).click(); await expect(ap.locator('.content-update-toast')).toHaveCount(0);
+  await ap.getByTitle('团队动态', { exact: true }).click(); await expect(ap.getByRole('heading', { name: '团队动态', exact: true })).toBeVisible(); await expect(ap.locator('.update-entry')).toHaveCount(2); await expect(ap.locator('.update-feed')).toContainText('上传成果');
   await bp.getByTitle('公共成果', { exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).locator('.content-card-summary').click();
   await bp.getByRole('button', { name: '修改自己的提交', exact: true }).click(); await bp.getByLabel('公共成果内容').fill('Bob 补充的验证依据'); await bp.getByRole('button', { name: '保存修改', exact: true }).click();
   await expect(bp.locator('.content-detail')).toContainText('Bob 补充的验证依据');
   await ap.locator('.sidebar').getByRole('button', { name: '整理项目文档', exact: true }).click(); await ap.getByRole('button', { name: '多选语义合并', exact: true }).click();
+  await expect(ap.getByLabel('项目文档操作状态')).toHaveValue('submitted');
+  await ap.getByLabel('选择合并：第一项结论').check();
+  await ap.getByLabel('项目文档操作状态').selectOption('curated'); await expect(ap.locator('.content-card')).toHaveCount(0);
+  await ap.getByLabel('项目文档操作状态').selectOption('submitted'); await expect(ap.getByLabel('选择合并：第一项结论')).not.toBeChecked();
   await ap.getByLabel('选择合并：第一项结论').check(); await ap.getByLabel('选择合并：第二项结论').check();
   await ap.getByRole('button', { name: '开始语义合并（2 条）', exact: true }).click();
   await expect(ap.getByLabel('融合后的项目文档')).toContainText('综合结论');
   await ap.getByLabel('合并后标题').fill('Alice 统一整理的结论');
   await ap.getByRole('button', { name: '确认合并并归档 2 条原文', exact: true }).click();
   await expect(ap.locator('.content-card')).toHaveCount(1);
+  await expect(ap.getByLabel('项目文档操作状态')).toHaveValue('curated');
+  await ap.getByLabel('项目文档操作状态').selectOption('submitted'); await expect(ap.locator('.content-card')).toHaveCount(0);
+  await ap.getByLabel('项目文档操作状态').selectOption('curated'); await expect(ap.locator('.content-card')).toHaveCount(1);
+  await expect(ap.getByRole('button', { name: '从共享区移除：Alice 统一整理的结论', exact: true })).toBeVisible();
   await bp.getByRole('button', { name: '刷新', exact: true }).click(); await bp.getByLabel('搜索公共成果').fill('统一整理');
   await expect(bp.locator('.content-card')).toHaveCount(1); await bp.locator('.content-card-summary').click();
   await expect(bp.getByRole('button', { name: '修改自己的提交', exact: true })).toHaveCount(0);
+  await expect(bp.locator('.content-detail').getByRole('button', { name: '下载', exact: true })).toHaveCount(0);
   await expect(bp.locator('.content-detail')).toContainText('已整理，原作者不可覆盖');
-  await bp.getByRole('button', { name: '加入当前会话', exact: true }).click(); await bp.getByTitle('工作会话', { exact: true }).click();
+  await bp.getByRole('button', { name: '加入会话', exact: true }).click(); await bp.getByLabel('选择会话：新会话').check(); await bp.getByRole('button', { name: '加入 1 个会话', exact: true }).click(); await expect(bp.locator('.toast').filter({ hasText: '加入会话：新会话' })).toBeVisible(); await bp.getByTitle('工作会话', { exact: true }).click();
   await expect(bp.locator('.source-chips')).toContainText('Alice 统一整理的结论 · v3');
-  const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name === 'Alice 统一整理的结论 · v3');
+  const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v3'));
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
+  await bp.getByTitle('项目结论', { exact: true }).click(); await expect(bp.getByRole('heading', { name: `项目结论 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
+  await bp.getByRole('button', { name: '新建结论', exact: true }).click(); await bp.getByLabel('本地结论标题').fill('手工发布检查'); await bp.getByLabel('本地结论内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
+  const extraSession = await call(bp, 'session.create', { provider: 'codex', cwd: data, projectId: project.id });
+  await call(bp, 'session.rename', { id: extraSession.id, title: '另一个验证会话' });
+  await bp.getByRole('button', { name: '加入会话', exact: true }).click();
+  await expect(bp.getByLabel('使用结论的会话：新会话')).not.toBeChecked();
+  await bp.getByLabel('使用结论的会话：新会话').check(); await bp.getByLabel('使用结论的会话：另一个验证会话').check();
+  await bp.getByRole('button', { name: '加入 2 个会话', exact: true }).click();
+  await expect(bp.getByRole('dialog', { name: '选择使用结论的会话' })).toHaveCount(0);
+  await bp.getByRole('button', { name: '加入会话', exact: true }).click();
+  for (const name of ['新会话', '另一个验证会话']) { await expect(bp.getByLabel(`使用结论的会话：${name}`)).toBeChecked(); await expect(bp.getByLabel(`使用结论的会话：${name}`)).toBeDisabled(); }
+  await expect(bp.getByRole('button', { name: '加入 0 个会话', exact: true })).toBeDisabled();
+  await bp.getByRole('button', { name: '关闭', exact: true }).click();
+  await bp.getByTitle('工作会话', { exact: true }).click(); await bp.getByLabel('任务输入').fill('Alice 统一整理的结论是否支持后续验证？'); await bp.getByTitle('发送任务', { exact: true }).click();
+  await expect(bp.getByRole('heading', { name: '选择这次会话要参考的结论', exact: true })).toBeVisible(); await expect(bp.getByLabel(/带入结论：.*Alice 统一整理的结论/)).toBeChecked(); await bp.getByRole('button', { name: '带入 1 条并发送', exact: true }).click(); await expect(bp.locator('.message.user')).toContainText('是否支持后续验证');
   // An existing group still requires a brief for every new project, or explicit deferral.
   await ap.getByTitle('在 research 创建项目', { exact: true }).click(); await ap.getByLabel('项目名称', { exact: true }).fill('第二个项目');
   await expect(ap.getByRole('dialog', { name: '项目资料' }).getByRole('button', { name: '创建项目', exact: true })).toBeDisabled();
@@ -111,10 +137,24 @@ try {
   await ap.getByLabel('项目背景', { exact: true }).fill('新项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('新目标'); await ap.getByLabel('验收标准', { exact: true }).fill('新指标'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
   await expect(ap.getByRole('button', { name: '项目资料 · v1', exact: true })).toBeVisible();
   await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('整理项目文档', { exact: true }).click();
-  await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card-summary').click();
+  await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.getByLabel('项目文档操作状态').selectOption('curated'); await ap.locator('.content-card-summary').click();
   await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });
+  await expect.poll(async () => (await call(bp, 'snapshot')).sessions.every((session: any) => session.status === 'idle')).toBe(true);
+  const beforeRestart = JSON.parse(JSON.stringify(await call(bp, 'snapshot'))), conclusionsBefore = JSON.parse(JSON.stringify(await call(bp, 'conclusion.list', { projectId: project.id, includeArchived: true })));
+  await b.app.close();
+  const reopened = await launch('user', 'bob');
+  await reopened.page.locator('.modal').filter({ hasText: '登录团队工作台' }).getByRole('button', { name: '取消', exact: true }).click();
+  const afterRestart = await call(reopened.page, 'snapshot');
+  assert.deepEqual(afterRestart.sessions, beforeRestart.sessions); assert.deepEqual(afterRestart.inputs, beforeRestart.inputs);
+  assert.deepEqual(afterRestart.settings.contentUpdates, beforeRestart.settings.contentUpdates);
+  assert.deepEqual(await call(reopened.page, 'conclusion.list', { projectId: project.id, includeArchived: true }), conclusionsBefore);
+  await expect(reopened.page.locator(`.session-row[data-session-id="${extraSession.id}"]`)).toBeVisible();
+  await reopened.page.getByTitle('项目结论', { exact: true }).click();
+  await reopened.page.locator('.content-card').filter({ hasText: '手工发布检查' }).locator('.content-card-summary').click();
+  await reopened.page.getByRole('button', { name: '加入会话', exact: true }).click();
+  await expect(reopened.page.getByLabel('使用结论的会话：另一个验证会话')).toBeChecked(); await expect(reopened.page.getByLabel('使用结论的会话：另一个验证会话')).toBeDisabled();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with isolated accounts, sessions and sidebar proportions', 'teammate content notification', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin semantic merge/review/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with isolated accounts, sessions and sidebar proportions', 'teammate content notification', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin semantic merge/review/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout', 'unprocessed/processed groups and cleared hidden selections', 'multi-session conclusion selection locks existing context', 'application restart preserves local sessions, drafts, events and conclusion usage'] }));
 } catch (error) {
   for (const [i, page] of pages.entries()) { await page.screenshot({ path: path.join(data, 'failure-' + i + '.png') }).catch(() => {}); await fs.writeFile(path.join(data, 'failure-' + i + '.txt'), await page.locator('body').innerText().catch(() => 'closed')); }
   throw error;

@@ -11,7 +11,7 @@ export function fixtureStorage(nodes, state, username, request) {
   const brief = (root, meta, value) => { if (!value?.background || !value.objectives || !value.acceptance) throw new Error('项目背景、目标、验收标准不能为空'); file(root + '/项目说明.md', '# ' + meta.name + '\n\n' + Object.values(value).join('\n\n')); meta.brief = value; meta.briefRevision = (meta.briefRevision || 0) + 1; meta.briefUpdatedAt = new Date().toISOString(); };
   if (request.op === 'create_project') {
     const group = request.groupName?.replace('wb_test_', '');
-    if (!member(group) || !admin(group)) throw new Error('当前账号不是此工作组的项目子管理员');
+    if (!member(group) || !admin(group)) throw new Error('当前账号不是此工作组的项目组管理员');
     const root = '/projects/' + group + '/' + request.name;
     if (nodes.has(root)) throw new Error('同名目录不会覆盖');
     if (state.failFolder) throw new Error('项目未创建成功');
@@ -25,7 +25,7 @@ export function fixtureStorage(nodes, state, username, request) {
   if (!root || !member(group)) throw new Error('不属于此项目组');
   const index = root + '/.workbench-content.json', items = json(index, []);
   if (request.op === 'save_brief') {
-    if (!admin(group)) throw new Error('只有本组子管理员可以修改项目资料');
+    if (!admin(group)) throw new Error('只有本组组管理员可以修改项目资料');
     const meta = json(root + '/.workbench-project.json', {});
     if ((meta.briefRevision || 0) !== request.revision) throw new Error('项目资料已更新');
     brief(root, meta, request.brief); file(root + '/.workbench-project.json', meta); return meta;

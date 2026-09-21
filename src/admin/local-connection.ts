@@ -57,11 +57,12 @@ export class LocalAdminConnection {
         if (['user_password', 'user_enabled', 'user_groups', 'group_member'].includes(request.op) && !user) throw new Error('成员不存在');
         if (request.op === 'user_create' || request.op === 'user_groups') {
           const groups = request.groups || [], admins = request.contentAdminGroups || [];
-          if (groups.some(g => !state.groups[g]?.workspace) || admins.some(g => !groups.includes(g))) throw new Error('项目组不存在或子管理员未加入该组');
+          if (groups.some(g => !state.groups[g]?.workspace) || admins.some(g => !groups.includes(g))) throw new Error('项目组不存在或组管理员未加入该组');
         }
         for (const { group, user: successor } of continuitySuccessors(state, request)) successor.contentAdminGroups = [...new Set([...(successor.contentAdminGroups || []), group])];
         switch (request.op) {
           case 'status': break;
+          case 'storage_upgrade': throw new Error('本地共享区无需升级服务器文件操作器');
           case 'initialize': break;
           case 'group_create': {
             const label = request.label, name = 'local_' + groupSlug(label), record = state.groups[name];

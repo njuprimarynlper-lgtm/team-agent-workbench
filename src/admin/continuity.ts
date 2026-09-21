@@ -9,7 +9,7 @@ export function continuityImpact(state: AdminState | undefined, operation: Parti
 }
 export function continuitySuccessors(state: AdminState, operation: AdminOperation) {
   return continuityImpact(state, operation).flatMap(group => {
-    if (!operation.handoffs || !Object.hasOwn(operation.handoffs, group)) throw new Error('此操作会使项目组失去子管理员：' + state.groups[group]?.label + '。请选择接任人，或明确保留空缺。');
+    if (!operation.handoffs || !Object.hasOwn(operation.handoffs, group)) throw new Error('此操作会使项目组失去组管理员：' + state.groups[group]?.label + '。请选择接任人，或明确保留空缺。');
     const username = operation.handoffs[group]; if (username === null) return [];
     const user = state.users[username];
     if (!user?.enabled || user.missing || user.provisioning || !user.groups?.includes(group) || ('username' in operation && username === operation.username)) throw new Error('接任人必须是本组其他已启用成员');

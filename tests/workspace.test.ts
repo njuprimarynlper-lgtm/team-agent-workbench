@@ -35,9 +35,9 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     assert.equal(bob.remote.workspace!.canCreateProject, false);
     assert.equal(bob.remote.profile!.projects[0].id, project.id);
     assert.equal(bob.remote.profile!.projects[0].historyPath, '/projects/ocr/实体抽取/trajectories/bob');
-    await assert.rejects(bob.createProject('越权'), /子管理员/);
+    await assert.rejects(bob.createProject('越权'), /组管理员/);
     server.state.admins = [];
-    await assert.rejects(alice.createProject('已撤权'), /子管理员/);
+    await assert.rejects(alice.createProject('已撤权'), /组管理员/);
     assert.equal(alice.remote.workspace!.canCreateProject, false);
     const before = alice.store.settings.localWorkspace;
     const attempted = { ...server.profile('alice'), username: 'new-account' };
