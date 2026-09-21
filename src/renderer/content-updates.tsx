@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Archive, BellRing, Combine, FileUp, Pencil, Trash2 } from 'lucide-react';
-import type { ConclusionOrganization, ContentUpdate, ProjectConclusion } from '../shared/types';
+import type { ConclusionOrganization, ContentUpdate, ContentUpdateAction, ProjectConclusion } from '../shared/types';
 import { conclusionTitle } from '../shared/conclusion-context';
 import { contentAliasKey, contributionCategoryInfo, titleSubject } from '../shared/content';
 
@@ -11,8 +11,13 @@ const changeInfo = {
   merged: { label: '合并成果', detail: '多条来源已融合为统一结果', icon: Combine }
 } as const;
 
-export function ContentUpdatesPanel({ updates, aliases, archive, apply, view, deletionResolved }: { updates: ContentUpdate[]; aliases: Record<string, string>; archive: (ids: string[]) => Promise<void>; apply: (item: ContentUpdate) => Promise<ConclusionOrganization | undefined>; view: (item: ContentUpdate) => void; deletionResolved: () => Promise<void> }) {
-  const [scope, setScope] = useState<'pending' | 'history'>('pending'), [filter, setFilter] = useState<'all' | ContentUpdate['change']>('all'), [busy, setBusy] = useState('');
+function actionLabel(action: ContentUpdateAction) {
+  const name = action.targetTitle ? `：“${action.targetTitle}”` : '';
+  return ({ saved_conclusion: '已加入个人结论库', attached_session: '已加入会话', kept_conclusion: '已保留个人结论', deleted_conclusion: '已删除个人结论', acknowledged: '已确认，本机无对应结论', archived: '已标记处理' } as const)[action.kind] + name;
+}
+
+export function ContentUpdatesPanel({ updates, aliases, apply, view, deletionResolved }: { updates: ContentUpdate[]; aliases: Record<string, string>; apply: (item: ContentUpdate) => Promise<ConclusionOrganization | undefined>; view: (item: ContentUpdate) => void; deletionResolved: () => Promise<void> }) {
+  const [scope, setScope] = useState<'pending' | 'history' | 'all'>('pending'), [filter, setFilter] = useState<'all' | ContentUpdate['change']>('all'), [busy, setBusy] = useState('');
   const [deletion, setDeletion] = useState<{ event: ContentUpdate; conclusions: ProjectConclusion[] }>(), [removeIds, setRemoveIds] = useState<string[]>([]), [error, setError] = useState('');
   const [selectingDelete, setSelectingDelete] = useState(false), [selectedEvents, setSelectedEvents] = useState<string[]>([]), [pendingDelete, setPendingDelete] = useState<ContentUpdate[]>([]);
   const eventTitle = (item: ContentUpdate) => aliases[contentAliasKey(item.projectId, item.id)] || titleSubject(item.title) || item.title;
@@ -31,19 +36,18 @@ export function ContentUpdatesPanel({ updates, aliases, archive, apply, view, de
   const resolveDeletion = async (remove: boolean) => {
     if (!deletion) return; setBusy(deletion.event.eventId); setError('');
     try {
-      if (remove) await window.workbench.call('content.deletion.resolve', { eventId: deletion.event.eventId, selections: deletion.conclusions.filter(item => removeIds.includes(item.id)).map(item => ({ id: item.id, version: item.version })) });
-      else await archive([deletion.event.eventId]);
+      await window.workbench.call('content.deletion.resolve', { eventId: deletion.event.eventId, selections: remove ? deletion.conclusions.filter(item => removeIds.includes(item.id)).map(item => ({ id: item.id, version: item.version })) : [] });
       await deletionResolved(); setDeletion(undefined);
     } catch (e: any) { setError(e.message); } finally { setBusy(''); }
   };
-  const scoped = updates.filter(item => scope === 'history' || !item.readAt), visible = scoped.filter(item => filter === 'all' || item.change === filter);
+  const scoped = updates.filter(item => scope === 'all' || (scope === 'history' ? !!item.readAt : !item.readAt)), visible = scoped.filter(item => filter === 'all' || item.change === filter);
   const selectedVisible = visible.filter(item => selectedEvents.includes(item.eventId));
   const unread = updates.filter(item => !item.readAt).length, counts = (change: ContentUpdate['change']) => scoped.filter(item => item.change === change).length;
-  const organize = async (item: ContentUpdate) => { setBusy(item.eventId); try { await apply(item); } finally { setBusy(''); } };
+  const organize = async (item: ContentUpdate) => { setBusy(item.eventId); setError(''); try { await apply(item); } catch (e: any) { setError(e.message); } finally { setBusy(''); } };
   return <div className="workspace-page updates-page">
-    <div className="page-title updates-heading"><div><span className="eyebrow">TEAM ACTIVITY</span><h1>团队动态</h1><p className="muted small">这里记录公共区发生过的变化，包括自己的操作；队友的变化和需要处理本地副本的删除进入待处理，其他自己的操作进入历史。“查看结果”只打开这一条成果。共享区删除后，本地结论仍会保留，由你选择是否删除本地副本。</p></div></div>
+    <div className="page-title updates-heading"><div><span className="eyebrow">TEAM ACTIVITY</span><h1>团队动态</h1><p className="muted small">这里记录公共区发生过的变化，包括自己的操作；队友的变化和需要处理本地副本的删除进入待处理，其他自己的操作进入历史。“查看结果”只打开这一条成果。“加入个人结论库”仅保存在当前用户端本机，不会上传到团队共享区。共享区删除后，本地结论仍会保留，由你选择是否删除本地副本。</p></div></div>
     {error && !deletion && !pendingDelete.length && <div className="inline-error" role="alert">{error}</div>}
-    <div className="updates-scope" role="tablist" aria-label="动态范围"><button role="tab" aria-selected={scope === 'pending'} className={scope === 'pending' ? 'active' : ''} onClick={() => { setScope('pending'); setSelectedEvents([]); }}>待处理 {unread}</button><button role="tab" aria-selected={scope === 'history'} className={scope === 'history' ? 'active' : ''} onClick={() => { setScope('history'); setSelectedEvents([]); }}>历史动态 {updates.length}</button></div>
+    <div className="updates-scope" role="tablist" aria-label="动态范围"><button role="tab" aria-selected={scope === 'pending'} className={scope === 'pending' ? 'active' : ''} onClick={() => { setScope('pending'); setSelectedEvents([]); }}>待处理 {unread}</button><button role="tab" aria-selected={scope === 'history'} className={scope === 'history' ? 'active' : ''} onClick={() => { setScope('history'); setSelectedEvents([]); }}>历史动态 {updates.filter(item => item.readAt).length}</button><button role="tab" aria-selected={scope === 'all'} className={scope === 'all' ? 'active' : ''} onClick={() => { setScope('all'); setSelectedEvents([]); }}>全部动态 {updates.length}</button></div>
     <section className="update-summary" aria-label="团队动态概览">
       {(['new', 'updated', 'merged', 'deleted'] as const).map(change => { const InfoIcon = changeInfo[change].icon; return <button key={change} className={filter === change ? 'active' : ''} onClick={() => { setFilter(filter === change ? 'all' : change); setSelectedEvents([]); }}><InfoIcon size={20}/><span><b>{counts(change)}</b><small>{changeInfo[change].label}</small></span></button>; })}
     </section>
@@ -53,14 +57,14 @@ export function ContentUpdatesPanel({ updates, aliases, archive, apply, view, de
       {visible.map(item => { const info = changeInfo[item.change], InfoIcon = info.icon, category = item.category ? contributionCategoryInfo[item.category].label : item.change === 'merged' ? '综合整理' : '项目内容', remoteTitle = titleSubject(item.title) || item.title, localAlias = aliases[contentAliasKey(item.projectId, item.id)], displayTitle = localAlias || remoteTitle; return <article className={'update-entry ' + (!item.readAt ? 'unread' : '') + (selectingDelete ? ' selecting-delete' : '')} key={item.eventId}>
         {selectingDelete && <label className="check-row"><input type="checkbox" aria-label={`选择删除动态：${eventTitle(item)}`} checked={selectedEvents.includes(item.eventId)} disabled={!!busy} onChange={event => setSelectedEvents(current => event.target.checked ? [...new Set([...current, item.eventId])] : current.filter(id => id !== item.eventId))}/></label>}
         <div className={'update-icon ' + item.change}><InfoIcon size={20}/></div>
-        <div className="update-entry-body"><header><span className={'update-type ' + item.change}>{info.label}</span><span className="content-category-badge">{category}</span><span className={'badge ' + (item.readAt ? 'done' : 'running')}>{item.readAt ? '已归档' : '待处理'}</span><time>{new Date(item.occurredAt).toLocaleString()}</time></header><h2>{displayTitle}</h2>{localAlias && <p className="muted small">公共区原名：{remoteTitle}</p>}<p>{item.updatedBy ? `${item.updatedBy} · ` : ''}{item.projectName} · {info.detail}{item.author ? ` · 原提交人 ${item.author}` : ''}{item.sourceSessionTitle ? ` · 来源会话“${item.sourceSessionTitle}”` : ''}</p>{item.change === 'merged' && item.sourceTitles?.length ? <details><summary>查看被融合的来源（{item.sourceTitles.length}）</summary><ul>{item.sourceTitles.map((title, index) => <li key={title + index}>{title}</li>)}</ul></details> : null}</div>
-        <div className="update-entry-actions">{item.change !== 'deleted' && <><button className="secondary compact" onClick={() => view(item)}>查看结果</button>{!item.readAt && <button className="primary compact" disabled={!!busy} onClick={() => void organize(item)}>{busy === item.eventId ? '正在整理…' : '整理到结论库'}</button>}</>}{item.change === 'deleted' && <button className="secondary compact" disabled={!!busy} onClick={() => void reviewDeletion(item)}>{busy === item.eventId ? '正在读取…' : '选择是否保留本地结论'}</button>}</div>
+        <div className="update-entry-body"><header><span className={'update-type ' + item.change}>{info.label}</span><span className="content-category-badge">{category}</span><span className="muted small">v{item.revision}</span><span className={'badge ' + (item.readAt ? 'done' : 'running')}>{item.actions?.length ? '已处理' : item.readAt ? '已归档' : '待处理'}</span><time>{new Date(item.occurredAt).toLocaleString()}</time></header><h2>{displayTitle}</h2>{localAlias && <p className="muted small">公共区原名：{remoteTitle}</p>}<p>{item.updatedBy ? `${item.updatedBy} · ` : ''}{item.projectName} · {info.detail}{item.author ? ` · 原提交人 ${item.author}` : ''}{item.sourceSessionTitle ? ` · 来源会话“${item.sourceSessionTitle}”` : ''}</p>{item.change === 'merged' && item.sourceTitles?.length ? <details><summary>查看被融合的来源（{item.sourceTitles.length}）</summary><ul>{item.sourceTitles.map((title, index) => <li key={title + index}>{title}</li>)}</ul></details> : null}{item.unavailableAt && <p className="update-processing-note">原成果已从共享区移除；个人副本、会话引用和处理记录保留。</p>}{item.actions?.length ? <ul className="update-processing" aria-label="我的处理记录">{item.actions.map((action, index) => <li key={index}><span>{actionLabel(action)}{action.sourceRevision !== undefined && <small> · 采用成果 v{action.sourceRevision}</small>}</span><time>{new Date(action.at).toLocaleString()}</time></li>)}</ul> : item.readAt ? <p className="update-processing-note">{item.archiveReason === 'own_change' ? '我发起的共享区操作，已自动归档；尚未记录加入个人结论库或会话。' : '已归档；旧记录未保存具体处理方式。'}</p> : null}</div>
+        <div className="update-entry-actions">{item.change !== 'deleted' && !item.unavailableAt && <><button className="secondary compact" onClick={() => view(item)}>查看结果</button><button className="primary compact" disabled={!!busy} onClick={() => void organize(item)}>{busy === item.eventId ? '正在加入…' : '加入个人结论库'}</button></>}{item.change === 'deleted' && <button className="secondary compact" disabled={!!busy} onClick={() => void reviewDeletion(item)}>{busy === item.eventId ? '正在读取…' : '选择是否保留本地结论'}</button>}</div>
       </article>; })}
-      {!visible.length && <div className="page-empty"><BellRing size={38}/><h2>{scope === 'pending' ? '没有待处理动态' : '暂无历史动态'}</h2><p>{scope === 'pending' ? '新的团队成果变化会出现在这里。' : '连接共享空间后，团队公共成果的变化会保存在这里。'}</p></div>}
+      {!visible.length && <div className="page-empty"><BellRing size={38}/><h2>{scope === 'pending' ? '没有待处理动态' : scope === 'history' ? '暂无历史动态' : '暂无动态记录'}</h2><p>{scope === 'pending' ? '新的团队成果变化会出现在这里。' : '连接共享空间后，团队公共成果的变化会保存在这里。'}</p></div>}
     </section>
     {pendingDelete.length > 0 && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-events-title">
       <header><h2 id="delete-events-title">删除所选动态？</h2><button className="icon" aria-label="关闭窗口" disabled={!!busy} onClick={() => setPendingDelete([])}>×</button></header>
-      <div className="modal-body"><p>将从本机删除以下 {pendingDelete.length} 条动态记录。</p><ul className="delete-selection-list">{pendingDelete.map(item => <li key={item.eventId}>{eventTitle(item)} · {changeInfo[item.change].label} · {item.projectName}</li>)}</ul><p className="muted small">只清除动态记录，共享区内容、本地结论和会话引用会继续保留。后续有新的内容变化时，仍会收到新动态。</p>{error && <div className="inline-error" role="alert">{error}</div>}</div>
+      <div className="modal-body"><p>将从本机删除以下 {pendingDelete.length} 条动态记录。</p><ul className="delete-selection-list">{pendingDelete.map(item => <li key={item.eventId}>{eventTitle(item)} · {changeInfo[item.change].label} · v{item.revision} · {item.projectName}</li>)}</ul><p className="muted small">只清除动态记录，共享区内容、本地结论和会话引用会继续保留。后续有新的内容变化时，仍会收到新动态。</p>{error && <div className="inline-error" role="alert">{error}</div>}</div>
       <footer><button className="secondary" disabled={!!busy} onClick={() => setPendingDelete([])}>取消</button><button className="primary danger" disabled={!!busy} onClick={() => void deleteEvents()}>{busy ? '正在删除…' : `确认删除 ${pendingDelete.length} 条动态`}</button></footer>
     </section></div>}
     {deletion && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="local-deletion-title">

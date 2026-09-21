@@ -19,7 +19,7 @@ export interface SessionInput { text: string; sourceIds: string[]; answers: Reco
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
-export interface SourceFile { id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string }
+export interface SourceFile { id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string; contentRef?: { projectId: string; id: string; revision: number } }
 export interface SessionFile { path: string; name: string; size: number; modifiedAt: string }
 export interface MessageContext { nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
 export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; userText?: string; context?: MessageContext; createdAt: string }
@@ -44,7 +44,8 @@ export type PreparationScope = 'full' | 'incremental';
 export interface PreparationSnapshot { capturedAt: string; messageCount: number; totalMessageCount?: number; lastMessageId?: string; conversationHash: string; scope?: PreparationScope; baseDraftId?: string; baseLastMessageId?: string; baseCapturedAt?: string }
 export interface ContentMergeSource { id: string; revision: number; title: string; author: string; updatedAt: string }
 export interface ContentMergeAnalysis { overview: string; consensus: string[]; conflicts: { topic: string; positions: { sourceIds: string[]; statement: string }[]; resolution?: string; requiresDecision: boolean }[]; evidence: { claim: string; sourceIds: string[] }[]; scope?: string; unresolved: string[] }
-export interface ContentUpdate { eventId: string; projectId: string; projectName: string; id: string; path?: string; title: string; author?: string; updatedBy?: string; revision: number; category?: ContributionCategory; sourceSessionTitle?: string; change: 'new' | 'updated' | 'deleted' | 'merged'; sourceTitles?: string[]; occurredAt: string; detectedAt: string; readAt?: string }
+export interface ContentUpdateAction { kind: 'saved_conclusion' | 'attached_session' | 'kept_conclusion' | 'deleted_conclusion' | 'acknowledged' | 'archived'; at: string; targetId?: string; targetTitle?: string; sourceRevision?: number }
+export interface ContentUpdate { eventId: string; projectId: string; projectName: string; id: string; path?: string; title: string; author?: string; updatedBy?: string; revision: number; category?: ContributionCategory; sourceSessionTitle?: string; change: 'new' | 'updated' | 'deleted' | 'merged'; sourceTitles?: string[]; occurredAt: string; detectedAt: string; readAt?: string; actions?: ContentUpdateAction[]; archiveReason?: 'own_change'; unavailableAt?: string }
 export interface ConclusionSource { id: string; kind: 'remote' | 'session' | 'manual' | 'conclusion'; title: string; content?: string; revision?: number; path?: string; updatedAt: string }
 export interface ProjectConclusion { id: string; projectId: string; title: string; titleAlias?: string; content: string; sources: ConclusionSource[]; updatedAt: string; version: number; archived?: boolean; deletedAt?: string; automatic?: boolean }
 export interface ConclusionMatch { conclusion: ProjectConclusion; score: number; reasons: string[] }

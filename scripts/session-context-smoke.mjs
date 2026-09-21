@@ -26,10 +26,10 @@ legacy.messages = [{ id: randomUUID(), role: 'user', text: raw, createdAt: new D
 await fs.writeFile(path.join(data, 'settings.json'), JSON.stringify(settings));
 await fs.writeFile(path.join(data, 'sessions.json'), JSON.stringify([...seeds, legacy]));
 const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: data, CURSOR_CONFIG_DIR: path.join(data, 'cursor-config') }; delete env.ELECTRON_RUN_AS_NODE;
-const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
+let app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
 const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recursive: true });
 try {
-  const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
+  let page = await app.firstWindow(); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await dismissStartupLogin(page);
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const get = async id => (await call('snapshot')).sessions.find(s => s.id === id);
@@ -40,13 +40,32 @@ try {
     await expect(page.locator('.message.user .markdown').last()).toHaveText(text);
     await expect(page.locator('.messages')).not.toContainText(/本地快照|SHA256|工作台工作记录约定|用户选择的参考文件/);
   };
+  const conclusion = await call('conclusion.create', { projectId: profile.projects[0].id, title: 'OCR 识别约束', content: 'OCR 识别需要补齐低清晰度扫描件样本，下一步应该先核对验收目标。' });
   for (const seed of seeds) {
     await page.locator(`.session-row[data-session-id="${seed.id}"]`).click();
     await call('provider.auth', { provider: seed.provider, cwd: data });
-    await send(seed.id, '下一步应该做什么？', 1);
-    const first = (await get(seed.id)).messages.find(m => m.role === 'user'); assert(first.text.includes(seed.sources[0].sha256)); assert.equal(first.userText, '下一步应该做什么？');
+    await fixture.write({ status: 'ready', turn: 'success', rejectTurn: true });
+    await page.getByLabel('任务输入', { exact: true }).fill('OCR 识别约束：下一步应该做什么？');
+    await page.getByRole('button', { name: '发送任务', exact: true }).click();
+    await page.getByLabel('带入结论：OCR 识别约束', { exact: true }).check();
+    await page.getByRole('button', { name: '带入 1 条并发送', exact: true }).click();
+    await expect.poll(async () => (await get(seed.id)).status).toBe('error');
+    assert.equal((await get(seed.id)).messages.find(m => m.role === 'user').context.accepted, false);
+    await expect(page.locator('.source-chips')).toContainText('OCR 识别约束');
+    await page.locator('.session-materials > summary').click();
+    await expect(page.getByLabel('已带入的参考资料')).toHaveCount(0);
+    await page.locator('.session-materials > summary').click();
+    await fixture.write({ status: 'ready', turn: 'success' });
+    await send(seed.id, '重试：OCR 识别约束', 1);
+    const first = (await get(seed.id)).messages.find(m => m.role === 'user' && m.context?.accepted); assert(first.text.includes(seed.sources[0].sha256)); assert.equal(first.userText, '重试：OCR 识别约束');
+    await expect(page.locator('.source-chips')).toHaveCount(0);
+    await page.locator('.session-materials > summary').click();
+    await expect(page.getByLabel('已带入的参考资料')).toContainText('OCR 识别约束');
+    await expect(page.getByLabel('已带入的参考资料').locator('li')).toHaveCount(2);
+    await page.screenshot({ path: path.join(data, seed.provider + '-references-in-materials.png') });
+    await page.locator('.session-materials > summary').click();
     await send(seed.id, '继续完善方案', 2);
-    const second = (await get(seed.id)).messages.filter(m => m.role === 'user')[1]; assert.equal(second.text, '继续完善方案');
+    const second = (await get(seed.id)).messages.filter(m => m.role === 'user' && m.context?.accepted)[1]; assert.equal(second.text, '继续完善方案');
     const calls = (await fs.readFile(path.join(data, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     const last = calls.filter(m => m.method === (seed.provider === 'codex' ? 'turn/start' : 'session/prompt')).at(-1);
     assert.equal((last.params.input || last.params.prompt)[0].text, '继续完善方案');
@@ -57,7 +76,16 @@ try {
   await call('provider.auth', { provider: 'codex', cwd: data });
   await send(legacy.id, '旧会话继续', 2); assert(!(await get(legacy.id)).messages.filter(m => m.role === 'user').at(-1).text.includes(f.sha256));
   await page.screenshot({ path: path.join(artifacts, 'session-context-clean.png') });
+  await app.close();
+  app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
+  page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message)); await dismissStartupLogin(page);
+  await page.locator(`.session-row[data-session-id="${seeds[0].id}"]`).click();
+  await expect(page.locator('.source-chips')).toHaveCount(0);
+  await page.locator('.session-materials > summary').click();
+  await expect(page.getByLabel('已带入的参考资料')).toContainText('OCR 识别约束');
+  assert.equal((await get(seeds[0].id)).sources.filter(f => f.sourcePath.startsWith('local-conclusion:' + conclusion.id)).length, 1);
   assert.deepEqual(errors, []);
+  console.log('Reference status artifacts: ' + data);
   console.log('Session context UI passed: original user bubbles, first-only references for Codex/Cursor, actual second-turn payload deduplicated, legacy display migration and raw trajectory retention.');
 } catch (e) { await (await app.firstWindow()).screenshot({ path: path.join(artifacts, 'session-context-failed.png') }).catch(() => {}); throw e; }
 finally { await app.close(); }

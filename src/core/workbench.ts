@@ -1,3 +1,4 @@
+import type { ContentUpdateAction } from '../shared/types';
 import { createHash } from 'node:crypto';
 import { assertKnownWorkspace, makeWorkspaceSnapshot } from './workspace-access';
 import { gitRevision } from './git-revision';
@@ -98,8 +99,8 @@ export class Workbench {
   }
   async markContentUpdates(eventIds?: string[]) {
     const selected = eventIds ? new Set(eventIds) : undefined, now = new Date().toISOString(); let changed = false;
-    for (const item of this.store.settings.contentUpdates || []) if (!item.readAt && (!selected || selected.has(item.eventId))) { item.readAt = now; changed = true; }
-    if (changed) await this.store.save(); return this.contentUpdates();
+    for (const item of this.store.settings.contentUpdates || []) if (!item.readAt && (!selected || selected.has(item.eventId))) { this.addContentAction(item, { kind: 'archived', at: now }); changed = true; }
+    if (changed) { await this.store.save(); this.broadcast(); } return this.contentUpdates();
   }
   async clearReadContentUpdates() {
     // Compatibility for older renderers: "clear read" now means archive, and
@@ -157,7 +158,10 @@ export class Workbench {
     });
     // Validate the complete selection before removing any record.
     const now = new Date().toISOString();
-    for (const conclusion of conclusions) { conclusion.deletedAt = now; conclusion.archived = true; }
+    for (const conclusion of conclusions) {
+      conclusion.deletedAt = now; conclusion.archived = true;
+      for (const origin of conclusion.sources) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(conclusion.projectId, origin.id, origin.revision, { kind: 'deleted_conclusion', targetId: conclusion.id, targetTitle: conclusionTitle(conclusion) });
+    }
     await this.store.save(); this.broadcast();
   }
   private organizeConclusion(projectId: string, title: string, content: string, source: ConclusionSource): ConclusionOrganization {
@@ -194,15 +198,26 @@ export class Workbench {
     // Retain a tombstone so restoring saved drafts cannot silently recreate a removed conclusion.
     // Frozen session sources stay intact, and unrelated/multi-source records require their own selection.
     const now = new Date().toISOString();
-    for (const item of related) if (selected.has(item.id)) { item.deletedAt = now; item.archived = true; }
     const event = this.store.settings.contentUpdates!.find(item => item.eventId === eventId)!;
-    event.readAt = new Date().toISOString();
+    for (const item of related) {
+      const remove = selected.has(item.id);
+      if (remove) { item.deletedAt = now; item.archived = true; }
+      this.addContentAction(event, { kind: remove ? 'deleted_conclusion' : 'kept_conclusion', at: now, targetId: item.id, targetTitle: conclusionTitle(item) });
+    }
+    if (!related.length) this.addContentAction(event, { kind: 'acknowledged', at: now });
     await this.store.save(); this.broadcast(); return this.contentUpdates();
   }
-  private archiveContentUpdates(projectId: string, contentId: string) {
-    const now = new Date().toISOString(); let changed = false;
-    for (const item of this.store.settings.contentUpdates || []) if (item.projectId === projectId && item.id === contentId && !item.readAt) { item.readAt = now; changed = true; }
-    return changed;
+  private addContentAction(event: ContentUpdate, action: ContentUpdateAction) {
+    const actions = event.actions ||= [];
+    if (!actions.some(prior => prior.kind === action.kind && prior.targetId === action.targetId && prior.sourceRevision === action.sourceRevision)) actions.push(action);
+    event.readAt ||= action.at;
+  }
+  private recordContentAction(projectId: string, contentId: string, revision: number, action: Omit<ContentUpdateAction, 'at' | 'sourceRevision'>) {
+    const at = new Date().toISOString();
+    for (const event of this.store.settings.contentUpdates || []) {
+      // Referencing an older snapshot must not mark a newer revision or a deletion as handled.
+      if (event.projectId === projectId && event.id === contentId && event.change !== 'deleted' && event.revision <= revision) this.addContentAction(event, { ...action, at, sourceRevision: revision });
+    }
   }
   private organizeSharedContent(projectId: string, item: SharedContent) {
     const localTitle = this.localContentTitle(projectId, item);
@@ -249,7 +264,7 @@ export class Workbench {
   }
   async importContentConclusion(projectId: string, contentId: string) {
     const binding = this.remote.binding(projectId), item = (await this.remote.contentList(binding)).find(value => value.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
-    const result = this.organizeSharedContent(projectId, item); this.archiveContentUpdates(projectId, contentId); await this.store.save(); this.broadcast(); return result;
+    const result = this.organizeSharedContent(projectId, item); this.recordContentAction(projectId, contentId, item.revision, { kind: 'saved_conclusion', targetId: result.conclusion.id, targetTitle: conclusionTitle(result.conclusion) }); await this.store.save(); this.broadcast(); return result;
   }
   private contentSeenState(item: SharedContent): ContentSeenState {
     return { revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
@@ -262,9 +277,11 @@ export class Workbench {
     const profile = this.remote.profile!, key = [profile.id, profile.username, projectId].join(':'), now = new Date().toISOString();
     const seen = this.store.settings.contentSeen ||= {}, inbox = this.store.settings.contentUpdates ||= [];
     seen[key] = Object.fromEntries(before.filter(item => item.id !== target.id).map(item => [item.id, this.contentSeenState(item)]));
-    for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id) inbox.splice(index, 1);
+    for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id) {
+      if (inbox[index].readAt) inbox[index].unavailableAt = now; else inbox.splice(index, 1);
+    }
     const hasLocalCopy = this.store.conclusions.some(item => !item.deletedAt && item.projectId === projectId && item.sources.some(source => source.kind === 'remote' && source.id === target.id));
-    inbox.unshift({ eventId: `${key}:deleted:${target.id}:${target.revision}`, projectId, projectName: binding.project.name, id: target.id, title: target.title, author: target.author, updatedBy: profile.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now } : {}) });
+    inbox.unshift({ eventId: `${key}:deleted:${target.id}:${target.revision}`, projectId, projectName: binding.project.name, id: target.id, title: target.title, author: target.author, updatedBy: profile.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
     await this.store.save(); this.broadcast(); return result;
   }
   async syncContentUpdates(): Promise<ContentUpdate[]> {
@@ -284,7 +301,10 @@ export class Workbench {
         if (prior) {
           const removed = Object.entries(prior).filter(([id]) => !current[id]).map(([id, value]) => ({ id, ...value }));
           for (const source of removed) {
-            for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === source.id) { inbox.splice(index, 1); changed = true; }
+            for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === source.id) {
+              if (inbox[index].readAt) inbox[index].unavailableAt = detectedAt; else inbox.splice(index, 1);
+              changed = true;
+            }
             // A shared deletion is a notification, never permission to remove local knowledge or names.
           }
           for (const item of items) {
@@ -293,14 +313,14 @@ export class Workbench {
             const sourceIds = new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)]);
             const mergedSources = removed.filter(source => sourceIds.has(source.id));
             const change = mergedSources.length ? 'merged' as const : contentChanged;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
           for (const source of removed) add({ eventId: `${key}:deleted:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, sourceSessionTitle: source.sourceSessionTitle, change: 'deleted', occurredAt: detectedAt, detectedAt });
         } else {
           const recent = Date.now() - 24 * 60 * 60 * 1000;
           for (const item of items.filter(item => Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
             const change = item.sources?.length || item.provenance?.length ? 'merged' as const : 'new' as const;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
         }
         if (JSON.stringify(priorRaw || {}) !== JSON.stringify(current)) { seen[key] = current; changed = true; }
@@ -564,28 +584,44 @@ export class Workbench {
   }
   answer(id: string, requestId: string, option: string, answers?: Record<string, string>) { const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); runtime.answer(requestId, option, answers); }
   async attachLocal(id: string, files: string[]) {
-    const s = this.session(id), directory = path.join(s.cwd, '.workbench', 'sources', id);
+    const s = this.session(id); if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
+    const directory = path.join(s.cwd, '.workbench', 'sources', id);
     const result: SourceFile[] = [];
     for (const file of files) result.push(await freezeFile(file, directory));
+    if (s.closedAt) throw new Error('请选择未关闭的工作会话');
     s.sources.push(...result); await this.store.save(); this.broadcast(); return result;
   }
   async attachRemote(id: string, projectId: string, remotePath: string) {
     const s = this.session(id), binding = this.remote.binding(projectId);
+    if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
     if (!s.binding || s.binding.project.id !== projectId || s.binding.connectionId !== binding.connectionId || s.binding.username !== binding.username || s.binding.host !== binding.host) throw new Error('资料项目与当前会话不一致，请切换到该项目的会话');
     this.remote.channel(s.binding);
     const sourceId = randomUUID(), localPath = path.join(s.cwd, '.workbench', 'sources', s.id, sourceId + '-' + safeFilename(path.posix.basename(remotePath)));
     await this.remote.download(binding, remotePath, localPath);
     const source: SourceFile = { id: sourceId, name: path.posix.basename(remotePath), localPath, sourcePath: `${binding.username}@${binding.host}:${binding.port}${remotePath}`, sha256: await hashFile(localPath), size: (await fs.stat(localPath)).size, fetchedAt: new Date().toISOString() };
+    if (s.closedAt) throw new Error('请选择未关闭的工作会话');
     s.sources.push(source); await this.store.save(); this.broadcast(); return source;
   }
   async attachContent(id: string, contentId: string) {
-    const session = this.session(id); this.assertCanWork(session.binding); if (!session.binding) throw new Error('请选择项目');
-    const item = (await this.remote.contentList(session.binding)).find(i => i.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
-    const local = path.join(this.store.sessionDir(id), 'reference-' + randomUUID() + '.md'); await fs.mkdir(path.dirname(local), { recursive: true });
-    const localTitle = this.localContentTitle(session.binding.project.id, item);
-    await fs.writeFile(local, `# ${localTitle}\n\n远端原标题：${item.title}\n提交人：${item.author}；维护人：${item.updatedBy}；修订：${item.revision}；更新：${item.updatedAt}\n来源：${item.path}\n${item.repoUrl || ''}\n\n${item.description}`);
-    const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local); source.name = localTitle + ' · v' + item.revision; source.sourcePath = item.path;
-    session.sources.push(source); this.organizeSharedContent(session.binding.project.id, item); this.archiveContentUpdates(session.binding.project.id, item.id); await this.store.save(); this.broadcast(); return source;
+    return this.edit('content-attach:' + id, async () => {
+      const session = this.session(id); this.assertCanWork(session.binding); if (!session.binding) throw new Error('请选择项目');
+      if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
+      const item = (await this.remote.contentList(session.binding)).find(i => i.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
+      if (session.closedAt) throw new Error('请选择未关闭的工作会话');
+      const existing = session.sources.find(source => source.contentRef?.projectId === session.binding!.project.id && source.contentRef.id === item.id && source.contentRef.revision === item.revision);
+      if (existing) return existing;
+      const local = path.join(this.store.sessionDir(id), 'reference-' + randomUUID() + '.md'); await fs.mkdir(path.dirname(local), { recursive: true });
+      const localTitle = this.localContentTitle(session.binding.project.id, item);
+      await fs.writeFile(local, `# ${localTitle}\n\n远端原标题：${item.title}\n提交人：${item.author}；维护人：${item.updatedBy}；修订：${item.revision}；更新：${item.updatedAt}\n来源：${item.path}\n${item.repoUrl || ''}\n\n${item.description}`);
+      const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local); source.name = localTitle + ' · v' + item.revision; source.sourcePath = item.path;
+      source.contentRef = { projectId: session.binding.project.id, id: item.id, revision: item.revision };
+      if (session.closedAt) throw new Error('请选择未关闭的工作会话');
+      session.sources.push(source);
+      const result = this.organizeSharedContent(session.binding.project.id, item);
+      this.recordContentAction(session.binding.project.id, item.id, item.revision, { kind: 'saved_conclusion', targetId: result.conclusion.id, targetTitle: conclusionTitle(result.conclusion) });
+      this.recordContentAction(session.binding.project.id, item.id, item.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title });
+      await this.store.save(); this.broadcast(); return source;
+    }, false);
   }
   async attachConclusion(id: string, conclusionId: string) {
     return this.edit('conclusion-attach:' + id, async () => {
@@ -600,7 +636,10 @@ export class Workbench {
       const sources = conclusion.sources.length ? '\n\n来源：\n' + conclusion.sources.map(source => `- ${source.title}${source.revision ? ` · v${source.revision}` : ''}${source.path ? ` · ${source.path}` : ''}`).join('\n') : '\n\n来源：本机手工记录';
       await fs.writeFile(local, `# ${conclusion.title}\n\n本地结论版本：v${conclusion.version}\n更新时间：${conclusion.updatedAt}${sources}\n\n${conclusion.content}`);
       const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local); source.name = conclusionTitle(conclusion) + ' · 本地结论 v' + conclusion.version; source.sourcePath = sourcePath;
-      session.sources.push(source); await this.store.save(); this.broadcast(); return source;
+      if (session.closedAt) throw new Error('请选择未关闭的工作会话');
+      session.sources.push(source);
+      for (const origin of conclusion.sources) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(conclusion.projectId, origin.id, origin.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title });
+      await this.store.save(); this.broadcast(); return source;
     }, false);
   }
   prepare(id: string, extraFiles: string[] = [], categories: ContributionCategory[] = [...contributionCategories]): Promise<Draft> {

@@ -118,3 +118,7 @@
 .session-file-entry { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; text-align: left; background: #f8faf8; border: 1px solid #e1e8e3; border-radius: 8px; padding: 14px; }
 .session-file-entry code { overflow-wrap: anywhere; font-size: 11px; color: #667e6e; }
 .session-file-entry small { color: #809086; }
+
+.session-reference-list{list-style:none;margin:10px 0 12px;padding:0;display:grid;gap:8px}.session-reference-list li{display:flex;align-items:flex-start;gap:7px;font-size:11px}.session-reference-list li>svg{flex:none;margin-top:2px}.session-reference-list li>span{flex:1;min-width:0;overflow-wrap:anywhere;line-height:1.5}.session-reference-list li>small{flex:none;color:#287554;background:#edf6ef;border-radius:4px;padding:2px 5px;font-size:10px}
+
+.update-processing{list-style:none;padding:9px 11px;margin:10px 0 0;background:#f1f7f3;border:1px solid #dce9df;border-radius:7px;display:grid;gap:7px;max-height:190px;overflow:auto}.update-processing li{display:flex;align-items:baseline;justify-content:space-between;gap:12px;line-height:1.6;color:#365d47;font-size:12px}.update-processing li>span{min-width:0;overflow-wrap:anywhere}.update-processing time{flex:none;color:#7d8a82;font-size:10px}.update-processing small{color:#7d8a82}.update-entry-body .update-processing-note{font-size:11px;color:#7d8a82;margin-top:8px}

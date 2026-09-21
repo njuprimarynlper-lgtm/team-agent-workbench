@@ -49,7 +49,7 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
   const incrementalCount = sourceSession ? baselineIndex >= 0 ? sourceSession.messages.length - baselineIndex - 1 : baselineWasEmpty ? sourceSession.messages.length : 0 : 0;
   const hasNewSource = incrementalCount > 0;
   const chooseScope = () => { setReorganizeScope(hasNewSource ? 'incremental' : 'full'); setChoosingScope(true); };
-  const backLabel = returnToList ? '返回整理任务列表' : isLocalMerge ? '返回项目结论' : isMerge ? '返回项目文档' : sourceTitle ? `返回“${sourceTitle}”` : '返回原会话';
+  const backLabel = returnToList ? '返回整理任务列表' : isLocalMerge ? '返回个人结论库' : isMerge ? '返回项目文档' : sourceTitle ? `返回“${sourceTitle}”` : '返回原会话';
   const selectedDestination = draft.destinations?.find(item => item.path === draft.target);
   const destinationLabel = generating ? '识别中…' : ready && draft.target ? selectedDestination?.id === 'default' ? '我的成果（自动选择）' : `${selectedDestination?.description || '项目成果'}（自动选择）` : '尚未确定';
   const visibleBody = draft.body.replace(/^#\s+(.+)\r?\n+/u, (full, heading) => heading.trim() === draft.title.trim() ? '' : full);
