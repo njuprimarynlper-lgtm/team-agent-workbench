@@ -46,6 +46,9 @@ test('personal activity actions show destinations, reject invalid transitions an
     await x.bob.renameSession(first.id, '样本补全'); await x.bob.renameSession(second.id, '验收复核');
     const [a, duplicate] = await Promise.all([x.bob.attachContent(first.id, remote.id), x.bob.attachContent(first.id, remote.id)]);
     assert.equal(a.id, duplicate.id); assert.equal(first.sources.filter(source => source.contentRef?.id === remote.id).length, 1);
+    delete a.contentRef; a.name = '旧版别名 · v' + remote.revision;
+    assert.equal((await x.bob.attachContent(first.id, remote.id)).id, a.id, 'old snapshots without contentRef are reused by origin and revision');
+    assert.equal(first.sources.filter(source => source.sourcePath === remote.path).length, 1);
     await x.bob.attachConclusion(second.id, local.id); await x.bob.attachConclusion(second.id, local.id);
     assert.deepEqual(event.actions?.filter(action => action.kind === 'attached_session').map(action => action.targetTitle), ['样本补全', '验收复核']);
     const recorded = structuredClone(event.actions); second.closedAt = new Date().toISOString();
@@ -67,6 +70,9 @@ test('personal activity actions show destinations, reject invalid transitions an
     const third = await x.bob.createSession('codex', x.root, x.project.id); await x.bob.attachConclusion(third.id, local.id);
     assert.equal(newer.readAt, undefined, 'attaching an old personal snapshot cannot handle a new remote revision'); assert.equal(newer.actions, undefined);
     await x.bob.importContentConclusion(x.project.id, remote.id); assert.equal(x.bob.contentUpdates().find(item => item.eventId === newer.eventId)?.actions?.[0].sourceRevision, newer.revision);
+    const updatedSource = await x.bob.attachContent(first.id, remote.id);
+    assert.notEqual(updatedSource.id, a.id, 'new versions must not be collapsed with legacy snapshots');
+    assert.equal(updatedSource.contentRef?.revision, newer.revision);
     await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: newer.revision, action: 'delete', curate: true, merge: [] });
     const after = await x.bob.syncContentUpdates(), removed = after.find(item => item.id === remote.id && item.change === 'deleted')!;
     assert(after.find(item => item.eventId === event.eventId)?.unavailableAt, 'processed events survive shared removal');

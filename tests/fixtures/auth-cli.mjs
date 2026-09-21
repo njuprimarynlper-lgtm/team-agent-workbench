@@ -37,7 +37,7 @@ else if (command === 'login') {
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const m = JSON.parse(line), current = read(), turnId = current.turnId || 'fake-turn';
     const requestText = JSON.stringify(m.params || {});
-    const semanticMerge = /semanticMerge/.test(requestText);
+    const semanticMerge = /semanticMerge|conclusionProcessing/.test(requestText);
     const preparation = semanticMerge || /destinationId|artifacts/.test(requestText);
     const answer = provider => semanticMerge
       ? current.mergeRaw ?? JSON.stringify(current.mergeResult || { title: '统一整理的结论', overview: '已根据多条来源形成统一结论。', consensus: ['材料共同支持继续验证。'], conflicts: [], evidence: [], scope: '当前项目阶段', unresolved: [] })

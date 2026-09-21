@@ -6,6 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentSession, SourceFile } from '../src/shared/types';
 import { sessionContext, migrateSessionContext } from '../src/core/session-context';
+import { acceptedSessionContext, uniqueSources } from '../src/shared/session-context';
 import { Workbench } from '../src/core/workbench';
 import { freezeFile, historyMarkdown } from '../src/core/artifacts';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
@@ -31,6 +32,37 @@ test('legacy messages hide only recognized generated suffixes; raw trajectory an
   const pending = base(); pending.sources = [source]; pending.projectBrief = s.projectBrief; pending.messages = [{ id: 'x', role: 'user', text: first.text, createdAt: '' }];
   migrateSessionContext(pending); assert.equal(pending.messages[0].context?.accepted, false); assert(sessionContext(pending, '重试', []).text.includes(source.sha256));
   s.nativeId = 'another-native'; assert(sessionContext(s, '新原生上下文', []).text.includes(source.sha256));
+});
+
+test('legacy duplicate snapshots are sent once and share acceptance without rewriting stored history', () => {
+  const s = base(), first = sample('a'), duplicate = { ...first, id: 'duplicate', localPath: 'D:/test/duplicate.md' };
+  s.sources = [first, duplicate];
+  const originalSources = structuredClone(s.sources);
+  const initial = sessionContext(s, '继续', [first.id, duplicate.id]);
+  assert.equal(initial.text.split(first.sha256).length - 1, 1);
+  assert.equal(initial.sources.length, 1);
+  assert(!initial.text.includes(duplicate.localPath));
+  const secondOnly = sessionContext(s, '继续', [duplicate.id]);
+  assert.equal(secondOnly.sources[0].id, duplicate.id, 'selection of a noncanonical legacy ID is preserved');
+  s.messages.push({ id: 'failed', role: 'user', text: secondOnly.text, createdAt: '', context: { ...secondOnly.context, nativeId: s.nativeId!, accepted: false } });
+  assert.equal(sessionContext(s, '重试', [first.id, duplicate.id]).sources.length, 1);
+  s.messages.push({ id: 'accepted', role: 'user', text: secondOnly.text, createdAt: '', context: { ...secondOnly.context, nativeId: s.nativeId!, accepted: true } });
+  const originalMessages = structuredClone(s.messages);
+  assert.equal(acceptedSessionContext(s).sourceHashes[first.id], first.sha256);
+  assert.equal(sessionContext(s, '再次继续', [first.id, duplicate.id]).text, '再次继续');
+  assert.equal(uniqueSources(s.sources).length, 1, 'UI uses one reference even for old duplicated IDs');
+  s.nativeId = 'new-native';
+  assert.equal(sessionContext(s, '重建后继续', [first.id, duplicate.id]).sources.length, 1);
+  assert.deepEqual(s.sources, originalSources); assert.deepEqual(s.messages, originalMessages);
+});
+
+test('same names or contents do not collapse references from different versions or origins', () => {
+  const s = base(), first = sample('a'), revision = { ...first, id: 'revision', sha256: 'b'.repeat(64) }, otherOrigin = { ...first, id: 'other-origin', sourcePath: '/another/project.md' };
+  s.sources = [first, revision, otherOrigin];
+  const initial = sessionContext(s, '只带入第一份', [first.id]);
+  s.messages.push({ id: 'accepted', role: 'user', text: initial.text, createdAt: '', context: { ...initial.context, nativeId: s.nativeId!, accepted: true } });
+  assert.deepEqual(sessionContext(s, '继续', s.sources.map(source => source.id)).sources.map(source => source.id), [revision.id, otherOrigin.id]);
+  assert.equal(uniqueSources(s.sources).length, 3);
 });
 
 for (const provider of ['codex', 'cursor'] as const) test(provider + ': project references are delivered once, persist across resume, update once, retry unaccepted input, and remain separate from user text', async () => {

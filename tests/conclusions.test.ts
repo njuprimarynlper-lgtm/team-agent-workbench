@@ -120,17 +120,30 @@ test('local conclusions persist, can be edited and freeze an exact session sourc
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('manual AI merge keeps requirements in a draft and archives sources only after confirmation', async () => {
+test('personal conclusion processing follows directions and archives sources only after confirmation', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-conclusion-merge-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' }), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
     const session = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
     const first = await wb.createConclusion(offlineProjectId, '部署约束', '启动程序时隐藏终端窗口。'), second = await wb.createConclusion(offlineProjectId, '启动验证', 'Windows 启动器已通过回归测试。');
     const draft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [first.id, second.id], '保留 Windows 约束，不要补造测试结果。');
-    await until(() => draft.generation === 'ready'); assert.match(draft.body, /综合结论/); assert.equal(draft.conclusionMergeInstruction, '保留 Windows 约束，不要补造测试结果。');
+    await until(() => draft.generation === 'ready'); assert.match(draft.body, /预处理结果/); assert.equal(draft.conclusionMergeInstruction, '保留 Windows 约束，不要补造测试结果。');
     assert.equal(wb.conclusions(offlineProjectId).length, 2, 'AI draft does not alter the source conclusions');
     await wb.saveContentMerge(draft.id, '统一部署结论', draft.body); const merged = await wb.commitConclusionMerge(draft.id);
     assert.equal(wb.conclusions(offlineProjectId).length, 1); assert.equal(merged.title, '统一部署结论'); assert(wb.conclusions(offlineProjectId, true).filter(item => item.archived).length === 2);
+    const single = await wb.createConclusion(offlineProjectId, '独立约束', '窗口启动应隐藏终端，人工验证范围未知。');
+    const instruction = '只改写为新人的检查清单，不需要合并。';
+    const processed = await wb.prepareConclusionMerge(offlineProjectId, session.id, [single.id], instruction);
+    await until(() => processed.generation === 'ready');
+    const calls = (await fs.readFile(path.join(root, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    const prompt = calls.filter(call => call.method === 'turn/start').at(-1).params.input[0].text;
+    assert(prompt.includes(instruction)); assert(prompt.includes('任务类型：conclusionProcessing'));
+    assert(!prompt.includes('这不是拼接或摘要任务')); assert(!prompt.includes('请去重并形成统一结论'));
+    assert.equal(single.archived, undefined, 'a single-source preview also leaves originals intact');
+    await wb.saveContentMerge(processed.id, '新人检查清单', '人工修订后的检查步骤');
+    const saved = await wb.commitConclusionMerge(processed.id);
+    assert.equal(saved.title, '新人检查清单'); assert.equal(saved.content, '人工修订后的检查步骤');
+    assert.equal(single.archived, true); assert.equal(saved.sources[0].id, single.id);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 
