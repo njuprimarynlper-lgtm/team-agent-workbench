@@ -29,6 +29,57 @@ async function fixture() {
 }
 async function done(transfer: Transfer) { const end = Date.now() + 5000; while (['queued', 'running'].includes(transfer.status)) { if (Date.now() > end) throw new Error('queue stalled'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
+test('personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart', async () => {
+  const x = await fixture();
+  try {
+    const binding = x.alice.remote.binding(x.project.id), file = path.join(x.root, 'personal.md'); await fs.writeFile(file, '个人处理记录');
+    await x.alice.remote.upload(binding, file, binding.project.uploadPath + '/personal.md', () => {}, { kind: 'contribution', title: '数据覆盖约束', description: '需要补充低清晰度 OCR 样本。' });
+    const remote = (await x.alice.remote.contentList(binding))[0], event = (await x.bob.syncContentUpdates()).find(item => item.id === remote.id)!;
+    const sharedBefore = structuredClone(await x.alice.remote.contentList(binding));
+    const local = (await x.bob.importContentConclusion(x.project.id, remote.id)).conclusion;
+    assert.deepEqual(x.alice.conclusions(x.project.id), [], 'another member does not get the private copy');
+    assert.deepEqual(await x.alice.remote.contentList(binding), sharedBefore, 'private import never rewrites shared content');
+    assert.equal(event.actions?.[0].kind, 'saved_conclusion'); assert.equal(event.actions?.[0].targetId, local.id);
+    const firstAction = structuredClone(event.actions![0]);
+    await x.bob.importContentConclusion(x.project.id, remote.id); assert.deepEqual(event.actions, [firstAction]);
+    const first = await x.bob.createSession('codex', x.root, x.project.id), second = await x.bob.createSession('codex', x.root, x.project.id);
+    await x.bob.renameSession(first.id, '样本补全'); await x.bob.renameSession(second.id, '验收复核');
+    const [a, duplicate] = await Promise.all([x.bob.attachContent(first.id, remote.id), x.bob.attachContent(first.id, remote.id)]);
+    assert.equal(a.id, duplicate.id); assert.equal(first.sources.filter(source => source.contentRef?.id === remote.id).length, 1);
+    await x.bob.attachConclusion(second.id, local.id); await x.bob.attachConclusion(second.id, local.id);
+    assert.deepEqual(event.actions?.filter(action => action.kind === 'attached_session').map(action => action.targetTitle), ['样本补全', '验收复核']);
+    const recorded = structuredClone(event.actions); second.closedAt = new Date().toISOString();
+    await assert.rejects(x.bob.attachContent(second.id, remote.id), /未关闭/);
+    await assert.rejects(x.bob.attachLocal(second.id, [file]), /未关闭/);
+    await assert.rejects(x.bob.attachRemote(second.id, x.project.id, remote.path), /未关闭/);
+    assert.deepEqual(event.actions, recorded, 'rejected operations must not add success records');
+    const closing = await x.bob.createSession('codex', x.root, x.project.id), list = x.bob.remote.contentList.bind(x.bob.remote);
+    let release!: () => void, started!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; }), reading = new Promise<void>(resolve => { started = resolve; });
+    x.bob.remote.contentList = async (...args) => { const items = await list(...args); started(); await hold; return items; };
+    const attaching = x.bob.attachContent(closing.id, remote.id); await reading; await x.bob.closeSession(closing.id); release();
+    await assert.rejects(attaching, /未关闭/); x.bob.remote.contentList = list;
+    assert.equal(closing.sources.some(source => source.contentRef?.id === remote.id), false);
+    assert.deepEqual(event.actions, recorded, 'closing during the remote read must not attach or record success');
+
+    await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: remote.revision, action: 'save', title: remote.title, description: '新版还要求覆盖倾斜扫描件。', curate: true, merge: [] });
+    const newer = (await x.bob.syncContentUpdates()).find(item => item.id === remote.id && item.revision === remote.revision + 1)!;
+    const third = await x.bob.createSession('codex', x.root, x.project.id); await x.bob.attachConclusion(third.id, local.id);
+    assert.equal(newer.readAt, undefined, 'attaching an old personal snapshot cannot handle a new remote revision'); assert.equal(newer.actions, undefined);
+    await x.bob.importContentConclusion(x.project.id, remote.id); assert.equal(x.bob.contentUpdates().find(item => item.eventId === newer.eventId)?.actions?.[0].sourceRevision, newer.revision);
+    await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: newer.revision, action: 'delete', curate: true, merge: [] });
+    const after = await x.bob.syncContentUpdates(), removed = after.find(item => item.id === remote.id && item.change === 'deleted')!;
+    assert(after.find(item => item.eventId === event.eventId)?.unavailableAt, 'processed events survive shared removal');
+    assert.equal(removed.readAt, undefined); assert.equal(removed.actions, undefined);
+    await x.bob.resolveContentDeletion(removed.eventId, []); assert.equal(x.bob.contentUpdates().find(item => item.eventId === removed.eventId)?.actions?.[0].kind, 'kept_conclusion');
+    await x.bob.resolveContentDeletion(removed.eventId, [{ id: local.id, version: local.version }]); assert.equal(x.bob.contentUpdates().find(item => item.eventId === removed.eventId)?.actions?.at(-1)?.kind, 'deleted_conclusion');
+    assert.equal(x.bob.conclusions(x.project.id).length, 0); assert(await fs.readFile(a.localPath, 'utf8'));
+    const expected = JSON.parse(JSON.stringify(x.bob.contentUpdates())); await x.bob.close();
+    const restored = new Workbench(x.bob.store.root, () => {}, () => {}); await restored.store.init();
+    assert.deepEqual(restored.contentUpdates(), expected); await restored.close();
+  } finally { await x.close(); }
+});
+
 test('bulk activity deletion keeps content, survives sync and does not lose concurrent new updates', async () => {
   const x = await fixture();
   try {

@@ -103,6 +103,11 @@ try {
   await ap.getByLabel('项目文档操作状态').selectOption('submitted'); await expect(ap.locator('.content-card')).toHaveCount(0);
   await ap.getByLabel('项目文档操作状态').selectOption('curated'); await expect(ap.locator('.content-card')).toHaveCount(1);
   await expect(ap.getByRole('button', { name: '从共享区移除：Alice 统一整理的结论', exact: true })).toBeVisible();
+  await ap.getByRole('button', { name: '打开整理任务', exact: true }).click();
+  const savedMerge = ap.locator('.draft-task-card').filter({ hasText: 'Alice 统一整理的结论' });
+  await expect(savedMerge).toContainText('已保存到公共区'); await expect(savedMerge).toContainText('已保留，不可删除');
+  await ap.getByTitle('整理项目文档', { exact: true }).click();
+
   await bp.getByRole('button', { name: '刷新', exact: true }).click(); await bp.getByLabel('搜索公共成果').fill('统一整理');
   await expect(bp.locator('.content-card')).toHaveCount(1); await bp.locator('.content-card-summary').click();
   await expect(bp.getByRole('button', { name: '修改自己的提交', exact: true })).toHaveCount(0);
@@ -113,7 +118,7 @@ try {
   const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v3'));
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
-  await bp.getByTitle('项目结论', { exact: true }).click(); await expect(bp.getByRole('heading', { name: `项目结论 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
+  await bp.getByTitle('个人结论库', { exact: true }).click(); await expect(bp.getByRole('heading', { name: `个人结论库 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
   await bp.getByRole('button', { name: '新建结论', exact: true }).click(); await bp.getByLabel('本地结论标题').fill('手工发布检查'); await bp.getByLabel('本地结论内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
   const extraSession = await call(bp, 'session.create', { provider: 'codex', cwd: data, projectId: project.id });
   await call(bp, 'session.rename', { id: extraSession.id, title: '另一个验证会话' });
@@ -149,7 +154,7 @@ try {
   assert.deepEqual(afterRestart.settings.contentUpdates, beforeRestart.settings.contentUpdates);
   assert.deepEqual(await call(reopened.page, 'conclusion.list', { projectId: project.id, includeArchived: true }), conclusionsBefore);
   await expect(reopened.page.locator(`.session-row[data-session-id="${extraSession.id}"]`)).toBeVisible();
-  await reopened.page.getByTitle('项目结论', { exact: true }).click();
+  await reopened.page.getByTitle('个人结论库', { exact: true }).click();
   await reopened.page.locator('.content-card').filter({ hasText: '手工发布检查' }).locator('.content-card-summary').click();
   await reopened.page.getByRole('button', { name: '加入会话', exact: true }).click();
   await expect(reopened.page.getByLabel('使用结论的会话：另一个验证会话')).toBeChecked(); await expect(reopened.page.getByLabel('使用结论的会话：另一个验证会话')).toBeDisabled();

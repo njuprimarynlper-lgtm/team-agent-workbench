@@ -4,6 +4,8 @@
 
 Windows 本地 Agent 工作台与独立的团队管理应用。远端使用 Linux 账号、SSH/SFTP 和文件系统，受限文件操作器统一执行公共内容写入权限。当前开发版 **0.7.0**（未生成新安装包）。
 
+用户流程、状态转换和编辑/删除边界见 [状态图与操作表](docs/workflow-states.md)。
+
 产品操作见 [团队工作台使用指导](docs/user-guide.md)；环境准备、本地打桩、Linux 服务端、安装迁移与验收见 [部署指导](docs/deployment-guide.md)。部分成员无法直接访问模型服务时，可选用[管理端网络出口](docs/network-egress.md)；可直连成员无需启用。
 
 ## 从源码直接启动（Windows）

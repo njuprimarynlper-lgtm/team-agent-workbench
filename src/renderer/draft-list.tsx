@@ -4,7 +4,7 @@ import type { AgentSession, Draft, Transfer } from '../shared/types';
 import { contributionStatus } from '../shared/contribution-status';
 
 export function draftIsPreserved(draft: Draft) {
-  return !!draft.submitted || !!draft.artifacts?.some(item => item.submitted);
+  return !!draft.mergeCompletedAt || !!draft.submitted || !!draft.artifacts?.some(item => item.submitted);
 }
 
 function relatedTransfers(draft: Draft, transfers: Transfer[]) {
@@ -13,7 +13,7 @@ function relatedTransfers(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskStatus(draft: Draft, transfers: Transfer[]) {
-  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到结论库' : '已保存到公共区';
+  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到个人结论库' : '已保存到公共区';
   const related = relatedTransfers(draft, transfers);
   if (draftIsPreserved(draft)) {
     if (related.some(item => item.status === 'error')) return '上传未完成';
