@@ -43,13 +43,3 @@ export function rankConclusions(items: ProjectConclusion[], query: string, limit
     return { conclusion, score: Number(score.toFixed(3)), reasons };
   }).filter(item => item.score >= 1.2).sort((a, b) => b.score - a.score || Date.parse(b.conclusion.updatedAt) - Date.parse(a.conclusion.updatedAt)).slice(0, limit);
 }
-
-export function conclusionSimilarity(items: ProjectConclusion[], title: string, content: string) {
-  // Personal labels help retrieval but must not change automatic content grouping.
-  const ranked = rankConclusions(items, `${title}\n${content}`, 1, false)[0];
-  if (!ranked) return undefined;
-  const candidate = new Set(conclusionTokens(`${title}\n${content}`)), existing = new Set(conclusionTokens(`${ranked.conclusion.title}\n${ranked.conclusion.content}`));
-  const overlap = [...candidate].filter(token => existing.has(token)).length, union = new Set([...candidate, ...existing]).size || 1;
-  const titleOverlap = conclusionTokens(title).some(token => titleTokens(ranked.conclusion, false).includes(token));
-  return ranked.score >= 3.2 && overlap >= 2 && (titleOverlap || overlap / union >= 0.35) ? ranked.conclusion : undefined;
-}

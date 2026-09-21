@@ -38,7 +38,11 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   });
   await fs.mkdir(path.join(dir, 'scripts'));
   await fs.mkdir(path.join(dir, 'bin'));
-  await fs.copyFile(path.join(root, 'scripts/start-dev-hidden.ps1'), path.join(dir, 'scripts/start-dev-hidden.ps1'));
+  // Unlike real Electron, this fixture is a console Node executable. Hide the test double.
+  const helper = await fs.readFile(path.join(root, 'scripts/start-dev-hidden.ps1'), 'utf8');
+  const silentFixture = helper.replace(/(Start-Process -FilePath \$electron[^\r\n]+)/g, '$1 -WindowStyle Hidden');
+  assert.notEqual(silentFixture, helper, 'the test double must have an explicit hidden launch');
+  await fs.writeFile(path.join(dir, 'scripts/start-dev-hidden.ps1'), silentFixture);
   await fs.writeFile(path.join(dir, 'package.json'), '{}');
   await fs.writeFile(path.join(dir, 'package-lock.json'), '{}');
   const eventsPath = path.join(dir, 'events.jsonl');

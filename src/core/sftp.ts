@@ -12,6 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { ConnectionProfile, FilePreview, Project, RemoteBinding, RemoteEntry, WorkspaceAccess } from '../shared/types';
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { systemUsername } from './account-login';
+import type { AccountSnapshot } from '../shared/account-data';
 import { newProjectLayout, projectName } from './project-layout';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 import { groupWorkspacePattern } from '../shared/groups';
@@ -245,10 +246,10 @@ export class SftpConnection {
     try { for await (const chunk of stream) { const buffer = Buffer.from(chunk); chunks.push(buffer); count += buffer.length; } await closed; } catch (e) { throw friendlySftp(e); }
     return { buffer: Buffer.concat(chunks).subarray(0, limit), truncated: count > limit };
   }
-  async preview(binding: RemoteBinding, target: string): Promise<FilePreview> {
+  async preview(binding: RemoteBinding, target: string, displayName?: string): Promise<FilePreview> {
     const checked = await this.checked(binding, target); const stats = await this.stat(checked.s, checked.target);
     if (!stats.isFile()) throw new Error('只能预览普通文件');
-    const name = path.posix.basename(target), ext = path.posix.extname(name).toLowerCase();
+    const name = displayName || path.posix.basename(target), ext = path.posix.extname(name).toLowerCase();
     const mime: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
     if (mime[ext] && stats.size <= 5 * 1024 * 1024) { const data = await this.readLimited(checked.s, checked.target, 5 * 1024 * 1024); return { name, path: target, type: 'image', content: `data:${mime[ext]};base64,${data.buffer.toString('base64')}`, size: stats.size, truncated: false }; }
     const data = await this.readLimited(checked.s, checked.target, MAX_PREVIEW);
@@ -265,6 +266,24 @@ export class SftpConnection {
       if (count !== stats.size) throw new Error('传输期间文件大小发生变化，请重新下载');
       await fsp.rename(temp, local);
     } catch (e) { await fsp.rm(temp, { force: true }); throw friendlySftp(e); }
+  }
+  accountData(write?: AccountSnapshot): Promise<AccountSnapshot & { conflict?: boolean }> { return this.request({ op: write ? 'account_write' : 'account_read', ...(write || {}) }); }
+  async accountFile(hash: string, local: string, upload: boolean) {
+    if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('附件身份无效');
+    const s = this.channel(), profile = this.profile!;
+    const result = await this.request({ op: upload ? 'account_file_upload' : 'account_file_download', sha256: hash }, undefined, upload ? local : undefined);
+    if (this.channel() !== s || this.profile !== profile || result.sha256 !== hash) throw new Error('账号附件回执无效或账号已改变');
+    if (!upload) {
+      await fsp.mkdir(path.dirname(local), { recursive: true });
+      if (!/^[a-f0-9]{32}$/.test(result.downloadId)) throw new Error('账号附件下载回执无效');
+      const remote = '/.workbench/outbox/' + systemUsername(profile.username) + '/' + hash + '-' + result.downloadId + '.file';
+      try { await pipeline(s.createReadStream(remote), fs.createWriteStream(local, { flags: 'wx' })); if (await hashFile(local) !== hash) throw new Error('账号附件校验失败'); }
+      finally { s.unlink(remote, () => {}); }
+    }
+    return true;
+  }
+  async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void) {
+    return this.request({ op: 'publish_attachment', projectId: binding.project.id, sha256: hash }, binding, local, progress);
   }
   async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string) {
     assertRemote(binding.project.remoteRoot, target);

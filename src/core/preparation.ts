@@ -51,8 +51,8 @@ export async function discoverDestinations(remote: SharedFiles, binding: RemoteB
 }
 
 const fieldLabels: Record<string, string> = { objective: '目标', change: '本次变化', environment: '环境与口径', baseline: '对照基线', result: '结果', evidence: '依据', scope: '适用范围', limitations: '限制', nextSteps: '下一步', approach: '尝试方法', failure: '未奏效表现', likelyCause: '可能原因', avoidWhen: '不建议使用的条件', reusableInsight: '可复用经验', statement: '结论', uncertainty: '不确定项', problem: '问题', trigger: '触发条件', impact: '影响', reproduction: '复现方式', workaround: '临时处理', nextAction: '建议动作', baselineItem: '拟变更项目项', currentValue: '当前内容', proposedValue: '建议内容', rationale: '理由', validationNeeded: '采纳前验证' };
-const artifactSchema = z.object({ category: contributionCategorySchema, title: z.string().trim().min(1).max(120), fields: z.record(z.string(), z.string().trim().max(200000)).default({}), repoUrl: z.string().max(2048).nullable().optional() });
-const batchResultSchema = z.object({ artifacts: z.array(artifactSchema).min(1).max(8) });
+const artifactSchema = z.object({ category: contributionCategorySchema, title: z.string().trim().min(1).max(120), fields: z.record(z.string(), z.string().trim().max(200000)).default({}), repoUrl: z.string().max(2048).nullable().optional(), attachmentIds: z.array(z.string().max(100)).max(30).optional(), sourceDetails: z.string().max(8000).optional() });
+const batchResultSchema = z.object({ artifacts: z.array(artifactSchema).max(8) });
 const legacyResultSchema = z.object({ title: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(200000), repoUrl: z.string().max(2048).nullable().optional(), destinationId: z.string().max(200).nullable().optional() });
 
 export function artifactMarkdown(category: ContributionCategory, fields: Record<string, string>) {
@@ -65,6 +65,8 @@ export function preparationFieldContract(categories: readonly ContributionCatego
     experiment_result: ['change', 'result', 'nextSteps'],
     failed_direction: ['approach', 'failure', 'reusableInsight'],
     finding: ['statement', 'evidence', 'nextSteps'],
+    project_standard: ['statement', 'evidence', 'scope'],
+    method_exploration: ['approach', 'uncertainty', 'nextSteps'],
     issue: ['problem', 'impact', 'nextAction'],
     baseline_change_proposal: ['proposedValue', 'rationale', 'validationNeeded']
   };
@@ -79,6 +81,7 @@ export function applyPreparation(draft: Draft, answer: string) {
   catch { throw new Error('AI 返回的整理结果格式不完整，请重试整理。你的补充说明已保留。'); }
   const parsed = batchResultSchema.safeParse(raw);
   if (parsed.success) {
+    if (parsed.data.artifacts.length > 3 && draft.concise) throw new Error('本次整理超过 3 项，请重新精简整理');
     if (!draft.binding) throw new Error('当前会话没有绑定项目，无法确定分类目录。');
     const requested = new Set(draft.requestedCategories?.length ? draft.requestedCategories : contributionCategories);
     const unexpected = parsed.data.artifacts.find(item => !requested.has(item.category));
@@ -90,9 +93,11 @@ export function applyPreparation(draft: Draft, answer: string) {
       if (!body) throw new Error(`“${item.title}”没有可提交的${contributionCategoryInfo[item.category].label}字段。`);
       let repoUrl = '';
       if (item.repoUrl) { try { repoUrl = githubRepository(item.repoUrl); } catch { /* Never guess or retain an invalid repository URL. */ } }
-      return { id: `${draft.id}-${index + 1}`, category: item.category, title: contributionTitle(item.category, item.title), fields, body, repoUrl, target: contributionCategoryDirectory(draft.binding!, item.category), selected: true };
+      const attachments = [...new Set(item.attachmentIds || [])].filter(id => draft.files?.some(file => file.id === id)).map(fileId => ({ fileId, selected: false }));
+      return { id: `${draft.id}-${index + 1}`, category: item.category, title: contributionTitle(item.category, item.title), fields, body, repoUrl, target: contributionCategoryDirectory(draft.binding!, item.category), selected: true, attachments, sourceDetails: item.sourceDetails };
     });
     const first = artifacts[0];
+    if (!first) { Object.assign(draft, { artifacts: [], title: '本次没有需要保留的新内容', body: '', generatedBody: '', repoUrl: '', target: undefined }); return; }
     Object.assign(draft, { artifacts, title: artifacts.length === 1 ? first.title : `${artifacts.length} 项候选成果`, body: first.body, generatedBody: first.body, repoUrl: first.repoUrl, target: first.target, destinationNote: '已按成果类别分开存放。' });
     return;
   }

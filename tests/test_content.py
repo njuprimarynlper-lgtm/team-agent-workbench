@@ -43,6 +43,44 @@ class ContentRules(unittest.TestCase):
     def publish(self, actor='bob', name='result.zip', kind='contribution'):
         return self.call(actor, op='publish', target='/projects/relation/实体抽取/submissions/' + actor + '/' + name, sha256=content.digest(self.incoming), metadata={'title': '方案结论', 'description': '已验证内容', 'kind': kind})
 
+    def test_private_account_data_is_isolated_versioned_and_not_public(self):
+        self.assertEqual(self.call('bob', op='account_read')['records'], {})
+        data = {'material:one': {'title': 'private'}}
+        first = self.call('bob', op='account_write', revision=0, records=data, username='alice')
+        self.assertEqual(first['revision'], 1)
+        self.assertEqual(self.call('alice', op='account_read')['records'], {})
+        self.assertTrue(self.call('bob', op='account_write', revision=0, records={})['conflict'])
+        self.assertEqual(self.call('bob', op='account_read')['records'], data)
+        with self.assertRaises(ValueError): self.call('bob', op='account_write', revision=1, records={'sessions:x': 'forbidden'})
+        self.assertFalse(list(self.directory.glob('*account*')))
+        self.state['users']['bob']['enabled'] = False
+        with self.assertRaises(PermissionError): self.call('bob', op='account_read')
+
+    def test_attachments_are_deduplicated_authorized_and_required_before_publication(self):
+        sha = content.digest(self.incoming)
+        blob = self.call('bob', op='publish_attachment', sha256=sha)
+        self.assertEqual(blob, self.call('bob', op='publish_attachment', sha256=sha))
+        attachment = dict(blob, name='result.csv')
+        metadata = dict(kind='contribution', title='with evidence', description='summary', attachments=[attachment])
+        target = '/projects/relation/实体抽取/submissions/bob/result.zip'
+        item = self.call('bob', op='publish', target=target, sha256=sha, metadata=metadata)
+        self.assertEqual(item['attachments'], [attachment])
+        with self.assertRaises(PermissionError): self.call('alice', op='publish', target=target + '2', sha256=sha, metadata=metadata)
+        with self.assertRaises(ValueError): self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, attachments=[dict(attachment, size=999)]))
+        self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
+        self.assertEqual(self.edit('alice', item)['attachments'], [attachment])
+
+    def test_account_files_are_private_and_downloads_are_independent(self):
+        self.state['users']['bob']['uid'] = 1001
+        sha = content.digest(self.incoming)
+        self.call('bob', op='account_file_upload', sha256=sha)
+        with self.assertRaises(ValueError): self.call('alice', op='account_file_download', sha256=sha)
+        first = self.call('bob', op='account_file_download', sha256=sha)
+        second = self.call('bob', op='account_file_download', sha256=sha)
+        self.assertNotEqual(first['downloadId'], second['downloadId'])
+        self.assertEqual(first['sha256'], sha)
+        with self.assertRaises(ValueError): self.call('bob', op='account_file_upload', sha256='../escape')
+
     def test_assignment_roles_snapshots_status_and_retries(self):
         source = self.publish()
         task = dict(id=str(uuid.uuid4()), title='排查失败样本', description='分析低清晰度识别失败', acceptance='提供回归报告', assignee='bob', references=[dict(id=source['id'], revision=source['revision'])])

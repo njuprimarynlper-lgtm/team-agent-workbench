@@ -52,7 +52,7 @@ test('result names update the selected artifact and local conclusion but never r
     await wb.renameDraftResult(draft.id, '人工修改的短名称', artifact.id);
     assert.match(artifact.title, /人工修改的短名称$/); assert.equal(draft.title, artifact.title);
     assert.equal(artifact.body, body); assert.equal(artifact.selected, selected);
-    assert(wb.conclusions(offlineProjectId).some(item => item.title === '人工修改的短名称'));
+    assert(wb.conclusions(offlineProjectId).some(item => item.title === '【项目结论】 人工修改的短名称'));
     assert.throws(() => wb.renameDraftResult(draft.id, '  ', artifact.id), /名称/);
     await assert.rejects(wb.renameDraftResult(draft.id, '名字', 'missing'), /不存在/);
     const originalTitle = artifact.title; draft.submitted = artifact.submitted = 'frozen-transfer';
@@ -88,7 +88,7 @@ test('structured results classify independent artifacts, keep only category fiel
     { category: 'baseline_change_proposal', title: '调整验收阈值', fields: { baselineItem: 'F1 下限', proposedValue: '0.91', rationale: '新数据分布' } }
   ] }) + '\n```');
   assert.equal(d.artifacts?.length, 2); assert.equal(d.artifacts?.[0].target, '/p/submissions/alice/experiments'); assert.equal(d.artifacts?.[1].target, '/p/submissions/alice/baseline-change-proposals');
-  assert.equal(d.artifacts?.[0].title, '【实验结果】 阈值实验'); assert.equal(d.artifacts?.[1].title, '【项目基线变更建议】 调整验收阈值');
+  assert.equal(d.artifacts?.[0].title, '【项目结论】 阈值实验'); assert.equal(d.artifacts?.[1].title, '【改进建议】 调整验收阈值');
   assert.equal(d.artifacts?.[0].fields.unknown, undefined); assert.match(d.artifacts?.[0].body || '', /F1 提升/); assert.equal(d.supplement, '人补充的说明'); assert.equal(d.repoUrlOverride, 'https://github.com/human/repo');
   applyPreparation(d, JSON.stringify({ ...result, repoUrl: 'https://github.com/owner/repo/pull/123' })); assert.equal(d.repoUrl, ''); assert.equal(d.target, '/p/submissions/alice/findings');
   assert.throws(() => applyPreparation(d, 'A partial or malformed answer'), /格式不完整/);

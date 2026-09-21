@@ -11,6 +11,8 @@ import { authorizeUser, diskPath, localRoot, passwordMatches, readRegistry, regi
 import { assertRemote, childRemote, remotePath, withinRemote } from './paths';
 import { newProjectLayout, projectName } from './project-layout';
 import { sameEndpoint } from './sftp';
+import { accountRecordsSchema, type AccountSnapshot } from '../shared/account-data';
+import { hashFile } from './artifacts';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 
 export class LocalFileConnection {
@@ -37,6 +39,38 @@ export class LocalFileConnection {
       if (!p || ['remoteRoot', 'uploadPath', 'historyPath'].some(k => p[k as keyof Project] !== binding.project[k as keyof Project])) throw new Error('项目入口配置已改变');
     }
     return this;
+  }
+  async accountData(write?: AccountSnapshot): Promise<AccountSnapshot & { conflict?: boolean }> {
+    const profile = this.channel().profile!, proof = this.proof;
+    return registryLock(this.root, async () => {
+      const registry = await readRegistry(this.root); authorizeUser(registry, profile.username, proof);
+      if (this.profile !== profile || this.proof !== proof) throw new Error('账号已改变');
+      // Local mode is an authorization test stub, not an OS-level privacy boundary.
+      const file = await diskPath(this.root, `/.workbench-local/accounts/${profile.username}.json`, true);
+      let current: AccountSnapshot = { revision: 0, records: {} };
+      try { current = JSON.parse(await fs.readFile(file, 'utf8')); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+      if (!write) return current;
+      const records = accountRecordsSchema.parse(write.records);
+      if (write.revision !== current.revision) return { ...current, conflict: true };
+      const next = { revision: current.revision + 1, records }; await atomicJson(file, next); return next;
+    });
+  }
+  async accountFile(hash: string, local: string, upload: boolean) {
+    if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('附件身份无效');
+    const profile = this.channel().profile!, proof = this.proof;
+    return registryLock(this.root, async () => {
+      authorizeUser(await readRegistry(this.root), profile.username, proof);
+      if (this.profile !== profile || this.proof !== proof) throw new Error('账号已改变');
+      const file = await diskPath(this.root, `/.workbench-local/account-files/${profile.username}/${hash}`, true);
+      if (upload) {
+        const stat = await fs.lstat(local);
+        if (!stat.isFile() || stat.size > 2 * 1024 ** 3 || await hashFile(local) !== hash) throw new Error('账号附件快照校验失败');
+        await fs.mkdir(path.dirname(file), { recursive: true });
+        try { await fs.copyFile(local, file, fs.constants.COPYFILE_EXCL); } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
+      } else { await fs.mkdir(path.dirname(local), { recursive: true }); await fs.copyFile(file, local, fs.constants.COPYFILE_EXCL); }
+      if (await hashFile(upload ? file : local) !== hash) throw new Error('账号附件校验失败');
+      return true;
+    });
   }
   private async access(target: string, create = false) {
     const connection = this.channel(), proof = this.proof, profile = this.profile!;
@@ -154,10 +188,10 @@ export class LocalFileConnection {
     }
     return result.sort((a, b) => Number(b.kind === 'directory') - Number(a.kind === 'directory') || a.name.localeCompare(b.name));
   }
-  async preview(binding: RemoteBinding, target: string): Promise<FilePreview> {
+  async preview(binding: RemoteBinding, target: string, displayName?: string): Promise<FilePreview> {
     const file = await this.checked(binding, target), stat = await fs.stat(file);
     if (!stat.isFile()) throw new Error('只能预览普通文件');
-    const name = path.posix.basename(target), ext = path.extname(name).toLowerCase();
+    const name = displayName || path.posix.basename(target), ext = path.extname(name).toLowerCase();
     const mime: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
     const limit = mime[ext] && stat.size <= 5 * 1024 * 1024 ? 5 * 1024 * 1024 : 512 * 1024;
     const handle = await fs.open(file, 'r'); let data: Buffer;
@@ -212,6 +246,9 @@ export class LocalFileConnection {
   contentAdopt(binding: RemoteBinding, target: string) { return this.content().adopt(binding, target); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.content().edit(binding, change); }
   contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.content().edit(binding, change, file); }
+  async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void) {
+    this.channel(binding); const item = await this.content().publishAttachment(binding, local, hash); progress(item.size, item.size); return item;
+  }
   async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string) {
     await this.checked(binding, target, true, true);
     const item = await this.content().publish(binding, local, target, metadata, hash); progress(item.size, item.size); return item;

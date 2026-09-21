@@ -5,6 +5,7 @@ import { diskPath, registryLock } from './local-space';
 import { atomicJson } from './store';
 import { hashFile } from './artifacts';
 import { assertRemote, childRemote } from './paths';
+import { attachmentPath, mergeAttachments } from '../shared/attachments';
 import { contentEditSchema, contentMetadataSchema, contributionCategoryFields, contributionCategoryInfo, type ContentEdit, type ContentMetadata, type SharedContent } from '../shared/content';
 import type { RemoteBinding } from '../shared/types';
 
@@ -14,6 +15,18 @@ export class ContentFiles {
   private index(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content.json'), true); }
   private async read(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.index(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
   async list(binding: RemoteBinding) { await this.authorize(binding); return this.read(binding); }
+  async publishAttachment(binding: RemoteBinding, source: string, hash: string) {
+    return registryLock(this.root, async () => {
+      await this.authorize(binding);
+      const target = attachmentPath(binding, hash), file = await diskPath(this.root, target, true);
+      const stat = await fs.lstat(source);
+      if (!stat.isFile() || stat.size > 2 * 1024 ** 3 || await hashFile(source) !== hash) throw new Error('附件快照校验失败');
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      try { await fs.copyFile(source, file, fs.constants.COPYFILE_EXCL); }
+      catch (error: any) { if (error.code !== 'EEXIST' || await hashFile(file) !== hash) throw error; }
+      return { path: target, sha256: hash, size: stat.size };
+    });
+  }
   async adopt(binding: RemoteBinding, target: string) {
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding); if (!actor.admin) throw new Error('只有组管理员可以纳入已有文件');
@@ -29,6 +42,11 @@ export class ContentFiles {
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), project = binding.project;
       const metadata = contentMetadataSchema.parse(raw || { title: path.posix.basename(target), kind: target.includes('/trajectories/') ? 'trajectory' : 'file' });
+      for (const attachment of metadata.attachments || []) {
+        if (metadata.kind !== 'contribution' || attachment.path !== attachmentPath(binding, attachment.sha256)) throw new Error('附件不属于当前提交账号');
+        const file = await diskPath(this.root, attachment.path), stat = await fs.lstat(file);
+        if (!stat.isFile() || stat.size !== attachment.size || await hashFile(file) !== attachment.sha256) throw new Error('附件尚未上传成功或校验失败');
+      }
       target = assertRemote(project.remoteRoot, target);
       const relative = target.slice(project.remoteRoot.length + 1).split('/');
       if (relative.some(p => p.startsWith('.')) || !relative.at(-1)) throw new Error('不可写入管理记录');
@@ -65,6 +83,7 @@ export class ContentFiles {
       if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组组管理员可以整理或合并内容');
       if (new Set(change.merge.map(m => m.id)).size !== change.merge.length) throw new Error('不能重复合并同一成果');
       const merged = change.merge.map(m => { const source = items.find(i => i.id === m.id); if (!source || source.id === item.id || source.revision !== m.revision || source.kind !== 'contribution') throw new Error('待合并内容已改变或不是文字成果，请刷新'); return source; });
+      const attachments = mergeAttachments([item, ...merged]);
       const provenance = [...(item.provenance || []), { id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt }, ...merged.flatMap(source => [...(source.provenance || []), { id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt }])].filter((source, index, all) => all.findIndex(value => value.id === source.id && value.revision === source.revision) === index);
       const oldPaths = [item, ...merged].map(i => i.path);
       if (change.action === 'save' && item.kind !== 'contribution') {
@@ -88,6 +107,7 @@ export class ContentFiles {
         Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, ...(change.sourceSessionTitle ? { sourceSessionTitle: change.sourceSessionTitle } : {}), path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
       }
       await this.authorize(binding);
+      if (change.action === 'save' && attachments.length) item.attachments = attachments;
       await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id)));
       for (const target of oldPaths.filter(target => change.action === 'delete' || target !== item.path)) await fs.unlink(await diskPath(this.root, target)).catch(() => {});
       return change.action === 'delete' ? undefined : item;

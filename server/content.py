@@ -24,6 +24,8 @@ CONTRIBUTION_FOLDERS = {
     'experiment_result': 'experiments',
     'failed_direction': 'failed-directions',
     'finding': 'findings',
+    'project_standard': 'project-standards',
+    'method_exploration': 'method-explorations',
     'issue': 'issues',
     'baseline_change_proposal': 'baseline-change-proposals',
 }
@@ -31,6 +33,8 @@ CONTRIBUTION_FIELDS = {
     'experiment_result': {'objective', 'change', 'environment', 'baseline', 'result', 'evidence', 'scope', 'limitations', 'nextSteps'},
     'failed_direction': {'objective', 'approach', 'failure', 'evidence', 'likelyCause', 'avoidWhen', 'reusableInsight'},
     'finding': {'statement', 'evidence', 'scope', 'uncertainty', 'nextSteps'},
+    'project_standard': {'statement', 'evidence', 'scope'},
+    'method_exploration': {'approach', 'uncertainty', 'nextSteps'},
     'issue': {'problem', 'trigger', 'impact', 'evidence', 'reproduction', 'workaround', 'nextAction'},
     'baseline_change_proposal': {'baselineItem', 'currentValue', 'proposedValue', 'rationale', 'evidence', 'impact', 'validationNeeded'},
 }
@@ -217,6 +221,51 @@ def assignment_operation(root, state, username, request, directory, project, gro
 def handle(root, state, username, request, incoming=None):
     user = member(state, username)
     op = request.get('op')
+    if op in ('account_read', 'account_write', 'account_file_upload', 'account_file_download'):
+        identity = hashlib.sha256(json.dumps([username, user.get('uid'), user.get('marker')]).encode()).hexdigest()
+        file = safe(root, '.workbench/admin/accounts/' + identity + '.json')
+        if op in ('account_file_upload', 'account_file_download'):
+            sha = request.get('sha256')
+            if not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha):
+                raise ValueError('附件身份无效')
+            blob = safe(root, '.workbench/admin/account-files/' + identity + '/' + sha)
+            if op == 'account_file_upload':
+                if not incoming or not incoming.is_file() or incoming.stat().st_size > MAX_FILE or digest(incoming) != sha:
+                    raise ValueError('账号附件校验失败')
+                blob.parent.mkdir(parents=True, exist_ok=True)
+                os.chmod(blob.parent.parent, 0o700); os.chmod(blob.parent, 0o700)
+                if not blob.exists():
+                    temp = blob.parent / ('.' + uuid.uuid4().hex)
+                    try:
+                        shutil.copyfile(incoming, temp); os.chmod(temp, 0o600); os.replace(temp, blob)
+                    finally:
+                        temp.unlink(missing_ok=True)
+                if digest(blob) != sha:
+                    raise ValueError('账号附件存储校验失败')
+                return dict(sha256=sha, size=blob.stat().st_size)
+            if not blob.is_file():
+                raise ValueError('账号附件不存在')
+            login = user.get('systemUsername', username)
+            download_id = uuid.uuid4().hex
+            outgoing = safe(root, '.workbench/outbox/' + login + '/' + sha + '-' + download_id + '.file')
+            outgoing.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(blob, outgoing)
+            os.chmod(outgoing, 0o600)
+            acl_apply(['-m', 'u:' + str(user['uid']) + ':r--', str(outgoing)])
+            return dict(sha256=sha, size=blob.stat().st_size, downloadId=download_id)
+        current = read_json(file, dict(revision=0, records={}))
+        if op == 'account_read':
+            return current
+        records = request.get('records')
+        if not isinstance(records, dict) or len(json.dumps(records, ensure_ascii=False).encode('utf-8')) > 2 * 1024 * 1024 or any(not re.fullmatch(r'(material|draft|alias|update|seen|dismissed):[^\x00-\x1f]{1,500}', key) for key in records):
+            raise ValueError('账号资料格式无效或超过 2 MB')
+        if type(request.get('revision')) is not int or request['revision'] != current['revision']:
+            return dict(current, conflict=True)
+        result = dict(revision=current['revision'] + 1, records=records)
+        file.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(file.parent, 0o700)
+        atom(file, result)
+        return result
     if op == 'create_project':
         group_name = request.get('groupName')
         group = state['groups'].get(group_name)
@@ -244,6 +293,26 @@ def handle(root, state, username, request, incoming=None):
     directory, project, group_name, group = locate(root, state, user, request.get('projectId'))
     admin = group_name in user.get('contentAdminGroups', [])
     gid = group['gid']
+    if op == 'publish_attachment':
+        sha = request.get('sha256')
+        if not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha) or not incoming or not incoming.is_file() or incoming.stat().st_size > MAX_FILE or digest(incoming) != sha:
+            raise ValueError('附件快照校验失败')
+        file = safe(directory, '.workbench-attachments/' + username + '/' + sha)
+        if file.exists():
+            if digest(file) != sha:
+                raise ValueError('附件存储校验失败，不会覆盖')
+        else:
+            public_dir(file.parent.parent, gid)
+            public_dir(file.parent, gid)
+            temp = file.parent / ('.' + uuid.uuid4().hex + '.tmp')
+            try:
+                shutil.copyfile(incoming, temp)
+                os.chown(temp, 0, gid)
+                os.chmod(temp, 0o640)
+                os.replace(temp, file)
+            finally:
+                temp.unlink(missing_ok=True)
+        return dict(path='/' + file.relative_to(root).as_posix(), sha256=sha, size=file.stat().st_size)
     if isinstance(op, str) and op.startswith('assignment_'):
         return assignment_operation(root, state, username, request, directory, project, group_name, admin)
     if op == 'save_brief':
@@ -279,6 +348,21 @@ def handle(root, state, username, request, incoming=None):
     if op == 'publish':
         target = text(request.get('target'), 4096)
         meta = request.get('metadata') or {}
+        attachments = meta.get('attachments', [])
+        if not isinstance(attachments, list) or len(attachments) > 30 or (attachments and meta.get('kind') != 'contribution'):
+            raise ValueError('附件列表无效')
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                raise ValueError('附件格式无效')
+            name = text(attachment.get('name'), 240)
+            sha = attachment.get('sha256')
+            if not name or re.search(r'[/\\\x00-\x1f]', name) or not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha):
+                raise ValueError('附件格式无效')
+            file = safe(directory, '.workbench-attachments/' + username + '/' + sha)
+            if attachment.get('path') != '/' + file.relative_to(root).as_posix():
+                raise PermissionError('附件不属于当前提交账号')
+            if not file.is_file() or type(attachment.get('size')) is not int or file.stat().st_size != attachment['size'] or digest(file) != sha:
+                raise ValueError('附件尚未上传成功或校验失败')
         prefix = '/' + str(directory.relative_to(root)).replace('\\', '/') + '/'
         if not target.startswith(prefix):
             raise PermissionError('上传目标不属于项目')
@@ -324,6 +408,10 @@ def handle(root, state, username, request, incoming=None):
         finally:
             temp.unlink(missing_ok=True)
         item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'category': category, 'fields': meta.get('fields'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'sourceSessionTitle': text(meta.get('sourceSessionTitle'), 120) if meta.get('sourceSessionTitle') else None, 'snapshotHash': meta.get('snapshotHash'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
+        if attachments:
+            item['attachments'] = [{k: a[k] for k in ('name', 'path', 'sha256', 'size')} for a in attachments]
+        if meta.get('sourceDetails'):
+            item['sourceDetails'] = text(meta['sourceDetails'], 8000)
         items.insert(0, item)
         atom(index, items, gid)
         receipts[key] = item
@@ -353,6 +441,9 @@ def handle(root, state, username, request, incoming=None):
         provenance += list(source.get('provenance', [])) + [dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt'])]
     provenance = list({(source['id'], source['revision']): source for source in provenance}.values())
     paths = [i['path'] for i in [item] + merged]
+    attachments = list({a['sha256']: a for source in [item] + merged for a in source.get('attachments', [])}.values())
+    if len(attachments) > 30:
+        raise ValueError('合并后的附件超过 30 个，请分批整理')
     if change.get('action') == 'save' and item['kind'] != 'contribution':
         if merged:
             raise ValueError('文件不能按文字成果合并')
@@ -385,6 +476,8 @@ def handle(root, state, username, request, incoming=None):
     elif change.get('action') != 'delete':
         raise ValueError('不支持的修改操作')
     items = [i for i in items if i not in merged and (change['action'] != 'delete' or i is not item)]
+    if change['action'] == 'save' and attachments:
+        item['attachments'] = attachments
     atom(index, items, gid)
     for old in paths:
         if change['action'] == 'delete' or old != item['path']:
@@ -453,7 +546,7 @@ def tick(root):
                             raise ValueError('请求 ID 已使用，不允许更换请求内容')
                         continue
                     request = json.loads(raw)
-                    if request.get('op') == 'publish' or request.get('replacement'):
+                    if request.get('op') in ('publish', 'publish_attachment', 'account_file_upload') or request.get('replacement'):
                         filename = request.get('staging')
                         if not isinstance(filename, str) or not re.fullmatch(r'[a-f0-9-]{36}\.upload', filename):
                             raise ValueError('上传暂存路径无效')

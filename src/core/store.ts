@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentSession, Draft, ProjectConclusion, Settings, Transfer, SessionInput } from '../shared/types';
 import { settingsSchema } from './config';
 import { migrateSessionContext } from './session-context';
+import { repairConclusionImports } from './conclusion-import-repair';
+import { accountIdentity } from '../shared/account-data';
 export async function atomicJson(file: string, data: unknown) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = file + '.' + randomUUID() + '.tmp';
@@ -20,6 +22,7 @@ export async function atomicJson(file: string, data: unknown) {
   } finally { await fs.rm(temp, { force: true }).catch(() => {}); }
 }
 export class Store {
+  saved?: () => void;
   settings: Settings = { connections: [], providerPaths: { codex: '', cursor: '' }, lastWorkspace: '', trustedServerIdentities: {} };
   sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = []; conclusions: ProjectConclusion[] = [];
   inputs: Record<string, SessionInput> = {};
@@ -53,11 +56,25 @@ export class Store {
       else if (!d.generation) { const s = this.sessions.find(s => s.id === d.prepareSessionId); d.generation = d.generatedBody ? 'ready' : 'error'; d.generationError = d.generatedBody ? undefined : s?.error || '此前的整理未完成，可重试整理，“给团队的补充”已保留。'; }
     });
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
+    await this.repairConclusionImports();
+  }
+  async repairConclusionImports() {
+    const before = structuredClone({ conclusions: this.conclusions, updates: this.settings.contentUpdates || [] });
+    const profile = this.settings.workspaceSnapshot?.profile;
+    if (!repairConclusionImports(this.conclusions, this.settings.contentUpdates || [], profile ? accountIdentity(profile) : '')) return;
+    // Keep the pre-repair records recoverable; never edit Sessions or drafts.
+    const after = structuredClone({ conclusions: this.conclusions, settings: this.settings });
+    const next = this.writes.catch(() => {}).then(async () => {
+      await atomicJson(path.join(this.root, 'migrations', 'import-links-' + randomUUID() + '.json'), before);
+      await atomicJson(path.join(this.root, 'conclusions.json'), after.conclusions);
+      await atomicJson(path.join(this.root, 'settings.json'), after.settings);
+    });
+    this.writes = next; await next;
   }
   save() {
     const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts, conclusions: this.conclusions }));
     const next = this.writes.catch(() => {}).then(async () => { for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value); });
-    this.writes = next; return next;
+    this.writes = next; return next.then(() => { this.saved?.(); });
   }
   sessionDir(id: string) { if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('无效会话 ID'); return path.join(this.root, 'sessions', id); }
   async event(id: string, event: unknown) {

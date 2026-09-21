@@ -13,7 +13,7 @@ function relatedTransfers(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskStatus(draft: Draft, transfers: Transfer[]) {
-  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到个人结论库' : '已保存到公共区';
+  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到项目资料' : '已保存到公共区';
   const related = relatedTransfers(draft, transfers);
   if (draftIsPreserved(draft)) {
     if (related.some(item => item.status === 'error')) return '上传未完成';
@@ -34,7 +34,7 @@ function statusTone(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskKind(draft: Draft) {
-  if (draft.conclusionMergeProjectId) return '本地结论处理';
+  if (draft.conclusionMergeProjectId) return '项目资料处理';
   if (draft.mergeProjectId) return '项目文档合并';
   if (draft.preparationScope === 'incremental') return '增量整理';
   if (draft.preparationScope === 'full') return '全量整理';
