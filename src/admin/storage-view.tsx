@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronRight, Database, Folder, FolderOpen, HardDrive, RefreshCw, Square, Users, X } from 'lucide-react';
 import type { AdminState, StorageCategoryKey, StorageUsageReport } from './types';
 
@@ -20,15 +20,19 @@ export function StorageView({ active, enabled, identity, state }: { active: bool
   const [tab, setTab] = useState<'groups' | 'users' | 'folders'>('groups');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [autoScanned, setAutoScanned] = useState(false);
-  useEffect(() => { setSummary(undefined); setFolder(undefined); setError(''); setAutoScanned(false); }, [identity]);
+  const request = useRef(0), currentIdentity = useRef(identity); currentIdentity.current = identity;
+  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setAutoScanned(false); setBusy(false); }, [identity]);
   const scan = async (path = '', append = false, offset = 0) => {
+    const token = ++request.current, targetIdentity = identity;
+    const current = () => token === request.current && targetIdentity === currentIdentity.current;
     setBusy(true); setError('');
     try {
       const result = await window.admin.call<StorageUsageReport>('storage.scan', { path, offset, limit: 100 });
+      if (!current()) return;
       if (!path) setSummary(result);
       setFolder(current => append && current?.path === result.path ? { ...result, children: [...current.children, ...result.children] } : result);
-    } catch (reason: any) { setError(reason.message || '空间统计失败'); }
-    finally { setBusy(false); }
+    } catch (reason: any) { if (current()) setError(reason.message || '空间统计失败'); }
+    finally { if (current()) setBusy(false); }
   };
   useEffect(() => { if (active && enabled && !summary && !busy && !autoScanned) { setAutoScanned(true); void scan(); } }, [active, enabled, summary, busy, autoScanned]);
   const cancel = async () => { try { await window.admin.call('storage.cancel'); } catch (reason: any) { setError(reason.message || '取消统计失败'); } };

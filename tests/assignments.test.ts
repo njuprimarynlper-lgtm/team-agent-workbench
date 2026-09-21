@@ -30,6 +30,8 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, assignee: 'outside' }), /不属于/);
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, references: [{ id: content.id, revision: 2 }] }), /结论已更新/);
     const task = await alice.remote.assignmentCreate(binding, input);
+    await assert.rejects(bob.startAssignment(project.id, task.id, task.revision, 'codex', path.join(root, 'missing-directory')));
+    assert.equal((await bob.remote.assignmentList(bobBinding))[0].status, 'assigned', 'local setup failure must not mark remote work as started');
     assert.equal((await alice.remote.assignmentCreate(binding, input)).id, task.id, 'retry is idempotent');
     assert.equal((await alice.remote.assignmentList(binding)).length, 1);
     assert.deepEqual(await carol.remote.assignmentList(carol.remote.binding(project.id)), []);
@@ -54,6 +56,18 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     const cancel = await alice.remote.assignmentCreate(binding, { ...input, id: randomUUID(), references: [] });
     await alice.remote.assignmentStatus(binding, { id: cancel.id, revision: cancel.revision, status: 'cancelled' });
     await assert.rejects(bob.startAssignment(project.id, cancel.id, 2, 'codex', root), /取消/);
+    const interrupted = await alice.remote.assignmentCreate(binding, { ...input, id: randomUUID(), references: [] });
+    const inProgress = await bob.remote.assignmentStatus(bobBinding, { id: interrupted.id, revision: interrupted.revision, status: 'in_progress' });
+    const createSession = bob.createSession.bind(bob);
+    bob.createSession = async (...args) => {
+      const created = await createSession(...args);
+      await alice.remote.assignmentStatus(binding, { id: inProgress.id, revision: inProgress.revision, status: 'cancelled' });
+      return created;
+    };
+    const before = bob.store.sessions.length;
+    await assert.rejects(bob.startAssignment(project.id, inProgress.id, inProgress.revision, 'codex', root), /状态|更新/);
+    assert.equal(bob.store.sessions.length, before, 'cancellation during local preparation must not leave a usable task session');
+    bob.createSession = createSession;
     await bob.close(); const restored = new Workbench(bob.store.root, () => {}, () => {}); clients.push(restored); await restored.store.init();
     assert.deepEqual(restored.session(session.id).assignment, session.assignment); assert.equal(restored.conclusions(project.id).length, 1);
   } finally { for (const client of clients) await client.close(); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-assignments-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }

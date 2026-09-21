@@ -13,6 +13,21 @@ const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const reset = () => Object.assign(new Error('fixture connection reset'), { code: 'ECONNRESET' });
 const request = { url: 'chatgpt.com:443' };
 
+test('failed probes replace an earlier available state and obsolete probes cannot restore an old configuration', async () => {
+  const proxy = new EgressClientProxy({ enabled: true, host: 'localhost', port: 1, certificateFingerprint: 'fixture', accessCode: 'fixture', username: 'alice' });
+  try {
+    (proxy as any).connectRelay = async () => new MemorySocket();
+    await proxy.probe(); assert.equal(proxy.status().available, true);
+    (proxy as any).connectRelay = async () => { throw new Error('fixture unreachable'); };
+    await assert.rejects(proxy.probe(), /unreachable/); assert.equal(proxy.status().available, false); assert.equal(proxy.status().detail, '连接失败');
+    let resolve!: (socket: MemorySocket) => void;
+    (proxy as any).connectRelay = () => new Promise(done => { resolve = done; });
+    const pending = proxy.probe(), rejected = assert.rejects(pending, /已改变/);
+    await proxy.configure(undefined); resolve(new MemorySocket()); await rejected;
+    assert.equal(proxy.status().enabled, false); assert.equal(proxy.status().available, undefined); assert.equal(proxy.status().detail, '使用本机网络直连');
+  } finally { await proxy.stop(); }
+});
+
 test('client reset during handshake cancels the pending request without an unhandled error', async () => {
   const proxy = new EgressClientProxy(), client = new MemorySocket();
   let aborted = false;

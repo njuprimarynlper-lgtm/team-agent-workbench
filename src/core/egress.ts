@@ -164,6 +164,8 @@ export class EgressRelay extends EventEmitter {
 }
 
 export class EgressClientProxy extends EventEmitter {
+  private revision = 0;
+  private probeId = 0;
   private server?: http.Server;
   private connections = new Set<Duplex>();
   private localPort = 0;
@@ -176,11 +178,13 @@ export class EgressClientProxy extends EventEmitter {
     return { HTTP_PROXY: proxy, HTTPS_PROXY: proxy, http_proxy: proxy, https_proxy: proxy, NO_PROXY: noProxy, no_proxy: noProxy, NODE_USE_ENV_PROXY: '1' };
   }
   async configure(config?: ClientOptions) {
-    this.config = config; if (config?.enabled) await this.start(); else await this.stop(); this.refreshStatus();
+    this.revision++; this.config = config; this.refreshStatus({ available: undefined, checkedAt: undefined });
+    if (config?.enabled) await this.start(); else await this.stop(); this.refreshStatus();
   }
   private refreshStatus(patch: Partial<UserEgressStatus> = {}) {
     const enabled = !!this.config?.enabled, configured = !!(this.config?.host && this.config.port && this.config.certificateFingerprint && this.config.accessCode);
-    this.statusValue = { enabled, configured, running: !!this.server?.listening, endpoint: configured ? `${this.config!.host}:${this.config!.port}` : undefined, detail: enabled ? (this.server?.listening ? this.statusValue.available ? '管理端网络出口可用' : '已配置管理端网络出口，等待连接检测' : '管理端网络出口未启动') : '使用本机网络直连', hasAccessCode: !!this.config?.accessCode, ...patch };
+    const available = Object.hasOwn(patch, 'available') ? patch.available : this.statusValue.available;
+    this.statusValue = { enabled, configured, running: !!this.server?.listening, available, checkedAt: this.statusValue.checkedAt, endpoint: configured ? `${this.config!.host}:${this.config!.port}` : undefined, detail: enabled ? (this.server?.listening ? available ? '管理端网络出口可用' : '已配置管理端网络出口，等待连接检测' : '管理端网络出口未启动') : '使用本机网络直连', hasAccessCode: !!this.config?.accessCode, ...patch };
     this.emit('changed');
   }
   async start() {
@@ -192,6 +196,7 @@ export class EgressClientProxy extends EventEmitter {
     this.refreshStatus();
   }
   async stop() {
+    this.revision++;
     const server = this.server; this.server = undefined; this.localPort = 0;
     for (const socket of this.connections) socket.destroy();
     this.connections.clear();
@@ -199,7 +204,15 @@ export class EgressClientProxy extends EventEmitter {
   }
   async probe() {
     if (!this.config?.enabled) { this.refreshStatus(); return true; }
-    const socket = await this.connectRelay({ kind: 'ping' }); socket.end(); this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: '管理端网络出口可用' }); return true;
+    const revision = this.revision, probe = ++this.probeId;
+    try {
+      const socket = await this.connectRelay({ kind: 'ping' }); socket.end();
+      if (revision !== this.revision || probe !== this.probeId) throw new Error('出口配置或检测已改变，请查看最新状态');
+      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: '管理端网络出口可用' }); return true;
+    } catch (error) {
+      if (revision === this.revision && probe === this.probeId) this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: safeDetail(error) });
+      throw error;
+    }
   }
   private track<T extends Duplex>(socket: T): T {
     if (!this.connections.has(socket)) {

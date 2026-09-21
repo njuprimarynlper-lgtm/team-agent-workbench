@@ -33,6 +33,9 @@ export class Workbench {
   store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
   private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
   private changingSettings = new Set<string>();
+  private canceledSends = new Set<string>();
+  private stoppingSessions = new Set<string>();
+  private deletingDrafts = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
   private edits: Promise<unknown> = Promise.resolve();
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
@@ -405,9 +408,9 @@ export class Workbench {
     const profile = this.remote.profile!; this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? profile : p);
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces); await this.store.save(); this.broadcast(); return project;
   }
-  changed = () => { this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
+  changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
   session(id: string) { const s = this.store.sessions.find(x => x.id === id); if (!s) throw new Error('会话不存在'); return s; }
-  draft(id: string) { const d = this.store.drafts.find(x => x.id === id); if (!d) throw new Error('草稿不存在'); return d; }
+  draft(id: string) { if (this.deletingDrafts.has(id)) throw new Error('整理任务正在删除，请等待完成'); const d = this.store.drafts.find(x => x.id === id); if (!d) throw new Error('草稿不存在'); return d; }
   async inspectPermissions(provider: Provider, cwd: string) {
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
     return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, this.providerEnvironment());
@@ -435,6 +438,7 @@ export class Workbench {
   async changePermissions(id: string, mode: PermissionMode, stop = false) {
     const s = this.session(id);
     if (s.purpose !== 'work') throw new Error('成果整理固定使用完全访问权限');
+    if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (!['inherit', 'review', 'auto', 'full'].includes(mode)) throw new Error('无效权限模式');
     if (s.provider === 'cursor' && mode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
@@ -442,6 +446,7 @@ export class Workbench {
     return this.updateSessionSettings(s, () => { s.permissionMode = mode; s.permissionIssue = undefined; });
   }
   private async updateSessionSettings(s: AgentSession, update: () => void) {
+    if (this.stoppingSessions.has(s.id)) throw new Error('此会话正在停止，请稍后重试');
     if (this.changingSettings.has(s.id)) throw new Error('正在切换会话设置，请稍后重试');
     this.changingSettings.add(s.id);
     try {
@@ -488,7 +493,6 @@ export class Workbench {
       const existing = this.store.sessions.find(session => !session.closedAt && session.assignment?.id === taskId && session.binding?.project.id === projectId && session.binding.username === binding.username && session.binding.connectionId === binding.connectionId && session.binding.host === binding.host && session.binding.fingerprint === binding.fingerprint);
       if (existing) return existing;
       if (task.revision !== revision) throw new Error('任务已更新，请刷新后重新查看');
-      const started = task.status === 'assigned' ? await this.remote.assignmentStatus(binding, { id: task.id, revision: task.revision, status: 'in_progress' }) : task;
       const session = await this.createSession(provider, cwd, projectId, 'work', undefined, model, permissionMode, includeBrief);
       try {
         const sources: SourceFile[] = [];
@@ -502,6 +506,7 @@ export class Workbench {
         for (const reference of task.references) {
           await freeze(reference.title + ' · 派发时 v' + reference.revision, `# ${reference.title}\n\n任务：${task.title}\n提交人：${reference.author}\n结论修订：v${reference.revision}\n更新时间：${reference.updatedAt}\n\n${reference.content}`, `assignment:${task.id}:content:${reference.id}:v${reference.revision}`);
         }
+        const started = await this.remote.assignmentStatus(binding, { id: task.id, revision: task.revision, status: 'in_progress' });
         session.title = task.title.slice(0, 120); session.sources.push(...sources);
         session.assignment = { id: task.id, revision: started.revision, title: task.title, sourceIds: sources.map(source => source.id) };
         for (const reference of task.references) {
@@ -529,24 +534,31 @@ export class Workbench {
     if (s.provider === 'cursor' && this.configuringCursorPermissions) throw new Error('正在保存 Cursor 权限配置，请保存完成后再发送任务');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (this.sending.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
-    this.sending.add(id); s.status = 'starting'; this.changed();
+    if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
+    this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; s.status = 'starting'; this.changed();
+    const canceled = () => this.canceledSends.has(id) || this.closing;
     try {
       await this.requireAuth(s.provider, s.cwd);
+      if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
       const runtime = await this.runtime(s);
+      if (canceled() || s.closedAt) { if (this.runtimes.get(id) === runtime) this.runtimes.delete(id); await runtime.close(); if (s.closedAt) throw new Error('此会话已关闭'); return false; }
       // Resolve the actual native conversation before deciding what it already knows.
       await runtime.ensureStarted();
+      if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
       s.status = 'starting';
       const input = sessionContext(s, userText, sourceIds);
       for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
       if (s.closedAt) throw new Error('此会话已关闭');
       const capabilities = await runtime.resolveCapabilities(capabilitySelections);
+      if (canceled()) return false;
+      if (s.closedAt) throw new Error('此会话已关闭');
       s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted });
       await this.store.save();
       return started;
-    } catch (e: any) { if (!s.closedAt) { s.status = 'error'; s.error = e.message; this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
-    finally { this.sending.delete(id); }
+    } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
+    finally { this.sending.delete(id); if (this.canceledSends.delete(id)) { s.status = 'idle'; s.error = undefined; this.changed(); } }
   }
   private async onDone(id: string) {
     const s = this.session(id);
@@ -569,7 +581,19 @@ export class Workbench {
     }
     if (s.autoUpload && s.binding && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.notice('会话自动上传未完成：' + e.message); } }
   }
-  async stop(id: string) { const runtime = this.runtimes.get(id); if (runtime) await runtime.cancel(); }
+  async stop(id: string) {
+    const s = this.session(id);
+    if (s.purpose !== 'work') throw new Error('请在整理结果页停止整理');
+    if (this.stoppingSessions.has(id)) return;
+    if (!this.sending.has(id) && !['starting', 'running', 'approval'].includes(s.status)) return;
+    this.stoppingSessions.add(id); if (this.sending.has(id)) this.canceledSends.add(id);
+    s.stoppedAt = new Date().toISOString();
+    try {
+      const runtime = this.runtimes.get(id); this.runtimes.delete(id);
+      if (runtime) { void runtime.cancel().catch(() => {}); await runtime.close(); }
+      s.status = 'idle'; s.error = undefined; s.approvals = []; await this.store.save(); this.broadcast();
+    } finally { this.stoppingSessions.delete(id); }
+  }
   async closeSession(id: string) {
     const s = this.session(id); if (s.purpose !== 'work') throw new Error('请在整理结果页停止整理');
     s.closedAt = new Date().toISOString();
@@ -579,7 +603,7 @@ export class Workbench {
   }
   async reopenSession(id: string) {
     const s = this.session(id); if (s.purpose !== 'work') throw new Error('此任务不是工作会话');
-    if (this.sending.has(id)) throw new Error('正在停止此会话，请稍后重新打开');
+    if (this.sending.has(id) || this.stoppingSessions.has(id)) throw new Error('正在停止此会话，请稍后重新打开');
     s.closedAt = undefined; await this.store.save(); this.broadcast(); return s;
   }
   answer(id: string, requestId: string, option: string, answers?: Record<string, string>) { const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); runtime.answer(requestId, option, answers); }
@@ -772,7 +796,7 @@ export class Workbench {
     await this.store.save(); this.broadcast(); this.notice('成果整理失败：' + d.generationError);
   }
   async retryPreparation(id: string) {
-    const d = this.draft(id); if (d.submitted || this.submittingDrafts.has(id) || d.generation === 'running') throw new Error('此草稿已提交或正在整理');
+    const d = this.draft(id); if (d.mergeCompletedAt || d.submitted || this.submittingDrafts.has(id) || d.generation === 'running') throw new Error('此草稿已提交或正在整理');
     // Reserve before the first await. Retry uses the same frozen inputs but a fresh CLI context.
     const refreshInputs = d.generation === 'ready';
     d.generation = 'running'; d.generationError = undefined; d.generationStartedAt = new Date().toISOString(); d.generationFinishedAt = undefined; this.broadcast();
@@ -791,22 +815,30 @@ export class Workbench {
       d.prepareSessionId = prepared.id; await this.runPreparation(d); return d;
     } catch (e: any) { if (d.generation === 'running') await this.failPreparation(d, e.message); throw e; }
   }
-  async cancelPreparation(id: string) {
-    const d = this.draft(id); if (d.generation !== 'running') return;
-    this.clearPreparationTimer(id); d.generation = 'canceled'; d.generationError = undefined; d.generationFinishedAt = new Date().toISOString();
+  async cancelPreparation(id: string) { return this.stopPreparation(this.draft(id)); }
+  private async stopPreparation(d: Draft) {
+    if (d.generation !== 'running') return;
+    this.clearPreparationTimer(d.id); d.generation = 'canceled'; d.generationError = undefined; d.generationFinishedAt = new Date().toISOString();
     if (d.prepareSessionId) { const s = this.session(d.prepareSessionId); s.closedAt = new Date().toISOString(); s.approvals = []; s.status = 'idle'; const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
     await this.store.save(); this.broadcast();
   }
   async deleteDraft(id: string) {
     if (this.submittingDrafts.has(id)) throw new Error('整理任务正在保存或上传，请稍后再删除');
     const draft = this.draft(id);
-    if (draft.submitted || draft.artifacts?.some(item => item.submitted)) throw new Error('已经上传或保存的整理任务需要保留记录，不能删除');
-    if (draft.generation === 'running') await this.cancelPreparation(id);
-    const prepareId = draft.prepareSessionId, draftRoot = path.resolve(this.store.root, 'drafts', id), expectedParent = path.resolve(this.store.root, 'drafts');
+    if (draft.mergeCompletedAt || draft.submitted || draft.artifacts?.some(item => item.submitted)) throw new Error('已经上传或保存的整理任务需要保留记录，不能删除');
+    const draftRoot = path.resolve(this.store.root, 'drafts', id), expectedParent = path.resolve(this.store.root, 'drafts');
     if (path.dirname(draftRoot) !== expectedParent) throw new Error('整理任务目录异常，未执行删除');
-    this.clearPreparationTimer(id); this.removeDraftConclusionSources(draft); this.store.drafts = this.store.drafts.filter(item => item.id !== id);
-    if (prepareId) { const runtime = this.runtimes.get(prepareId); this.runtimes.delete(prepareId); if (runtime) await runtime.close(); this.store.sessions = this.store.sessions.filter(session => session.id !== prepareId); delete this.store.inputs[prepareId]; }
-    await this.store.save(); this.broadcast(); await fs.rm(draftRoot, { recursive: true, force: true }); return true;
+    this.deletingDrafts.add(id);
+    try {
+      await this.stopPreparation(draft);
+      this.clearPreparationTimer(id); this.removeDraftConclusionSources(draft); this.store.drafts = this.store.drafts.filter(item => item.id !== id);
+      const helpers = this.store.sessions.filter(session => session.purpose === 'prepare' && (session.id === draft.prepareSessionId || localWithin(draftRoot, session.cwd)));
+      for (const helper of helpers) {
+        const runtime = this.runtimes.get(helper.id); this.runtimes.delete(helper.id); if (runtime) await runtime.close();
+        this.store.sessions = this.store.sessions.filter(session => session.id !== helper.id); delete this.store.inputs[helper.id];
+      }
+      await this.store.save(); this.broadcast(); await fs.rm(draftRoot, { recursive: true, force: true }); return true;
+    } finally { this.deletingDrafts.delete(id); }
   }
   saveDraft(id: string, title: string, body: string, repoUrl: string, target?: string) {
     if (this.draft(id).submitted || this.submittingDrafts.has(id)) throw new Error('草稿正在提交或已提交，不能继续修改');
@@ -963,6 +995,7 @@ export class Workbench {
   }
   async refreshProjectContext(id: string) {
     const session = this.session(id); this.assertCanWork(session.binding); if (!session.binding) throw new Error('请选择项目');
+    if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
     if (['running', 'approval', 'starting'].includes(session.status)) throw new Error('当前轮结束后可以采用新版项目资料，工作无需中断');
     const data = await this.remote.projectBrief(session.binding); if (!data.brief) return false;
     if (session.projectBrief?.revision === data.revision) return false;
@@ -971,6 +1004,7 @@ export class Workbench {
     const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local);
     source.name = `项目说明 · v${data.revision}`;
     source.sourcePath = session.binding.project.remoteRoot + '/项目说明.md';
+    if (session.closedAt || ['starting', 'running', 'approval'].includes(session.status)) throw new Error('会话状态已改变，请在当前轮结束后重新加入项目说明');
     session.sources.push(source); session.projectBrief = { revision: data.revision, sourceId: source.id, capturedAt: new Date().toISOString() };
     await this.store.save(); this.broadcast(); return true;
   }
@@ -993,5 +1027,5 @@ export class Workbench {
   async readHandoff(id: string) { return (await fs.readFile(this.session(id).handoffPath, 'utf8')).replace(/^# Agent 工作记录\s*/u, '# 阶段摘要\n\n'); }
   saveHandoff(id: string, text: string) { return this.edit('handoff:' + id, async () => { const s = this.session(id); if (!localWithin(s.cwd, s.handoffPath)) throw new Error('交接文件路径越界'); await fs.writeFile(s.handoffPath, text, 'utf8'); }); }
   async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await this.store.save(); }
-  async close() { this.closing = true; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; await this.flushEdits(); this.closing = true; for (const timer of this.preparationTimers.values()) clearTimeout(timer); this.preparationTimers.clear(); for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.accounts.close(); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); await Promise.all(this.eventWrites.values()); await this.store.save(); }
+  async close() { this.closing = true; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const timer of this.preparationTimers.values()) clearTimeout(timer); this.preparationTimers.clear(); for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.accounts.close(); const interrupted = this.store.sessions.filter(s => s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); }
 }

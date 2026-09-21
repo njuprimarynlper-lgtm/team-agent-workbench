@@ -12,6 +12,7 @@
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "test:ui": "node scripts/smoke.mjs",
     "test:session-ui": "node scripts/session-experience-smoke.mjs",
+    "test:workflow-ui": "node scripts/workflow-state-smoke.mjs",
     "test:permissions-ui": "node scripts/permissions-smoke.mjs",
     "test:codex-isolation": "tsx scripts/codex-isolation-smoke.ts",
     "test:composer-ui": "node scripts/composer-smoke.mjs",

@@ -43,6 +43,9 @@ try {
   await expect(page.locator('.session-row')).toHaveCount(0);
   await page.getByRole('button', { name: '已关闭会话（1）', exact: true }).click();
   await expect(page.getByLabel('任务输入', { exact: true })).toHaveCount(0);
+  await page.locator('.session-materials > summary').click();
+  await expect(page.getByRole('button', { name: '更新项目说明', exact: true })).toBeDisabled();
+  await page.locator('.session-materials > summary').click();
   await page.getByRole('button', { name: '重新打开会话', exact: true }).click();
   await expect(page.getByLabel('任务输入', { exact: true })).toBeVisible();
   // The phase summary is secondary local source material, read-only until explicitly corrected.
@@ -203,6 +206,14 @@ try {
   await fixture.write({ status: 'ready', turn: 'hang' });
   await page.getByLabel('任务输入', { exact: true }).fill('运行中的任务'); await page.getByRole('button', { name: '发送任务', exact: true }).click();
   await expect(page.getByRole('button', { name: '停止当前任务', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '停止当前任务', exact: true }).click();
+  await expect(page.locator('.session-toolbar')).toContainText('已停止');
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === cursor.id)?.status).toBe('idle');
+  await page.screenshot({ path: path.join(data, 'session-stopped.png') });
+  await page.getByLabel('任务输入', { exact: true }).fill('继续运行');
+  await page.getByRole('button', { name: '发送任务', exact: true }).click();
+  await expect(page.getByRole('button', { name: '停止当前任务', exact: true })).toBeVisible();
+  await expect(page.locator('.session-toolbar')).not.toContainText('已停止');
   await page.getByRole('button', { name: '关闭会话', exact: true }).click();
   await page.getByRole('button', { name: '停止并关闭', exact: true }).click();
   await expect.poll(async () => !!(await snap()).sessions.find(s => s.id === cursor.id)?.closedAt).toBe(true);

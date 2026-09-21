@@ -11,7 +11,7 @@ export function ModelPicker({ provider, cwd, ready, model, changed }: { provider
     catch { if (n === sequence.current) setError('模型与额度读取失败，请检查 CLI 和网络后重试。'); }
     finally { if (n === sequence.current) setBusy(false); }
   };
-  useEffect(() => { if (ready) void refresh(); else setCatalog(undefined); return () => { sequence.current++; }; }, [provider, cwd, ready]);
+  useEffect(() => { setCatalog(undefined); setError(''); if (ready) void refresh(); else setBusy(false); return () => { sequence.current++; }; }, [provider, cwd, ready]);
   const url = provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : 'https://cursor.com/dashboard/spending';
   return <section className="model-picker" aria-label="模型与额度">
     <div className="row"><b>模型与额度</b><span className="spacer"/><button className="text-button" disabled={!ready || busy} onClick={() => void refresh()}><RefreshCw size={13} className={busy ? 'spin' : ''}/>{busy ? '读取中…' : '刷新模型与额度'}</button></div>

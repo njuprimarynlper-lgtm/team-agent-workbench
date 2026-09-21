@@ -29,7 +29,7 @@ export interface RemoteBinding { connectionId: string; host: string; port: numbe
 export interface AgentSession {
   id: string; title: string; provider: Provider; model?: string; closedAt?: string; nativeId?: string; nativePath?: string; codexStorage?: 'workbench';
   cwd: string; purpose: 'work' | 'prepare'; parentId?: string; createdAt: string;
-  status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string;
+  status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string; stoppedAt?: string;
   messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
   permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue;
   projectBrief?: { revision: number; sourceId: string; capturedAt: string }; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;
