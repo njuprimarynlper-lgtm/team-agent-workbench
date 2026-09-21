@@ -4,6 +4,17 @@ Windows 本地 Agent 工作台与独立的团队管理应用。远端使用 Linu
 
 产品操作见 [团队工作台使用指导](docs/user-guide.md)；环境准备、本地打桩、Linux 服务端、安装迁移与验收见 [部署指导](docs/deployment-guide.md)。部分成员无法直接访问模型服务时，可选用[管理端网络出口](docs/network-egress.md)；可直连成员无需启用。
 
+## 从源码直接启动（Windows）
+
+电脑上安装 64 位 Node.js 22 或更高版本（包含 npm），拉取或解压完整仓库后，直接双击根目录中的入口，**无需自己生成 CMD 脚本**：
+
+- [start-user-dev.cmd](start-user-dev.cmd)
+- [start-admin-dev.cmd](start-admin-dev.cmd)
+
+首次启动自动运行 `npm ci` 安装锁定的依赖，之后依赖清单或 Node.js 主版本变化时自动重新安装。每次启动都构建当前目录的源码，成功后打开对应应用；失败会弹窗并提供日志位置，不会退回旧构建。首次安装需要本机能下载 npm 依赖和 Electron；公司网络按本机 npm / Electron 的代理配置访问。
+
+两个版本可同时运行，不会保留后台终端窗口。更新代码后关闭旧窗口，再双击对应入口。两个入口共用同一启动流程。源码入口与已安装的 EXE 分别更新；应用使用步骤见[使用指导](docs/user-guide.md)，Cursor CLI 准备见[部署指导](docs/deployment-guide.md)。
+
 当前开发版提供可选的 Codex/Cursor 网络出口。管理员版自动生成本机 TLS 证书和接入码，可选择本机直连、HTTP 代理或 SOCKS5 代理；用户版只需在登录窗口勾选并粘贴一次接入码。工作台仅给自身启动的 CLI 注入本机代理环境，成员仍使用自己的 Codex/Cursor 账号，团队协作数据仍走原有 SSH/SFTP 共享空间。
 
 0.7.0 实现单一 SSH 身份、多组工作台、公共成果修订/整理/合并、项目资料版本与引用、可选代码版本快照、轨迹去重和缓存清理。项目子管理员可在“设置 → 项目设置”修改背景、目标、验收标准等字段，保存时同步生成新版 `项目说明.md`。操作与验证边界见 [身份与协作说明](docs/identity-content.md)。

@@ -6,8 +6,9 @@
 
 - 当前源码版本为 0.7.0，管理员版与用户版分别构建。
 - 本轮只更新开发构建，没有重新生成安装包。
-- 仓库开发入口：`start-admin-dev.cmd`、`start-user-dev.cmd`。
-- 两个开发入口每次启动都会在隐藏进程中执行 `npm run build`，构建成功后才打开应用，不会保留后台终端窗口；构建失败会弹窗提示并把日志写入 `.test-data/launcher/`。拉取代码后关闭旧窗口，再双击对应入口即可运行最新源码，无需手动构建。已打开的窗口不会自动更新。
+- 仓库统一入口：[start-admin-dev.cmd](../start-admin-dev.cmd)、[start-user-dev.cmd](../start-user-dev.cmd)。这两个文件随代码一起交付，不需要部署者重新编写脚本。
+- 首次启动检查 Node.js / npm，按 `package-lock.json` 自动安装依赖，然后构建当前源码。之后依赖清单或 Node.js 主版本变化时重新安装依赖；每次启动仍会重新构建。两个入口同时打开时会排队准备环境，准备完成后应用可同时运行。
+- 不会保留后台终端窗口；准备或构建失败会弹窗提示并把日志写入 `.test-data/launcher/`，不会启动旧构建。拉取代码后关闭旧窗口，再双击对应入口即可。已打开的窗口不会自动更新。
 - 已发布的 0.6.3 安装产物仍在 `release/0.6.3/admin` 和 `release/0.6.3/user`；它们不包含当前开发版的全部交互更新。
 
 ## 选择部署模式
@@ -20,6 +21,19 @@
 本地模式不能证明生产权限隔离。拥有 Windows 共享目录系统权限的人仍可绕过应用直接访问文件。
 
 团队共享与模型网络是两条独立通路。SSH/SFTP 始终用于共享空间；只有部分成员无法直接访问 Codex/Cursor 时，才需要另行部署可选的[管理端网络出口](network-egress.md)。
+
+## 新电脑从源码启动
+
+1. 安装 64 位（x64）Node.js 22 或更高版本，安装时保留 npm 和 PATH 选项。
+2. 拉取或解压完整仓库，保留 `package-lock.json`、`scripts`、`src` 等文件。无需复制其他电脑的 `dist` 或生成新的启动脚本。
+3. 双击根目录的 `start-user-dev.cmd` 或 `start-admin-dev.cmd`。首次运行需要下载依赖，等待准备完成；启动日志位于 `.test-data/launcher/`。失败时检查弹窗给出的日志，修复网络或环境后重新双击即可。
+4. 用户版按使用指导连接团队账号并登录个人模型账号。Codex CLI 随 npm 依赖安装；使用 Cursor 时可在应用内设置已安装的 Cursor Agent CLI 路径，或运行 `powershell -ExecutionPolicy Bypass -File scripts/prepare-runtimes.ps1` 准备仓库配套的 Cursor 运行文件。
+
+依赖下载发生在应用启动前，使用本机 npm / Electron 的下载和代理配置；工作台中的可选管理端模型出口不负责这一步。无法下载依赖的电脑应由部署人员交付对应版本的完整安装包或免安装目录。
+
+### 核对两台电脑的运行版本
+
+在两台电脑各自的仓库目录运行 `git rev-parse --short HEAD` 和 `git status --short`，同时确认提交和本地修改。关闭旧窗口后使用上述统一入口。启动日志会记录源码目录及实际运行的 `dist/user` 或 `dist/admin`，便于排查启动了另一份目录的情况。打开旧安装包或旧 `dist` 不会自动获得源码里的新功能。
 
 ## 本地文件系统部署
 
@@ -36,7 +50,7 @@
 - `打开用户B.cmd`
 - `打开用户test1.cmd`
 
-这些启动器使用 `D:\agent开发\team-agent-workbench\dist` 的最新开发构建，保留原共享区登记和历史数据。
+这些联调启动器预置演示账号的数据目录，使用 `D:\agent开发\team-agent-workbench\dist/user` 或 `dist/admin`，保留原共享区登记和历史数据；它们不用于其他电脑的正式部署。使用旧联调脚本前应先在仓库执行 `npm run build`。
 
 ## Linux SSH/SFTP 部署
 
