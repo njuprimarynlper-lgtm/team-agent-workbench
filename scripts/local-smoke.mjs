@@ -47,7 +47,7 @@ try {
     await ap.getByLabel('成员姓名', { exact: true }).fill(username); await ap.getByLabel('登录账号', { exact: true }).fill(username);
     await ap.getByLabel('初始密码', { exact: true }).fill(memberPassword); await ap.getByLabel('再次输入密码', { exact: true }).fill(memberPassword);
     await ap.locator('.modal .check-row').filter({ hasText: 'competition' }).first().locator('input').check();
-    if (username === aliceName) await ap.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
+    if (username === aliceName) await ap.locator('.modal .check-row').filter({ hasText: '内容组管理员' }).locator('input').check();
     await confirm(ap);
   }
   const aliceProfile = await memberProfile(admin, aliceName);
@@ -67,6 +67,7 @@ try {
   await bob.page.getByTitle('刷新文件', { exact: true }).click(); await bob.page.locator('.file-row').filter({ hasText: 'competition-note.md' }).click();
   await expect(bob.page.locator('.preview-content')).toContainText('各迭代两轮');
   await alice.page.getByTitle('新建会话', { exact: true }).click(); await alice.page.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor(); await alice.page.getByRole('button', { name: '创建会话', exact: true }).click();
+  await alice.page.getByTitle('重命名会话', { exact: true }).click(); await alice.page.getByLabel('会话名称', { exact: true }).fill('算法基线验证'); await alice.page.getByRole('button', { name: '保存名称', exact: true }).click(); await expect(alice.page.locator('.session-title-row')).toContainText('算法基线验证');
   await alice.page.getByLabel('任务输入', { exact: true }).fill('为算法比赛建立基线');
   if (!await alice.page.getByRole('button', { name: '查看阶段摘要', exact: true }).isVisible()) await alice.page.locator('.session-materials > summary').click(); await alice.page.getByRole('button', { name: '查看阶段摘要', exact: true }).click(); await alice.page.getByRole('button', { name: '更正摘要', exact: true }).click(); await alice.page.getByLabel('阶段摘要正文').fill('# 比赛第一轮\n量化接口和数据已就绪'); await alice.page.getByRole('button', { name: '保存并返回' }).click();
   await fixture.write({ status: 'ready', fileApproval: true });
@@ -85,18 +86,20 @@ try {
     { category: 'issue', title: '数据覆盖风险', fields: { problem: '样本覆盖范围尚未核对', impact: '可能误判方案收益' } }
   ] } });
   await alice.page.getByRole('button', { name: '整理成果', exact: true }).click();
+  await expect(alice.page.getByRole('heading', { name: '选择整理结果', exact: true })).toBeVisible();
+  await alice.page.getByRole('button', { name: '整理所选类型（2）', exact: true }).click();
   await expect(alice.page.getByLabel('整理状态')).toContainText('已整理好', { timeout: 20000 });
   await expect(alice.page.getByText('补充仓库链接后即可上传', { exact: true })).toHaveCount(0);
   await expect(alice.page.getByLabel('GitHub 仓库链接')).toBeHidden();
   await expect(alice.page.getByText('结论与发现', { exact: true })).toBeVisible(); await expect(alice.page.getByText('问题与风险', { exact: true })).toBeVisible();
-  const riskChoice = alice.page.getByLabel('选择成果：数据覆盖风险'); await riskChoice.click(); await expect(alice.page.getByRole('button', { name: '确认上传 1 项', exact: true })).toBeEnabled(); await riskChoice.click();
+  const riskChoice = alice.page.getByLabel(/选择成果：.*数据覆盖风险/); await riskChoice.click(); await expect(alice.page.getByRole('button', { name: '确认上传 1 项', exact: true })).toBeEnabled(); await riskChoice.click();
   await expect(alice.page.getByRole('button', { name: '确认上传 2 项', exact: true })).toBeEnabled();
   await alice.page.getByLabel('给团队的补充（可选）').fill('同事可先复核样本，再决定下一轮工作。');
   await alice.page.getByRole('button', { name: /^确认上传/ }).click();
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.filter(t => t.metadata?.category).map(t => t.status), { timeout: 20000 }).toEqual(['done', 'done']);
   await expect(alice.page.getByRole('button', { name: '查看上传结果', exact: true })).toHaveCount(2);
   await alice.page.locator('.artifact-result').filter({ hasText: '方向性结论' }).getByRole('button', { name: '查看上传结果', exact: true }).click();
-  await expect(alice.page.locator('.content-detail')).toContainText('方向性结论');
+  await expect(alice.page.locator('.content-detail')).toContainText('方向性结论'); await expect(alice.page.locator('.content-detail')).toContainText('来源会话：算法基线验证');
   const resultSnapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')); const conclusion = resultSnapshot.transfers.find(t => t.name.includes('方向性结论')); const risk = resultSnapshot.transfers.find(t => t.name.includes('数据覆盖风险'));
   assert.equal(path.posix.dirname(conclusion.target).endsWith('/findings'), true); assert.equal(path.posix.dirname(risk.target).endsWith('/issues'), true);
   const conclusionFile = path.join(share, ...conclusion.target.split('/').filter(Boolean));

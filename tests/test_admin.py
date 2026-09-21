@@ -286,6 +286,16 @@ class AdminRecoveryTests(unittest.TestCase):
     def execute(self, op, **kwargs):
         return admin.execute({'root':'/srv/teamspace','op':op,**kwargs})
 
+    def test_explicit_worker_upgrade_preserves_members_and_does_not_force_reconnect(self):
+        before = admin.load(self.root)
+        with patch.object(admin, 'install_content_worker') as install:
+            result = self.execute('storage_upgrade')
+            install.assert_called_once()
+            self.assertFalse(install.call_args.kwargs['reconnect'])
+        self.assertEqual(result['state']['users'], before['users'])
+        self.assertEqual(result['state']['groups'], before['groups'])
+        self.assertTrue(all(job['status'] == 'done' for job in result['state']['operations'].values()))
+
     def test_group_second_command_failure_recovers_without_duplicate_creation(self):
         self.fail=lambda a:a[0]=='groupadd' and a[-1].endswith('_admin')
         with self.assertRaises(RuntimeError): self.execute('group_create',label='ocr')

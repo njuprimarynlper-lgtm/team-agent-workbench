@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import uuid
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('content', pathlib.Path(__file__).parents[1] / 'server/content.py')
@@ -41,6 +42,34 @@ class ContentRules(unittest.TestCase):
 
     def publish(self, actor='bob', name='result.zip', kind='contribution'):
         return self.call(actor, op='publish', target='/projects/relation/实体抽取/submissions/' + actor + '/' + name, sha256=content.digest(self.incoming), metadata={'title': '方案结论', 'description': '已验证内容', 'kind': kind})
+
+    def test_assignment_roles_snapshots_status_and_retries(self):
+        source = self.publish()
+        task = dict(id=str(uuid.uuid4()), title='排查失败样本', description='分析低清晰度识别失败', acceptance='提供回归报告', assignee='bob', references=[dict(id=source['id'], revision=source['revision'])])
+        self.assertEqual({item['username'] for item in self.call('alice', op='assignment_members')}, {'alice', 'bob'})
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_members')
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_create', task=task)
+        with self.assertRaises(ValueError): self.call('alice', op='assignment_create', task={**task, 'assignee': 'carol'})
+        with self.assertRaises(ValueError): self.call('alice', op='assignment_create', task={**task, 'references': [dict(id=source['id'], revision=99)]})
+        saved = self.call('alice', op='assignment_create', task=task)
+        self.assertEqual(self.call('alice', op='assignment_create', task=task), saved)
+        with self.assertRaises(ValueError): self.call('alice', op='assignment_create', task={**task, 'title': '不同任务'})
+        self.assertEqual(len(self.call('bob', op='assignment_list')), 1)
+        self.assertFalse((self.directory / '.workbench-assignments.json').exists(), 'task records must not be group-readable')
+        self.edit('alice', source, action='delete')
+        self.assertEqual(self.call('bob', op='assignment_list')[0]['references'][0]['content'], '已验证内容')
+        own = self.call('alice', op='assignment_create', task={**task, 'id': str(uuid.uuid4()), 'assignee': 'alice', 'references': []})
+        self.assertEqual(len(self.call('bob', op='assignment_list')), 1)
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_status', change=dict(id=own['id'], revision=1, status='in_progress'))
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=1, status='cancelled'))
+        active = self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=1, status='in_progress'))
+        with self.assertRaises(ValueError): self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=1, status='completed'))
+        done = self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=active['revision'], status='completed'))
+        self.assertEqual(done['status'], 'completed')
+        self.state['users']['alice']['contentAdminGroups'] = []
+        with self.assertRaises(PermissionError): self.call('alice', op='assignment_create', task={**task, 'id': str(uuid.uuid4())})
+        self.state['users']['bob']['groups'] = []
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_list')
 
     def edit(self, actor, item, **change):
         return self.call(actor, op='edit_content', change={'id': item['id'], 'revision': item['revision'], 'action': 'save', 'title': '新标题', 'description': '新证据', **change})
@@ -78,9 +107,10 @@ class ContentRules(unittest.TestCase):
         one = self.publish(); two = self.publish(name='second.zip')
         updated = self.edit('bob', one)
         with self.assertRaises(ValueError): self.edit('alice', one)
-        result = self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}])
+        result = self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}], sourceSessionTitle='统一口径复核')
         self.assertEqual(result['sources'], [two['id']])
         self.assertEqual({source['id'] for source in result['provenance']}, {updated['id'], two['id']})
+        self.assertEqual(result['sourceSessionTitle'], '统一口径复核')
         self.assertFalse((self.directory / 'submissions/bob/second.zip').exists())
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
 
@@ -126,11 +156,11 @@ class ContentRules(unittest.TestCase):
             with self.assertRaises((PermissionError, ValueError)): self.call('alice', op='publish', target=target, sha256=content.digest(self.incoming))
 
     def test_categorized_contribution_is_bound_to_its_server_path(self):
-        metadata = {'title': '覆盖率结论', 'description': '有证据的结论', 'kind': 'contribution', 'category': 'finding', 'fields': {'statement': '覆盖不足'}}
+        metadata = {'title': '覆盖率结论', 'description': '有证据的结论', 'kind': 'contribution', 'category': 'finding', 'fields': {'statement': '覆盖不足'}, 'sourceSessionTitle': '覆盖率验证'}
         with self.assertRaises(PermissionError):
             self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/issues/wrong.zip', sha256=content.digest(self.incoming), metadata=metadata)
         item = self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/findings/right.zip', sha256=content.digest(self.incoming), metadata=metadata)
-        self.assertEqual(item['category'], 'finding'); self.assertEqual(item['fields']['statement'], '覆盖不足')
+        self.assertEqual(item['category'], 'finding'); self.assertEqual(item['fields']['statement'], '覆盖不足'); self.assertEqual(item['sourceSessionTitle'], '覆盖率验证')
         with self.assertRaises(ValueError):
             self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/findings/bad.zip', sha256=content.digest(self.incoming), metadata={**metadata, 'fields': ['wrong']})
         with self.assertRaises(ValueError):

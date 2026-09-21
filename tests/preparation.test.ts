@@ -7,7 +7,8 @@ import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
-import { applyPreparation, contributionDirectory, discoverDestinations } from '../src/core/preparation';
+import { applyPreparation, contributionDirectory, discoverDestinations, preparationFieldContract, preparationWritingGuide } from '../src/core/preparation';
+import { contributionCategories, contributionCategoryFields } from '../src/shared/content';
 import { applyContentMerge } from '../src/core/content-merge';
 import type { Draft, RemoteBinding } from '../src/shared/types';
 import { LocalAdminConnection } from '../src/admin/local-connection';
@@ -21,6 +22,48 @@ async function until(fn: () => boolean) { const end = Date.now() + 20000; while 
 const binding: RemoteBinding = { connectionId: 'c', host: 'local', port: 22, username: 'alice', fingerprint: 'f', project: { id: 'p', name: '项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } };
 const result = { title: '更新说明', body: '已完成的验证与限制。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' };
 
+test('new summaries use at most three category fields without truncating verification limits or old results', () => {
+  for (const category of contributionCategories) {
+    const contract = preparationFieldContract([category]); assert.deepEqual(Object.keys(contract), [category]);
+    assert.equal(contract[category].length, 3);
+    assert(contract[category].every((field: string) => contributionCategoryFields[category].includes(field)));
+  }
+  const draft = { id: 'concise', binding } as Draft;
+  applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'experiment_result', title: 'v29 Q-head 候选', fields: {
+    change: '在 v28 上改为 16 个 Q heads，K、V、Linear 不变。',
+    result: '静态编译通过；无 PyTorch，尚未运行 self_check，未证明精度和耗时收益。',
+    nextSteps: '在比赛环境比较 5 个 Attention 样本的 MSE、最差退化和耗时。'
+  } }] }));
+  assert.equal(draft.body.match(/^## /gm)?.length, 3);
+  assert.match(draft.body, /未证明精度和耗时收益/);
+  applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'experiment_result', title: '旧版验证', fields: { result: '静态通过', limitations: '未运行官方 self_check', evidence: '编译记录' } }] }));
+  assert.match(draft.body, /未运行官方 self_check/); assert.match(draft.body, /编译记录/);
+});
+
+test('result names update the selected artifact and local conclusion but never rewrite submitted titles', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-rename-result-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    const session = await wb.createSession('codex', root, offlineProjectId), draft = await wb.prepare(session.id);
+    await until(() => draft.generation === 'ready');
+    assert(wb.session(draft.prepareSessionId!).messages.some(message => message.role === 'user' && message.text.includes(preparationWritingGuide)));
+    const artifact = draft.artifacts![0], body = artifact.body, selected = artifact.selected;
+    await wb.renameDraftResult(draft.id, '人工修改的短名称', artifact.id);
+    assert.match(artifact.title, /人工修改的短名称$/); assert.equal(draft.title, artifact.title);
+    assert.equal(artifact.body, body); assert.equal(artifact.selected, selected);
+    assert(wb.conclusions(offlineProjectId).some(item => item.title === '人工修改的短名称'));
+    assert.throws(() => wb.renameDraftResult(draft.id, '  ', artifact.id), /名称/);
+    await assert.rejects(wb.renameDraftResult(draft.id, '名字', 'missing'), /不存在/);
+    const originalTitle = artifact.title; draft.submitted = artifact.submitted = 'frozen-transfer';
+    await wb.renameDraftResult(draft.id, '我的本地名称', artifact.id);
+    assert.equal(artifact.title, originalTitle); assert.equal(artifact.titleAlias, '我的本地名称'); assert.equal(draft.titleAlias, '我的本地名称');
+    const restored = new Store(wb.store.root); await restored.init();
+    assert.equal(restored.drafts[0].artifacts![0].titleAlias, '我的本地名称');
+    draft.generation = 'running'; await assert.rejects(wb.renameDraftResult(draft.id, '不能修改', artifact.id), /等待整理完成/); draft.generation = 'ready';
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
+
 test('semantic content merge preserves consensus, conflicts, evidence and source traceability', () => {
   const first = '11111111-1111-4111-8111-111111111111', second = '22222222-2222-4222-8222-222222222222';
   const draft = { title: '', body: '', mergeSources: [
@@ -32,8 +75,8 @@ test('semantic content merge preserves consensus, conflicts, evidence and source
     conflicts: [{ topic: '上线范围', positions: [{ sourceIds: [first], statement: '可以全量上线。' }, { sourceIds: [second], statement: '应先灰度。' }], requiresDecision: true }],
     evidence: [{ claim: '覆盖率仍需补齐。', sourceIds: [second] }], scope: '当前数据集', unresolved: ['确认灰度比例。']
   }));
-  assert.equal(draft.title, '项目统一结论');
-  assert.match(draft.body, /综合结论/); assert.match(draft.body, /差异与冲突/); assert.match(draft.body, /仍需子管理员确认/);
+  assert.equal(draft.title, '【综合整理】 项目统一结论');
+  assert.match(draft.body, /综合结论/); assert.match(draft.body, /差异与冲突/); assert.match(draft.body, /仍需组管理员确认/);
   assert.match(draft.body, /风险复核（bob · v1）/); assert.match(draft.body, /来源记录/);
   assert.throws(() => applyContentMerge(draft, JSON.stringify({ title: '错误引用', overview: '无效', consensus: [], conflicts: [], evidence: [{ claim: '伪造', sourceIds: ['33333333-3333-4333-8333-333333333333'] }], unresolved: [] })), /未选择的来源/);
 });
@@ -45,10 +88,49 @@ test('structured results classify independent artifacts, keep only category fiel
     { category: 'baseline_change_proposal', title: '调整验收阈值', fields: { baselineItem: 'F1 下限', proposedValue: '0.91', rationale: '新数据分布' } }
   ] }) + '\n```');
   assert.equal(d.artifacts?.length, 2); assert.equal(d.artifacts?.[0].target, '/p/submissions/alice/experiments'); assert.equal(d.artifacts?.[1].target, '/p/submissions/alice/baseline-change-proposals');
+  assert.equal(d.artifacts?.[0].title, '【实验结果】 阈值实验'); assert.equal(d.artifacts?.[1].title, '【项目基线变更建议】 调整验收阈值');
   assert.equal(d.artifacts?.[0].fields.unknown, undefined); assert.match(d.artifacts?.[0].body || '', /F1 提升/); assert.equal(d.supplement, '人补充的说明'); assert.equal(d.repoUrlOverride, 'https://github.com/human/repo');
   applyPreparation(d, JSON.stringify({ ...result, repoUrl: 'https://github.com/owner/repo/pull/123' })); assert.equal(d.repoUrl, ''); assert.equal(d.target, '/p/submissions/alice/findings');
   assert.throws(() => applyPreparation(d, 'A partial or malformed answer'), /格式不完整/);
   for (const p of ['/outside', '/p/../other', '/p/trajectories', '/p/submissions/bob', '/p/.workbench']) assert.throws(() => contributionDirectory(binding, p));
+});
+
+test('structured results reject categories that the user did not request', () => {
+  const d = { id: 'selected-categories', binding, body: '', preparationVersion: 3, requestedCategories: ['finding'] } as Draft;
+  applyPreparation(d, JSON.stringify({ artifacts: [{ category: 'finding', title: '覆盖率结论', fields: { statement: '覆盖率需要补齐。' } }] }));
+  assert.equal(d.artifacts?.[0].category, 'finding');
+  assert.throws(() => applyPreparation(d, JSON.stringify({ artifacts: [{ category: 'issue', title: '额外风险', fields: { problem: '不应生成' } }] })), /未选择的“问题与风险”/);
+});
+
+test('reorganization creates preserved incremental or full tasks from an exact message boundary', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-scope-'));
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    const session = await wb.createSession('codex', root, offlineProjectId);
+    session.messages.push(
+      { id: 'before-user', role: 'user', text: '第一阶段问题', createdAt: '2026-09-20T01:00:00.000Z' },
+      { id: 'before-answer', role: 'assistant', text: '第一阶段结论', createdAt: '2026-09-20T01:01:00.000Z' }
+    );
+    const original = await wb.prepare(session.id); await until(() => original.generation === 'ready');
+    session.messages.push(
+      { id: 'after-user', role: 'user', text: '第二阶段新增问题', createdAt: '2026-09-20T02:00:00.000Z' },
+      { id: 'after-answer', role: 'assistant', text: '第二阶段新增结论', createdAt: '2026-09-20T02:01:00.000Z' }
+    );
+    const incremental = await wb.reorganizePreparation(original.id, 'incremental');
+    assert.notEqual(incremental.id, original.id); assert.equal(incremental.baseDraftId, original.id); assert.equal(incremental.preparationScope, 'incremental');
+    const incrementalConversation = JSON.parse(await fs.readFile(path.join(incremental.inputDir, 'conversation.json'), 'utf8'));
+    assert.deepEqual(incrementalConversation.map((message: { id: string }) => message.id), ['after-user', 'after-answer']);
+    assert.equal(incremental.snapshot?.messageCount, 2); assert.equal(incremental.snapshot?.totalMessageCount, 4);
+    await until(() => incremental.generation === 'ready');
+    await assert.rejects(wb.reorganizePreparation(incremental.id, 'incremental'), /没有新增消息/);
+    const full = await wb.reorganizePreparation(incremental.id, 'full');
+    const fullConversation = JSON.parse(await fs.readFile(path.join(full.inputDir, 'conversation.json'), 'utf8'));
+    assert.deepEqual(fullConversation.map((message: { id: string }) => message.id), ['before-user', 'before-answer', 'after-user', 'after-answer']);
+    assert.equal(full.preparationScope, 'full'); assert.equal(full.snapshot?.messageCount, 4); assert.equal(wb.store.drafts.length, 3);
+    await until(() => full.generation === 'ready');
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 test('local shared filesystem: discover descriptions, auto destination, explicit upload, immutable package, teammate visibility and live permission denial', async () => {
@@ -68,12 +150,13 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     const selected = candidates.destinations.find(x => x.path === dir)!; assert(selected); assert.match(selected.description, /设计与方案/);
     assert(!candidates.destinations.some(x => x.path.includes('trajectories')));
     await fixture.write({ status: 'ready', turn: 'success', turnDelay: 800, preparationResult: { ...result, destinationId: selected.id } });
-    const s = await wb.createSession('codex', root, p.id);
+    const s = await wb.createSession('codex', root, p.id); await wb.renameSession(s.id, '覆盖率验证会话'); assert.equal(s.title, '覆盖率验证会话');
     await wb.saveHandoff(s.id, '# 已完成\nhttps://github.com/owner/repo\n材料原始内容');
     const [d, same] = await Promise.all([wb.prepare(s.id), wb.prepare(s.id)]); assert.equal(d.id, same.id);
     await wb.saveDraftSupplement(d.id, '人工补充：下轮补充边界用例。', '');
     await assert.rejects(wb.submitDraft(d.id));
     await until(() => d.generation === 'ready'); assert.equal(d.target, p.uploadPath + '/findings'); assert.equal(wb.store.transfers.length, 0); assert(d.generationStartedAt); assert(d.generationFinishedAt);
+    const localConclusions = wb.conclusions(p.id); assert(localConclusions.length > 0, 'local preparation is available as a project conclusion before upload'); assert(localConclusions.every(item => item.sources.some(source => source.kind === 'session')));
     assert.equal((await wb.prepare(s.id)).id, d.id, 'ready contribution opens the same panel');
     await assert.rejects(wb.submitDraft(d.id, p.remoteRoot + '/trajectories/alice'), /不能在提交时改变/);
     // Refresh from the latest handoff only when explicitly regenerating completed work.
@@ -88,6 +171,7 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     ] } });
     await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.repoUrl, ''); assert.equal(d.artifacts?.length, 2);
     const transfer = await wb.submitDraft(d.id); await until(() => wb.store.transfers.slice(0, 2).every(item => !['queued', 'running'].includes(item.status))); assert.equal(transfer.status, 'done', transfer.error || '');
+    await assert.rejects(wb.deleteDraft(d.id), /已经上传或保存/); assert(wb.store.drafts.some(item => item.id === d.id));
     assert.deepEqual(new Set(wb.store.transfers.slice(0, 2).map(item => path.posix.dirname(item.target))), new Set([p.uploadPath + '/findings', p.uploadPath + '/issues']));
     const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', transfer.localPath], { encoding: 'utf8' }));
     const manifest = JSON.parse(zip['manifest.json']);
@@ -95,23 +179,33 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     assert.throws(() => wb.saveDraftSupplement(d.id, 'late', ''), /已提交/);
     await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
     assert((await bob.remote.list(bob.remote.binding(p.id), p.uploadPath + '/findings')).some(x => x.path === transfer.target));
-    const shared = await bob.remote.contentList(bob.remote.binding(p.id)); assert.deepEqual(new Set(shared.filter(x => x.kind === 'contribution').map(x => x.category)), new Set(['finding', 'issue']));
-    assert.deepEqual(await wb.syncContentUpdates(), [], 'the first scan records a baseline without alerting on the current user');
+    const shared = await bob.remote.contentList(bob.remote.binding(p.id)); assert.deepEqual(new Set(shared.filter(x => x.kind === 'contribution').map(x => x.category)), new Set(['finding', 'issue'])); assert(shared.every(item => item.sourceSessionTitle === '覆盖率验证会话'));
+    await wb.saveContentAlias(p.id, shared[0].id, '我本机的验收结论');
+    assert.equal(wb.store.settings.contentAliases?.[`${p.id}:${shared[0].id}`], '我本机的验收结论');
+    const aliasedSource = await wb.attachContent(s.id, shared[0].id); assert.match(aliasedSource.name, /^我本机的验收结论 · v\d+$/);
+    await wb.saveContentAlias(p.id, shared[0].id, ''); assert.equal(wb.store.settings.contentAliases?.[`${p.id}:${shared[0].id}`], undefined);
+    const ownHistory = await wb.syncContentUpdates(); assert.equal(ownHistory.length, 2, 'the first scan keeps the current user operations in history'); assert(ownHistory.every(item => item.updatedBy === 'alice' && item.readAt), 'own operations are historical, not pending alerts');
     const teammateFile = path.join(root, 'teammate.md'); await fs.writeFile(teammateFile, 'Bob 的新结论');
     await bob.remote.upload(bob.remote.binding(p.id), teammateFile, bob.remote.binding(p.id).project.uploadPath + '/findings/teammate.md', () => {}, { kind: 'contribution', category: 'finding', fields: { statement: 'Bob 的新结论' }, title: '队友新成果', description: '用于验证后台提醒' });
-    const updates = await wb.syncContentUpdates(); assert.equal(updates.length, 1); assert.equal(updates[0].title, '队友新成果'); assert.equal(updates[0].updatedBy, 'bob');
-    assert.deepEqual(await wb.syncContentUpdates(), [], 'the same revision is only reported once');
+    const updates = await wb.syncContentUpdates(), teammateUpdate = updates.find(item => item.title === '队友新成果'); assert.equal(updates.length, 3); assert(teammateUpdate); assert.equal(teammateUpdate.updatedBy, 'bob'); assert.equal(teammateUpdate.change, 'new'); assert.equal(teammateUpdate.readAt, undefined);
+    const sameUpdates = await wb.syncContentUpdates(); assert.equal(sameUpdates.length, 3, 'the same revisions are retained in history without being duplicated'); assert.equal(sameUpdates.find(item => item.title === '队友新成果')?.eventId, teammateUpdate.eventId);
+    await bob.syncContentUpdates(); await bob.markContentUpdates(); const archived = await bob.clearReadContentUpdates(); assert(archived.every(item => item.readAt), 'archived dynamics remain in history');
     await fixture.write({ status: 'ready', turn: 'success', mergeResult: { title: '统一项目结论', overview: '融合而非拼接的综合判断。', consensus: ['两项材料可共同支撑后续验证。'], conflicts: [], evidence: [], scope: '当前项目', unresolved: ['补齐回归数据。'] } });
     const mergeDraft = await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id)); await until(() => mergeDraft.generation === 'ready');
     assert.match(mergeDraft.body, /综合结论/); assert.match(mergeDraft.body, /来源记录/); assert.equal((await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id))).id, mergeDraft.id);
     await wb.saveContentMerge(mergeDraft.id, '人工复核后的统一结论', mergeDraft.body + '\n\n人工确认：保留冲突记录。');
-    const merged = await wb.commitContentMerge(mergeDraft.id); assert.equal(merged.title, '人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path);
+    const merged = await wb.commitContentMerge(mergeDraft.id); assert.equal(merged.title, '【综合整理】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
     assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).filter(item => shared.some(source => source.id === item.id)).length, 1);
     assert.equal(merged.provenance?.length, 2); assert.deepEqual(new Set(merged.provenance?.map(item => item.id)), new Set(shared.map(item => item.id)));
+    const mergeUpdates = await bob.syncContentUpdates(), mergeUpdate = mergeUpdates.find(item => item.change === 'merged'); assert(mergeUpdate); assert.equal(mergeUpdate.title, merged.title); assert.equal(mergeUpdate.sourceTitles?.length, 1); assert.equal(mergeUpdate.sourceSessionTitle, '覆盖率验证会话');
+    await bob.markContentUpdates([mergeUpdate.eventId]); assert((await bob.contentUpdates()).find(item => item.eventId === mergeUpdate.eventId)?.readAt);
+    await wb.editSharedContent(p.id, { id: merged.id, revision: merged.revision, action: 'delete', curate: true, merge: [] });
+    const ownDeleteUpdate = (await wb.contentUpdates()).find(item => item.change === 'deleted' && item.id === merged.id); assert(ownDeleteUpdate); assert.equal(ownDeleteUpdate.readAt, undefined, 'a retained local copy still needs an explicit choice, even for the deleting administrator'); assert(wb.deletedContentConclusions(ownDeleteUpdate.eventId).length > 0); assert.equal(ownDeleteUpdate.updatedBy, 'alice');
+    const deleteUpdates = await bob.syncContentUpdates(), deleteUpdate = deleteUpdates.find(item => item.change === 'deleted' && item.id === merged.id); assert(deleteUpdate); assert.equal(deleteUpdate.title, merged.title); assert.equal(deleteUpdate.path, undefined); assert.equal(deleteUpdates.filter(item => item.id === merged.id).length, 1, 'read and unread events for a deleted remote ID are replaced by one deletion event');
     const next = await wb.prepare(s.id); await until(() => next.generation === 'ready'); assert.notEqual(next.id, d.id);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove', handoffs: { local_prepare: 'bob' } });
     const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于/);
-    const original = await diskPath(share, merged.path); assert((await fs.stat(original)).size > 0);
+    const original = await diskPath(share, bob.remote.binding(p.id).project.uploadPath + '/findings/teammate.md'); assert((await fs.stat(original)).size > 0);
   } finally { await Promise.all([wb.close(), bob.close()]); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-prepare-local-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
@@ -178,6 +272,26 @@ test('cancel preparation preserves notes and supplements, stops only the helper,
     assert.equal(wb.store.transfers.length, 0);
     await wb.store.save(); const reopened = new Store(wb.store.root); await reopened.init();
     assert.equal(reopened.drafts[0].body, body); assert.equal(reopened.drafts[0].supplement, d.supplement);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+});
+
+test('deleting a preparation removes its local task, helper session and temporary files without deleting the source session', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-delete-'));
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    const parent = await wb.createSession('codex', root, offlineProjectId), draft = await wb.prepare(parent.id);
+    await until(() => wb.session(draft.prepareSessionId!).status === 'running');
+    const helperId = draft.prepareSessionId!, draftRoot = path.join(wb.store.root, 'drafts', draft.id);
+    await fs.access(draftRoot); await wb.deleteDraft(draft.id);
+    assert.equal(wb.store.drafts.some(item => item.id === draft.id), false);
+    assert.equal(wb.store.sessions.some(item => item.id === helperId), false);
+    assert.equal(wb.store.sessions.some(item => item.id === parent.id), true);
+    await assert.rejects(fs.access(draftRoot));
+    const reopened = new Store(wb.store.root); await reopened.init();
+    assert.equal(reopened.drafts.some(item => item.id === draft.id), false);
+    assert.equal(reopened.sessions.some(item => item.id === helperId), false);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 

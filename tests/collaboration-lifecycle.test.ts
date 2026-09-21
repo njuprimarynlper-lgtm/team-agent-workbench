@@ -29,6 +29,80 @@ async function fixture() {
 }
 async function done(transfer: Transfer) { const end = Date.now() + 5000; while (['queued', 'running'].includes(transfer.status)) { if (Date.now() > end) throw new Error('queue stalled'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
+test('bulk activity deletion keeps content, survives sync and does not lose concurrent new updates', async () => {
+  const x = await fixture();
+  try {
+    const binding = x.alice.remote.binding(x.project.id), file = path.join(x.root, 'activity.md'); await fs.writeFile(file, '动态删除验证');
+    for (const title of ['第一条', '第二条', '未选择']) await x.alice.remote.upload(binding, file, binding.project.uploadPath + '/' + title + '.md', () => {}, { kind: 'contribution', title, description: title + '的独立依据' });
+    const remote = await x.alice.remote.contentList(binding), events = await x.bob.syncContentUpdates();
+    const chosen = events.filter(item => item.title !== '未选择'), keep = events.find(item => item.title === '未选择')!;
+    const local = (await x.bob.importContentConclusion(x.project.id, chosen[0].id)).conclusion;
+    const session = await x.bob.createSession('codex', x.root, x.project.id), source = await x.bob.attachConclusion(session.id, local.id);
+    const before = structuredClone(x.bob.conclusions(x.project.id, true)), seen = structuredClone(x.bob.store.settings.contentSeen);
+    await x.bob.markContentUpdates([chosen[0].eventId]); await x.bob.dismissContentUpdates(events.map(item => item.eventId));
+    await x.bob.deleteContentUpdates(chosen.map(item => item.eventId));
+    assert.deepEqual(x.bob.contentUpdates().map(item => item.eventId), [keep.eventId]);
+    assert.deepEqual(x.bob.store.settings.dismissedContentUpdateIds, [keep.eventId]);
+    assert.deepEqual(x.bob.store.settings.contentSeen, seen);
+    assert.deepEqual(await x.alice.remote.contentList(binding), remote);
+    assert.deepEqual(x.bob.conclusions(x.project.id, true), before); assert(await fs.readFile(source.localPath, 'utf8'));
+    assert.deepEqual((await x.bob.syncContentUpdates()).map(item => item.eventId), [keep.eventId]);
+    const revised = remote.find(item => item.id === chosen[0].id)!;
+    await x.alice.editSharedContent(x.project.id, { id: revised.id, revision: revised.revision, action: 'save', title: revised.title, description: '新的修订仍应通知', curate: true, merge: [] });
+    // Hold a sync at its remote read, then delete the remaining event while it is in flight.
+    const list = x.bob.remote.contentList.bind(x.bob.remote);
+    let release!: () => void, started!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; }), reading = new Promise<void>(resolve => { started = resolve; });
+    x.bob.remote.contentList = async (...args) => { started(); await hold; return list(...args); };
+    const syncing = x.bob.syncContentUpdates(); await reading; await x.bob.deleteContentUpdates([keep.eventId]); release();
+    const after = await syncing; x.bob.remote.contentList = list;
+    assert.equal(after.length, 1); assert.equal(after[0].change, 'updated'); assert.equal(after[0].id, revised.id);
+    assert(!events.some(item => item.eventId === after[0].eventId));
+    await x.bob.close();
+    const restored = new Workbench(x.bob.store.root, () => {}, () => {}); await restored.store.init();
+    assert.deepEqual(restored.contentUpdates().map(item => item.eventId), after.map(item => item.eventId));
+    assert.deepEqual(restored.conclusions(x.project.id, true), before); await restored.close();
+  } finally { await x.close(); }
+});
+
+test('shared deletions preserve local conclusions until explicit, version-checked choices', async () => {
+  const x = await fixture();
+  try {
+    const binding = x.bob.remote.binding(x.project.id), file = path.join(x.root, 'retained.md'); await fs.writeFile(file, '保留依据');
+    await x.bob.remote.upload(binding, file, binding.project.uploadPath + '/retained.md', () => {}, { kind: 'contribution', title: '待删除的共享结论', description: '即使管理员撤下，也由本地用户决定如何处理。' });
+    const remote = (await x.bob.remote.contentList(binding))[0]; await x.bob.syncContentUpdates();
+    const local = (await x.bob.importContentConclusion(x.project.id, remote.id)).conclusion;
+    const adminLocal = (await x.alice.importContentConclusion(x.project.id, remote.id)).conclusion;
+    await x.bob.saveContentAlias(x.project.id, remote.id, '共享条目的易读名称');
+    await x.bob.saveConclusionAlias(local.id, '本地保留的名称');
+    const mixed = await x.bob.createConclusion(x.project.id, '另有其他来源', '用户补充的独立结论');
+    mixed.sources = [structuredClone(local.sources[0]), { id: 'manual-note', kind: 'manual', title: '人工验证', content: '其他独立依据', updatedAt: new Date().toISOString() }];
+    const unrelated = await x.bob.createConclusion(x.project.id + '_other', '同 ID 的另一项目', '其他项目不允许从此动态删除');
+    unrelated.sources = [structuredClone(local.sources[0])];
+    const session = await x.bob.createSession('codex', x.root, x.project.id), frozen = await x.bob.attachConclusion(session.id, local.id);
+    const before = structuredClone(x.bob.conclusions(x.project.id, true));
+    await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: remote.revision, action: 'delete', curate: true, merge: [] });
+    assert(x.alice.conclusions(x.project.id).some(item => item.id === adminLocal.id), 'the deleting administrator also keeps a local copy');
+    assert(x.alice.contentUpdates().some(item => item.change === 'deleted' && !item.readAt));
+    const updates = await x.bob.syncContentUpdates(), event = updates.find(item => item.id === remote.id && item.change === 'deleted')!;
+    assert(event && !event.readAt); assert.deepEqual(x.bob.conclusions(x.project.id, true), before);
+    assert(Object.values(x.bob.store.settings.contentAliases!).includes('共享条目的易读名称'));
+    assert.deepEqual(new Set(x.bob.deletedContentConclusions(event.eventId).map(item => item.id)), new Set([local.id, mixed.id]));
+    await x.bob.resolveContentDeletion(event.eventId, []);
+    assert.deepEqual(x.bob.conclusions(x.project.id, true), before, 'keep does not alter sources, content, aliases or archive state');
+    await x.bob.syncContentUpdates(); assert.deepEqual(x.bob.conclusions(x.project.id, true), before);
+    await assert.rejects(x.bob.resolveContentDeletion(event.eventId, [{ id: unrelated.id, version: unrelated.version }]), /已变化/);
+    await assert.rejects(x.bob.resolveContentDeletion(event.eventId, [{ id: local.id, version: local.version + 1 }]), /已变化/);
+    await x.bob.resolveContentDeletion(event.eventId, [{ id: local.id, version: local.version }]);
+    assert.deepEqual(x.bob.conclusions(x.project.id, true).map(item => item.id), [mixed.id]);
+    assert.equal(await fs.readFile(frozen.localPath, 'utf8').then(text => text.includes('由本地用户决定')), true);
+    await x.bob.close();
+    const restored = new Workbench(x.bob.store.root, () => {}, () => {}); await restored.store.init();
+    assert.deepEqual(restored.conclusions(x.project.id, true).map(item => item.id), [mixed.id]);
+    assert.equal(restored.conclusions(x.project.id + '_other')[0].id, unrelated.id); await restored.close();
+  } finally { await x.close(); }
+});
+
 test('one SSH identity spans groups; author revisions, admin curation, merge and cross-group denials', async () => {
   const x = await fixture();
   try {
@@ -46,7 +120,7 @@ test('one SSH identity spans groups; author revisions, admin curation, merge and
     await assert.rejects(x.newbie.createSession('codex', x.root, x.project.id), /没有加入工作组/);
     assert.equal(x.newbie.workspaceReady, false);
     const other = await x.bob.createProject('OCR', 'local_ocr'); await x.alice.refreshGroups();
-    await assert.rejects(x.alice.remote.saveProjectBrief(x.alice.remote.binding(other.id), brief, 0), /子管理员/);
+    await assert.rejects(x.alice.remote.saveProjectBrief(x.alice.remote.binding(other.id), brief, 0), /组管理员/);
     await x.bob.remote.upload(b, file, b.project.uploadPath + '/补充.md', () => {}, { kind: 'contribution', title: '新的补充', description: '补充' });
     const second = (await x.bob.remote.contentList(b)).find(i => i.id !== item.id)!;
     const merged = await x.alice.remote.contentEdit(a, { id: item.id, revision: item.revision, action: 'save', title: '合并结论', description: '已合并', curate: true, merge: [{ id: second.id, revision: second.revision }] });
@@ -94,11 +168,11 @@ test('last subadministrator changes require a successor or explicit vacancy, pre
   const x = await fixture();
   try {
     const op = { op: 'group_member' as const, username: 'alice', group: 'local_relation', role: 'member' as const };
-    await assert.rejects(x.admin.operation(op), /最后|失去子管理员/);
+    await assert.rejects(x.admin.operation(op), /最后|失去组管理员/);
     assert(x.admin.snapshot.state!.users.alice.contentAdminGroups?.includes('local_relation'));
     await x.admin.operation({ ...op, handoffs: { local_relation: 'bob' } });
     assert.deepEqual(new Set(x.admin.snapshot.state!.users.bob.contentAdminGroups), new Set(['local_relation', 'local_ocr']));
-    await assert.rejects(x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false }), /子管理员/);
+    await assert.rejects(x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false }), /组管理员/);
     await x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false, handoffs: { local_relation: null, local_ocr: null } });
     assert.equal(x.admin.snapshot.state!.users.bob.enabled, false);
   } finally { await x.close(); }
@@ -145,7 +219,7 @@ test('file replacement respects author/admin revisions and reusable text snapsho
     assert.match(await fs.readFile(source.localPath, 'utf8'), /统一口径/); assert.equal(source.sourcePath, replacement?.path);
     assert.match(await fs.readFile(source.localPath, 'utf8'), /维护人：alice/);
     const legacy = path.join(x.shared, ...b.project.remoteRoot.slice(1).split('/'), 'legacy.txt'); await fs.writeFile(legacy, '旧版共享资料');
-    await assert.rejects(x.bob.remote.contentAdopt(b, b.project.remoteRoot + '/legacy.txt'), /子管理员/);
+    await assert.rejects(x.bob.remote.contentAdopt(b, b.project.remoteRoot + '/legacy.txt'), /组管理员/);
     const adopted = await x.alice.remote.contentAdopt(x.alice.remote.binding(x.project.id), b.project.remoteRoot + '/legacy.txt');
     assert.equal(adopted?.state, 'curated'); assert.match(adopted?.description || '', /旧版共享资料/);
   } finally { await x.close(); }

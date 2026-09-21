@@ -15,20 +15,22 @@ export async function adminServer() {
       session.on('exec', (accept, _reject, info) => {
         const channel = accept();
         if (info.command === 'id -u') { channel.write('0\n'); channel.exit(0); channel.end(); return; }
-        let buffer = '';
+        let buffer = '', programReceived = false;
         const finish = (ok, value, error) => { channel.write(JSON.stringify({ ok, value, error }) + '\n'); channel.exit(ok ? 0 : 1); channel.end(); };
         channel.on('data', data => {
           buffer += data.toString(); const index = buffer.indexOf('\n'); if (index < 0) return;
-          const request = JSON.parse(buffer.slice(0, index)); buffer = ''; requests.push(request);
+          const line = buffer.slice(0, index); buffer = '';
+          if (!programReceived) { programReceived = true; channel.write('WORKBENCH_READY\n'); return; }
+          const request = JSON.parse(line); requests.push(request);
           if (request.op === 'probe') { finish(true, { administrator: true, actor: 'root', missingCommands: [] }); return; }
           if (request.op === 'status') { finish(true, state); return; }
           if (request.op === 'group_create' && control.failGroup) {
             control.failGroup = false;
-            state.operations['group_create:' + request.label] = { id: 'group_create:' + request.label, op: 'group_create', request: { op: 'group_create', label: request.label }, status: 'failed', completed: ['成员用户组已创建'], error: '测试：子管理员组创建失败' };
-            finish(false, null, '测试：子管理员组创建失败'); return;
+            state.operations['group_create:' + request.label] = { id: 'group_create:' + request.label, op: 'group_create', request: { op: 'group_create', label: request.label }, status: 'failed', completed: ['成员用户组已创建'], error: '测试：组管理员组创建失败' };
+            finish(false, null, '测试：组管理员组创建失败'); return;
           }
           if (request.op === 'recover') {
-            const job = state.operations[request.operationId]; job.status = 'done'; job.completed.push('子管理员用户组已创建', '工作目录与 ACL 已配置');
+            const job = state.operations[request.operationId]; job.status = 'done'; job.completed.push('组管理员用户组已创建', '工作目录与 ACL 已配置');
             const label = job.request.label, name = 'wb_test_' + label;
             state.groups[name] = { name, label, adminGroup: name + '_admin', workspace: '/projects/' + label };
           }
@@ -45,7 +47,7 @@ export async function adminServer() {
           }
           finish(true, { state });
         });
-        channel.write('WORKBENCH_READY\n');
+        channel.write('WORKBENCH_CODE_READY\n');
       });
     }));
   });

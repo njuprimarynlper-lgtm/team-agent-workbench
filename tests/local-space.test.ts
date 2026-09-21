@@ -129,7 +129,7 @@ test('local shared files: project roles, real disk transfers, team result and up
     await assert.rejects(alice.createProject(project.name), /EEXIST/);
     const bob = await x.connect('bob'), carol = await x.connect('carol');
     assert.equal(bob.profile!.projects[0].id, project.id); assert.equal(carol.profile!.projects.length, 0);
-    await assert.rejects(bob.createProject('拒绝'), /子管理员/);
+    await assert.rejects(bob.createProject('拒绝'), /组管理员/);
     const binding = alice.binding(project.id), bb = bob.binding(project.id);
     const file = path.join(x.base, 'result.md'); await fs.writeFile(file, '# 改进工作台\n验证管理员与成员流程');
     await alice.ensurePersonalFolder(binding, project.uploadPath);
@@ -158,7 +158,7 @@ test('local permission changes apply to live user connections, including passwor
     await x.admin.operation({ op: 'user_password', username: 'bob', password: 'replacement-password' }); await assert.rejects(bob.list(binding, p.remoteRoot), /凭据已改变/);
     await assert.rejects(bob.connect(x.config('bob'), 'member-test-password', async () => false), /密码错误/);
     await bob.connect(x.config('bob'), 'replacement-password', async () => false); await bob.verifyWorkspace('/projects/workbench');
-    await x.admin.operation({ op: 'user_groups', username: 'alice', groups: ['local_workbench'], contentAdminGroups: [], handoffs: { local_workbench: null } }); await assert.rejects(alice.createProject('revoked'), /子管理员/);
+    await x.admin.operation({ op: 'user_groups', username: 'alice', groups: ['local_workbench'], contentAdminGroups: [], handoffs: { local_workbench: null } }); await assert.rejects(alice.createProject('revoked'), /组管理员/);
     await alice.loadManifest(); assert.equal(alice.workspace!.canCreateProject, false);
     alice.disconnect(); bob.disconnect();
   } finally { await x.clean(); }

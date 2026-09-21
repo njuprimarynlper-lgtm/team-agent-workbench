@@ -8,7 +8,7 @@ export async function adminCases({ app, page, data }) {
     await page.getByRole('button', { name: '创建用户组', exact: true }).click();
     await page.getByLabel('用户组名称', { exact: true }).fill('nlp');
     await page.getByRole('button', { name: '确认执行', exact: true }).click();
-    await page.getByRole('alert').filter({ hasText: '测试：子管理员组创建失败' }).waitFor();
+    await page.getByRole('alert').filter({ hasText: '测试：组管理员组创建失败' }).waitFor();
     await page.getByRole('button', { name: '取消', exact: true }).click();
     await page.getByText('待恢复操作', { exact: true }).waitFor();
     await expect(page.getByText('已完成：成员用户组已创建', { exact: true })).toHaveCount(1);
@@ -21,7 +21,7 @@ export async function adminCases({ app, page, data }) {
     await page.getByLabel('初始密码', { exact: true }).fill('new-user-password');
     await page.getByLabel('再次输入密码', { exact: true }).fill('new-user-password');
     await page.locator('.modal .check-row').filter({ hasText: 'ocr' }).first().locator('input').check();
-    await page.locator('.modal .check-row').filter({ hasText: '内容子管理员' }).locator('input').check();
+    await page.locator('.modal .check-row').filter({ hasText: '内容组管理员' }).locator('input').check();
     await page.getByRole('button', { name: '确认执行', exact: true }).click();
     await page.getByText('开通完成', { exact: true }).waitFor();
     const created = server.requests.find(r => r.op === 'user_create');

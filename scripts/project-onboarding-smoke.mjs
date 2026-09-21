@@ -39,7 +39,7 @@ try {
   const group = name => ap.locator(`[data-group="local_${name}"]`);
   for (const username of ['alice', 'dave']) {
     await group('alpha').getByRole('button', { name: '组内创建用户', exact: true }).click();
-    const role = ap.locator('.modal .check-row').filter({ hasText: 'alpha · 内容子管理员' }).locator('input');
+    const role = ap.locator('.modal .check-row').filter({ hasText: 'alpha · 内容组管理员' }).locator('input');
     if (username === 'alice') await expect(role).toBeChecked(); else await expect(role).not.toBeChecked();
     await fields(ap, username); await confirm(ap);
   }

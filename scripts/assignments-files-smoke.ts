@@ -1,0 +1,94 @@
+import { _electron as electron, expect as baseExpect, type ElectronApplication, type Page } from '@playwright/test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { Workbench } from '../src/core/workbench';
+import { LocalAdminConnection } from '../src/admin/local-connection';
+import { memberProfile } from '../tests/fixtures/member-profile';
+// @ts-expect-error Shared fixture.
+import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+
+const expect = baseExpect.configure({ timeout: 20000 });
+const call = (page: Page, action: string, payload?: unknown): Promise<any> => page.evaluate(([a, p]) => (window as any).workbench.call(a, p), [action, payload]);
+async function main() {
+  const data = path.join(process.cwd(), '.test-data', 'assignments-files-' + Date.now()), shared = path.join(data, 'share'); await fs.mkdir(shared, { recursive: true });
+  const admin = new LocalAdminConnection(() => {}), clients: Workbench[] = [], apps: ElectronApplication[] = [], pages: Page[] = [], errors: string[] = [];
+  try {
+    await admin.connect({ mode: 'local', localRoot: shared, host: 'local', port: 22, username: '', fingerprint: '', root: '/srv/teamspace' }, '', '', async () => false);
+    await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'research' });
+    for (const name of ['alice', 'bob']) await admin.operation({ op: 'user_create', username: name, name, password: '1', groups: ['local_research'], contentAdminGroups: name === 'alice' ? ['local_research'] : [] });
+    const profiles = Object.fromEntries(['alice', 'bob'].map(name => [name, memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name)]));
+    const alice = new Workbench(path.join(data, 'alice'), () => {}, () => {}), bob = new Workbench(path.join(data, 'bob'), () => {}, () => {}); clients.push(alice, bob);
+    await alice.store.init(); await alice.configureWorkspace(profiles.alice, '1', data, async () => false);
+    const project = await alice.createProject('新人工作入口', 'local_research', { background: '改善扫描件识别', objectives: '排查 OCR 失败', acceptance: '建立回归验证', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' });
+    await bob.store.init(); await bob.configureWorkspace(profiles.bob, '1', data, async () => false);
+    const cli = await authLauncher(path.join(data, 'cli'), { status: 'ready', turn: 'success' });
+    alice.store.settings.providerPaths = bob.store.settings.providerPaths = { codex: cli.launcher, cursor: cli.launcher };
+    const artifact = path.join(data, '验证 报告.md'); await fs.writeFile(artifact, '# 生成文件验证\n\n页面应该能直接预览这份报告。');
+    const historical = await bob.createSession('codex', data, project.id); historical.title = '生成文件验证';
+    historical.messages.push({ id: randomUUID(), role: 'assistant', text: `已生成[验证报告](<${artifact.replaceAll('\\', '/')}:1>)。`, createdAt: new Date().toISOString() });
+    const binding = alice.remote.binding(project.id);
+    await alice.remote.upload(binding, artifact, binding.project.uploadPath + '/report.md', () => {}, { kind: 'contribution', title: 'OCR 回归基线', description: '低清晰度扫描件存在识别失败，需要补充回归样本。' });
+    await alice.store.save(); await bob.store.save(); await alice.close(); await bob.close();
+    const launch = async (username: 'alice' | 'bob') => {
+      const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: path.join(data, username) }; delete env.ELECTRON_RUN_AS_NODE;
+      const app = await electron.launch({ args: ['dist/user'], cwd: process.cwd(), env, timeout: 60000 }); apps.push(app);
+      const page = await app.firstWindow(); pages.push(page); page.on('pageerror', error => errors.push(error.message));
+      const login = page.locator('.modal').filter({ hasText: '登录团队工作台' }); await login.waitFor();
+      await call(page, 'remote.connect', { profile: profiles[username], password: '1', localPath: data }); await login.getByRole('button', { name: '取消', exact: true }).click();
+      return { app, page };
+    };
+    const a = await launch('alice');
+    await a.page.getByRole('button', { name: '项目派活', exact: true }).click();
+    await a.page.getByRole('button', { name: '派发任务', exact: true }).click();
+    const form = a.page.getByRole('dialog', { name: '派发任务', exact: true });
+    await form.getByLabel('任务负责人', { exact: true }).selectOption('bob'); await form.getByLabel('任务标题', { exact: true }).fill('排查扫描件识别失败');
+    await form.getByLabel('任务目标与工作范围', { exact: true }).fill('分析 OCR 低清晰度扫描件，定位失败原因并提出改进。');
+    await form.getByLabel('任务验收要求', { exact: true }).fill('提供回归样本和验证报告');
+    await form.getByLabel('关联结论：OCR 回归基线', { exact: true }).check();
+    await expect(form).toContainText('与任务相关'); await a.page.screenshot({ path: path.join(data, 'assign-task.png') });
+    await form.getByRole('button', { name: '确认派发', exact: true }).click(); await expect(form).toHaveCount(0);
+    await expect(a.page.locator('.assignment-detail')).toContainText('负责人：bob');
+    const b = await launch('bob');
+    await expect(b.page.getByRole('button', { name: '查看我的任务', exact: true })).toBeVisible();
+    await b.page.getByRole('button', { name: '查看我的任务', exact: true }).click();
+    await expect(b.page.getByRole('button', { name: '派发任务', exact: true })).toHaveCount(0);
+    await expect(b.page.locator('.assignment-detail')).toContainText('OCR 回归基线');
+    await b.page.locator('.assignment-references summary').click(); await expect(b.page.locator('.assignment-detail')).toContainText('低清晰度扫描件存在识别失败');
+    await b.page.screenshot({ path: path.join(data, 'member-task.png') });
+    await b.page.getByRole('button', { name: '开始工作', exact: true }).click();
+    const newSession = b.page.locator('.modal').filter({ hasText: '新建工作会话' });
+    await expect(newSession.getByLabel('绑定共享项目')).toBeDisabled();
+    await newSession.getByRole('button', { name: '创建会话', exact: true }).click(); await expect(newSession).toHaveCount(0);
+    await expect(b.page.getByLabel('任务输入', { exact: true })).toHaveValue(/分析 OCR/);
+    let snapshot = await call(b.page, 'snapshot'); const working = snapshot.sessions.find((item: any) => item.assignment);
+    assert(working); assert.equal(working.messages.length, 0); assert.equal(working.assignment.sourceIds.length, 2);
+    await expect(b.page.locator('.source-chips')).toContainText('派发时 v1');
+    await b.page.getByRole('button', { name: '我的任务', exact: true }).click(); await b.page.getByRole('button', { name: '继续工作', exact: true }).click();
+    assert.equal((await call(b.page, 'snapshot')).sessions.length, 2);
+    await b.page.getByRole('button', { name: '我的任务', exact: true }).click(); await b.page.getByRole('button', { name: '标记完成', exact: true }).click();
+    await b.page.getByRole('dialog', { name: '确认完成任务？' }).getByRole('button', { name: '确认完成', exact: true }).click();
+    await expect(b.page.getByRole('dialog', { name: '确认完成任务？' })).toHaveCount(0);
+    await a.page.getByRole('button', { name: '刷新任务', exact: true }).click(); await a.page.getByRole('tab', { name: /全部任务/ }).click();
+    await expect(a.page.locator('.assignment-detail')).toContainText('已完成');
+    // Historical assistant links with a Windows path, spaces and line suffix open a local preview.
+    await b.page.locator(`[data-session-id="${historical.id}"]`).click();
+    await b.page.getByRole('link', { name: '验证报告', exact: true }).click();
+    const files = b.page.getByRole('dialog', { name: '验证 报告.md', exact: true });
+    await expect(files.locator('.session-file-preview')).toContainText('页面应该能直接预览');
+    await expect(files.locator('.session-file-path')).toHaveText(artifact);
+    await files.getByRole('button', { name: '复制路径', exact: true }).click(); await expect(files.getByRole('button', { name: '路径已复制', exact: true })).toBeVisible();
+    assert.equal(await call(b.page, 'session.file.open', { id: historical.id, path: artifact, reveal: true }), artifact);
+    await b.page.screenshot({ path: path.join(data, 'local-file-preview.png') });
+    await files.getByRole('button', { name: '关闭', exact: true }).click(); await b.page.getByRole('button', { name: '会话文件', exact: true }).click();
+    await expect(b.page.getByRole('dialog', { name: '会话文件', exact: true })).toContainText(artifact);
+    await b.app.close(); const reopened = await launch('bob');
+    snapshot = await call(reopened.page, 'snapshot'); assert(snapshot.sessions.find((item: any) => item.id === working.id).assignment);
+    assert.equal((await call(reopened.page, 'assignment.list', { projectId: project.id }))[0].status, 'completed');
+    assert((await call(reopened.page, 'session.files', { id: historical.id })).some((item: any) => item.path === artifact));
+    assert.deepEqual(errors, []); console.log(JSON.stringify({ passed: true, data, cases: ['admin assigns member with BM25 candidate and conclusion snapshot', 'member discovers task, starts and resumes prepared session', 'completion visible to administrator', 'historical local file links open preview and show paths', 'task and file records survive restart'] }));
+  } catch (error) { for (let index = 0; index < pages.length; index++) if (!pages[index].isClosed()) await pages[index].screenshot({ path: path.join(data, 'failure-' + index + '.png') }).catch(() => {}); console.error('Artifacts:', data); throw error; }
+  finally { for (const app of apps.reverse()) await app.close().catch(() => {}); for (const client of clients) await client.close(); admin.disconnect(); }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

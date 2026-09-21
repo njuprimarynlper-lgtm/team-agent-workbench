@@ -48,15 +48,14 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
         commands.push(info.command); const channel = accept();
         if (info.command === 'id -u') { channel.write(role === 'root' ? '0\n' : '1001\n'); channel.exit(0); channel.end(); return; }
         if (role === 'project') { channel.stderr.write('not in sudoers'); channel.exit(1); channel.end(); return; }
-        const encoded = info.command.match(/b64decode\("([A-Za-z0-9+/=]+)"/); assert(encoded);
-        assert(info.command.length < 30000);
-        assert.match(inflateSync(Buffer.from(encoded[1], 'base64')).toString(), /def main\(request\)/);
-        let buffer = '', authorized = role === 'root';
+        assert.match(info.command, /WORKBENCH_CODE_READY/); assert(info.command.length < 500);
+        let buffer = '', authorized = role === 'root', programReceived = false;
         channel.on('data', (data: Buffer) => {
           buffer += data.toString(); let n: number;
           while ((n = buffer.indexOf('\n')) >= 0) {
             const line = buffer.slice(0, n); buffer = buffer.slice(n + 1);
-            if (!authorized) { assert.equal(line, 'sudo-secret'); authorized = true; channel.write('WORKBENCH_READY\n'); continue; }
+            if (!authorized) { assert.equal(line, 'sudo-secret'); authorized = true; channel.write('WORKBENCH_CODE_READY\n'); continue; }
+            if (!programReceived) { assert.match(inflateSync(Buffer.from(line, 'base64')).toString(), /def main\(request\)/); programReceived = true; channel.write('WORKBENCH_READY\n'); continue; }
             const input = JSON.parse(line); requests.push(input);
             if (input.op === 'storage_usage' && control.holdStorage) continue;
             if (control.failNext && !['probe', 'status'].includes(input.op)) {
@@ -68,7 +67,7 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
             channel.write(JSON.stringify({ ok: true, value: result }) + '\n'); channel.exit(0); channel.end();
           }
         });
-        if (authorized) channel.write('WORKBENCH_READY\n'); else { channel.stderr.write('WORKBENCH_'); setTimeout(() => channel.stderr.write('SUDO'), 5); }
+        if (authorized) channel.write('WORKBENCH_CODE_READY\n'); else { channel.stderr.write('WORKBENCH_'); setTimeout(() => channel.stderr.write('SUDO'), 5); }
       });
     }));
   });

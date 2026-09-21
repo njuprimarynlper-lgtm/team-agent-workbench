@@ -142,6 +142,75 @@ def locate(root, state, user, project_id):
                 return directory, data, group_name, group
     raise PermissionError('项目不存在或当前账号不属于此组')
 
+def assignment_operation(root, state, username, request, directory, project, group_name, admin):
+    op = request['op']
+    eligible = {name: user for name, user in state['users'].items() if user.get('enabled') and not user.get('missing') and not user.get('provisioning') and group_name in user.get('groups', [])}
+    if op == 'assignment_members':
+        if not admin:
+            raise PermissionError('只有本组子管理员可以选择任务负责人')
+        return [dict(username=name, name=user.get('name') or name) for name, user in eligible.items()]
+    if not re.fullmatch(r'project_[a-f0-9]{32}', project['id']):
+        raise ValueError('项目身份无效')
+    # Task records stay outside group-readable project folders. Only the worker exposes them.
+    file = safe(root, '.workbench/admin/assignments/' + project['id'] + '.json')
+    tasks = read_json(file, [])
+    if op == 'assignment_list':
+        return [task for task in tasks if admin or task['assignee'] == username]
+    if op == 'assignment_create':
+        if not admin:
+            raise PermissionError('只有本组子管理员可以派发任务')
+        raw = request.get('task')
+        if not isinstance(raw, dict):
+            raise ValueError('任务格式无效')
+        identifier = text(raw.get('id'), 36)
+        if not re.fullmatch(r'[a-fA-F0-9-]{36}', identifier) or str(uuid.UUID(identifier)) != identifier.lower():
+            raise ValueError('任务编号无效')
+        values = {key: text(raw.get(key, ''), limit).strip() for key, limit in [('title', 200), ('description', 12000), ('acceptance', 6000), ('assignee', 160)]}
+        if not values['title'] or not values['description']:
+            raise ValueError('请填写任务标题和任务说明')
+        assignee = eligible.get(values['assignee'])
+        if not assignee:
+            raise ValueError('负责人已停用或不属于此项目组，请刷新成员')
+        selections = raw.get('references', [])
+        if not isinstance(selections, list) or len(selections) > 20 or any(not isinstance(item, dict) or not isinstance(item.get('id'), str) or type(item.get('revision')) is not int or item['revision'] < 1 for item in selections) or len({item['id'] for item in selections}) != len(selections):
+            raise ValueError('关联结论列表无效')
+        existing = next((task for task in tasks if task['id'] == identifier), None)
+        if existing:
+            if existing['createdBy'] != username or any(existing[key] != value for key, value in values.items()) or [(item['id'], item['revision']) for item in existing['references']] != [(item['id'], item['revision']) for item in selections]:
+                raise ValueError('任务编号已使用，请重新派发')
+            return existing
+        content = read_json(directory / '.workbench-content.json', [])
+        references = []
+        for selection in selections:
+            item = next((value for value in content if value['id'] == selection['id'] and value['revision'] == selection['revision'] and value['kind'] == 'contribution'), None)
+            if not item:
+                raise ValueError('关联结论已更新或移除，请刷新后重新选择')
+            references.append(dict(id=item['id'], revision=item['revision'], title=item['title'], content=item['description'], author=item['author'], updatedAt=item['updatedAt']))
+        stamp = now()
+        task = dict(id=identifier, projectId=project['id'], **values, assigneeName=assignee.get('name') or values['assignee'], createdBy=username, createdAt=stamp, updatedAt=stamp, revision=1, status='assigned', references=references)
+        tasks.insert(0, task); atom(file, tasks)
+        return task
+    if op == 'assignment_status':
+        change = request.get('change', {})
+        task = next((item for item in tasks if item['id'] == change.get('id')), None)
+        if not task or (not admin and task['assignee'] != username):
+            raise PermissionError('任务不存在或无权访问')
+        status = change.get('status')
+        if status not in ('in_progress', 'completed', 'cancelled'):
+            raise ValueError('任务状态无效')
+        if (status == 'cancelled' and not admin) or (status != 'cancelled' and task['assignee'] != username):
+            raise PermissionError('只能由负责人开始或完成任务，子管理员可以取消任务')
+        if type(change.get('revision')) is not int or task['revision'] != change['revision']:
+            raise ValueError('任务状态已更新，请刷新后重试')
+        if task['status'] == status:
+            return task
+        if task['status'] in ('completed', 'cancelled') or (status == 'completed' and task['status'] != 'in_progress'):
+            raise ValueError('当前任务状态不允许此操作')
+        task.update(status=status, revision=task['revision'] + 1, updatedAt=now()); atom(file, tasks)
+        return task
+    raise ValueError('不支持的任务操作')
+
+
 def handle(root, state, username, request, incoming=None):
     user = member(state, username)
     op = request.get('op')
@@ -149,7 +218,7 @@ def handle(root, state, username, request, incoming=None):
         group_name = request.get('groupName')
         group = state['groups'].get(group_name)
         if group_name not in user.get('groups', []) or group_name not in user.get('contentAdminGroups', []) or not group or not group.get('workspace'):
-            raise PermissionError('只有本组子管理员可以创建项目')
+            raise PermissionError('只有本组组管理员可以创建项目')
         name = text(request.get('name'), 180).strip()
         if not name or name.startswith('.') or name.endswith('.') or '/' in name or '\\' in name or len(name.encode()) > 180:
             raise ValueError('项目名不合法')
@@ -172,9 +241,11 @@ def handle(root, state, username, request, incoming=None):
     directory, project, group_name, group = locate(root, state, user, request.get('projectId'))
     admin = group_name in user.get('contentAdminGroups', [])
     gid = group['gid']
+    if isinstance(op, str) and op.startswith('assignment_'):
+        return assignment_operation(root, state, username, request, directory, project, group_name, admin)
     if op == 'save_brief':
         if not admin:
-            raise PermissionError('只有本组子管理员可以修改项目资料')
+            raise PermissionError('只有本组组管理员可以修改项目资料')
         if request.get('revision') != project.get('briefRevision', 0):
             raise ValueError('项目资料已更新，请刷新后再保存')
         brief = brief_value(request.get('brief'))
@@ -188,7 +259,7 @@ def handle(root, state, username, request, incoming=None):
     items = read_json(index, [])
     if op == 'adopt_content':
         if not admin:
-            raise PermissionError('只有子管理员可以纳入已有文件')
+            raise PermissionError('只有组管理员可以纳入已有文件')
         target = request.get('target')
         file = safe(root, target)
         relative = file.relative_to(directory).as_posix()
@@ -199,7 +270,7 @@ def handle(root, state, username, request, incoming=None):
             return existing
         size = file.stat().st_size
         parts = relative.split('/')
-        item = dict(id=str(uuid.uuid4()), title=file.name, description=file.read_text(encoding='utf-8', errors='replace') if file.suffix.lower() in ('.md', '.txt') and size <= 512 * 1024 else '从已有公共文件纳入，由子管理员统一维护。', kind='file', path=target, author=parts[1] if len(parts) > 2 and parts[0] in ('submissions', 'trajectories') else '历史文件', state='curated', revision=1, createdAt=now(), updatedAt=now(), updatedBy=username, size=size, sha256=digest(file))
+        item = dict(id=str(uuid.uuid4()), title=file.name, description=file.read_text(encoding='utf-8', errors='replace') if file.suffix.lower() in ('.md', '.txt') and size <= 512 * 1024 else '从已有公共文件纳入，由组管理员统一维护。', kind='file', path=target, author=parts[1] if len(parts) > 2 and parts[0] in ('submissions', 'trajectories') else '历史文件', state='curated', revision=1, createdAt=now(), updatedAt=now(), updatedBy=username, size=size, sha256=digest(file))
         items.insert(0, item); atom(index, items, gid)
         return item
     if op == 'publish':
@@ -249,8 +320,7 @@ def handle(root, state, username, request, incoming=None):
             os.replace(temp, file)
         finally:
             temp.unlink(missing_ok=True)
-        item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
-        item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'category': category, 'fields': meta.get('fields'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'snapshotHash': meta.get('snapshotHash'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
+        item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'category': category, 'fields': meta.get('fields'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'sourceSessionTitle': text(meta.get('sourceSessionTitle'), 120) if meta.get('sourceSessionTitle') else None, 'snapshotHash': meta.get('snapshotHash'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
         items.insert(0, item)
         atom(index, items, gid)
         receipts[key] = item
@@ -265,7 +335,7 @@ def handle(root, state, username, request, incoming=None):
     if not admin and (item['author'] != username or item['state'] == 'curated'):
         raise PermissionError('只能修改自己尚未被整理的提交；可另提补充')
     if not admin and (change.get('curate') or change.get('merge')):
-        raise PermissionError('只有子管理员可以整理或合并')
+        raise PermissionError('只有组管理员可以整理或合并')
     merged = []
     sources = change.get('merge', [])
     if not isinstance(sources, list) or len(sources) > 100 or len({s.get('id') for s in sources}) != len(sources):
@@ -308,7 +378,7 @@ def handle(root, state, username, request, incoming=None):
         file = safe(directory, relative)
         repo = text(change.get('repoUrl', ''), 2048)
         publish_bytes(file, ('# ' + title + '\n\n' + (repo + '\n\n' if repo else '') + description).encode(), gid)
-        item.update(title=title, description=description, repoUrl=repo, path='/' + str(file.relative_to(root)).replace('\\', '/'), revision=item['revision'] + 1, state='curated' if admin else 'submitted', updatedAt=now(), updatedBy=username, sha256=digest(file), size=file.stat().st_size, sources=list(dict.fromkeys(item.get('sources', []) + [i['id'] for i in merged])), **({'provenance': provenance} if merged else {}))
+        item.update(title=title, description=description, repoUrl=repo, **({'sourceSessionTitle': text(change.get('sourceSessionTitle'), 120)} if change.get('sourceSessionTitle') else {}), path='/' + str(file.relative_to(root)).replace('\\', '/'), revision=item['revision'] + 1, state='curated' if admin else 'submitted', updatedAt=now(), updatedBy=username, sha256=digest(file), size=file.stat().st_size, sources=list(dict.fromkeys(item.get('sources', []) + [i['id'] for i in merged])), **({'provenance': provenance} if merged else {}))
     elif change.get('action') != 'delete':
         raise ValueError('不支持的修改操作')
     items = [i for i in items if i not in merged and (change['action'] != 'delete' or i is not item)]

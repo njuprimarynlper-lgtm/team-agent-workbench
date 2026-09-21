@@ -93,7 +93,7 @@ export class AdminConnection {
   private simple(command: string) {
     return new Promise<string>((resolve, reject) => {
       let channel: ClientChannel | undefined;
-      const timer = setTimeout(() => { channel?.close(); reject(new Error('此账号未取得管理员或项目子管理员资格；请由总管理员分配权限')); }, 15000);
+      const timer = setTimeout(() => { channel?.close(); reject(new Error('此账号未取得管理员或项目组管理员资格；请由总管理员分配权限')); }, 15000);
       this.client!.exec(command, (error, stream) => {
         if (error) { clearTimeout(timer); reject(error); return; }
         channel = stream;
@@ -105,12 +105,13 @@ export class AdminConnection {
   private execute(payload: object, useSudo: boolean, signal?: AbortSignal, timeoutMs = 90000): Promise<any> {
     if (!this.rawReady || !this.client) return Promise.reject(new Error('请先连接服务器'));
     if (signal?.aborted) return Promise.reject(new Error('已取消空间统计'));
-    // Keep the fixed script below SSH's request-packet limit as it grows.
-    const program = `python3 -c 'import base64,zlib;exec(zlib.decompress(base64.b64decode("${this.code}")).decode("utf-8"))'`;
+    // Only a small fixed loader goes in the SSH exec request. The packaged
+    // program travels over stdin so feature growth cannot exceed packet limits.
+    const program = `python3 -u -c 'import sys,base64,zlib;print("WORKBENCH_CODE_READY",flush=True);exec(zlib.decompress(base64.b64decode(sys.stdin.readline())).decode("utf-8"))'`;
     const command = useSudo ? 'sudo -S -p WORKBENCH_SUDO -- ' + program : program;
     const request = { ...payload, root: this.snapshot.profile!.root };
     return new Promise((resolve, reject) => {
-      let channel: ClientChannel | undefined, settled = false, buffer = '', diagnostic = '', ready = false, passwordSent = false;
+      let channel: ClientChannel | undefined, settled = false, buffer = '', diagnostic = '', ready = false, codeSent = false, passwordSent = false;
       const abort = () => { channel?.close(); finish(new Error('已取消空间统计')); };
       const finish = (error?: Error, value?: unknown) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); channel?.end(); error ? reject(error) : resolve(value); };
       const timer = setTimeout(() => { channel?.close(); finish(new Error('远端命令超时；可能已部分执行，请刷新状态后再决定是否重试')); }, timeoutMs);
@@ -130,7 +131,8 @@ export class AdminConnection {
           let end: number;
           while ((end = buffer.indexOf('\n')) >= 0) {
             const line = buffer.slice(0, end).trim(); buffer = buffer.slice(end + 1);
-            if (!ready && line === 'WORKBENCH_READY') { ready = true; stream.write(JSON.stringify(request) + '\n'); }
+            if (!codeSent && line === 'WORKBENCH_CODE_READY') { codeSent = true; stream.write(this.code + '\n'); }
+            else if (codeSent && !ready && line === 'WORKBENCH_READY') { ready = true; stream.write(JSON.stringify(request) + '\n'); }
             else if (ready && line) { try { const message = JSON.parse(line); message.ok ? finish(undefined, message.value) : finish(new Error(message.error)); } catch { finish(new Error('远端返回格式异常')); } }
           }
         });

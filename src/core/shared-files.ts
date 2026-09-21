@@ -3,6 +3,7 @@ import { SftpConnection } from './sftp';
 import { LocalFileConnection } from './local-files';
 import type { ConnectionProfile, RemoteBinding } from '../shared/types';
 import type { ProjectBrief } from '../shared/project-brief';
+import type { AssignmentCreate, AssignmentStatusChange } from '../shared/assignments';
 
 export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
@@ -22,6 +23,10 @@ export class SharedFiles {
   loadManifest() { return this.backend.loadManifest(); }
   createProject(name: string, groupName?: string, brief?: ProjectBrief) { return this.backend.createProject(name, groupName, brief); }
   contentList(binding: RemoteBinding) { return this.backend.contentList(binding); }
+  assignmentMembers(binding: RemoteBinding) { return this.backend.assignmentMembers(binding); }
+  assignmentList(binding: RemoteBinding) { return this.backend.assignmentList(binding); }
+  assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.backend.assignmentCreate(binding, input); }
+  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.backend.assignmentStatus(binding, input); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.backend.contentAdopt(binding, target); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.backend.contentEdit(binding, change); }
   contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.backend.contentReplace(binding, change, file); }

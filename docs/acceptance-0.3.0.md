@@ -11,7 +11,7 @@
 | 5 离线本地工作 | 首次未经远端验证禁止进入；验证成功后离线重启可用；连接修改失败仍可新建本地会话；远端创建/上传仍要求在线实际授权 | `tests/workspace.test.ts`、`tests/usability.test.ts`、`scripts/smoke.mjs` |
 | 6 仅交仓库引用 | ZIP 恰含 README 与元数据；保存链接与修改说明；本地代码快照、来源绝对路径、交接文件和会话输入不进入成果包；旧附件也不上传；拒绝无链接、错误域名、含凭据/查询参数的链接；提交期间锁定版本并拒绝重复提交 | `tests/core.test.ts`、`tests/usability.test.ts`、`scripts/usability-cases.mjs` |
 | 7 管理员恢复 | 第二个组创建失败；ACL 配置失败；密码设置失败；成员组调整后旧连接终止失败；初始化早期/目录建立后失败；恢复不会重复建号建组；GID/UID 改变拒绝继续；外部已有资源不接管；恢复记录没有密码；失败后主进程刷新实际状态 | `tests/test_admin.py`、`tests/admin.test.ts`、`scripts/admin-cases.mjs` |
-| 8 成员开通 | 创建时选组与子管理员；未开通显示缺少步骤；未启用、未完成、未获该组授权不能访问；成员直接使用服务器地址与个人账号登录；客户端不接收密码、sudo 凭据或宿主根路径配置文件 | `tests/usability.test.ts`、`scripts/admin-cases.mjs` |
+| 8 成员开通 | 创建时选组与组管理员；未开通显示缺少步骤；未启用、未完成、未获该组授权不能访问；成员直接使用服务器地址与个人账号登录；客户端不接收密码、sudo 凭据或宿主根路径配置文件 | `tests/usability.test.ts`、`scripts/admin-cases.mjs` |
 
 ## 在本机执行
 

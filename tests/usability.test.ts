@@ -125,7 +125,7 @@ test('#3/#6 an in-flight submission locks its draft and duplicate submit; reject
     const d: any = { id: 'draft', sessionId: 'session', title: 'original', body: 'reviewed notes', repoUrl: 'https://github.com/a/b', files: [], inputDir: root, outputPath: path.join(root, 'draft.md'), binding: { project: { id: 'p', uploadPath: '/p/submissions/alice' } } };
     wb.store.drafts.push(d);
     t.mock.method(wb.remote, 'channel', () => ({} as any));
-    t.mock.method(wb.queue, 'enqueue', async (file: string) => { assert.match(readZip(file)['README.md'], /reviewed notes/); entered(); await gate; return { id: 'transfer' } as any; });
+    t.mock.method(wb.queue, 'enqueue', async (file: string, _binding: any, _folder: string, _kind: string, _sessionId: string, metadata: any) => { assert.match(readZip(file)['README.md'], /reviewed notes/); assert.equal(metadata.sourceSessionTitle, undefined); entered(); await gate; return { id: 'transfer' } as any; });
     const submit = wb.submitDraft(d.id); await started;
     assert.throws(() => wb.saveDraft(d.id, 'changed', 'late edit', 'https://github.com/a/b'), /正在提交/);
     await assert.rejects(wb.submitDraft(d.id), /正在提交/);

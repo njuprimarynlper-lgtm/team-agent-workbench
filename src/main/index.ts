@@ -12,12 +12,14 @@ import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
+import { assignmentCreateSchema, assignmentStatusSchema } from '../shared/assignments';
+import { checkedSessionFile, listSessionFiles, previewSessionFile } from '../core/session-files';
 import { ServerIdentityStore } from '../core/server-identities';
 import { EgressClientProxy } from '../core/egress';
 import { decodeEgressInvite } from '../core/egress-config';
 type WindowContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; slot: number; broadcast: () => void; notice: (message: string) => void };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
-let quitting = false; let closing = false; let windowsReady = false; let pendingWindows = 0;
+let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false; let pendingStoredWindow = false;
 const entry = path.join(__dirname, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
@@ -42,10 +44,11 @@ async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpen
 async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Promise<unknown> {
   const context = contexts.get(owner); if (!context) throw new Error('当前窗口的独立工作台尚未就绪');
   const { workbench, egress, broadcast, notice } = context;
-  const setupActions = new Set(['snapshot', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
+  const setupActions = new Set(['snapshot', 'window.new', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'snapshot': return { ...workbench.snapshot(), egress: egress.status() };
+    case 'window.new': openAdditionalWindow(false); return true;
     case 'egress.configure': {
       const p = z.object({ enabled: z.boolean(), inviteCode: z.string().max(4096).optional(), username: z.string().max(64).optional() }).parse(raw);
       let settings = workbench.store.settings.egress, accessCode = await readProtected(context.egressSecretFile);
@@ -63,6 +66,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'egress.test': await egress.probe(); broadcast(); return egress.status();
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
+      // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
+      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
@@ -114,15 +119,40 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(owner); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
     case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode, p.includeBrief); }
+    case 'session.rename': { const p = z.object({ id, title: z.string().trim().min(1).max(120) }).parse(raw); return workbench.renameSession(p.id, p.title); }
     case 'project.brief': return workbench.remote.projectBrief(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
     case 'project.brief.save': { const p = z.object({ projectId: z.string(), brief: projectBriefSchema, revision: z.number().int().nonnegative() }).parse(raw); const value = await workbench.remote.saveProjectBrief(workbench.remote.binding(p.projectId), p.brief, p.revision); await workbench.refreshGroups(); return value; }
     case 'content.list': return workbench.remote.contentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'content.sync': return workbench.syncContentUpdates();
+    case 'content.updates': return workbench.contentUpdates();
+    case 'content.updates.read': return workbench.markContentUpdates(z.object({ eventIds: z.array(z.string()).max(300).optional() }).parse(raw || {}).eventIds);
+    case 'content.updates.clear': return workbench.clearReadContentUpdates();
+    case 'content.updates.dismiss': return workbench.dismissContentUpdates(z.object({ eventIds: z.array(z.string()) }).parse(raw).eventIds);
+    case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived); }
+    case 'assignment.list': return workbench.remote.assignmentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'assignment.members': return workbench.remote.assignmentMembers(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'assignment.create': { const p = z.object({ projectId: z.string(), task: assignmentCreateSchema }).parse(raw); return workbench.remote.assignmentCreate(workbench.remote.binding(p.projectId), p.task); }
+    case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.remote.assignmentStatus(workbench.remote.binding(p.projectId), p.change); }
+    case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief); }
+    case 'conclusion.match': { const p = z.object({ projectId: z.string(), query: text.min(1) }).parse(raw); return workbench.matchConclusions(p.projectId, p.query); }
+    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1) }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content); }
+    case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1) }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content); }
+    case 'conclusion.alias.save': { const p = z.object({ id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveConclusionAlias(p.id, p.alias); }
+    case 'content.deletion.conclusions': return workbench.deletedContentConclusions(z.object({ eventId: z.string() }).parse(raw).eventId);
+    case 'content.deletion.resolve': { const p = z.object({ eventId: z.string(), selections: z.array(z.object({ id, version: z.number().int().positive() })).max(1000) }).parse(raw); return workbench.resolveContentDeletion(p.eventId, p.selections); }
+    case 'conclusion.archive': { const p = z.object({ id, archived: z.boolean() }).parse(raw); return workbench.archiveConclusion(p.id, p.archived); }
+    case 'conclusion.delete': { const p = z.object({ id, version: z.number().int().positive() }).parse(raw); return workbench.deleteConclusion(p.id, p.version); }
+    case 'conclusion.deleteMany': return workbench.deleteConclusions(z.object({ selections: z.array(z.object({ id, version: z.number().int().positive() })).min(1).max(1000) }).parse(raw).selections);
+    case 'content.updates.delete': return workbench.deleteContentUpdates(z.object({ eventIds: z.array(z.string()).min(1).max(10000) }).parse(raw).eventIds);
+    case 'conclusion.import': { const p = z.object({ projectId: z.string(), contentId: id }).parse(raw); return workbench.importContentConclusion(p.projectId, p.contentId); }
+    case 'conclusion.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(id).min(1).max(20), instruction: z.string().max(8000).default('') }).parse(raw); return workbench.prepareConclusionMerge(p.projectId, p.sessionId, p.sourceIds, p.instruction); }
+    case 'conclusion.merge.commit': return workbench.commitConclusionMerge(sessionInput.parse(raw).id);
     case 'content.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(z.string().uuid()).min(2).max(20) }).parse(raw); return workbench.prepareContentMerge(p.projectId, p.sessionId, p.sourceIds); }
     case 'content.merge.save': { const p = z.object({ id, title: z.string().max(200), body: text }).parse(raw); return workbench.saveContentMerge(p.id, p.title, p.body); }
     case 'content.merge.commit': return workbench.commitContentMerge(sessionInput.parse(raw).id);
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
-    case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.remote.contentEdit(workbench.remote.binding(p.projectId), p.change); }
+    case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.editSharedContent(p.projectId, p.change); }
     case 'content.replace': {
       const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw), binding = workbench.remote.binding(p.projectId);
       const file = (await dialog.showOpenDialog(owner, { title: '选择替换文件（保存为新修订）', properties: ['openFile'] })).filePaths[0];
@@ -131,6 +161,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       try { await workbench.remote.contentReplace(binding, p.change, snapshot.localPath); return true; } finally { await fs.rm(snapshot.localPath, { force: true }); }
     }
     case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid() }).parse(raw); return workbench.attachContent(p.id, p.contentId); }
+    case 'session.attachConclusion': { const p = z.object({ id, conclusionId: z.string().uuid() }).parse(raw); return workbench.attachConclusion(p.id, p.conclusionId); }
     case 'session.projectContext': return workbench.refreshProjectContext(sessionInput.parse(raw).id);
     case 'draft.revise': return workbench.reviseDraft(sessionInput.parse(raw).id);
     case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }
@@ -141,7 +172,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
       return new Promise<boolean>((resolve, reject) => {
         let submitted = false;
-        void workbench.send(p.id, p.text, p.sourceIds, p.capabilities, () => { submitted = true; resolve(true); }).catch(error => { notice(error.message); if (!submitted) reject(error); });
+        void workbench.send(p.id, p.text, p.sourceIds, p.capabilities, () => { submitted = true; resolve(true); }).then(started => { if (!started && !submitted) reject(new Error(s.error || '任务未能提交给 CLI，请重试')); }).catch(error => { notice(error.message); if (!submitted) reject(error); });
       });
     }
     case 'session.input': { const p = z.object({ id, input: z.object({ text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
@@ -156,11 +187,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = sessionInput.parse(raw); return workbench.prepare(p.id); }
+    case 'draft.prepare': { const p = z.object({ id, categories: z.array(z.enum(['experiment_result', 'failed_direction', 'finding', 'issue', 'baseline_change_proposal'])).min(1).max(5).optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories); }
+    case 'draft.reorganize': { const p = z.object({ id, scope: z.enum(['incremental', 'full']), categories: z.array(z.enum(['experiment_result', 'failed_direction', 'finding', 'issue', 'baseline_change_proposal'])).min(1).max(5).optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories); }
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);
+    case 'draft.delete': return workbench.deleteDraft(sessionInput.parse(raw).id);
     case 'draft.supplement': { const p = z.object({ id, supplement: text, repoUrlOverride: z.string().max(2048) }).parse(raw); return workbench.saveDraftSupplement(p.id, p.supplement, p.repoUrlOverride); }
     case 'draft.artifactSelection': { const p = z.object({ id, artifactId: z.string(), selected: z.boolean() }).parse(raw); return workbench.selectDraftArtifact(p.id, p.artifactId, p.selected); }
+    case 'draft.renameResult': { const p = z.object({ id, artifactId: z.string().optional(), title: z.string().trim().min(1).max(120) }).parse(raw); return workbench.renameDraftResult(p.id, p.title, p.artifactId); }
     case 'draft.save': { const p = z.object({ id, title: z.string().max(120), body: text, repoUrl: z.string().max(2048), target: z.string().optional() }).parse(raw); return workbench.saveDraft(p.id, p.title, p.body, p.repoUrl, p.target); }
     case 'draft.attach': { const p = sessionInput.parse(raw); return workbench.addDraftFiles(p.id, await chooseFiles(owner)); }
     case 'draft.submit': { const p = z.object({ id, target: z.string().optional() }).parse(raw); return workbench.submitDraft(p.id, p.target); }
@@ -175,6 +209,16 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       return true;
     }
     case 'copy': clipboard.writeText(text.parse(raw)); return true;
+    case 'session.files': return listSessionFiles(workbench.session(sessionInput.parse(raw).id));
+    case 'session.file.preview': { const p = z.object({ id, path: text }).parse(raw); return previewSessionFile(workbench.session(p.id), p.path); }
+    case 'session.file.open': {
+      const p = z.object({ id, path: text, reveal: z.boolean().default(false) }).parse(raw);
+      const { target } = await checkedSessionFile(workbench.session(p.id), p.path);
+      if (process.env.WORKBENCH_TEST === '1') return target;
+      if (p.reveal) { shell.showItemInFolder(target); return target; }
+      if (/\.(exe|com|bat|cmd|ps1|sh|msi|vbs|vbe|js|jse|wsf|wsh|scr|lnk|url|reg|hta)$/i.test(target)) throw new Error('脚本和程序请在页面预览或使用“打开所在文件夹”');
+      const error = await shell.openPath(target); if (error) throw new Error('无法打开文件：' + error); return target;
+    }
     case 'open.link': { const url = new URL(text.parse(raw)); if (!['https:', 'http:'].includes(url.protocol)) throw new Error('只允许打开网页链接'); await shell.openExternal(url.href); return true; }
     case 'open.data': await shell.openPath(workbench.store.root); return true;
     default: throw new Error('未知操作：' + action);
@@ -185,7 +229,7 @@ function latestWindow() {
   for (let index = list.length - 1; index >= 0; index -= 1) if (!list[index].isDestroyed() && list[index].isFocused()) return list[index];
   for (let index = list.length - 1; index >= 0; index -= 1) if (!list[index].isDestroyed()) return list[index];
 }
-function claimSlot() { let slot = 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
+function claimSlot(preferred?: number) { let slot = preferred && !activeSlots.has(preferred) ? preferred : 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
 function instanceRoot(slot: number) { return slot === 1 ? app.getPath('userData') : path.join(app.getPath('userData'), 'instances', String(slot)); }
 async function readProtected(file: string) {
   try { const data = await fs.readFile(file); return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(data) : data.toString('utf8'); }
@@ -194,8 +238,34 @@ async function readProtected(file: string) {
 async function writeProtected(file: string, value: string) {
   await fs.mkdir(path.dirname(file), { recursive: true }); const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(value) : Buffer.from(value, 'utf8'); await fs.writeFile(file, data, { mode: 0o600 });
 }
-async function createWindow() {
-  const slot = claimSlot();
+async function datasetMetadata(slot: number) {
+  const root = instanceRoot(slot);
+  try {
+    const settings = JSON.parse(await fs.readFile(path.join(root, 'settings.json'), 'utf8'));
+    const username = settings?.workspaceSnapshot?.profile?.username || settings?.connections?.[0]?.username || '';
+    const counts = await Promise.all(['sessions.json', 'drafts.json', 'transfers.json', 'conclusions.json'].map(async name => {
+      try { const value = JSON.parse(await fs.readFile(path.join(root, name), 'utf8')); return Array.isArray(value) ? value.length : 0; } catch { return 0; }
+    }));
+    return { slot, username, records: counts.reduce((sum, count) => sum + count, 0) };
+  } catch { return { slot, username: '', records: 0 }; }
+}
+async function storedDatasetSlots() {
+  let slots = [1];
+  try {
+    const entries = await fs.readdir(path.join(app.getPath('userData'), 'instances'), { withFileTypes: true });
+    slots.push(...entries.filter(entry => entry.isDirectory() && /^\d+$/.test(entry.name)).map(entry => Number(entry.name)).filter(slot => slot > 1));
+  } catch { /* No additional account data yet. */ }
+  const datasets = await Promise.all([...new Set(slots)].sort((a, b) => a - b).map(datasetMetadata));
+  const preferredByAccount = new Map<string, { slot: number; records: number }>();
+  for (const dataset of datasets) {
+    if (!dataset.username) continue;
+    const current = preferredByAccount.get(dataset.username);
+    if (!current || dataset.records > current.records || dataset.records === current.records && dataset.slot < current.slot) preferredByAccount.set(dataset.username, dataset);
+  }
+  return datasets.filter(dataset => (dataset.username || dataset.records) && (!dataset.username || preferredByAccount.get(dataset.username)?.slot === dataset.slot)).map(dataset => dataset.slot);
+}
+async function createWindow(preferredSlot?: number) {
+  const slot = claimSlot(preferredSlot);
   const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   windows.add(window);
   const emit = (event: WorkbenchEvent) => { if (!window.isDestroyed()) window.webContents.send('workbench:event', event); };
@@ -232,12 +302,21 @@ async function createWindow() {
   await window.loadFile(entry);
   return window;
 }
-function openAdditionalWindow() {
+function focusLatestWindow() { const window = latestWindow(); if (!window || window.isDestroyed()) return; if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
+function openAdditionalWindow(reuseStored: boolean) {
   if (quitting || closing) return;
-  if (!windowsReady) { pendingWindows += 1; return; }
-  void createWindow().catch(error => dialog.showErrorBox('工作台窗口启动失败', error.message));
+  if (!windowsReady) { if (reuseStored) pendingStoredWindow = true; return; }
+  if (openingWindow) return; openingWindow = true;
+  void (async () => {
+    try {
+      const storedSlot = reuseStored ? (await storedDatasetSlots()).find(slot => !activeSlots.has(slot)) : undefined;
+      if (reuseStored && !storedSlot && windows.size > 1) { focusLatestWindow(); return; }
+      await createWindow(storedSlot);
+    } catch (error: any) { dialog.showErrorBox('工作台窗口启动失败', error.message); }
+    finally { openingWindow = false; }
+  })();
 }
-if (ownDataDirectory(latestWindow, openAdditionalWindow)) app.whenReady().then(async () => {
+if (ownDataDirectory(latestWindow, () => openAdditionalWindow(true))) app.whenReady().then(async () => {
   ipcMain.handle('workbench', async (event, action, payload) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     if (!owner || !windows.has(owner) || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
@@ -245,7 +324,7 @@ if (ownDataDirectory(latestWindow, openAdditionalWindow)) app.whenReady().then(a
   });
   await createWindow();
   windowsReady = true;
-  while (pendingWindows > 0) { pendingWindows -= 1; await createWindow(); }
+  if (pendingStoredWindow) { pendingStoredWindow = false; openAdditionalWindow(true); }
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
 app.on('window-all-closed', () => { if (!closing) void finishQuit(); });
 async function closeWindow(window: BrowserWindow) {

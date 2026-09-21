@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
 import type { Draft, DraftDestination, RemoteBinding } from '../shared/types';
-import { contributionCategories, contributionCategoryFields, contributionCategoryInfo, contributionCategorySchema, type ContributionCategory } from '../shared/content';
+import { contributionCategories, contributionCategoryFields, contributionCategoryInfo, contributionCategorySchema, contributionTitle, type ContributionCategory } from '../shared/content';
 import type { SharedFiles } from './shared-files';
 import { assertRemote, withinRemote } from './paths';
 import { githubRepository } from './artifacts';
@@ -59,9 +59,19 @@ export function artifactMarkdown(category: ContributionCategory, fields: Record<
   return contributionCategoryFields[category].filter(key => fields[key]?.trim()).map(key => `## ${fieldLabels[key] || key}\n\n${fields[key].trim()}`).join('\n\n');
 }
 
-export function preparationFieldContract() {
-  return Object.fromEntries(contributionCategories.map(category => [category, contributionCategoryFields[category]]));
+export function preparationFieldContract(categories: readonly ContributionCategory[] = contributionCategories) {
+  // Keep the full field whitelist for old results; new summaries use three sections at most.
+  const fields: Record<ContributionCategory, readonly string[]> = {
+    experiment_result: ['change', 'result', 'nextSteps'],
+    failed_direction: ['approach', 'failure', 'reusableInsight'],
+    finding: ['statement', 'evidence', 'nextSteps'],
+    issue: ['problem', 'impact', 'nextAction'],
+    baseline_change_proposal: ['proposedValue', 'rationale', 'validationNeeded']
+  };
+  return Object.fromEntries(categories.map(category => [category, fields[category]]));
 }
+
+export const preparationWritingGuide = '精简交接：每项最多三段，每段一到两句话，正文通常控制在 150—250 字，不要重复标题。实验结果只写做了什么（change，合并必要的目标和对照）、验证情况（result，合并关键依据、验证范围与限制）、下一步（nextSteps）。其他类别同样只用给定的三个字段：未奏效方向的 reusableInsight 写经验或后续建议；结论的 evidence 同时写验证边界；问题的 impact 合并关键触发条件；基线建议的 proposedValue 写原值到建议值且注明尚未采纳。只保留影响判断的参数和证据，不罗列日志、返回码、文件清单、增删行数，不另起环境、依据、适用范围、限制等重复章节。静态通过不等于运行、精度或性能通过，未验证与不确定性必须保留，不能为缩短文字而省略关键限制。';
 
 export function applyPreparation(draft: Draft, answer: string) {
   let raw: unknown;
@@ -70,6 +80,9 @@ export function applyPreparation(draft: Draft, answer: string) {
   const parsed = batchResultSchema.safeParse(raw);
   if (parsed.success) {
     if (!draft.binding) throw new Error('当前会话没有绑定项目，无法确定分类目录。');
+    const requested = new Set(draft.requestedCategories?.length ? draft.requestedCategories : contributionCategories);
+    const unexpected = parsed.data.artifacts.find(item => !requested.has(item.category));
+    if (unexpected) throw new Error(`AI 返回了未选择的“${contributionCategoryInfo[unexpected.category].label}”，请重试整理。`);
     const artifacts = parsed.data.artifacts.map((item, index) => {
       const allowed = new Set(contributionCategoryFields[item.category]);
       const fields = Object.fromEntries(Object.entries(item.fields).filter(([key, value]) => allowed.has(key) && value.trim()));
@@ -77,7 +90,7 @@ export function applyPreparation(draft: Draft, answer: string) {
       if (!body) throw new Error(`“${item.title}”没有可提交的${contributionCategoryInfo[item.category].label}字段。`);
       let repoUrl = '';
       if (item.repoUrl) { try { repoUrl = githubRepository(item.repoUrl); } catch { /* Never guess or retain an invalid repository URL. */ } }
-      return { id: `${draft.id}-${index + 1}`, category: item.category, title: item.title, fields, body, repoUrl, target: contributionCategoryDirectory(draft.binding!, item.category), selected: true };
+      return { id: `${draft.id}-${index + 1}`, category: item.category, title: contributionTitle(item.category, item.title), fields, body, repoUrl, target: contributionCategoryDirectory(draft.binding!, item.category), selected: true };
     });
     const first = artifacts[0];
     Object.assign(draft, { artifacts, title: artifacts.length === 1 ? first.title : `${artifacts.length} 项候选成果`, body: first.body, generatedBody: first.body, repoUrl: first.repoUrl, target: first.target, destinationNote: '已按成果类别分开存放。' });
@@ -89,6 +102,7 @@ export function applyPreparation(draft: Draft, answer: string) {
   let repoUrl = ''; if (result.repoUrl) { try { repoUrl = githubRepository(result.repoUrl); } catch {} }
   const body = result.body.replace(/^#\s+(.+)\r?\n+/u, (full, heading) => heading.trim() === result.title.trim() ? '' : full);
   const target = draft.binding ? contributionCategoryDirectory(draft.binding, 'finding') : undefined;
-  const artifact = target ? { id: `${draft.id}-1`, category: 'finding' as const, title: result.title, fields: { statement: body }, body, repoUrl, target, selected: true } : undefined;
-  Object.assign(draft, { artifacts: artifact ? [artifact] : [], title: result.title, body, generatedBody: body, repoUrl, target, destinationNote: '旧版整理结果已归入“结论与发现”。' });
+  const title = contributionTitle('finding', result.title);
+  const artifact = target ? { id: `${draft.id}-1`, category: 'finding' as const, title, fields: { statement: body }, body, repoUrl, target, selected: true } : undefined;
+  Object.assign(draft, { artifacts: artifact ? [artifact] : [], title, body, generatedBody: body, repoUrl, target, destinationNote: '旧版整理结果已归入“结论与发现”。' });
 }
