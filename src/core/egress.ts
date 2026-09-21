@@ -14,7 +14,7 @@ type ClientOptions = UserEgressSettings & { accessCode: string; username: string
 const cleanFingerprint = (value: string) => value.toUpperCase().replace(/^SHA256:/, '').replace(/:/g, '');
 const safeDetail = (error: unknown) => {
   const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : '';
-  return ({ ECONNREFUSED: '目标拒绝连接', ETIMEDOUT: '连接超时', ENOTFOUND: '无法解析目标地址', EHOSTUNREACH: '无法到达目标' } as Record<string, string>)[code] || '连接失败';
+  return ({ ECONNREFUSED: '目标拒绝连接', ECONNRESET: '连接已重置', ETIMEDOUT: '连接超时', ENOTFOUND: '无法解析目标地址', EHOSTUNREACH: '无法到达目标' } as Record<string, string>)[code] || '连接失败';
 };
 const sameSecret = (actual: string, expected: string) => {
   const left = createHash('sha256').update(actual).digest(), right = createHash('sha256').update(expected).digest();
@@ -165,6 +165,7 @@ export class EgressRelay extends EventEmitter {
 
 export class EgressClientProxy extends EventEmitter {
   private server?: http.Server;
+  private connections = new Set<Duplex>();
   private localPort = 0;
   private statusValue: UserEgressStatus = { enabled: false, configured: false, running: false, detail: '使用本机网络直连', hasAccessCode: false };
   constructor(private config?: ClientOptions) { super(); this.refreshStatus(); }
@@ -191,19 +192,35 @@ export class EgressClientProxy extends EventEmitter {
     this.refreshStatus();
   }
   async stop() {
-    const server = this.server; this.server = undefined; this.localPort = 0; if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.refreshStatus({ available: undefined, checkedAt: undefined });
+    const server = this.server; this.server = undefined; this.localPort = 0;
+    for (const socket of this.connections) socket.destroy();
+    this.connections.clear();
+    if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.refreshStatus({ available: undefined, checkedAt: undefined });
   }
   async probe() {
     if (!this.config?.enabled) { this.refreshStatus(); return true; }
     const socket = await this.connectRelay({ kind: 'ping' }); socket.end(); this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: '管理端网络出口可用' }); return true;
   }
-  private connectRelay(request: Record<string, unknown>): Promise<tls.TLSSocket> {
+  private track<T extends Duplex>(socket: T): T {
+    if (!this.connections.has(socket)) {
+      this.connections.add(socket);
+      // Keep a listener for the complete lifetime, including gaps between handshake and piping.
+      socket.on('error', () => socket.destroy());
+      socket.once('close', () => this.connections.delete(socket));
+    }
+    return socket;
+  }
+  private connectRelay(request: Record<string, unknown>, signal?: AbortSignal): Promise<tls.TLSSocket> {
     const config = this.config; if (!config?.enabled || !config.accessCode) return Promise.reject(new Error('管理端网络出口尚未配置'));
+    if (signal?.aborted) return Promise.reject(new Error('连接已取消'));
     return new Promise((resolve, reject) => {
       let settled = false;
-      const socket = tls.connect({ host: config.host, port: config.port, rejectUnauthorized: false, servername: undefined });
-      const finish = (error?: Error, value?: tls.TLSSocket) => { if (settled) return; settled = true; clearTimeout(timer); error ? (socket.destroy(), reject(error)) : resolve(value!); };
+      const socket = this.track(tls.connect({ host: config.host, port: config.port, rejectUnauthorized: false, servername: undefined }));
+      const cancel = () => finish(new Error('连接已取消'));
+      const finish = (error?: Error, value?: tls.TLSSocket) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', cancel); error ? (socket.destroy(), reject(error)) : resolve(value!); };
       const timer = setTimeout(() => finish(new Error('连接管理端超时')), 15000);
+      signal?.addEventListener('abort', cancel, { once: true });
+      socket.once('close', () => finish(new Error('管理端连接已关闭')));
       socket.once('error', error => finish(new Error(safeDetail(error))));
       socket.once('secureConnect', async () => {
         const certificate = socket.getPeerCertificate();
@@ -217,14 +234,32 @@ export class EgressClientProxy extends EventEmitter {
     });
   }
   private async connectRequest(request: http.IncomingMessage, client: Duplex, head: Buffer) {
+    const controller = new AbortController();
+    let relay: tls.TLSSocket | undefined, closed = false, established = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true; controller.abort(); client.destroy(); relay?.destroy();
+    };
+    const failed = (error: Error) => {
+      if (!closed) this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: safeDetail(error) });
+      cleanup();
+    };
+    this.track(client);
+    client.once('error', failed); client.once('close', cleanup);
     try {
       const value = request.url || ''; const split = value.lastIndexOf(':'); if (split <= 0) throw new Error('目标地址无效');
       const host = value.slice(0, split).replace(/^\[|\]$/g, ''), port = Number(value.slice(split + 1));
-      const relay = await this.connectRelay({ kind: 'connect', host, port }); client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (head.length) relay.write(head); client.pipe(relay).pipe(client);
+      relay = this.track(await this.connectRelay({ kind: 'connect', host, port }, controller.signal));
+      if (closed || client.destroyed) { relay.destroy(); return; }
+      relay.once('error', failed); relay.once('close', cleanup);
+      client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); established = true;
+      if (head.length) relay.write(head); client.pipe(relay).pipe(client);
       this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: '管理端网络出口可用' });
     } catch (error) {
+      if (closed || client.destroyed) { cleanup(); return; }
       this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: error instanceof Error ? error.message : '管理端网络出口不可用' });
-      if (!client.destroyed) client.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+      if (established) cleanup();
+      else client.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n', cleanup);
     }
   }
 }
