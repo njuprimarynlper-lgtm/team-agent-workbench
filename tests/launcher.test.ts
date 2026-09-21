@@ -43,6 +43,19 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   await fs.writeFile(path.join(dir, 'package-lock.json'), '{}');
   const eventsPath = path.join(dir, 'events.jsonl');
   const runner = path.join(dir, 'npm-fixture.cjs');
+  const installerSource = String.raw`
+const fs = require('node:fs'), path = require('node:path');
+const root = process.cwd(), packageRoot = path.join(root, 'node_modules/electron');
+fs.appendFileSync(path.join(root, 'events.jsonl'), JSON.stringify({ step: 'electron-install', cwd: root }) + '\n');
+if (process.env.LAUNCHER_FAIL_STEP === 'electron') process.exit(18);
+if (process.env.LAUNCHER_EMPTY_BINARY === '1') process.exit(0);
+const electron = path.join(packageRoot, 'dist/electron.exe');
+if (!fs.existsSync(electron)) {
+  fs.copyFileSync(process.execPath, electron);
+}
+fs.writeFileSync(path.join(packageRoot, 'dist/version'), 'v44.3.0');
+fs.writeFileSync(path.join(packageRoot, 'path.txt'), 'electron.exe');
+`;
   await fs.writeFile(runner, `
 const fs = require('node:fs'), path = require('node:path');
 const root = process.cwd(), step = process.argv[2];
@@ -53,15 +66,14 @@ if (process.env.LAUNCHER_FAIL_STEP === step) process.exit(17);
 if (step === 'ci') {
   for (const name of ['electron/dist', 'esbuild', 'ssh2']) fs.mkdirSync(path.join(root, 'node_modules', name), { recursive: true });
   for (const name of ['esbuild', 'ssh2']) fs.writeFileSync(path.join(root, 'node_modules', name, 'package.json'), '{}');
-  const electron = path.join(root, 'node_modules/electron/dist/electron.exe');
-  if (!fs.existsSync(electron)) {
-    try { fs.linkSync(process.execPath, electron); } catch { fs.copyFileSync(process.execPath, electron); }
-  }
+  // Like Electron 44, npm installs only the package; a separate step installs its binary.
+  fs.writeFileSync(path.join(root, 'node_modules/electron/package.json'), JSON.stringify({ version: '44.3.0' }));
+  fs.writeFileSync(path.join(root, 'node_modules/electron/install.js'), ${JSON.stringify(installerSource)});
 } else if (step === 'run') {
   for (const edition of ['user', 'admin']) {
     const out = path.join(root, 'dist', edition); fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify({ main: 'main.cjs' }));
-    fs.writeFileSync(path.join(out, 'main.cjs'), 'require("node:fs").appendFileSync(' + JSON.stringify(path.join(root, 'events.jsonl')) + ', JSON.stringify({step:"launch", edition:' + JSON.stringify(edition) + ', cwd:process.cwd(), electronRunAsNode:process.env.ELECTRON_RUN_AS_NODE || ""})+"\\\\n")');
+    fs.writeFileSync(path.join(out, 'main.cjs'), 'require("node:fs").appendFileSync(' + JSON.stringify(path.join(root, 'events.jsonl')) + ', JSON.stringify({step:"launch", pid:process.pid, edition:' + JSON.stringify(edition) + ', cwd:process.cwd(), electronRunAsNode:process.env.ELECTRON_RUN_AS_NODE || ""})+"\\\\n")');
   }
 }
 `);
@@ -75,13 +87,18 @@ if (step === 'ci') {
     for (const name of await fs.readdir(logs).catch(() => [])) if (/\.log$|\.err$/.test(name)) error.message += '\n' + name + ': ' + await fs.readFile(path.join(logs, name), 'utf8');
     throw error;
   });
-  const events = async (): Promise<Array<{ step: string; edition?: string; cwd: string; electronRunAsNode?: string; args?: string[] }>> => {
+  const events = async (): Promise<Array<{ step: string; pid?: number; edition?: string; cwd: string; electronRunAsNode?: string; args?: string[] }>> => {
     const text = await fs.readFile(eventsPath, 'utf8').catch(() => '');
     return text.trim() ? text.trim().split('\n').map(line => JSON.parse(line)) : [];
   };
   const launched = async (count: number) => {
     for (let attempt = 0; attempt < 100; attempt++) {
-      if ((await events()).filter(e => e.step === 'launch').length >= count) return;
+      const launches = (await events()).filter(e => e.step === 'launch');
+      if (launches.length >= count) {
+        // The event is written before process exit. Wait for release of the Windows image lock.
+        try { process.kill(launches[count - 1].pid!, 0); }
+        catch (error: any) { if (error.code === 'ESRCH') return; throw error; }
+      }
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     assert.fail('Application did not start');
@@ -95,6 +112,7 @@ test('first launch installs locked dependencies; both editions start from paths 
   await f.run('admin'); await f.launched(2);
   const events = await f.events();
   assert.equal(events.filter(e => e.step === 'ci').length, 1);
+  assert.equal(events.filter(e => e.step === 'electron-install').length, 1);
   assert.equal(events.filter(e => e.step === 'run').length, 2);
   assert.deepEqual(events.filter(e => e.step === 'launch').map(e => e.edition), ['user', 'admin']);
   for (const e of events.filter(e => e.step === 'launch')) {
@@ -123,8 +141,49 @@ test('concurrent user and admin startup shares one dependency install', windows,
   await f.launched(2);
   const events = await f.events();
   assert.equal(events.filter(e => e.step === 'ci').length, 1);
+  assert.equal(events.filter(e => e.step === 'electron-install').length, 1);
   assert.equal(events.filter(e => e.step === 'run').length, 2);
   assert.deepEqual(events.filter(e => e.step === 'launch').map(e => e.edition).sort(), ['admin', 'user']);
+});
+
+test('Electron download failure retries only the binary and never launches an incomplete app', windows, async t => {
+  const f = await launcherFixture(t);
+  await assert.rejects(f.run('user', { LAUNCHER_FAIL_STEP: 'electron' }), /Electron 运行文件准备失败/);
+  assert.deepEqual((await f.events()).map(event => event.step), ['ci', 'electron-install']);
+  await f.run('admin'); await f.launched(1);
+  const events = await f.events();
+  assert.equal(events.filter(event => event.step === 'ci').length, 1);
+  assert.equal(events.filter(event => event.step === 'electron-install').length, 2);
+  assert.equal(events.filter(event => event.step === 'run').length, 1);
+});
+
+test('missing Electron executable, metadata and stale version are repaired without npm reinstall', windows, async t => {
+  const f = await launcherFixture(t);
+  await f.run('user'); await f.launched(1);
+  // Windows scanners can retain the executable briefly even after the child has exited.
+  for (let attempt = 0; ; attempt++) {
+    try { await fs.unlink(path.join(f.dir, 'node_modules/electron/dist/electron.exe')); break; }
+    catch (error: any) {
+      if (!['EBUSY', 'EPERM'].includes(error.code) || attempt === 20) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+  await f.run('admin'); await f.launched(2);
+  await fs.unlink(path.join(f.dir, 'node_modules/electron/path.txt'));
+  await f.run('user'); await f.launched(3);
+  await fs.writeFile(path.join(f.dir, 'node_modules/electron/dist/version'), '43.0.0');
+  await f.run('admin'); await f.launched(4);
+  const events = await f.events();
+  assert.equal(events.filter(event => event.step === 'ci').length, 1);
+  assert.equal(events.filter(event => event.step === 'electron-install').length, 4);
+});
+
+test('a successful Electron installer exit without runtime files still blocks build and launch', windows, async t => {
+  const f = await launcherFixture(t);
+  await assert.rejects(f.run('user', { LAUNCHER_EMPTY_BINARY: '1' }), /Electron 运行文件准备失败/);
+  assert.deepEqual((await f.events()).map(event => event.step), ['ci', 'electron-install']);
+  await f.run('user'); await f.launched(1);
+  assert.equal((await f.events()).filter(event => event.step === 'ci').length, 1);
 });
 
 test('missing Node.js gives an actionable error before installation or build', windows, async t => {

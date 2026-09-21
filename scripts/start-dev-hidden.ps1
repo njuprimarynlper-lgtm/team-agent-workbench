@@ -55,6 +55,39 @@ function Invoke-RuntimeProbe([string]$File, [string[]]$Arguments, [string]$Id) {
   return (Get-Content -LiteralPath $output -Raw)
 }
 
+function Test-ElectronRuntime {
+  $packageRoot = Join-Path $repoRoot 'node_modules\electron'
+  try {
+    $package = Get-Content -LiteralPath (Join-Path $packageRoot 'package.json') -Raw | ConvertFrom-Json
+    return (Test-Path -LiteralPath (Join-Path $packageRoot 'dist\electron.exe') -PathType Leaf) -and
+      ((Get-Content -LiteralPath (Join-Path $packageRoot 'path.txt') -Raw).Trim() -eq 'electron.exe') -and
+      ((Get-Content -LiteralPath (Join-Path $packageRoot 'dist\version') -Raw).Trim().TrimStart('v') -eq $package.version)
+  } catch { return $false }
+}
+
+function Install-ElectronRuntime {
+  if (Test-ElectronRuntime) { return }
+  $stdoutLog = Join-Path $logRoot "$Edition-$stamp-electron.log"
+  $script:stderrLog = Join-Path $logRoot "$Edition-$stamp-electron-error.log"
+  Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value 'Preparing Electron binary: node node_modules/electron/install.js'
+  # Electron 44 downloads on first use, not during npm ci. Use the installed package's
+  # own installer so its pinned version, checksum verification and cache are retained.
+  $installArguments = @()
+  if ($runtime.systemCa) { $installArguments += '--use-system-ca' }
+  $installArguments += '"node_modules\electron\install.js"'
+  $process = Start-Process -FilePath $nodePath `
+    -ArgumentList $installArguments `
+    -WorkingDirectory $repoRoot `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru `
+    -RedirectStandardOutput $stdoutLog `
+    -RedirectStandardError $script:stderrLog
+  if ($process.ExitCode -ne 0 -or -not (Test-ElectronRuntime)) {
+    throw 'Electron 运行文件准备失败。请查看详细日志，检查下载网络或文件权限后重新启动；已安装的 npm 依赖会保留。'
+  }
+}
+
 try {
   New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
   Set-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Edition: $Edition`r`nRepository: $repoRoot"
@@ -84,7 +117,7 @@ try {
       try {
         if (-not $candidate.Npm -or -not (Test-Path -LiteralPath $candidate.Node -PathType Leaf) -or -not (Test-Path -LiteralPath $candidate.Npm -PathType Leaf)) { throw 'node.exe 或 npm.cmd 不完整' }
         $env:PATH = (Split-Path -Parent $candidate.Node) + ';' + $originalPath
-        $info = Invoke-RuntimeProbe $candidate.Node @('-p', 'JSON.stringify({major:parseInt(process.versions.node),arch:process.arch})') "$probeNumber-node"
+        $info = Invoke-RuntimeProbe $candidate.Node @('-p', 'JSON.stringify({major:parseInt(process.versions.node),arch:process.arch,systemCa:process.allowedNodeEnvironmentFlags.has(\"--use-system-ca\")})') "$probeNumber-node"
         $runtime = $info | ConvertFrom-Json
         if ($runtime.major -lt 22 -or $runtime.arch -ne 'x64') { throw '需要 x64 Node.js 22 或更高版本' }
         $npmVersion = Invoke-RuntimeProbe $candidate.Npm @('--version') "$probeNumber-npm"
@@ -132,17 +165,15 @@ try {
   ) -join ':'
   $installedStamp = if (Test-Path -LiteralPath $dependencyStamp) { (Get-Content -LiteralPath $dependencyStamp -Raw).Trim() } else { '' }
   $electron = Join-Path $repoRoot 'node_modules\electron\dist\electron.exe'
-  $dependenciesReady = (Test-Path -LiteralPath $electron) -and
+  $dependenciesReady = (Test-Path -LiteralPath (Join-Path $repoRoot 'node_modules\electron\package.json')) -and
     (Test-Path -LiteralPath (Join-Path $repoRoot 'node_modules\esbuild\package.json')) -and
     (Test-Path -LiteralPath (Join-Path $repoRoot 'node_modules\ssh2\package.json'))
   if ($installedStamp -ne $expectedStamp -or -not $dependenciesReady) {
     Invoke-NpmStep 'install' @('ci', '--include=dev', '--include=optional', '--no-audit', '--no-fund')
-    if (-not (Test-Path -LiteralPath $electron)) {
-      throw 'Electron 运行文件未安装成功。请检查是否禁用了 npm 安装脚本或 Electron 下载，并重新启动。'
-    }
     Set-Content -LiteralPath $dependencyStamp -Encoding ASCII -Value $expectedStamp
   }
 
+  Install-ElectronRuntime
   Invoke-NpmStep 'build' @('run', 'build')
 
   $entry = Join-Path $repoRoot "dist\$Edition"
@@ -155,6 +186,8 @@ try {
   # Start-Process joins ArgumentList into one command line, so the path needs explicit quotes.
   Start-Process -FilePath $electron -ArgumentList @('"' + $entry + '"') -WorkingDirectory $repoRoot
 } catch {
+  # An error dialog may stay open indefinitely; it must not hold the other edition's lock.
+  if ($preparationLock) { $preparationLock.Dispose(); $preparationLock = $null }
   $message = "工作台未能启动。`r`n$($_.Exception.Message)`r`n`r`n启动日志：$launchLog`r`n详细日志：$stderrLog"
   if ($NoDialogs) {
     [Console]::Error.WriteLine($message)
