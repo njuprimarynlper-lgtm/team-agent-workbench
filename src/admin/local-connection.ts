@@ -32,6 +32,7 @@ export class LocalAdminConnection {
     this.changed(); return saved;
   }
   async operation(raw: AdminOperation) {
+    if (raw.op === "environment_prepare") throw new Error("本地模拟共享区无需安装服务器组件");
     const request = adminOperationSchema.parse(raw);
     if (!this.snapshot.connected) throw new Error('请先连接本地共享区');
     if (this.snapshot.busy) throw new Error('请等待当前管理操作完成');

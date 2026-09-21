@@ -31,7 +31,7 @@ class ContentRules(unittest.TestCase):
             'bob': {'enabled': True, 'groups': ['relation', 'ocr'], 'contentAdminGroups': ['ocr']},
             'carol': {'enabled': True, 'groups': ['ocr'], 'contentAdminGroups': []}},
             'groups': {g: {'workspace': 'projects/' + g, 'gid': 100} for g in ['relation', 'ocr']}}
-        for mock in [patch.object(content.os, 'chown', create=True), patch.object(content.os, 'chmod'), patch.object(content.subprocess, 'run')]:
+        for mock in [patch.object(content.os, 'chown', create=True), patch.object(content.os, 'chmod'), patch.object(content.shutil, 'which', return_value='setfacl'), patch.object(content.subprocess, 'run')]:
             mock.start(); self.addCleanup(mock.stop)
         self.project = self.call('alice', op='create_project', name='实体抽取', groupName='relation', brief=BRIEF)['projectId']
         self.directory = self.root / 'projects/relation/实体抽取'
@@ -176,8 +176,40 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(ValueError): self.call('alice', op='adopt_content', target='/projects/relation/实体抽取/.workbench-project.json')
         with self.assertRaises(ValueError): self.call('alice', op='adopt_content', target='/projects/ocr')
 
-@unittest.skipUnless(sys.platform == 'linux' and getattr(os, 'geteuid', lambda: 1)() == 0 and shutil.which('setfacl'), 'requires Linux root and acl tools; Windows does not verify kernel permissions')
+@unittest.skipUnless(sys.platform == 'linux' and getattr(os, 'geteuid', lambda: 1)() == 0 and content.acl_backend(), 'requires Linux root and ACL support; Windows does not verify kernel permissions')
 class LinuxKernelPermissions(unittest.TestCase):
+    def test_libacl_keeps_public_files_read_only_and_groups_isolated(self):
+        with patch.object(content.shutil, 'which', return_value=None):
+            self.test_members_read_but_cannot_chmod_write_unlink_or_cross_groups()
+
+    def test_libacl_private_inbox_and_read_only_receipt(self):
+        with tempfile.TemporaryDirectory(prefix='team-agent-libacl-') as temp, patch.object(content.shutil, 'which', return_value=None):
+            root = pathlib.Path(temp); os.chmod(root, 0o755)
+            uid = 400000 + os.getpid(); other = uid + 1
+            inbox = root / 'inbox'; outbox = root / 'outbox'
+            inbox.mkdir(mode=0o700); outbox.mkdir(mode=0o700)
+            content.acl_apply(['-m', 'u:' + str(uid) + ':rwx', str(inbox)])
+            content.acl_apply(['-m', 'u:' + str(uid) + ':r-x', str(outbox)])
+            receipt = outbox / 'receipt'; receipt.write_text('ok'); os.chmod(receipt, 0o600)
+            content.acl_apply(['-m', 'u:' + str(uid) + ':r--', str(receipt)])
+            for actor in (uid, other):
+                pid = os.fork()
+                if pid == 0:
+                    try:
+                        os.setgroups([]); os.setgid(actor); os.setuid(actor)
+                        if actor == uid:
+                            (inbox / 'request').write_text('request')
+                            assert receipt.read_text() == 'ok'
+                            denied = [lambda: receipt.write_text('fake'), lambda: receipt.unlink(), lambda: os.chmod(inbox, 0o777)]
+                        else:
+                            denied = [lambda: (inbox / 'request').read_text(), lambda: receipt.read_text()]
+                        for action in denied:
+                            try: action(); os._exit(2)
+                            except PermissionError: pass
+                        os._exit(0)
+                    except BaseException: os._exit(3)
+                _, status = os.waitpid(pid, 0); self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+
     def test_members_read_but_cannot_chmod_write_unlink_or_cross_groups(self):
         # No host accounts are created. Fork drops to unused numerical UID/GIDs.
         with tempfile.TemporaryDirectory(prefix='team-agent-acl-') as temp:

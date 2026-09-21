@@ -16,7 +16,7 @@ export type ManagedUser = { username: string; systemUsername?: string; name: str
 export type ManagedGroup = AdminState['groups'][string];
 export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string };
 export type AdminState = { initialized: boolean; bootstrapPending?: boolean; operations?: Record<string, AdminJob>; storageVersion?: number; teamId?: string; loginGroup?: string; sftpConfigured?: boolean; users: Record<string, ManagedUser>; groups: Record<string, { name: string; label: string; adminGroup: string; workspace?: string; provisioning?: boolean }> };
-export type AdminSnapshot = { profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[]; egress?: AdminEgressSnapshot };
+export type AdminSnapshot = { profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator' | 'project_admin'; contentGroups?: { id: string; name: string }[]; state?: AdminState; missingCommands?: string[]; setupIssues?: string[]; setupNotes?: string[]; aclBackend?: 'setfacl' | 'libacl' | null; serviceManager?: 'systemd' | 'supervisor' | null; egress?: AdminEgressSnapshot };
 export type StorageMetrics = { bytes: number; files: number; directories: number; directBytes: number; modifiedAt?: string };
 export type StorageCategoryKey = 'submissions' | 'trajectories' | 'curated' | 'project' | 'system' | 'unassigned';
 export type StorageCategoryUsage = StorageMetrics & { key: StorageCategoryKey; label: string };
@@ -43,6 +43,7 @@ export const nameSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/, '系统组
 export const groupLabelSchema = z.string().max(48).transform(value => value.normalize('NFC')).refine(value => groupLabelPattern.test(value), groupLabelMessage);
 const password = accountPasswordSchema;
 export const adminOperationSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('environment_prepare'), source: z.enum(['online', 'offline']), packageDirectory: z.string().max(2048).optional() }).refine(value => value.source !== 'offline' || !!value.packageDirectory?.startsWith('/'), '请填写服务器上的离线软件包绝对目录'),
   z.object({ op: z.literal('status') }), z.object({ op: z.literal('initialize') }), z.object({ op: z.literal('storage_upgrade') }),
   z.object({ op: z.literal('user_create'), username: accountNameSchema, name: z.string().max(120), password, groups: z.array(nameSchema).optional(), contentAdminGroups: z.array(nameSchema).optional() }),
   z.object({ op: z.literal('recover'), operationId: z.string().min(1).max(160), password: password.optional() }),

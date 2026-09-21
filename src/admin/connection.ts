@@ -16,8 +16,9 @@ export class AdminConnection {
   disconnect() { this.client?.end(); this.client = undefined; this.sudoPassword = ''; this.rawReady = false; this.snapshot = { profile: this.snapshot.profile, connected: false, verified: false, busy: false }; this.changed(); }
   async connect(profile: AdminProfile, password: string, sudoPassword: string, trust: (key: string) => Promise<boolean>, login = profile.username): Promise<AdminProfile> {
     this.disconnect();
-    const worker = deflateSync(await fs.readFile(path.join(path.dirname(this.scriptPath), 'content.py'))).toString('base64');
-    this.code = deflateSync(Buffer.concat([Buffer.from("CONTENT_WORKER_ZLIB_BASE64 = '" + worker + "'\n"), await fs.readFile(this.scriptPath)])).toString('base64');
+    const acl = await fs.readFile(path.join(path.dirname(this.scriptPath), 'acl_support.py'));
+    const worker = deflateSync(Buffer.concat([acl, Buffer.from('\n'), await fs.readFile(path.join(path.dirname(this.scriptPath), 'content.py'))])).toString('base64');
+    this.code = deflateSync(Buffer.concat([acl, Buffer.from("\n"), Buffer.from("CONTENT_WORKER_ZLIB_BASE64 = '" + worker + "'\n"), await fs.readFile(this.scriptPath)])).toString('base64');
     const client = new Client(); this.client = client; this.sudoPassword = sudoPassword || password;
     try {
       let fingerprint = '', identityChanged = false, firstConnectionCancelled = false;
@@ -48,7 +49,7 @@ export class AdminConnection {
       const uid = await this.simple('id -u');
       const probe = await this.execute({ op: 'probe' }, uid.trim() !== '0');
       if (!probe.administrator) throw new Error('服务器未验证管理员权限');
-      this.snapshot = { ...this.snapshot, connected: true, verified: true, role: 'administrator', actor: probe.actor, missingCommands: probe.missingCommands };
+      this.snapshot = { ...this.snapshot, connected: true, verified: true, role: 'administrator', actor: probe.actor, missingCommands: probe.missingCommands, setupIssues: probe.setupIssues, setupNotes: probe.setupNotes, aclBackend: probe.aclBackend, serviceManager: probe.serviceManager };
       this.useSudo = uid.trim() !== '0';
       this.snapshot.state = await this.execute({ op: 'status' }, this.useSudo);
       this.changed(); return this.snapshot.profile!;
@@ -144,10 +145,25 @@ export class AdminConnection {
     if (!this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以管理用户和用户组');
     if (this.snapshot.busy) throw new Error('已有管理操作正在执行，请等待结果');
     this.snapshot.busy = true; this.changed();
-    try { const result = await this.execute(payload, this.useSudo); this.snapshot.state = payload.op === 'status' ? result : result.state; return result; }
+    try {
+      if (payload.op === 'status') {
+        const probe = await this.execute({ op: 'probe' }, this.useSudo);
+        Object.assign(this.snapshot, { missingCommands: probe.missingCommands, setupIssues: probe.setupIssues, setupNotes: probe.setupNotes, aclBackend: probe.aclBackend, serviceManager: probe.serviceManager });
+      }
+      const result = await this.execute(payload, this.useSudo, undefined, payload.op === 'environment_prepare' ? 25 * 60 * 1000 : 90000);
+      if (payload.op === 'environment_prepare') {
+        Object.assign(this.snapshot, result.environment);
+        this.snapshot.state = await this.execute({ op: 'status' }, this.useSudo);
+      } else this.snapshot.state = payload.op === 'status' ? result : result.state;
+      return result;
+    }
     catch (error) {
       // The server may have completed only some steps. Refresh before offering recovery.
-      try { this.snapshot.state = await this.execute({ op: 'status' }, this.useSudo); } catch { this.snapshot.state = undefined; }
+      try {
+        const probe = await this.execute({ op: 'probe' }, this.useSudo);
+        Object.assign(this.snapshot, { missingCommands: probe.missingCommands, setupIssues: probe.setupIssues, setupNotes: probe.setupNotes, aclBackend: probe.aclBackend, serviceManager: probe.serviceManager });
+        this.snapshot.state = await this.execute({ op: 'status' }, this.useSudo);
+      } catch { this.snapshot.state = undefined; }
       throw error;
     }
     finally { this.snapshot.busy = false; this.changed(); }

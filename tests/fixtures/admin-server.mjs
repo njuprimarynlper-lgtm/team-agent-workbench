@@ -6,7 +6,7 @@ export async function adminServer() {
   const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
   const fingerprint = 'SHA256:' + createHash('sha256').update(utils.parseKey(key).getPublicSSH()).digest('base64').replace(/=+$/, '');
   const state = { initialized: true, teamId: 'test', loginGroup: 'wb_test_members', sftpConfigured: true, storageVersion: 1, users: {}, groups: { wb_test_ocr: { name: 'wb_test_ocr', label: 'ocr', adminGroup: 'wb_test_ocr_admin', workspace: '/projects/ocr' } }, operations: {} };
-  const requests = [], clients = [], control = { failGroup: true };
+  const requests = [], clients = [], control = { failEnvironment: false, failGroup: true, missingCommands: [], setupIssues: [] };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
     client.on('authentication', ctx => ctx.method === 'password' && ctx.username === 'root' && ctx.password === 'test-password' ? ctx.accept() : ctx.reject());
@@ -22,7 +22,15 @@ export async function adminServer() {
           const line = buffer.slice(0, index); buffer = '';
           if (!programReceived) { programReceived = true; channel.write('WORKBENCH_READY\n'); return; }
           const request = JSON.parse(line); requests.push(request);
-          if (request.op === 'probe') { finish(true, { administrator: true, actor: 'root', missingCommands: [] }); return; }
+          if (request.op === 'probe') { finish(true, { administrator: true, actor: 'root', missingCommands: control.missingCommands, setupIssues: control.setupIssues, serviceManager: 'systemd' }); return; }
+          if (request.op === 'environment_prepare') {
+            if (control.failEnvironment) { control.failEnvironment = false; finish(false, null, '测试：离线包依赖不完整，修复后可重试'); return; }
+            setTimeout(() => {
+              control.missingCommands = []; control.setupIssues = [];
+              finish(true, { environment: { missingCommands: [], setupIssues: [], setupNotes: [], aclBackend: 'libacl', serviceManager: 'systemd' }, preparedPackages: ['acl'] });
+            }, 300);
+            return;
+          }
           if (request.op === 'status') { finish(true, state); return; }
           if (request.op === 'group_create' && control.failGroup) {
             control.failGroup = false;
@@ -52,5 +60,5 @@ export async function adminServer() {
     }));
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  return { state, requests, profile: { host: '127.0.0.1', port: server.address().port, username: 'root', fingerprint, root: '/srv/teamspace' }, close: async () => { clients.forEach(c => c.end()); await new Promise(resolve => server.close(resolve)); } };
+  return { state, requests, control, profile: { host: '127.0.0.1', port: server.address().port, username: 'root', fingerprint, root: '/srv/teamspace' }, close: async () => { clients.forEach(c => c.end()); await new Promise(resolve => server.close(resolve)); } };
 }

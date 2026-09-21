@@ -21,8 +21,253 @@ import uuid
 import contextlib
 import unicodedata
 import zlib
+import configparser
+import tempfile
 
-OPS = {"probe", "initialize", "status", "storage_usage", "storage_upgrade", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
+if "acl_apply" not in globals():
+    exec(compile(pathlib.Path(__file__).with_name("acl_support.py").read_text(encoding="utf-8"), "acl_support.py", "exec"))
+
+OPS = {"probe", "environment_prepare", "initialize", "status", "storage_usage", "storage_upgrade", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
+REQUIRED_COMMANDS = ["useradd", "usermod", "groupadd", "gpasswd", "chpasswd", "pkill", "sshd", "setfacl"]
+MANAGED_SUPERVISOR = pathlib.Path('/etc/team-agent-workbench')
+SUPERVISOR_CONFIGS = [pathlib.Path('/etc/supervisor/supervisord.conf'), pathlib.Path('/etc/supervisord.conf'), MANAGED_SUPERVISOR / 'supervisord.conf']
+SYSTEMD_UNITS = pathlib.Path('/etc/systemd/system')
+INIT_SCRIPTS = pathlib.Path('/etc/init.d')
+
+
+def systemd_running():
+    try:
+        return bool(shutil.which('systemctl')) and pathlib.Path('/proc/1/comm').read_text().strip() == 'systemd'
+    except OSError:
+        return False
+
+
+def trusted_service_path(path):
+    """Check both sides of root-controlled links such as Ubuntu's /var/run -> /run."""
+    pending, checked = [path], set()
+    while pending:
+        current = pending.pop()
+        for item in [current, *current.parents]:
+            if item in checked:
+                continue
+            checked.add(item)
+            info = item.lstat()
+            link = stat.S_ISLNK(info.st_mode)
+            if info.st_uid != 0 or (not link and info.st_mode & 0o022):
+                raise ValueError('服务配置必须位于 root 拥有且其他账号不可写的目录：' + str(item))
+            if link:
+                target = item.readlink()
+                pending.append(target if target.is_absolute() else item.parent / target)
+    try:
+        path.resolve(strict=True)
+    except RuntimeError as error:
+        raise ValueError('服务配置包含循环链接') from error
+
+
+def service_backend():
+    if systemd_running():
+        return {'kind': 'systemd'}
+    ctl = shutil.which('supervisorctl')
+    if ctl:
+        for config in SUPERVISOR_CONFIGS:
+            if not config.is_file():
+                continue
+            trusted_service_path(config)
+            parser = configparser.RawConfigParser()
+            parser.read(config, encoding='utf-8')
+            # Never send root service-management commands to a remote Supervisor endpoint.
+            url = parser.get('supervisorctl', 'serverurl', fallback='')
+            if not url.startswith('unix://'):
+                continue
+            socket = pathlib.Path(url[len('unix://'):].replace('%(here)s', str(config.parent)))
+            if not socket.exists():
+                continue
+            trusted_service_path(socket)
+            if not stat.S_ISSOCK(socket.stat().st_mode):
+                continue
+            result = subprocess.run([ctl, '-c', str(config), 'pid'], capture_output=True, text=True, timeout=5)
+            if result.returncode or not result.stdout.strip().isdigit() or int(result.stdout.strip()) <= 1:
+                continue
+            includes = parser.get('include', 'files', fallback='').replace('%(here)s', str(config.parent))
+            for pattern in shlex.split(includes):
+                candidate = pathlib.Path(pattern)
+                if not candidate.is_absolute():
+                    candidate = config.parent / candidate
+                if candidate.name not in ('*.conf', '*.ini') or any(c in str(candidate.parent) for c in '*?[]'):
+                    continue
+                if not candidate.parent.is_dir():
+                    continue
+                trusted_service_path(candidate.parent)
+                return {'kind': 'supervisor', 'command': ctl, 'config': str(config), 'directory': str(candidate.parent), 'suffix': candidate.suffix, 'managed': config == MANAGED_SUPERVISOR / 'supervisord.conf'}
+    raise ValueError('未检测到运行中的 systemd 或可管理的 Supervisor。容器请启动 Supervisor，使用 root 保护的本机 Unix socket，并在主配置的 [include] 中加载 conf.d/*.conf；容器启动命令也须启动同一 Supervisor。当前未配置成员接入。')
+
+
+def acl_install_hint():
+    try:
+        values = dict(line.split('=', 1) for line in pathlib.Path('/etc/os-release').read_text().splitlines() if '=' in line)
+        family = (values.get('ID', '') + ' ' + values.get('ID_LIKE', '')).replace('"', '').lower()
+    except OSError:
+        family = ''
+    if any(name in family.split() for name in ('ubuntu', 'debian')):
+        return 'sudo apt-get update && sudo apt-get install -y acl'
+    if any(name in family.split() for name in ('fedora', 'rhel', 'centos', 'rocky', 'almalinux')):
+        return 'sudo dnf install -y acl'
+    if 'alpine' in family.split():
+        return 'sudo apk add acl'
+    return '安装发行版的 acl 软件包（Debian/Ubuntu：sudo apt-get install -y acl）'
+
+
+def environment_probe():
+    missing = [name for name in REQUIRED_COMMANDS if not (acl_backend() if name == 'setfacl' else shutil.which(name))]
+    issues = []
+    if 'setfacl' in missing:
+        issues.append('缺少 ACL 工具，暂时无法准备团队目录。请在服务器执行：' + acl_install_hint() + '；安装后点击“重新检查环境”。')
+    other = [name for name in missing if name != 'setfacl']
+    if other:
+        issues.append('缺少系统命令：' + '、'.join(other) + '。请安装 OpenSSH、shadow/passwd、procps 软件包。')
+    manager = None
+    notes = []
+    try:
+        backend = service_backend()
+        manager = backend['kind']
+        if manager != 'systemd':
+            ssh_reload_command(backend)
+        if backend.get('managed'):
+            notes.append('文件服务使用专用 Supervisor。服务器或容器重启后，需要由启动流程执行 /etc/team-agent-workbench/start-supervisor.sh；当前仅确认本次运行可用。')
+    except (ValueError, OSError, configparser.Error, subprocess.SubprocessError) as error:
+        issues.append(str(error))
+    return {'missingCommands': missing, 'setupIssues': issues, 'setupNotes': notes, 'serviceManager': manager, 'aclBackend': acl_backend()}
+
+
+def environment_command(command, timeout=600):
+    # Package output is never forwarded into the JSON protocol, and may contain proxy URLs.
+    with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as output:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                                env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive'}, timeout=timeout)
+        if result.returncode:
+            raise RuntimeError('环境准备命令失败（退出码 ' + str(result.returncode) + '）：' + pathlib.Path(command[0]).name + '。请检查软件源、离线包依赖或软件包管理器锁；修复后可重试。')
+
+
+def prepare_supervisor():
+    try:
+        return service_backend()
+    except ValueError:
+        pass
+    supervisor = shutil.which('supervisord')
+    if not supervisor or not shutil.which('supervisorctl'):
+        raise ValueError('Supervisor 尚未安装完整，请补齐 supervisor 软件包。')
+    # A dedicated instance never restarts or changes the Supervisor that runs SSH.
+    trusted_service_path(MANAGED_SUPERVISOR if MANAGED_SUPERVISOR.exists() else MANAGED_SUPERVISOR.parent)
+    MANAGED_SUPERVISOR.mkdir(mode=0o700, exist_ok=True)
+    include = MANAGED_SUPERVISOR / 'conf.d'; include.mkdir(mode=0o700, exist_ok=True); trusted_service_path(include)
+    runtime = pathlib.Path('/run/team-agent-workbench')
+    trusted_service_path(runtime if runtime.exists() else runtime.parent)
+    runtime.mkdir(mode=0o700, exist_ok=True)
+    config = MANAGED_SUPERVISOR / 'supervisord.conf'
+    body = ('[unix_http_server]\nfile=/run/team-agent-workbench/supervisor.sock\nchmod=0700\n'
+            '[supervisord]\npidfile=/run/team-agent-workbench/supervisord.pid\nlogfile=/run/team-agent-workbench/supervisord.log\n'
+            'logfile_maxbytes=5MB\nlogfile_backups=2\nchildlogdir=/run/team-agent-workbench\n'
+            '[rpcinterface:supervisor]\nsupervisor.rpcinterface_factory=supervisor.rpcinterface:make_main_rpcinterface\n'
+            '[supervisorctl]\nserverurl=unix:///run/team-agent-workbench/supervisor.sock\n'
+            '[include]\nfiles=' + str(include) + '/*.conf\n')
+    if config.exists():
+        trusted_service_path(config)
+        if config.read_text(encoding='utf-8') != body:
+            raise ValueError('专用 Supervisor 配置已被修改，不会覆盖；请核对配置。')
+    else:
+        with config.open('x', encoding='utf-8') as handle: handle.write(body)
+        os.chmod(config, 0o600)
+    script = MANAGED_SUPERVISOR / 'start-supervisor.sh'
+    script_body = ('#!/bin/sh\nset -eu\numask 077\ninstall -d -m 700 /run/team-agent-workbench\n'
+                   + shlex.quote(shutil.which('supervisorctl')) + ' -c ' + shlex.quote(str(config)) + ' pid >/dev/null 2>&1 && exit 0\n'
+                   + 'exec ' + shlex.quote(supervisor) + ' -c ' + shlex.quote(str(config)) + '\n')
+    if script.exists():
+        trusted_service_path(script)
+        if script.read_text(encoding='utf-8') != script_body: raise ValueError('专用 Supervisor 启动脚本已被修改，不会覆盖。')
+    else:
+        with script.open('x', encoding='utf-8') as handle: handle.write(script_body)
+        os.chmod(script, 0o700)
+    environment_command(['/bin/sh', str(script)], timeout=30)
+    return service_backend()
+
+
+def prepare_environment(request):
+    source = request.get('source')
+    if source not in ('online', 'offline'): raise ValueError('请选择在线或离线准备方式')
+    # Online preparation requests only optional components; an offline directory is an explicit package bundle.
+    packages = []
+    if not acl_backend(): packages.append('acl')
+    try: service_backend()
+    except ValueError:
+        if not shutil.which('supervisord') or not shutil.which('supervisorctl'): packages.append('supervisor')
+    if packages:
+        apt = shutil.which('apt-get')
+        if not apt:
+            raise ValueError('自动安装目前支持 Debian/Ubuntu 的 apt-get。其他发行版请安装 acl / supervisor 后重新检查。')
+        base = [apt, '-y', '--no-remove', '-o', 'Dpkg::Options::=--force-confold']
+        if source == 'online':
+            environment_command([apt, '-o', 'APT::Update::Error-Mode=any', 'update'])
+            environment_command(base + ['install', *packages])
+        else:
+            raw = request.get('packageDirectory', '')
+            if not isinstance(raw, str) or not raw.startswith('/') or any(c in raw for c in '\x00\n\r'):
+                raise ValueError('请填写服务器上的离线软件包绝对目录')
+            directory = pathlib.Path(raw)
+            trusted_service_path(directory)
+            files = sorted(directory.glob('*.deb'))
+            if not files or len(files) > 200: raise ValueError('离线目录需要包含 1–200 个与服务器版本、架构匹配的 .deb 包及依赖')
+            for file in files:
+                trusted_service_path(file)
+                if not file.is_file() or file.is_symlink(): raise ValueError('离线包必须是普通文件')
+            # apt resolves all local dependency files together; no repository downloads or removal.
+            environment_command(base + ['--no-download', 'install', *map(str, files), *packages])
+    if not systemd_running(): prepare_supervisor()
+    return {'environment': environment_probe(), 'preparedPackages': packages}
+
+
+def ssh_reload_command(backend):
+    if backend['kind'] == 'systemd':
+        for name in ('sshd', 'ssh'):
+            result = subprocess.run(['systemctl', 'is-active', '--quiet', name], capture_output=True, timeout=5)
+            if result.returncode == 0:
+                return ['systemctl', 'reload', name]
+        raise ValueError('未找到运行中的 ssh/sshd 服务，请先检查 SSH 服务状态。')
+    service = shutil.which('service')
+    if service:
+        for name in ('ssh', 'sshd'):
+            script = INIT_SCRIPTS / name
+            if script.is_file():
+                trusted_service_path(script)
+                return [service, name, 'reload']
+    raise ValueError('当前容器缺少受支持的 SSH 重载入口，需要 service 以及 /etc/init.d/ssh 或 sshd。不会自动重启或终止 SSH。')
+
+
+def activate_content_worker(root, program, name, backend):
+    python = shutil.which('python3') or '/usr/bin/python3'
+    if backend['kind'] == 'systemd':
+        unit = SYSTEMD_UNITS / (name + '.service')
+        trusted_service_path(unit if unit.exists() else unit.parent)
+        unit.write_text('[Unit]\nDescription=Team Agent restricted file operations\nAfter=local-fs.target\n[Service]\nType=simple\nExecStart="' + python.replace('%', '%%') + '" -I "' + str(program).replace('%', '%%') + '" "' + str(root).replace('%', '%%') + '"\nRestart=on-failure\nUMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\n[Install]\nWantedBy=multi-user.target\n', encoding='utf-8')
+        run(['systemctl', 'daemon-reload'])
+        run(['systemctl', 'enable', '--now', name])
+        run(['systemctl', 'restart', name])
+        run(['systemctl', 'is-active', '--quiet', name])
+    else:
+        config = pathlib.Path(backend['directory']) / (name + backend['suffix'])
+        trusted_service_path(config if config.exists() else config.parent)
+        # Supervisor parses '%' even inside quotes. Avoid its inline ';' comment delimiter.
+        if any(c in str(value) for value in (python, program, root) for c in ';\n\r"'):
+            raise ValueError('Supervisor 托管路径不能包含分号、双引号或换行，请换用规范的团队目录。')
+        command = ' '.join('"' + str(value).replace('%', '%%') + '"' for value in (python, '-I', program, root))
+        config.write_text('[program:' + name + ']\ncommand=' + command + '\nuser=root\nautostart=true\nautorestart=true\nstartsecs=1\nstartretries=3\nstopasgroup=true\nkillasgroup=true\numask=0077\nredirect_stderr=true\nstdout_logfile=' + str(program.parent / 'storage-worker.log').replace('%', '%%') + '\nstdout_logfile_maxbytes=5MB\nstdout_logfile_backups=2\n', encoding='utf-8')
+        os.chmod(config, 0o600)
+        ctl = [backend['command'], '-c', backend['config']]
+        run(ctl + ['reread'])
+        run(ctl + ['update', name])
+        run(ctl + ['restart', name])
+        status = run(ctl + ['status', name]).split()
+        if len(status) < 2 or status[0] != name or status[1] != 'RUNNING':
+            raise RuntimeError('文件服务未进入 RUNNING 状态，成员接入未标记完成；请检查 Supervisor 日志后恢复操作。')
 
 def validate_request(request):
     if not isinstance(request, dict) or request.get("op") not in OPS:
@@ -83,6 +328,8 @@ def check_password(password):
     return password
 
 def run(args, data=None, allowed=(0,)):
+    if args[0] == "setfacl":
+        return acl_apply(args[1:])
     result = subprocess.run(args, input=data, text=True, capture_output=True, timeout=30)
     if result.returncode not in allowed:
         # The command payload can contain an initial password on stdin; never log stdin.
@@ -458,7 +705,8 @@ def protect_public_tree(root, state):
             os.chmod(file, 0o2750 if file.is_dir() else 0o640)
 
 
-def install_content_worker(root, state, reconnect=True):
+def install_content_worker(root, state, reconnect=True, backend=None):
+    backend = backend or service_backend()
     encoded = globals().get('CONTENT_WORKER_ZLIB_BASE64') or globals().get('CONTENT_WORKER_BASE64')
     if not encoded:
         raise ValueError('管理员程序缺少文件操作器，请使用完整新版管理员包')
@@ -470,17 +718,12 @@ def install_content_worker(root, state, reconnect=True):
     prepare_request_directories(root, state)
     protect_public_tree(root, state)
     name = 'team-agent-storage-' + state['teamId']
-    unit = pathlib.Path('/etc/systemd/system') / (name + '.service')
-    python = shutil.which('python3') or '/usr/bin/python3'
-    # root path has already rejected quotes, newlines and backslashes.
-    unit.write_text('[Unit]\nDescription=Team Agent restricted file operations\nAfter=local-fs.target\n[Service]\nType=simple\nExecStart=' + python + ' -I "' + str(program).replace('%', '%%') + '" "' + str(root).replace('%', '%%') + '"\nRestart=on-failure\nUMask=0077\nNoNewPrivileges=true\nPrivateTmp=true\n[Install]\nWantedBy=multi-user.target\n')
-    run(['systemctl', 'daemon-reload'])
-    run(['systemctl', 'enable', '--now', name])
-    run(['systemctl', 'restart', name])
+    activate_content_worker(root, program, name, backend)
     for username, user in state['users'].items():
         if reconnect and user.get('enabled') and not user.get('provisioning'):
             terminate_connections(user_login(state, username))
     state['storageVersion'] = 1
+    state['storageServiceManager'] = backend['kind']
 
 
 def member_access_file(state):
@@ -552,6 +795,8 @@ def member_access_ready(root, state):
 
 def configure_member_access(root, state):
     """Install member login and storage plumbing as part of user creation."""
+    backend = service_backend()
+    reload_command = ssh_reload_command(backend)
     file = member_access_file(state)
     config_dir = file.parent
     config_dir.mkdir(exist_ok=True)
@@ -563,8 +808,7 @@ def configure_member_access(root, state):
         previous_main = enable_member_access_include(file, main_config)
         file.write_text(config, encoding="utf-8")
         run([shutil.which("sshd") or "/usr/sbin/sshd", "-t"])
-        unit = "sshd" if subprocess.run(["systemctl", "is-active", "--quiet", "sshd"]).returncode == 0 else "ssh"
-        run(["systemctl", "reload", unit])
+        run(reload_command)
     except Exception:
         if previous is None:
             file.unlink(missing_ok=True)
@@ -573,7 +817,7 @@ def configure_member_access(root, state):
         if previous_main is not None:
             main_config.write_text(previous_main, encoding="utf-8")
         raise
-    install_content_worker(root, state)
+    install_content_worker(root, state, backend=backend)
     state["sftpConfigured"] = True
 
 
@@ -582,7 +826,7 @@ def prepare_workspace(root, state, group_name):
     group = state["groups"].get(group_name)
     if not group:
         raise ValueError("用户组不属于此团队")
-    if not shutil.which("setfacl"):
+    if not acl_backend():
         raise ValueError("服务器缺少 setfacl，请先安装发行版的 acl 软件包")
     label = group_label(group.get("label"))
     target = child(root, "projects/" + label)
@@ -686,10 +930,11 @@ def _execute(request):
         raise PermissionError("需要已有的 Linux root 或 sudo 管理权限；安装管理员版不赋予服务器权限")
     root = root_directory(request)
     actor = os.environ.get("SUDO_USER") or "root"
-    required = ["useradd", "usermod", "groupadd", "gpasswd", "chpasswd", "pkill", "sshd"]
-    missing = [name for name in required if not shutil.which(name)]
+    if request['op'] == 'environment_prepare':
+        return prepare_environment(request)
+    missing = [name for name in REQUIRED_COMMANDS if not (acl_backend() if name == 'setfacl' else shutil.which(name))]
     if request["op"] == "probe":
-        return {"administrator": True, "actor": actor, "root": str(root), "missingCommands": missing, "initialized": (root / ".workbench/admin/state.json").is_file()}
+        return {"administrator": True, "actor": actor, "root": str(root), **environment_probe(), "initialized": (root / ".workbench/admin/state.json").is_file()}
     if request["op"] == "status" and not (root / ".workbench/admin/state.json").is_file():
         journal = bootstrap_file(root)
         return {"initialized": False, "users": {}, "groups": {}, "bootstrapPending": journal.exists()}
@@ -697,13 +942,15 @@ def _execute(request):
         if not (root / ".workbench/admin/state.json").is_file():
             raise ValueError("请先初始化团队空间")
         return storage_usage(root, load(root), request)
-    if missing:
-        raise ValueError("服务器缺少命令：" + ", ".join(missing) + "。请先安装发行版的 OpenSSH、shadow/passwd、procps 软件包。")
+    if missing and request['op'] != 'status':
+        hint = '；ACL 安装命令：' + acl_install_hint() if 'setfacl' in missing else ''
+        raise ValueError("服务器缺少命令：" + ", ".join(missing) + "。请先安装发行版的 OpenSSH、shadow/passwd、procps、acl 软件包" + hint)
     op = request["op"]
     if isinstance(request.get("label"), str):
         # Same visible name typed in a different Unicode form must land on one record, one journal key and one directory.
         request["label"] = unicodedata.normalize('NFC', request["label"])
     if op == "initialize":
+        service_backend()
         state = initialize(root, request)
     else:
         state = load(root)
@@ -716,7 +963,8 @@ def _execute(request):
     if op == "status":
         current = actual_state(state)
         current["sftpConfigured"] = member_access_ready(root, state)
-        write_roles(root, current)
+        if not missing:
+            write_roles(root, current)
         return current
     if op == "user_create":
         import pwd, grp
@@ -778,7 +1026,7 @@ def _execute(request):
         label = group_label(request.get("label"))
         name = "wb_" + state["teamId"] + "_" + group_slug(label)
         import grp
-        if not shutil.which("setfacl"):
+        if not acl_backend():
             raise ValueError("创建项目组工作目录需要 setfacl，请先安装发行版的 acl 软件包")
         record = state["groups"].get(name)
         if not record:
@@ -866,7 +1114,7 @@ def execute(request):
     try:
         return _execute(request)
     except Exception as error:
-        if request["op"] not in ["status", "probe", "storage_usage"]:
+        if request["op"] not in ["status", "probe", "storage_usage", "environment_prepare"]:
             try:
                 state = load(root)
                 key = operation_key(request)

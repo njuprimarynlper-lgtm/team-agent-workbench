@@ -471,6 +471,24 @@ class AdminRecoveryTests(unittest.TestCase):
         self.assertIn('成员登录能力已配置',created['operations']['user_create:alice']['completed'])
         access.assert_called_once_with(self.root,unittest.mock.ANY)
 
+    def test_failed_container_worker_start_can_recover_user_creation_without_duplicates(self):
+        state = admin.load(self.root); state['sftpConfigured'] = False; state['storageVersion'] = 0; admin.save(self.root, state)
+        with patch.object(admin, 'configure_member_access', side_effect=RuntimeError('Supervisor start failed')):
+            with self.assertRaisesRegex(RuntimeError, 'Supervisor start failed'):
+                self.execute('user_create', username='alice', name='Alice', password='1')
+        failed = admin.load(self.root)
+        self.assertEqual(failed['operations']['user_create:alice']['status'], 'failed')
+        self.assertFalse(failed['sftpConfigured']); self.assertEqual(failed['storageVersion'], 0)
+        self.assertNotIn('alice', self.users)
+        def recovered(root, current):
+            current['sftpConfigured'] = True; current['storageVersion'] = 1
+        with patch.object(admin, 'configure_member_access', side_effect=recovered):
+            self.execute('recover', operationId='user_create:alice', password='1')
+        result = admin.load(self.root)
+        self.assertEqual(result['operations']['user_create:alice']['status'], 'done')
+        self.assertFalse(result['users']['alice']['provisioning'])
+        self.assertEqual(sum(call[0] == 'useradd' for call in self.calls), 1)
+
     def test_stale_member_access_flag_is_rejected_when_ssh_rule_is_missing_or_changed(self):
         state=admin.load(self.root)
         config=self.root/'member-access.conf'

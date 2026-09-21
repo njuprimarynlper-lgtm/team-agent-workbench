@@ -46,6 +46,7 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   await fs.writeFile(runner, `
 const fs = require('node:fs'), path = require('node:path');
 const root = process.cwd(), step = process.argv[2];
+if (step === '--version') { console.log('11.0.0'); process.exit(0); }
 const event = value => fs.appendFileSync(path.join(root, 'events.jsonl'), JSON.stringify(value) + '\\n');
 event({ step, args: process.argv.slice(2), cwd: root });
 if (process.env.LAUNCHER_FAIL_STEP === step) process.exit(17);
@@ -69,7 +70,11 @@ if (step === 'ci') {
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
   env.Path = path.join(dir, 'bin') + path.delimiter + (process.env.Path || process.env.PATH);
   const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
-  const run = (edition: string, extra: NodeJS.ProcessEnv = {}) => exec(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(dir, 'scripts/start-dev-hidden.ps1'), edition, '-NoDialogs'], { cwd: os.tmpdir(), env: { ...env, ...extra }, windowsHide: true, timeout: 30000 });
+  const run = (edition: string, extra: NodeJS.ProcessEnv = {}) => exec(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(dir, 'scripts/start-dev-hidden.ps1'), edition, '-NoDialogs'], { cwd: os.tmpdir(), env: { ...env, ...extra }, windowsHide: true, timeout: 30000 }).catch(async error => {
+    const logs = path.join(dir, '.test-data/launcher');
+    for (const name of await fs.readdir(logs).catch(() => [])) if (/\.log$|\.err$/.test(name)) error.message += '\n' + name + ': ' + await fs.readFile(path.join(logs, name), 'utf8');
+    throw error;
+  });
   const events = async (): Promise<Array<{ step: string; edition?: string; cwd: string; electronRunAsNode?: string; args?: string[] }>> => {
     const text = await fs.readFile(eventsPath, 'utf8').catch(() => '');
     return text.trim() ? text.trim().split('\n').map(line => JSON.parse(line)) : [];
@@ -126,4 +131,54 @@ test('missing Node.js gives an actionable error before installation or build', w
   const f = await launcherFixture(t);
   await assert.rejects(f.run('user', { Path: path.join(f.dir, 'bin') }), /请先安装 64 位 Node.js/);
   assert.deepEqual(await f.events(), []);
+});
+
+test('both launchers find portable Node without system PATH and prefer the latest complete version', windows, async t => {
+  const f = await launcherFixture(t);
+  for (const version of ['24.9.0', '24.19.0', '25.0.0']) {
+    const dir = path.join(f.dir, '.tools', `node-v${version}-win-x64`); await fs.mkdir(dir, { recursive: true });
+    try { await fs.link(process.execPath, path.join(dir, 'node.exe')); } catch { await fs.copyFile(process.execPath, path.join(dir, 'node.exe')); }
+    if (version !== '25.0.0') await fs.copyFile(path.join(f.dir, 'bin/npm.cmd'), path.join(dir, 'npm.cmd'));
+  }
+  await f.run('user', { Path: path.join(f.dir, 'bin') }); await f.launched(1);
+  await f.run('admin', { Path: path.join(f.dir, 'bin') }); await f.launched(2);
+  const logs = path.join(f.dir, '.test-data/launcher');
+  const startup = (await fs.readdir(logs)).filter(name => /-\d+\.log$/.test(name));
+  assert.equal(startup.length, 2);
+  for (const name of startup) {
+    const text = await fs.readFile(path.join(logs, name), 'utf8');
+    assert.match(text, /Node: .*node-v24\.19\.0-win-x64\\node\.exe/);
+    assert.match(text, /Npm: .*node-v24\.19\.0-win-x64\\npm\.cmd/);
+  }
+});
+
+test('broken portable Node and broken npm fall through to a usable portable runtime', windows, async t => {
+  const f = await launcherFixture(t);
+  for (const version of ['24.7.0', '24.8.0', '24.9.0']) {
+    const dir = path.join(f.dir, '.tools', `node-v${version}-win-x64`); await fs.mkdir(dir, { recursive: true });
+    if (version === '24.9.0') await fs.writeFile(path.join(dir, 'node.exe'), 'not an executable');
+    else await fs.copyFile(process.execPath, path.join(dir, 'node.exe'));
+    if (version === '24.8.0') await fs.writeFile(path.join(dir, 'npm.cmd'), '@exit /b 27\r\n');
+    else await fs.copyFile(path.join(f.dir, 'bin/npm.cmd'), path.join(dir, 'npm.cmd'));
+  }
+  await f.run('user', { Path: path.join(f.dir, 'bin') }); await f.launched(1);
+  const files = await fs.readdir(path.join(f.dir, '.test-data/launcher'));
+  const log = await fs.readFile(path.join(f.dir, '.test-data/launcher', files.find(name => /user-.*-\d+\.log$/.test(name))!), 'utf8');
+  assert.match(log, /Skipped: .*24\.9\.0/); assert.match(log, /Skipped: .*24\.8\.0/);
+  assert.match(log, /Node: .*24\.7\.0/);
+  assert.equal((await f.events()).filter(event => event.step === 'ci').length, 1);
+});
+
+test('explicit offline Node directory works without system or project runtimes', windows, async t => {
+  const f = await launcherFixture(t), dir = path.join(f.dir, 'offline node'); await fs.mkdir(dir);
+  await fs.copyFile(process.execPath, path.join(dir, 'node.exe')); await fs.copyFile(path.join(f.dir, 'bin/npm.cmd'), path.join(dir, 'npm.cmd'));
+  await f.run('admin', { Path: path.join(f.dir, 'bin'), WORKBENCH_NODE_DIR: dir }); await f.launched(1);
+});
+
+test('broken project runtime falls back to system Node without changing persistent PATH', windows, async t => {
+  const f = await launcherFixture(t), dir = path.join(f.dir, '.tools/node-v24.99.0-win-x64'); await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, 'node.exe'), 'broken'); await fs.copyFile(path.join(f.dir, 'bin/npm.cmd'), path.join(dir, 'npm.cmd'));
+  const before = process.env.Path || process.env.PATH;
+  await f.run('user'); await f.launched(1);
+  assert.equal(process.env.Path || process.env.PATH, before);
 });

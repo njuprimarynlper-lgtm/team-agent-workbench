@@ -41,20 +41,76 @@ function Invoke-NpmStep([string]$Step, [string[]]$Arguments) {
   }
 }
 
+function Invoke-RuntimeProbe([string]$File, [string[]]$Arguments, [string]$Id) {
+  $output = Join-Path $logRoot "$Edition-$stamp-probe-$Id.out"
+  $errors = Join-Path $logRoot "$Edition-$stamp-probe-$Id.err"
+  $process = Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $repoRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $output -RedirectStandardError $errors
+  $probeHandle = $process.Handle # Retain the handle so Windows PowerShell 5 can read ExitCode after waiting.
+  if (-not $process.WaitForExit(10000)) {
+    & "$env:SystemRoot\System32\taskkill.exe" /PID $process.Id /T /F 2>&1 | Out-Null
+    throw '运行时自检超时'
+  }
+  $process.WaitForExit()
+  if ($process.ExitCode -ne 0) { throw '运行时自检失败' }
+  return (Get-Content -LiteralPath $output -Raw)
+}
+
 try {
   New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
   Set-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Edition: $Edition`r`nRepository: $repoRoot"
-  $node = Get-Command 'node.exe' -ErrorAction SilentlyContinue
-  $npmCommand = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
-  if (-not $node -or -not $npmCommand) {
-    throw '请先安装 64 位 Node.js 22 或更高版本，重新打开本启动入口。Node.js 安装时需包含 npm 并加入 PATH。'
+  $originalPath = $env:PATH
+  $candidates = @()
+  $portableRoot = Join-Path $repoRoot '.tools'
+  if (Test-Path -LiteralPath $portableRoot) {
+    $candidates += @(Get-ChildItem -LiteralPath $portableRoot -Directory -Filter 'node-v*-win-x64' |
+      Where-Object { $_.Name -match '^node-v(\d+\.\d+\.\d+)-win-x64$' } |
+      Sort-Object { [version]($_.Name -replace '^node-v|\-win-x64$', '') } -Descending |
+      ForEach-Object { @{ Node = (Join-Path $_.FullName 'node.exe'); Npm = (Join-Path $_.FullName 'npm.cmd') } })
   }
-  $npm = $npmCommand.Source
-  $nodeInfo = & $node.Source -p 'JSON.stringify({major:parseInt(process.versions.node),arch:process.arch})'
-  if ($LASTEXITCODE -ne 0) { throw 'Node.js 无法运行，请修复本机 Node.js 安装后重试。' }
-  $runtime = $nodeInfo | ConvertFrom-Json
-  if ($runtime.major -lt 22 -or $runtime.arch -ne 'x64') {
-    throw '请使用 64 位（x64）Node.js 22 或更高版本，然后重新打开本启动入口。'
+  $systemNpm = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
+  foreach ($nodeCommand in @(Get-Command 'node.exe' -All -ErrorAction SilentlyContinue)) {
+    $adjacentNpm = Join-Path (Split-Path -Parent $nodeCommand.Source) 'npm.cmd'
+    $candidates += @{ Node = $nodeCommand.Source; Npm = $(if ($systemNpm) { $systemNpm.Source } elseif (Test-Path -LiteralPath $adjacentNpm) { $adjacentNpm } else { '' }) }
+  }
+  $pathConfig = Join-Path $repoRoot '.tools/node-path.txt'
+  $customDirectory = $env:WORKBENCH_NODE_DIR
+  if (-not $customDirectory -and (Test-Path -LiteralPath $pathConfig)) { $customDirectory = (Get-Content -LiteralPath $pathConfig -Raw).Trim() }
+  if ($customDirectory) { $candidates += @{ Node = (Join-Path $customDirectory 'node.exe'); Npm = (Join-Path $customDirectory 'npm.cmd') } }
+  $selected = $false
+  $probeNumber = 0
+  while (-not $selected) {
+    foreach ($candidate in $candidates) {
+      $probeNumber++
+      try {
+        if (-not $candidate.Npm -or -not (Test-Path -LiteralPath $candidate.Node -PathType Leaf) -or -not (Test-Path -LiteralPath $candidate.Npm -PathType Leaf)) { throw 'node.exe 或 npm.cmd 不完整' }
+        $env:PATH = (Split-Path -Parent $candidate.Node) + ';' + $originalPath
+        $info = Invoke-RuntimeProbe $candidate.Node @('-p', 'JSON.stringify({major:parseInt(process.versions.node),arch:process.arch})') "$probeNumber-node"
+        $runtime = $info | ConvertFrom-Json
+        if ($runtime.major -lt 22 -or $runtime.arch -ne 'x64') { throw '需要 x64 Node.js 22 或更高版本' }
+        $npmVersion = Invoke-RuntimeProbe $candidate.Npm @('--version') "$probeNumber-npm"
+        if ($npmVersion.Trim() -notmatch '^\d+\.\d+\.\d+') { throw 'npm 无法正常运行' }
+        $nodePath = $candidate.Node; $npm = $candidate.Npm; $selected = $true
+        Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Node: $nodePath`r`nNpm: $npm"
+        break
+      } catch {
+        Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Skipped: $($candidate.Node) / $($_.Exception.Message)"
+        $env:PATH = $originalPath
+      }
+    }
+    if ($selected) { break }
+    if ($NoDialogs) { throw '请先安装 64 位 Node.js 22 或更高版本，或配置包含 node.exe 和 npm.cmd 的便携目录。所有候选均不可用，详见启动日志。' }
+    Add-Type -AssemblyName System.Windows.Forms
+    $choice = [System.Windows.Forms.MessageBox]::Show('未找到可运行的 Node.js 和 npm。是否选择已安装或已解压的离线 Node 目录？需要 x64 Node.js 22 或更高版本。', '准备启动环境', 'YesNo', 'Question')
+    if ($choice -ne [System.Windows.Forms.DialogResult]::Yes) { throw '尚未配置可用的 Node.js 和 npm。' }
+    $picker = New-Object System.Windows.Forms.FolderBrowserDialog
+    $picker.Description = '选择同时包含 node.exe 和 npm.cmd 的目录'
+    try {
+      if ($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { throw '已取消选择运行环境。' }
+      $customDirectory = $picker.SelectedPath
+    } finally { $picker.Dispose() }
+    New-Item -ItemType Directory -Force -Path $portableRoot | Out-Null
+    Set-Content -LiteralPath $pathConfig -Encoding UTF8 -Value $customDirectory
+    $candidates = @(@{ Node = (Join-Path $customDirectory 'node.exe'); Npm = (Join-Path $customDirectory 'npm.cmd') })
   }
 
   # Both editions share node_modules and dist; serialize preparation, not application lifetimes.

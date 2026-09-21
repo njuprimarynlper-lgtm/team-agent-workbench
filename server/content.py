@@ -17,6 +17,9 @@ import sys
 import time
 import uuid
 
+if "acl_apply" not in globals():
+    exec(compile(pathlib.Path(__file__).with_name("acl_support.py").read_text(encoding="utf-8"), "acl_support.py", "exec"))
+
 CONTRIBUTION_FOLDERS = {
     'experiment_result': 'experiments',
     'failed_direction': 'failed-directions',
@@ -103,7 +106,7 @@ def public_dir(directory, gid):
     for target in list(reversed(missing)) + ([] if directory in missing else [directory]):
         target.mkdir(exist_ok=True)
         os.chown(target, 0, gid)
-        subprocess.run(['setfacl', '-b', '-k', str(target)], check=True, capture_output=True)
+        acl_apply(['-b', '-k', str(target)])
         os.chmod(target, 0o2750)
 
 
@@ -476,7 +479,7 @@ def tick(root):
                     if receipt.exists():
                         os.chown(receipt, 0, 0)
                         os.chmod(receipt, 0o600)
-                        subprocess.run(['setfacl', '-m', 'u:' + str(user.get('uid', 0)) + ':r--', str(receipt)], check=True, capture_output=True)
+                        acl_apply(['-m', 'u:' + str(user.get('uid', 0)) + ':r--', str(receipt)])
                     request_file.unlink(missing_ok=True)
                     if staging:
                         staging.unlink(missing_ok=True)

@@ -26,10 +26,30 @@ test('only the local admin connection accepts omitted account and password', () 
   }
 });
 
+test('environment preparation accepts only fixed sources and requires an absolute offline server directory', () => {
+  assert.equal(adminOperationSchema.safeParse({ op: 'environment_prepare', source: 'shell' }).success, false);
+  assert.equal(adminOperationSchema.safeParse({ op: 'environment_prepare', source: 'offline', packageDirectory: 'C:/packages' }).success, false);
+  assert.equal(adminOperationSchema.safeParse({ op: 'environment_prepare', source: 'offline', packageDirectory: '/opt/packages' }).success, true);
+});
+
+test('environment preparation works before initialization and preserves administrator state', async () => {
+  const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  f.state.initialized = false;
+  try {
+    await remote.connect({ host: '127.0.0.1', port: f.port, username: 'root', root: '/srv/teamspace', fingerprint: '' }, 'login-secret', '', async () => true);
+    const before = structuredClone(remote.snapshot.state);
+    await remote.operation({ op: 'environment_prepare', source: 'offline', packageDirectory: '/opt/packages' });
+    assert.equal(remote.snapshot.aclBackend, 'libacl'); assert.deepEqual(remote.snapshot.state, before);
+    assert.equal(remote.snapshot.busy, false);
+    assert.equal(f.requests.filter(request => request.op === 'environment_prepare').length, 1);
+    assert(!f.requests.some(request => ['initialize', 'user_create', 'group_create'].includes(request.op)));
+  } finally { remote.disconnect(); await f.close(); }
+});
+
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
   const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true, storageVersion: 1 };
-  const control = { failNext: false, holdStorage: false, authenticationAttempts: 0 };
+  const control = { failNext: false, holdStorage: false, authenticationAttempts: 0, missingCommands: [] as string[], setupIssues: [] as string[] };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
     client.on('authentication', context => { if (context.method === 'password') control.authenticationAttempts++; context.method === 'password' && context.password === 'login-secret' && (!login || context.username === login) ? context.accept() : context.reject(); });
@@ -63,7 +83,7 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
               state.operations = { 'group_create:ocr': { id: 'group_create:ocr', op: 'group_create', request: { op: 'group_create', label: 'ocr' }, status: 'failed', completed: ['成员用户组已创建'], error: 'injected failure' } };
               channel.write(JSON.stringify({ ok: false, error: 'injected failure' }) + '\n'); channel.exit(1); channel.end(); continue;
             }
-            const result = input.op === 'probe' ? { administrator: true, actor: role, missingCommands: [] } : input.op === 'status' ? state : input.op === 'storage_usage' ? { scannedAt: '2026-09-20T00:00:00.000Z', path: input.path, name: '共享空间', total: { bytes: 10, files: 1, directories: 1, directBytes: 0 }, volume: { totalBytes: 100, freeBytes: 60 }, categories: [], groups: [], users: [], children: [], childCount: 0, offset: input.offset, limit: input.limit, warningCount: 0, warnings: [] } : { state };
+            const result = input.op === 'environment_prepare' ? { environment: { missingCommands: [], setupIssues: [], aclBackend: 'libacl', serviceManager: 'systemd' } } : input.op === 'probe' ? { administrator: true, actor: role, missingCommands: control.missingCommands, setupIssues: control.setupIssues, serviceManager: 'systemd' } : input.op === 'status' ? state : input.op === 'storage_usage' ? { scannedAt: '2026-09-20T00:00:00.000Z', path: input.path, name: '共享空间', total: { bytes: 10, files: 1, directories: 1, directBytes: 0 }, volume: { totalBytes: 100, freeBytes: 60 }, categories: [], groups: [], users: [], children: [], childCount: 0, offset: input.offset, limit: input.limit, warningCount: 0, warnings: [] } : { state };
             channel.write(JSON.stringify({ ok: true, value: result }) + '\n'); channel.exit(0); channel.end();
           }
         });
@@ -73,13 +93,28 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
   });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as { port: number };
-  return { requests, commands, control, port: address.port, close: async () => { clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); } };
+  return { requests, commands, control, state, port: address.port, close: async () => { clients.forEach(c => c.end()); await new Promise<void>(r => server.close(() => r())); } };
 }
 test('admin rejects a changed server identity before sending login credentials', async () => {
   const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
   try {
     await assert.rejects(remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', fingerprint: 'SHA256:wrong-server', root: '/srv/teamspace' }, 'login-secret', '', async () => { throw new Error('不应询问'); }), /服务器身份发生变化.*登录密码尚未发送/);
     assert.equal(f.control.authenticationAttempts, 0);
+  } finally { remote.disconnect(); await f.close(); }
+});
+
+test('admin connection shows missing prerequisites and refresh clears them without reconnecting', async () => {
+  const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+  f.control.missingCommands = ['setfacl']; f.control.setupIssues = ['请安装 acl'];
+  try {
+    await remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', root: '/srv/teamspace', fingerprint: '' }, 'login-secret', '', async () => true);
+    assert.equal(remote.snapshot.connected, true);
+    assert.deepEqual(remote.snapshot.missingCommands, ['setfacl']); assert.deepEqual(remote.snapshot.setupIssues, ['请安装 acl']);
+    f.control.missingCommands = []; f.control.setupIssues = [];
+    await remote.operation({ op: 'status' });
+    assert.deepEqual(remote.snapshot.setupIssues, []); assert.deepEqual(remote.snapshot.missingCommands, []);
+    assert.equal(f.control.authenticationAttempts, 1);
+    assert.deepEqual(f.requests.slice(-2).map(item => item.op), ['probe', 'status']);
   } finally { remote.disconnect(); await f.close(); }
 });
 for (const role of ['root', 'sudo'] as const) test(role + ': SSH verifies privilege and sends passwords only over stdin', async () => {
