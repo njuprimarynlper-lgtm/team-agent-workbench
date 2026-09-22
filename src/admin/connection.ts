@@ -108,7 +108,9 @@ export class AdminConnection {
     if (signal?.aborted) return Promise.reject(new Error('已取消空间统计'));
     // Only a small fixed loader goes in the SSH exec request. The packaged
     // program travels over stdin so feature growth cannot exceed packet limits.
-    const program = `python3 -u -c 'import sys,base64,zlib;print("WORKBENCH_CODE_READY",flush=True);exec(zlib.decompress(base64.b64decode(sys.stdin.readline())).decode("utf-8"))'`;
+    // Keep both code and JSON reads binary: TextIOWrapper can read ahead and
+    // cannot change its encoding after the loader has consumed the first line.
+    const program = `python3 -u -c 'import sys,base64,zlib;print("WORKBENCH_CODE_READY",flush=True);exec(zlib.decompress(base64.b64decode(sys.stdin.buffer.readline())).decode("utf-8"))'`;
     const command = useSudo ? 'sudo -S -p WORKBENCH_SUDO -- ' + program : program;
     const request = { ...payload, root: this.snapshot.profile!.root };
     return new Promise((resolve, reject) => {
@@ -137,7 +139,13 @@ export class AdminConnection {
             else if (ready && line) { try { const message = JSON.parse(line); message.ok ? finish(undefined, message.value) : finish(new Error(message.error)); } catch { finish(new Error('远端返回格式异常')); } }
           }
         });
-        stream.on('error', finish); stream.on('close', () => { if (!settled) finish(new Error('远端管理命令未完成。请确认 Linux 已安装 Python 3、账号有 SSH 命令与 sudo 权限。\n' + diagnostic)); });
+        stream.on('error', finish); stream.on('close', () => {
+          if (settled) return;
+          const message = ready ? '远端管理操作未返回结果；可能已部分执行，请刷新状态后再决定是否重试。'
+            : codeSent ? '远端管理程序启动失败：Python 已启动，但管理脚本未能完成初始化。请查看下方错误详情。'
+            : '远端管理命令未启动。请确认 Linux 已安装 Python 3、账号有 SSH 命令与 sudo 权限。';
+          finish(new Error(message + (diagnostic ? '\n' + diagnostic : '')));
+        });
       });
     });
   }

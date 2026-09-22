@@ -49,7 +49,7 @@ test('environment preparation works before initialization and preserves administ
 async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = false, alias = 'worker', login?: string) {
   const requests: any[] = [], commands: string[] = [], clients: any[] = [];
   const state: any = { initialized: true, users: {}, groups: {}, sftpConfigured: true, storageVersion: 1 };
-  const control = { failNext: false, holdStorage: false, authenticationAttempts: 0, missingCommands: [] as string[], setupIssues: [] as string[] };
+  const control = { failNext: false, holdStorage: false, startupError: '', authenticationAttempts: 0, missingCommands: [] as string[], setupIssues: [] as string[] };
   const server = new Server({ hostKeys: [key] }, client => {
     clients.push(client); client.on('error', () => {});
     client.on('authentication', context => { if (context.method === 'password') control.authenticationAttempts++; context.method === 'password' && context.password === 'login-secret' && (!login || context.username === login) ? context.accept() : context.reject(); });
@@ -75,7 +75,11 @@ async function fixture(role: 'root' | 'sudo' | 'project', writableManifest = fal
           while ((n = buffer.indexOf('\n')) >= 0) {
             const line = buffer.slice(0, n); buffer = buffer.slice(n + 1);
             if (!authorized) { assert.equal(line, 'sudo-secret'); authorized = true; channel.write('WORKBENCH_CODE_READY\n'); continue; }
-            if (!programReceived) { assert.match(inflateSync(Buffer.from(line, 'base64')).toString(), /def main\(request\)/); programReceived = true; channel.write('WORKBENCH_READY\n'); continue; }
+            if (!programReceived) {
+              assert.match(inflateSync(Buffer.from(line, 'base64')).toString(), /def main\(request\)/); programReceived = true;
+              if (control.startupError) { channel.stderr.write(control.startupError); channel.exit(1); channel.end(); return; }
+              channel.write('WORKBENCH_READY\n'); continue;
+            }
             const input = JSON.parse(line); requests.push(input);
             if (input.op === 'storage_usage' && control.holdStorage) continue;
             if (control.failNext && !['probe', 'status'].includes(input.op)) {
@@ -126,6 +130,22 @@ for (const role of ['root', 'sudo'] as const) test(role + ': SSH verifies privil
     assert.equal(f.requests.at(-1).password, 'new-secret');
     assert(!JSON.stringify(remote.snapshot).includes('secret')); assert(!f.commands.some(c => c.includes('secret')));
   } finally { remote.disconnect(); await f.close(); }
+});
+
+test('Python startup failures preserve diagnostics without misreporting missing Python or sudo access', async () => {
+  for (const role of ['root', 'sudo'] as const) {
+    const f = await fixture(role), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});
+    f.control.startupError = 'Traceback: io.UnsupportedOperation: stream encoding after the first read';
+    try {
+      await assert.rejects(remote.connect({ host: '127.0.0.1', port: f.port, username: 'admin', fingerprint: '', root: '/srv/teamspace' }, 'login-secret', 'sudo-secret', async () => true), (error: Error) => {
+        assert.match(error.message, /Python 已启动/); assert.match(error.message, /io.UnsupportedOperation/);
+        assert.doesNotMatch(error.message, /请确认 Linux 已安装|sudo 权限/); return true;
+      });
+      assert.equal(f.requests.length, 0, 'no business request is sent before the script is ready');
+      assert.equal(remote.snapshot.connected, false);
+      assert(!f.commands.some(command => command.includes('secret')));
+    } finally { remote.disconnect(); await f.close(); }
+  }
 });
 test('remote storage usage is a scoped read-only administrator operation', async () => {
   const f = await fixture('root'), remote = new AdminConnection(path.resolve('server/admin.py'), () => {});

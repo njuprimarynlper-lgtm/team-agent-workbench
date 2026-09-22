@@ -1137,11 +1137,12 @@ def main(request):
         return execute(request)
 
 if __name__ == "__main__":
-    sys.stdin.reconfigure(encoding="utf-8")
+    # The SSH bootstrap already read its code from stdin. Use the same binary
+    # stream, without reconfiguring or mixing it with a text read-ahead buffer.
     sys.stdout.reconfigure(encoding="utf-8")
     print("WORKBENCH_READY", flush=True)
     try:
-        request = json.loads(sys.stdin.readline())
+        request = json.loads(sys.stdin.buffer.readline().decode("utf-8"))
         result = main(request)
         print(json.dumps({"ok": True, "value": result}, ensure_ascii=False), flush=True)
     except Exception as error:
