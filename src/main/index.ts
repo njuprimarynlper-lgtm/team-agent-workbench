@@ -1,5 +1,5 @@
 import { ownDataDirectory } from '../shared/single-instance';
-import { contentEditSchema, contributionCategorySchema } from '../shared/content';
+import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
@@ -158,6 +158,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.merge.commit': return workbench.commitContentMerge(sessionInput.parse(raw).id);
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
     case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.editSharedContent(p.projectId, p.change); }
+    case 'content.deleteMany': { const p = z.object({ projectId: z.string(), selections: contentDeleteSelectionsSchema }).parse(raw); return workbench.deleteSharedContents(p.projectId, p.selections); }
     case 'content.replace': {
       const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw), binding = workbench.remote.binding(p.projectId);
       const file = (await dialog.showOpenDialog(owner, { title: '选择替换文件（保存为新修订）', properties: ['openFile'] })).filePaths[0];

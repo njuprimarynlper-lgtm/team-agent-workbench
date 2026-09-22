@@ -30,7 +30,7 @@ import { ProviderAccounts, authReady } from './provider-auth';
 import { inspectCatalog } from './provider-catalog';
 import { preparationErrorMessage } from '../shared/preparation-error';
 import { applyContentMerge } from './content-merge';
-import { contentAliasKey, contributionCategories, materialCategories, contributionCategoryInfo, contributionTitle, resultTitle, titleSubject, type ContentEdit, type ContributionCategory, type SharedContent } from '../shared/content';
+import { canDeleteSharedContent, contentDeleteSelectionsSchema, contentAliasKey, contributionCategories, materialCategories, contributionCategoryInfo, contributionTitle, resultTitle, titleSubject, type ContentDeleteSelection, type ContentDeleteResult, type ContentEdit, type ContributionCategory, type SharedContent } from '../shared/content';
 import { rankConclusions } from './conclusion-matcher';
 export class Workbench {
   store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
@@ -40,6 +40,7 @@ export class Workbench {
   private canceledSends = new Set<string>();
   private stoppingSessions = new Set<string>();
   private deletingDrafts = new Set<string>();
+  private deletingSharedContent = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
   private edits: Promise<unknown> = Promise.resolve();
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
@@ -281,17 +282,67 @@ export class Workbench {
   async editSharedContent(projectId: string, change: ContentEdit) {
     const binding = this.remote.binding(projectId), before = await this.remote.contentList(binding), target = before.find(item => item.id === change.id);
     if (!target) throw new Error('内容已更新或删除，请刷新后再操作');
+    this.remote.channel(binding);
     const result = await this.remote.contentEdit(binding, change);
     if (change.action !== 'delete') return result;
-    const profile = this.remote.profile!, key = [profile.id, profile.username, projectId].join(':'), now = new Date().toISOString();
+    await this.recordSharedDeletion(binding, before, target); return result;
+  }
+  private async recordSharedDeletion(binding: RemoteBinding, before: SharedContent[], target: SharedContent) {
+    const projectId = binding.project.id;
+    const key = [binding.connectionId, binding.username, projectId].join(':'), now = new Date().toISOString();
     const seen = this.store.settings.contentSeen ||= {}, inbox = this.store.settings.contentUpdates ||= [];
     seen[key] = Object.fromEntries(before.filter(item => item.id !== target.id).map(item => [item.id, this.contentSeenState(item)]));
-    for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id) {
+    for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id && inbox[index].change !== 'deleted') {
       if (inbox[index].readAt) inbox[index].unavailableAt = now; else inbox.splice(index, 1);
     }
     const hasLocalCopy = this.store.conclusions.some(item => !item.deletedAt && item.projectId === projectId && item.sources.some(source => source.kind === 'remote' && source.id === target.id));
-    inbox.unshift({ eventId: `${key}:deleted:${target.id}:${target.revision}`, projectId, projectName: binding.project.name, id: target.id, title: target.title, author: target.author, updatedBy: profile.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
-    await this.store.save(); this.broadcast(); return result;
+    const eventId = `${key}:deleted:${target.id}:${target.revision}`;
+    if (!inbox.some(item => item.eventId === eventId)) inbox.unshift({ eventId, projectId, projectName: binding.project.name, id: target.id, title: target.title, author: target.author, updatedBy: binding.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
+    await this.store.save(); this.broadcast();
+  }
+  async deleteSharedContents(projectId: string, raw: ContentDeleteSelection[]): Promise<ContentDeleteResult> {
+    const selections = contentDeleteSelectionsSchema.parse(raw), binding = this.remote.binding(projectId);
+    this.assertCanWork(binding);
+    const key = [binding.connectionId, binding.username, projectId].join(':');
+    if (this.deletingSharedContent.has(key)) throw new Error('此项目正在批量删除，请稍候');
+    this.deletingSharedContent.add(key);
+    try {
+      const before = await this.remote.contentList(binding);
+      this.assertCanWork(binding);
+      const admin = !!this.remote.workspaces.find(group => group.groupName === binding.project.groupName)?.canCreateProject;
+      // Check the entire frozen selection before the first write. Each server edit checks it again.
+      for (const selection of selections) {
+        const item = before.find(value => value.id === selection.id);
+        if (!item || item.revision !== selection.revision) throw new Error('所选成果已更新、删除或不属于此项目，请刷新后重新确认；本次未删除任何内容');
+        if (!canDeleteSharedContent(item, binding.username, admin)) throw new Error('所选成果包含无权删除的条目；只能删除自己的未整理提交，或由本组组管理员操作');
+      }
+      const result: ContentDeleteResult = { deletedIds: [], remaining: [] };
+      for (let index = 0; index < selections.length; index++) {
+        const selection = selections[index];
+        try {
+          if (this.closing) throw new Error('客户端正在关闭，已停止后续删除');
+          this.assertCanWork(binding);
+          await this.editSharedContent(projectId, { ...selection, action: 'delete', curate: false, merge: [] });
+          result.deletedIds.push(selection.id);
+        } catch (error: any) {
+          result.error = error.message || '删除未完成';
+          result.remaining = selections.slice(index);
+          // A dropped response or local save failure may follow a successful remote deletion.
+          // Reconcile once, never retry a destructive request automatically.
+          try {
+            const current = await this.remote.contentList(binding);
+            if (!current.some(item => item.id === selection.id)) {
+              result.deletedIds.push(selection.id); result.remaining = selections.slice(index + 1);
+              result.error = '该条目已从共享区移除，但后续处理未完成：' + result.error;
+              try { await this.recordSharedDeletion(binding, current, before.find(item => item.id === selection.id)!); }
+              catch (recordError: any) { result.error += '；本地删除记录保存失败：' + recordError.message; }
+            }
+          } catch { result.uncertainId = selection.id; }
+          break;
+        }
+      }
+      return result;
+    } finally { this.deletingSharedContent.delete(key); }
   }
   async syncContentUpdates(): Promise<ContentUpdate[]> {
     if (!this.remote.connected || !this.remote.profile) return this.contentUpdates();

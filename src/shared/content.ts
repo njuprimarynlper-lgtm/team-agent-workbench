@@ -37,5 +37,11 @@ export const contentMetadataSchema = z.object({ title: z.string().max(200).defau
 export type ContentMetadata = z.infer<typeof contentMetadataSchema>;
 export interface ContentProvenance { id: string; revision: number; title: string; author: string; updatedAt: string }
 export interface SharedContent extends ContentMetadata { id: string; path: string; author: string; revision: number; state: 'submitted' | 'curated'; createdAt: string; updatedAt: string; updatedBy: string; sha256: string; size: number; sources?: string[]; provenance?: ContentProvenance[]; }
+export function canDeleteSharedContent(item: Pick<SharedContent, 'author' | 'state'>, username: string, admin: boolean) {
+  return admin || item.author === username && item.state === 'submitted';
+}
+export const contentDeleteSelectionsSchema = z.array(z.object({ id: z.string().uuid(), revision: z.number().int().positive() })).min(1).max(100).refine(items => new Set(items.map(item => item.id)).size === items.length, '不能重复选择同一成果');
+export type ContentDeleteSelection = z.infer<typeof contentDeleteSelectionsSchema>[number];
+export interface ContentDeleteResult { deletedIds: string[]; remaining: ContentDeleteSelection[]; error?: string; uncertainId?: string }
 export const contentEditSchema = z.object({ id: z.string().uuid(), revision: z.number().int().positive(), action: z.enum(['save', 'delete']), title: z.string().trim().min(1).max(200).optional(), description: z.string().max(2 * 1024 * 1024).optional(), repoUrl: z.string().max(2048).optional(), sourceSessionTitle: z.string().trim().min(1).max(120).optional(), curate: z.boolean().default(false), merge: z.array(z.object({ id: z.string().uuid(), revision: z.number().int().positive() })).max(100).default([]) });
 export type ContentEdit = z.infer<typeof contentEditSchema>;

@@ -25,6 +25,7 @@ import { ComposerSettings } from './composer-settings';
 import { ComposerCapabilities } from './composer-capabilities';
 import { ComposerActions, composerMode } from './composer-actions';
 import { submitComposerInput } from './composer-input';
+import { SteeringConfirmation, prepareSteeringReview, confirmSteeringReview, steeringReviewIsCurrent, type SteeringReview } from './steering-confirmation';
 import type { PermissionMode } from '../shared/types';
 import { useAutosave } from './autosave';
 import type { SessionInput } from '../shared/types';
@@ -75,6 +76,7 @@ function App() {
   const [libraryFocus, setLibraryFocus] = useState<{ projectId: string; path: string }>(); const [contentUpdates, setContentUpdates] = useState<ContentUpdate[]>([]); const contentSyncing = useRef(false);
   const [conclusionFocus, setConclusionFocus] = useState<{ projectId: string; id: string }>();
   const [conclusionMatch, setConclusionMatch] = useState<{ sessionId: string; text: string; sourceIds: string[]; capabilities: AgentCapabilitySelection[]; matches: ConclusionMatch[] }>();
+  const [steeringReview, setSteeringReview] = useState<SteeringReview>(), [steeringError, setSteeringError] = useState('');
   const [dismissedUpdateIds, setDismissedUpdateIds] = useState<string[]>([]);
   const [showClosed, setShowClosed] = useState(false), [closingSession, setClosingSession] = useState<AgentSession>();
   const [renamingSession, setRenamingSession] = useState<AgentSession>();
@@ -213,14 +215,19 @@ function App() {
     if (submittingInputs.current.has(id)) return;
     submittingInputs.current.add(id);
     setSendingIds(ids => [...ids, id]);
-    try { await run(() => submitComposerInput(api, id, sent, expectedTurnId, () => localInputs.current[id] || state?.inputs[id] || sent, target => editInput(target, { text: '', sourceIds: [], capabilities: [] }))); }
+    try { return await submitComposerInput(api, id, sent, expectedTurnId, () => localInputs.current[id] || state?.inputs[id] || sent, target => editInput(target, { text: '', sourceIds: [], capabilities: [] })); }
+    catch (error: any) { setNotice(error.message); if (expectedTurnId) setSteeringError(error.message); return false; }
     finally { submittingInputs.current.delete(id); setSendingIds(ids => ids.filter(x => x !== id)); }
   };
   const send = async () => {
-    if (!session || session.closedAt || !composer.trim() || submittingInputs.current.has(session.id)) return;
+    if (steeringReview || !session || session.closedAt || !composer.trim() || submittingInputs.current.has(session.id)) return;
     const mode = composerMode(session, state?.activeTurns?.[session.id]);
     if (mode === 'wait') return;
-    if (mode === 'steer') { await sendInput(session.id, { ...currentInput }, state?.activeTurns?.[session.id]); return; }
+    if (mode === 'steer') {
+      setSteeringError('');
+      setSteeringReview(prepareSteeringReview(session, currentInput, state!.activeTurns![session.id], pendingSources.filter(source => selectedSourceKeys.has(sourceIdentity(source)) || automaticSourceKeys.has(sourceIdentity(source))).map(source => source.name)));
+      return;
+    }
     const sent = { ...currentInput };
     if (!session.messages.length && session.binding) {
       const candidates = await run(() => api.call<ConclusionMatch[]>('conclusion.match', { projectId: session.binding!.project.id, query: sent.text }));
@@ -323,6 +330,7 @@ function App() {
     )}
     {sessionFiles && <SessionFilesDialog key={sessionFiles.id + sessionFiles.path} sessionId={sessionFiles.id} initialPath={sessionFiles.path} close={() => setSessionFiles(undefined)}/>}
     {newOpen && <NewSessionModal settings={state.settings} auth={state.auth} projects={projects} projectId={projectId} assignment={startingAssignment} close={() => { setNewOpen(false); setStartingAssignment(undefined); }} run={run} created={s => { setShowClosed(false); setSessionId(s.id); setView('sessions'); setNewOpen(false); setStartingAssignment(undefined); void refresh(); void refreshAssignments(); }}/>}
+    {steeringReview && <SteeringConfirmation review={steeringReview} current={steeringReviewIsCurrent(steeringReview, state.sessions.find(session => session.id === steeringReview.sessionId), state.activeTurns?.[steeringReview.sessionId])} busy={sendingIds.includes(steeringReview.sessionId)} error={steeringError} close={() => { if (!submittingInputs.current.has(steeringReview.sessionId)) setSteeringReview(undefined); }} confirm={() => void (async () => { const review = steeringReview; setSteeringError(''); try { const accepted = await confirmSteeringReview(review, state.sessions.find(session => session.id === review.sessionId), state.activeTurns?.[review.sessionId], () => sendInput(review.sessionId, review.input, review.turnId)); if (accepted) setSteeringReview(current => current === review ? undefined : current); } catch (error: any) { setSteeringError(error.message); } })()}/>}
     {conclusionMatch && <ConclusionMatchModal matches={conclusionMatch.matches} close={() => setConclusionMatch(undefined)}
       skip={async () => { const pending = conclusionMatch; setConclusionMatch(undefined); await sendInput(pending.sessionId, { text: pending.text, sourceIds: pending.sourceIds, answers: {}, capabilities: pending.capabilities }); }}
       confirm={async ids => { const pending = conclusionMatch, sourceIds = [...pending.sourceIds]; for (const conclusionId of ids) { const source = await api.call<SourceFile>('session.attachConclusion', { id: pending.sessionId, conclusionId }); sourceIds.push(source.id); } const sent = { text: pending.text, sourceIds: [...new Set(sourceIds)], answers: {}, capabilities: pending.capabilities }; editInput(pending.sessionId, sent); setConclusionMatch(undefined); await sendInput(pending.sessionId, sent); }}/>}
