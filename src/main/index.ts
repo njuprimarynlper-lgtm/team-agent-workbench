@@ -180,6 +180,10 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
         void workbench.send(p.id, p.text, p.sourceIds, p.capabilities, () => { submitted = true; resolve(true); }).then(started => { if (!started && !submitted) reject(new Error(s.error || '任务未能提交给 CLI，请重试')); }).catch(error => { notice(error.message); if (!submitted) reject(error); });
       });
     }
+    case 'session.steer': {
+      const p = z.object({ id, expectedTurnId: z.string().min(1).max(200), text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw);
+      return workbench.steer(p.id, p.expectedTurnId, p.text, p.sourceIds, p.capabilities);
+    }
     case 'session.input': { const p = z.object({ id, input: z.object({ text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
     case 'session.close': return workbench.closeSession(sessionInput.parse(raw).id);

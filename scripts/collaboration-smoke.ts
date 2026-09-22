@@ -118,21 +118,21 @@ try {
   const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v3'));
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
-  await bp.getByTitle('个人结论库', { exact: true }).click(); await expect(bp.getByRole('heading', { name: `个人结论库 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
-  await bp.getByRole('button', { name: '新建结论', exact: true }).click(); await bp.getByLabel('本地结论标题').fill('手工发布检查'); await bp.getByLabel('本地结论内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
+  await bp.getByTitle('我的项目笔记', { exact: true }).click(); await expect(bp.getByRole('heading', { name: `我的项目笔记 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
+  await bp.getByRole('button', { name: '新建笔记', exact: true }).click(); await bp.getByLabel('项目笔记标题').fill('手工发布检查'); await bp.getByLabel('项目笔记内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存笔记', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
   const extraSession = await call(bp, 'session.create', { provider: 'codex', cwd: data, projectId: project.id });
   await call(bp, 'session.rename', { id: extraSession.id, title: '另一个验证会话' });
   await bp.getByRole('button', { name: '加入会话', exact: true }).click();
-  await expect(bp.getByLabel('使用结论的会话：新会话')).not.toBeChecked();
-  await bp.getByLabel('使用结论的会话：新会话').check(); await bp.getByLabel('使用结论的会话：另一个验证会话').check();
+  await expect(bp.getByLabel('使用笔记的会话：新会话')).not.toBeChecked();
+  await bp.getByLabel('使用笔记的会话：新会话').check(); await bp.getByLabel('使用笔记的会话：另一个验证会话').check();
   await bp.getByRole('button', { name: '加入 2 个会话', exact: true }).click();
-  await expect(bp.getByRole('dialog', { name: '选择使用结论的会话' })).toHaveCount(0);
+  await expect(bp.getByRole('dialog', { name: '选择使用笔记的会话' })).toHaveCount(0);
   await bp.getByRole('button', { name: '加入会话', exact: true }).click();
-  for (const name of ['新会话', '另一个验证会话']) { await expect(bp.getByLabel(`使用结论的会话：${name}`)).toBeChecked(); await expect(bp.getByLabel(`使用结论的会话：${name}`)).toBeDisabled(); }
+  for (const name of ['新会话', '另一个验证会话']) { await expect(bp.getByLabel(`使用笔记的会话：${name}`)).toBeChecked(); await expect(bp.getByLabel(`使用笔记的会话：${name}`)).toBeDisabled(); }
   await expect(bp.getByRole('button', { name: '加入 0 个会话', exact: true })).toBeDisabled();
   await bp.getByRole('button', { name: '关闭', exact: true }).click();
   await bp.getByTitle('工作会话', { exact: true }).click(); await bp.getByLabel('任务输入').fill('Alice 统一整理的结论是否支持后续验证？'); await bp.getByTitle('发送任务', { exact: true }).click();
-  await expect(bp.getByRole('heading', { name: '选择这次会话要参考的结论', exact: true })).toBeVisible(); await expect(bp.getByLabel(/带入结论：.*Alice 统一整理的结论/)).toBeChecked(); await bp.getByRole('button', { name: '带入 1 条并发送', exact: true }).click(); await expect(bp.locator('.message.user')).toContainText('是否支持后续验证');
+  await expect(bp.getByRole('heading', { name: '选择这次会话要参考的项目笔记', exact: true })).toBeVisible(); await expect(bp.getByLabel(/带入笔记：.*Alice 统一整理的结论/)).toBeChecked(); await bp.getByRole('button', { name: '带入 1 条并发送', exact: true }).click(); await expect(bp.locator('.message.user')).toContainText('是否支持后续验证');
   // An existing group still requires a brief for every new project, or explicit deferral.
   await ap.getByTitle('在 research 创建项目', { exact: true }).click(); await ap.getByLabel('项目名称', { exact: true }).fill('第二个项目');
   await expect(ap.getByRole('dialog', { name: '项目资料' }).getByRole('button', { name: '创建项目', exact: true })).toBeDisabled();
@@ -154,10 +154,10 @@ try {
   assert.deepEqual(afterRestart.settings.contentUpdates, beforeRestart.settings.contentUpdates);
   assert.deepEqual(await call(reopened.page, 'conclusion.list', { projectId: project.id, includeArchived: true }), conclusionsBefore);
   await expect(reopened.page.locator(`.session-row[data-session-id="${extraSession.id}"]`)).toBeVisible();
-  await reopened.page.getByTitle('个人结论库', { exact: true }).click();
+  await reopened.page.getByTitle('我的项目笔记', { exact: true }).click();
   await reopened.page.locator('.content-card').filter({ hasText: '手工发布检查' }).locator('.content-card-summary').click();
   await reopened.page.getByRole('button', { name: '加入会话', exact: true }).click();
-  await expect(reopened.page.getByLabel('使用结论的会话：另一个验证会话')).toBeChecked(); await expect(reopened.page.getByLabel('使用结论的会话：另一个验证会话')).toBeDisabled();
+  await expect(reopened.page.getByLabel('使用笔记的会话：另一个验证会话')).toBeChecked(); await expect(reopened.page.getByLabel('使用笔记的会话：另一个验证会话')).toBeDisabled();
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, data, cases: ['concurrent distinct users/admin', 'multi-window user edition with isolated accounts, sessions and sidebar proportions', 'teammate content notification', 'admin window without an offline setting', 'project settings synchronize 项目说明.md', 'project brief versions and explicit adoption', 'author revision', 'subadmin semantic merge/review/lock', 'search and frozen session reuse', 'every-project brief lifecycle', '1100px layout', 'unprocessed/processed groups and cleared hidden selections', 'multi-session conclusion selection locks existing context', 'application restart preserves local sessions, drafts, events and conclusion usage'] }));
 } catch (error) {

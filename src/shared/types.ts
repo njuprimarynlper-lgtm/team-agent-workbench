@@ -22,7 +22,7 @@ export interface FilePreview { name: string; path: string; type: 'text' | 'image
 export interface SourceFile { id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string; contentRef?: { projectId: string; id: string; revision: number } }
 export interface SessionFile { path: string; name: string; size: number; modifiedAt: string }
 export interface MessageContext { nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
-export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; userText?: string; context?: MessageContext; createdAt: string }
+export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; userText?: string; context?: MessageContext; steering?: boolean; createdAt: string }
 export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'deny' | 'answer' }
 export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }
 export interface RemoteBinding { connectionId: string; host: string; port: number; username: string; fingerprint: string; project: Project }
@@ -56,7 +56,7 @@ export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated'
 export interface ModelOption { id: string; name: string; isDefault?: boolean }
 export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
 export interface ProviderCatalog { models: ModelOption[]; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
-export interface Snapshot { accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
+export interface Snapshot { activeTurns?: Record<string, string>; accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

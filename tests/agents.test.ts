@@ -12,11 +12,9 @@ for (const mode of ['codex', 'cursor', 'codex-files', 'codex-double']) test(mode
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-agent-'));
   const script = path.join(root, 'rpc-agent.mjs');
   await fs.copyFile(path.resolve('tests/fixtures/rpc-agent.mjs'), script);
-  const launcher = path.join(root, process.platform === 'win32' ? 'agent.cmd' : 'agent.sh');
-  await fs.writeFile(launcher, process.platform === 'win32' ? `@echo off\r\nset TEST_PROVIDER=${mode}\r\n"${process.execPath}" "${script}"\r\n` : `#!/bin/sh\nTEST_PROVIDER=${mode} "${process.execPath}" "${script}"\n`, { mode: 0o755 });
   const s: AgentSession = { id: randomUUID(), provider, title: 'test', cwd: root, createdAt: new Date().toISOString(), purpose: 'work', status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: path.join(root, 'handoff.md') };
   const events: any[] = []; let completed = false, completions = 0;
-  const runtime = new AgentRuntime(s, launcher, { changed: () => {}, event: x => events.push(x), done: () => { completed = true; completions++; } });
+  const runtime = new AgentRuntime(s, script, { changed: () => {}, event: x => events.push(x), done: () => { completed = true; completions++; } }, undefined, { TEST_PROVIDER: mode });
   try {
     const prompt = runtime.prompt('hello'); void prompt.catch(() => {}); await until(() => s.status === 'approval');
     assert.equal(s.nativeId, 'native-session-1'); assert.match(s.messages.find(x => x.role === 'assistant')!.text, /中文回复/);

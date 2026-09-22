@@ -23,6 +23,12 @@ export function childEnv(overrides: NodeJS.ProcessEnv = {}) {
 }
 export function spawnCLI(executable: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
   const dir = path.dirname(executable);
+  // JavaScript CLI entry points (including protocol fixtures) run directly, without a shell shim.
+  if (/\.[cm]?js$/i.test(executable)) {
+    const runtimeEnv = childEnv(env);
+    if (process.versions.electron) runtimeEnv.ELECTRON_RUN_AS_NODE = '1';
+    return spawn(process.execPath, [executable, ...args], { cwd, env: runtimeEnv, windowsHide: true, shell: false, stdio: 'pipe' });
+  }
   if (/cursor-agent\.(cmd|ps1)$/i.test(executable) && fs.existsSync(path.join(dir, 'node.exe')) && fs.existsSync(path.join(dir, 'index.js'))) {
     return spawn(path.join(dir, 'node.exe'), [path.join(dir, 'index.js'), ...args], { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
   }

@@ -35,6 +35,7 @@ import { rankConclusions } from './conclusion-matcher';
 export class Workbench {
   store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
   private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
+  private steering = new Set<string>();
   private changingSettings = new Set<string>();
   private canceledSends = new Set<string>();
   private stoppingSessions = new Set<string>();
@@ -350,7 +351,7 @@ export class Workbench {
     session.title = next; await this.store.save(); this.broadcast(); return session;
   }
   async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
-  snapshot(): Snapshot { return { accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
+  snapshot(): Snapshot { return { activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
   async requireAuth(provider: Provider, cwd: string) {
     const prior = this.accounts.states[provider];
     const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
@@ -543,7 +544,7 @@ export class Workbench {
     const s = this.session(id); this.assertCanWork(s.binding);
     if (s.provider === 'cursor' && this.configuringCursorPermissions) throw new Error('正在保存 Cursor 权限配置，请保存完成后再发送任务');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
-    if (this.sending.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
+    if (this.sending.has(id) || this.steering.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
     this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; s.status = 'starting'; this.changed();
     const canceled = () => this.canceledSends.has(id) || this.closing;
@@ -569,6 +570,30 @@ export class Workbench {
       return started;
     } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
     finally { this.sending.delete(id); if (this.canceledSends.delete(id)) { s.status = 'idle'; s.error = undefined; this.changed(); } }
+  }
+  async steer(id: string, expectedTurnId: string, userText: string, sourceIds: string[] = [], capabilitySelections: AgentCapabilitySelection[] = []) {
+    this.assertWorkspace();
+    const s = this.session(id); this.assertCanWork(s.binding);
+    if (!userText.trim()) throw new Error('请输入引导内容');
+    if (s.provider !== 'codex') throw new Error('当前 Cursor 接入暂不支持生成中引导，请等待本轮结束后发送');
+    if (s.closedAt || this.stoppingSessions.has(id) || this.closing) throw new Error('会话已关闭或正在停止，引导未发送');
+    if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
+    if (this.steering.has(id)) throw new Error('上一条引导正在发送，请稍候');
+    // Never create a runtime, reauthenticate, or start a new turn for a stale steer request.
+    const runtime = this.runtimes.get(id);
+    if (!expectedTurnId || runtime?.activeTurnId !== expectedTurnId) throw new Error('当前轮次已结束或发生变化，引导未发送；请核对后重新发送');
+    this.steering.add(id);
+    try {
+      const input = sessionContext(s, userText, sourceIds);
+      for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
+      const capabilities = await runtime.resolveCapabilities(capabilitySelections);
+      this.assertCanWork(s.binding);
+      if (s.closedAt || this.stoppingSessions.has(id) || this.closing || this.runtimes.get(id) !== runtime) throw new Error('会话已关闭或正在停止，引导未发送');
+      await runtime.steer(expectedTurnId, input.text, { userText, context: input.context, capabilities });
+      try { await this.store.save(); }
+      catch (error: any) { this.notice('引导已送达，但本地记录保存失败：' + error.message); }
+      return true;
+    } finally { this.steering.delete(id); }
   }
   private async onDone(id: string) {
     const s = this.session(id);

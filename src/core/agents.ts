@@ -18,6 +18,7 @@ export class AgentRuntime {
   private cursorMessageId = '';
   private closing = false;
   private turnActive = false;
+  private steering = false;
   private authBridge?: CodexAuthBridge;
   private cursorCommands: any[] = [];
   private cursorCommandWaiters = new Set<() => void>();
@@ -122,7 +123,7 @@ export class AgentRuntime {
       if (this.session.provider === 'codex') {
         const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
         const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...(this.session.model ? { model: this.session.model } : {}), input }, 60000, options?.submitted);
-        if (this.turnActive) this.turnId = result.turn.id;
+        if (this.turnActive) { this.turnId = result.turn.id; this.hooks.changed(); }
       } else {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, options?.submitted);
         this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
@@ -130,6 +131,35 @@ export class AgentRuntime {
       if (context) { context.accepted = true; this.hooks.changed(); }
       return true;
     } catch (e: any) { if (!this.closing) this.finish(e.message); return false; }
+  }
+  get activeTurnId(): string | undefined {
+    return this.session.provider === 'codex' && this.turnActive && !this.closing && ['running', 'approval'].includes(this.session.status) ? this.turnId : undefined;
+  }
+  async steer(expectedTurnId: string, text: string, options: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'>; capabilities?: AgentCapabilityOption[] }) {
+    if (this.session.provider !== 'codex') throw new Error('当前 Cursor 接入暂不支持生成中引导，请等待本轮结束后发送');
+    if (!text.trim()) throw new Error('请输入引导内容');
+    if (!expectedTurnId || this.activeTurnId !== expectedTurnId) throw new Error('当前轮次已结束或发生变化，引导未发送；请核对后重新发送');
+    if (this.steering) throw new Error('上一条引导正在发送，请稍候');
+    this.steering = true;
+    const selected = options.capabilities || [], nativeId = this.session.nativeId!;
+    const nativeText = [selected.map(item => (item.kind === 'skill' ? '$' : '@') + item.invocation).join(' '), text].filter(Boolean).join(' ');
+    const input = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
+    // Keep the message at its submission position even if streamed output precedes the acknowledgement.
+    const index = this.session.messages.length, createdAt = now();
+    try {
+      const result = await this.rpc.request('turn/steer', { threadId: nativeId, expectedTurnId, input });
+      if (result?.turnId !== expectedTurnId) throw new Error('CLI 返回了不同轮次，未能确认引导送达；请先查看回复，避免重复发送');
+      const context: MessageContext = { ...options.context, capabilities: selected.map(({ id, kind, name }) => ({ id, kind, name })), nativeId, accepted: true };
+      this.session.messages.splice(index, 0, { id: randomUUID(), role: 'user', text: nativeText, userText: options.userText, context, steering: true, createdAt });
+      this.hooks.event({ direction: 'user', method: 'turn/steer', turnId: expectedTurnId, text: nativeText, userText: options.userText, capabilities: context.capabilities });
+      this.hooks.changed();
+      return true;
+    } catch (error: any) {
+      if (/method.*not.*found|unknown method|unsupported.*method|不支持.*方法/i.test(error.message)) throw new Error('当前 Codex CLI 不支持引导，请更新 Codex CLI；输入已保留');
+      if (/超时|连接已关闭|进程已退出/.test(error.message)) throw new Error('未能确认引导是否送达，输入已保留；请先查看回复，避免重复发送');
+      // A rejected steer does not fail or interrupt the running task.
+      throw error;
+    } finally { this.steering = false; }
   }
   private finish(error?: string) {
     const completedTurn = this.turnActive; this.turnActive = false;
@@ -159,7 +189,7 @@ export class AgentRuntime {
         else if (i.type !== 'userMessage' && i.type !== 'reasoning') this.message(i.id || randomUUID(), 'tool', pretty(i));
       }
       if (method === 'turn/started') { this.turnId = p.turn?.id; s.status = 'running'; this.hooks.changed(); }
-      if (method === 'turn/completed') this.finish(p.turn?.error?.message);
+      if (method === 'turn/completed' && (!this.turnId || !p.turn?.id || p.turn.id === this.turnId)) this.finish(p.turn?.error?.message);
       if (method === 'error') { this.message(randomUUID(), 'system', p.error?.message || pretty(p)); if (!p.willRetry) this.finish(p.error?.message || '运行失败'); }
     } else if (method === 'session/update') {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;

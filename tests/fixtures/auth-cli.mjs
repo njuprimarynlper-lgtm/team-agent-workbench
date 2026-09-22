@@ -94,6 +94,18 @@ else if (command === 'login') {
         send({ method: 'item/started', params: { threadId: 'fake-thread', turnId, item: { id: 'patch-item', type: 'fileChange', changes: [{ path: 'solution.py', kind: { type: 'update' }, diff: '-old_value\n+new_value' }] } } });
         send({ id: 'patch-approval', method: 'item/fileChange/requestApproval', params: { threadId: 'fake-thread', turnId, itemId: 'patch-item', reason: 'fixture file change' } });
       } else send({ method: 'turn/completed', params: { turn: { id: turnId, error: { message: '401 Unauthorized: Please log in again' } } } });
+    } else if (m.method === 'turn/steer') {
+      const reply = () => {
+        if (current.steer === 'finish-reject' || current.steer === 'finish-accept') send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } });
+        if (current.steer === 'unsupported') send({ id: m.id, error: { code: -32601, message: 'Method not found' } });
+        else if (current.steer === 'reject' || current.steer === 'finish-reject' || m.params.expectedTurnId !== turnId) send({ id: m.id, error: { code: -32000, message: 'No matching active turn' } });
+        else {
+          send({ method: 'item/agentMessage/delta', params: { threadId: 'fake-thread', itemId: 'steer-answer-' + m.id, delta: '收到补充要求。' } });
+          send({ id: m.id, result: { turnId: current.steer === 'wrong-turn' ? 'other-turn' : turnId } });
+        }
+      };
+      if (current.steer === 'hang') return;
+      if (current.steerDelay) setTimeout(reply, current.steerDelay); else reply();
     } else if (m.method === 'session/prompt') {
       if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
       if (current.toolApproval || current.policyApproval && !process.argv.includes('--force')) { globalThis.toolPromptId = m.id; send({ id: 'tool-approval', method: 'session/request_permission', params: { sessionId: 'fake-session', toolCall: { title: 'Cursor 请求执行命令', rawInput: { command: 'test command' } }, options: current.noOnce ? [{ optionId: 'always', kind: 'allow_always' }] : [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } }); return; }
