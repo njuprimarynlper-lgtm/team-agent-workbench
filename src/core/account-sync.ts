@@ -8,6 +8,7 @@ import type { SharedFiles } from './shared-files';
 import { contentAttachmentSchema } from '../shared/content';
 import { hashFile } from './artifacts';
 import { safeFilename } from './paths';
+import { rememberPreparationProgress } from '../shared/preparation-progress';
 
 const canonical = (value: any): string => JSON.stringify(value === undefined ? null : value, (_key, entry) => entry && typeof entry === 'object' && !Array.isArray(entry) ? Object.fromEntries(Object.keys(entry).sort().map(key => [key, entry[key]])) : entry);
 export function mergeAccountRecords(base: AccountRecords, local: AccountRecords, remote: AccountRecords, choices: Record<string, { local: string; remote: string; choice: 'local' | 'remote' }> = {}) {
@@ -61,6 +62,8 @@ export class AccountSync {
   }
   private apply(records: AccountRecords, profile: ConnectionProfile) {
     const owner = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
+    // A deletion received from another computer must not erase local progress.
+    for (const session of this.store.sessions) rememberPreparationProgress(session, this.store.drafts);
     const materials: ProjectConclusion[] = [];
     for (const [key, value] of Object.entries(records)) {
       if (key.startsWith('material:') && value && typeof value.projectId === 'string' && value.id === key.slice(9) && typeof value.title === 'string' && typeof value.content === 'string' && Array.isArray(value.sources)) materials.push({ ...value, accountOwner: owner });

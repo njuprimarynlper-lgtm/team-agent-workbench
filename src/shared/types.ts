@@ -35,13 +35,15 @@ export interface AgentSession {
   projectBrief?: { revision: number; sourceId: string; capturedAt: string }; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;
   assignment?: { id: string; revision: number; title: string; sourceIds: string[] };
   outputFiles?: string[];
+  preparationCheckpoint?: PreparationCheckpoint;
   autoUpload: boolean; lastArchiveAt?: string; handoffPath: string;
 }
 export interface Transfer { dependsOn?: string[]; attachment?: boolean; metadata?: ContentMetadata; trajectoryHash?: string; cacheCleared?: boolean; sha256?: string; completedAt?: string; id: string; kind: 'upload' | 'history' | 'download'; name: string; status: 'queued' | 'running' | 'done' | 'error'; bytes: number; total: number; target: string; projectName: string; createdAt: string; error?: string; sessionId?: string; localPath: string; binding: RemoteBinding }
 export interface DraftDestination { id: string; path: string; description: string }
 export interface DraftArtifact { sourceDetails?: string; attachments?: { fileId: string; selected: boolean }[]; id: string; category: ContributionCategory; title: string; titleAlias?: string; fields: Record<string, string>; body: string; repoUrl?: string; target: string; selected: boolean; submitted?: string }
 export type PreparationScope = 'full' | 'incremental';
-export interface PreparationSnapshot { capturedAt: string; messageCount: number; totalMessageCount?: number; lastMessageId?: string; conversationHash: string; scope?: PreparationScope; baseDraftId?: string; baseLastMessageId?: string; baseCapturedAt?: string }
+export interface PreparationSnapshot { capturedAt: string; messageCount: number; totalMessageCount?: number; lastMessageId?: string; lastMessageLength?: number; conversationHash: string; scope?: PreparationScope; baseDraftId?: string; baseLastMessageId?: string; baseCapturedAt?: string }
+export interface PreparationCheckpoint { draftId: string; snapshot: PreparationSnapshot }
 export interface ContentMergeSource { id: string; revision: number; title: string; author: string; updatedAt: string }
 export interface ContentMergeAnalysis { overview: string; consensus: string[]; conflicts: { topic: string; positions: { sourceIds: string[]; statement: string }[]; resolution?: string; requiresDecision: boolean }[]; evidence: { claim: string; sourceIds: string[] }[]; scope?: string; unresolved: string[] }
 export interface ContentUpdateAction { kind: 'saved_conclusion' | 'attached_session' | 'kept_conclusion' | 'deleted_conclusion' | 'acknowledged' | 'archived'; at: string; targetId?: string; targetTitle?: string; sourceRevision?: number; sourceTitle?: string; correctedFromTitle?: string }

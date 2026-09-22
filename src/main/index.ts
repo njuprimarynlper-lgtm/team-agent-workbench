@@ -197,7 +197,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).max(7).optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories); }
+    case 'draft.prepare': { const p = z.object({ id, scope: z.enum(['incremental', 'full']).optional(), categories: z.array(contributionCategorySchema).min(1).max(7).optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope); }
     case 'draft.reorganize': { const p = z.object({ id, scope: z.enum(['incremental', 'full']), categories: z.array(contributionCategorySchema).min(1).max(7).optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories); }
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);

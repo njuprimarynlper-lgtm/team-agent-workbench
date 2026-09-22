@@ -101,3 +101,25 @@ test('account switching never exports another account and loss of membership kee
     assert(JSON.stringify(await a.remote.accountData()).includes('PRIVATE_ALICE'));
   } finally { await env.close(); }
 });
+
+test('deleting a restored preparation record syncs without deleting results or the source computer progress', async () => {
+  const env = await setup();
+  try {
+    const a = env.first, session = await a.createSession('codex', '', env.project.id), now = new Date().toISOString();
+    session.messages.push({ id: 'boundary', role: 'assistant', text: '已完成部分', createdAt: now });
+    const id = randomUUID(), base = path.join(a.store.root, 'drafts', id);
+    const draft: Draft = { id, sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(base, 'input'), outputPath: path.join(base, 'draft.md'), createdAt: now, generation: 'ready', preparationVersion: 3, snapshot: { capturedAt: now, messageCount: 1, totalMessageCount: 1, lastMessageId: 'boundary', lastMessageLength: 5, conversationHash: 'snapshot' } };
+    applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', title: '独立成果', fields: { statement: '不是整理记录的附属品。' } }] }));
+    a.store.drafts.push(draft); await a.renameDraftResult(id, '独立成果', draft.artifacts![0].id); await a.accountSync.sync();
+    assert.equal(a.accountSync.state.status, 'synced', a.accountSync.state.detail || '');
+    const progress = structuredClone(session.preparationCheckpoint), result = a.conclusions(env.project.id)[0]; assert(progress);
+    const b = await env.client('delete-record'); assert.equal(b.store.sessions.length, 0);
+    assert(b.store.drafts.find(item => item.id === id)?.restored);
+    await b.deleteDraft(id); await b.accountSync.sync(); await a.accountSync.sync();
+    assert(!a.store.drafts.some(item => item.id === id)); assert.deepEqual(session.preparationCheckpoint, progress);
+    assert(a.conclusions(env.project.id).some(item => item.id === result.id)); assert(b.conclusions(env.project.id).some(item => item.id === result.id));
+    const c = await env.client('after-deletion'); assert(!c.store.drafts.some(item => item.id === id)); assert.equal(c.store.sessions.length, 0);
+    await a.accountSync.sync(); await b.accountSync.sync(); assert(!a.store.drafts.some(item => item.id === id));
+    assert.equal((await a.remote.accountData()).records['draft:' + id], null, 'deletion tombstone prevents restoration');
+  } finally { await env.close(); }
+});

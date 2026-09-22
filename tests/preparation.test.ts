@@ -171,12 +171,14 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     ] } });
     await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.repoUrl, ''); assert.equal(d.artifacts?.length, 2);
     const transfer = await wb.submitDraft(d.id); await until(() => wb.store.transfers.slice(0, 2).every(item => !['queued', 'running'].includes(item.status))); assert.equal(transfer.status, 'done', transfer.error || '');
-    await assert.rejects(wb.deleteDraft(d.id), /已经上传或保存/); assert(wb.store.drafts.some(item => item.id === d.id));
     assert.deepEqual(new Set(wb.store.transfers.slice(0, 2).map(item => path.posix.dirname(item.target))), new Set([p.uploadPath + '/findings', p.uploadPath + '/issues']));
     const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', transfer.localPath], { encoding: 'utf8' }));
     const manifest = JSON.parse(zip['manifest.json']);
     assert.deepEqual(Object.keys(zip).sort(), ['README.md', 'manifest.json']); assert.match(zip['README.md'], /建议先验证数据覆盖率/); assert.equal('repoUrl' in manifest, false); assert.equal(manifest.schemaVersion, 4); assert.equal(manifest.category, 'finding'); assert.equal(manifest.snapshotHash, d.snapshot?.conversationHash); assert.match(zip['README.md'], /人工补充/); assert(!JSON.stringify(zip).includes('材料原始内容'));
     assert.throws(() => wb.saveDraftSupplement(d.id, 'late', ''), /已提交/);
+    const savedConclusions = structuredClone(wb.conclusions(p.id));
+    await wb.deleteDraft(d.id); assert(!wb.store.drafts.some(item => item.id === d.id));
+    assert.deepEqual(wb.conclusions(p.id), savedConclusions); await fs.access(transfer.localPath);
     await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
     assert((await bob.remote.list(bob.remote.binding(p.id), p.uploadPath + '/findings')).some(x => x.path === transfer.target));
     const shared = await bob.remote.contentList(bob.remote.binding(p.id)); assert.deepEqual(new Set(shared.filter(x => x.kind === 'contribution').map(x => x.category)), new Set(['finding', 'issue'])); assert(shared.every(item => item.sourceSessionTitle === '覆盖率验证会话'));

@@ -13,6 +13,7 @@ import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../
 import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { preparationSnapshot } from './preparation-snapshot';
+import { preparationCheckpoint, rememberPreparationProgress } from '../shared/preparation-progress';
 import { SharedFiles } from './shared-files';
 import { TransferQueue } from './transfers';
 import { AgentRuntime } from './agents';
@@ -260,16 +261,6 @@ export class Workbench {
       results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }));
     }
     return results;
-  }
-  private removeDraftConclusionSources(draft: Draft) {
-    if (!draft.binding) return;
-    const owns = (source: ConclusionSource) => source.kind === 'session' && (source.id === draft.id || source.id.startsWith(draft.id + '-')), now = new Date().toISOString();
-    for (const conclusion of this.store.conclusions.filter(item => !item.deletedAt && item.projectId === draft.binding!.project.id)) {
-      const next = conclusion.sources.filter(source => !owns(source));
-      if (next.length === conclusion.sources.length) continue;
-      conclusion.sources = next; conclusion.version++; conclusion.updatedAt = now;
-      if (!next.length && conclusion.automatic) conclusion.archived = true;
-    }
   }
   async importContentConclusion(projectId: string, contentId: string, expectedRevision?: number) {
     const binding = this.remote.binding(projectId), item = (await this.remote.contentList(binding)).find(value => value.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
@@ -659,7 +650,11 @@ export class Workbench {
           draft.generation = 'ready'; draft.generationError = undefined;
         } catch (e: any) { draft.generation = 'error'; draft.generationError = preparationErrorMessage(e); }
         draft.generationFinishedAt = new Date().toISOString();
-        if (draft.generation === 'ready') this.syncDraftConclusions(draft);
+        if (draft.generation === 'ready') {
+          this.syncDraftConclusions(draft);
+          const parent = this.store.sessions.find(session => session.id === draft.sessionId);
+          if (parent) rememberPreparationProgress(parent, [draft]);
+        }
         await this.store.save(); this.broadcast();
         this.notice(draft.generation === 'ready' ? draft.conclusionMergeProjectId ? `“${draft.title}”预处理结果已生成，请审阅后保存。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，待确认上传。` : `“${draft.title}”整理失败：${draft.generationError}`);
         const runtime = this.runtimes.get(id); if (runtime) { this.runtimes.delete(id); await runtime.close(); }
@@ -754,12 +749,12 @@ export class Workbench {
       await this.store.save(); this.broadcast(); return source;
     }, false);
   }
-  prepare(id: string, extraFiles: string[] = [], categories: ContributionCategory[] = [...materialCategories]): Promise<Draft> {
+  prepare(id: string, extraFiles: string[] = [], categories: ContributionCategory[] = [...materialCategories], scope?: PreparationScope): Promise<Draft> {
     const pending = this.preparing.get(id); if (pending) return pending;
-    const active = this.store.drafts.find(d => d.sessionId === id && !d.submitted); if (active) return Promise.resolve(active);
+    const active = this.store.drafts.find(d => d.sessionId === id && !d.mergeSources?.length && (scope ? d.generation === 'running' : !d.submitted)); if (active) return Promise.resolve(active);
     const requestedCategories = [...new Set(categories)].filter(category => contributionCategories.includes(category));
     if (!requestedCategories.length) return Promise.reject(new Error('请至少选择一种整理结果'));
-    const operation = this.createPreparation(id, extraFiles, requestedCategories).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
+    const operation = this.createPreparation(id, extraFiles, requestedCategories, scope).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
   }
   prepareContentMerge(projectId: string, sessionId: string, sourceIds: string[]): Promise<Draft> {
     const unique = [...new Set(sourceIds)];
@@ -808,39 +803,32 @@ export class Workbench {
     const draft: Draft = { id: draftId, sessionId, prepareSessionId: prepared.id, preparationVersion: 5, conclusionMergeProjectId: projectId, conclusionMergeInstruction: instruction, mergeSources, generation: 'running', title: `${selected.length} 条本地结论 · 预处理`, body: '', files: [], inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
   }
-  private async createPreparation(id: string, extraFiles: string[], requestedCategories: ContributionCategory[]) {
+  private async createPreparation(id: string, extraFiles: string[], requestedCategories: ContributionCategory[], scope: PreparationScope = 'full', source?: Draft) {
     const parent = this.session(id); if (parent.purpose !== 'work') throw new Error('请从工作会话创建整理结果');
+    const checkpoint = preparationCheckpoint(parent, this.store.drafts);
+    if (scope === 'incremental' && !checkpoint) throw new Error('没有已完成的整理进度，请先全量整理');
     const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
-    await fs.mkdir(inputDir, { recursive: true });
-    const { files, snapshot } = await preparationSnapshot(parent, inputDir, extraFiles, { scope: 'full' });
+    const { files, snapshot } = await preparationSnapshot(parent, inputDir, extraFiles, { scope, baseDraftId: checkpoint?.draftId, baseLastMessageId: checkpoint?.snapshot.lastMessageId, baseLastMessageLength: checkpoint?.snapshot.lastMessageLength, baseMessageCount: checkpoint && (checkpoint.snapshot.totalMessageCount ?? checkpoint.snapshot.messageCount), baseCapturedAt: checkpoint?.snapshot.capturedAt });
     const git = await gitRevision(parent.cwd);
     const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', id, parent.model);
     prepared.binding = parent.binding ? structuredClone(parent.binding) : undefined;
-    const draft: Draft = { id: draftId, sessionId: id, snapshot, preparationScope: 'full', git, includeGit: !!git, prepareSessionId: prepared.id, preparationVersion: 3, concise: true, requestedCategories, supplement: '', title: parent.title + ' · 成果', body: '', files, binding: parent.binding ? structuredClone(parent.binding) : undefined, inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
+    const draft: Draft = { id: draftId, sessionId: id, snapshot, preparationScope: scope, baseDraftId: checkpoint?.draftId, git, includeGit: source?.includeGit ?? !!git, prepareSessionId: prepared.id, preparationVersion: 3, concise: true, requestedCategories, supplement: source?.supplement || '', repoUrlOverride: source?.repoUrlOverride || '', title: parent.title + (scope === 'incremental' ? ' · 增量成果' : ' · 成果'), body: '', files, binding: parent.binding ? structuredClone(parent.binding) : undefined, inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
   }
   private async createReorganization(source: Draft, scope: PreparationScope, categories?: ContributionCategory[]) {
     if (source.mergeSources?.length) throw new Error('项目文档或本地结论合并不支持增量整理');
-    if (source.generation !== 'ready' || !source.snapshot) throw new Error('请等待本次整理完成后再选择新的整理范围');
+    if (source.generation !== 'ready') throw new Error('请等待本次整理完成后再选择新的整理范围');
     const parent = this.session(source.sessionId); if (parent.purpose !== 'work') throw new Error('原工作会话不存在，无法再次整理');
-    const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
-    const baselineCount = source.snapshot.totalMessageCount ?? source.snapshot.messageCount;
-    let frozen: Awaited<ReturnType<typeof preparationSnapshot>>;
-    try { frozen = await preparationSnapshot(parent, inputDir, [], { scope, baseDraftId: source.id, baseLastMessageId: source.snapshot.lastMessageId, baseCapturedAt: source.snapshot.capturedAt, baseMessageCount: baselineCount }); }
-    catch (error) { await fs.rm(base, { recursive: true, force: true }); throw error; }
-    const { files, snapshot } = frozen;
-    const git = await gitRevision(parent.cwd);
-    const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', parent.id, parent.model);
-    prepared.binding = parent.binding ? structuredClone(parent.binding) : undefined;
     const requestedCategories = categories?.length ? [...new Set(categories)].filter(category => contributionCategories.includes(category)) : source.requestedCategories?.length ? [...source.requestedCategories] : [...materialCategories];
     if (!requestedCategories.length) throw new Error('请至少选择一种整理结果');
-    const draft: Draft = { id: draftId, sessionId: parent.id, snapshot, preparationScope: scope, baseDraftId: source.id, git, includeGit: source.includeGit ?? !!git, prepareSessionId: prepared.id, preparationVersion: 3, concise: true, requestedCategories, supplement: source.supplement || '', repoUrlOverride: source.repoUrlOverride || '', title: `${parent.title} · ${scope === 'incremental' ? '增量' : '全量'}成果`, body: '', files, binding: parent.binding ? structuredClone(parent.binding) : undefined, inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
-    this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
+    return this.createPreparation(parent.id, [], requestedCategories, scope, source);
   }
   reorganizePreparation(id: string, scope: PreparationScope, categories?: ContributionCategory[]): Promise<Draft> {
-    const source = this.draft(id), key = `${id}:${scope}:${this.session(source.sessionId).messages.at(-1)?.id || 'empty'}`;
+    const source = this.draft(id), key = source.sessionId;
+    const creating = this.preparing.get(key); if (creating) return creating;
+    const active = this.store.drafts.find(draft => draft.sessionId === key && !draft.mergeSources?.length && draft.generation === 'running'); if (active) return Promise.resolve(active);
     const pending = this.reorganizing.get(key); if (pending) return pending;
-    const operation = this.createReorganization(source, scope, categories).finally(() => this.reorganizing.delete(key)); this.reorganizing.set(key, operation); return operation;
+    const operation = this.createReorganization(source, scope, categories).finally(() => { this.reorganizing.delete(key); this.preparing.delete(key); }); this.reorganizing.set(key, operation); this.preparing.set(key, operation); return operation;
   }
   private async runPreparation(draft: Draft) {
     if (draft.mergeSources?.length) return this.runContentMergePreparation(draft);
@@ -894,7 +882,7 @@ export class Workbench {
         const inputDir = path.join(base, 'input');
         const { files, snapshot } = await preparationSnapshot(parent, inputDir);
         if (d.generation !== 'running') return d;
-        d.inputDir = inputDir; d.files = files; d.snapshot = snapshot; d.git = await gitRevision(parent.cwd);
+        d.inputDir = inputDir; d.files = files; d.snapshot = snapshot; d.preparationScope = 'full'; d.baseDraftId = undefined; d.git = await gitRevision(parent.cwd);
       }
       const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', parent.id, parent.model);
       if (d.mergeSources?.length) prepared.title = d.conclusionMergeProjectId ? '本地结论预处理' : '项目文档语义合并';
@@ -912,19 +900,32 @@ export class Workbench {
   async deleteDraft(id: string) {
     if (this.submittingDrafts.has(id)) throw new Error('整理任务正在保存或上传，请稍后再删除');
     const draft = this.draft(id);
-    if (draft.mergeCompletedAt || draft.submitted || draft.artifacts?.some(item => item.submitted)) throw new Error('已经上传或保存的整理任务需要保留记录，不能删除');
     const draftRoot = path.resolve(this.store.root, 'drafts', id), expectedParent = path.resolve(this.store.root, 'drafts');
     if (path.dirname(draftRoot) !== expectedParent) throw new Error('整理任务目录异常，未执行删除');
     this.deletingDrafts.add(id);
     try {
+      await this.edits;
       await this.stopPreparation(draft);
-      this.clearPreparationTimer(id); this.removeDraftConclusionSources(draft); this.store.drafts = this.store.drafts.filter(item => item.id !== id);
+      const parent = this.store.sessions.find(session => session.id === draft.sessionId);
+      if (parent) rememberPreparationProgress(parent, [draft]);
+      this.clearPreparationTimer(id);
       const helpers = this.store.sessions.filter(session => session.purpose === 'prepare' && (session.id === draft.prepareSessionId || localWithin(draftRoot, session.cwd)));
       for (const helper of helpers) {
         const runtime = this.runtimes.get(helper.id); this.runtimes.delete(helper.id); if (runtime) await runtime.close();
-        this.store.sessions = this.store.sessions.filter(session => session.id !== helper.id); delete this.store.inputs[helper.id];
       }
-      await this.store.save(); this.broadcast(); await fs.rm(draftRoot, { recursive: true, force: true }); return true;
+      const drafts = this.store.drafts, sessions = this.store.sessions, inputs = this.store.inputs;
+      const helperIds = new Set(helpers.map(helper => helper.id));
+      this.store.drafts = drafts.filter(item => item.id !== id);
+      this.store.sessions = sessions.filter(session => !helperIds.has(session.id));
+      this.store.inputs = Object.fromEntries(Object.entries(inputs).filter(([sessionId]) => !helperIds.has(sessionId)));
+      try { await this.store.save(); }
+      catch (error) { this.store.drafts = drafts; this.store.sessions = sessions; this.store.inputs = inputs; throw error; }
+      this.broadcast();
+      // Uploaded/retryable packages and revised drafts own independent lifetimes.
+      // A revision in older builds can still reference this task's frozen files.
+      const referenced = this.store.drafts.some(other => [other.inputDir, other.outputPath, ...other.files.map(file => file.localPath)].some(file => file && localWithin(draftRoot, file))) || this.store.transfers.some(transfer => localWithin(draftRoot, transfer.localPath));
+      if (!referenced) await fs.rm(draftRoot, { recursive: true, force: true }).catch((error: any) => this.notice('整理记录已删除，临时文件暂未清理：' + error.message));
+      return true;
     } finally { this.deletingDrafts.delete(id); }
   }
   saveDraft(id: string, title: string, body: string, repoUrl: string, target?: string) {

@@ -5,6 +5,7 @@ import type { AgentSession, PreparationScope, SourceFile } from '../shared/types
 import { atomicJson } from './store';
 import { freezeFile } from './artifacts';
 import { mentionedFiles } from './session-files';
+import { preparationDelta } from '../shared/preparation-progress';
 
 interface PreparationSnapshotOptions {
   scope?: PreparationScope;
@@ -12,6 +13,7 @@ interface PreparationSnapshotOptions {
   baseLastMessageId?: string;
   baseCapturedAt?: string;
   baseMessageCount?: number;
+  baseLastMessageLength?: number;
 }
 
 // Capture messages before the first await: ongoing work must not change this input.
@@ -19,13 +21,9 @@ export async function preparationSnapshot(session: AgentSession, inputDir: strin
   const allMessages = structuredClone(session.messages), capturedAt = new Date().toISOString(), scope = options.scope || 'full';
   let messages = allMessages;
   if (scope === 'incremental') {
-    let start = -1;
-    if (options.baseLastMessageId) start = allMessages.findIndex(message => message.id === options.baseLastMessageId);
-    else if (options.baseMessageCount === 0) start = -1;
-    else throw new Error('上次整理缺少可定位的消息快照，请改用全量整理');
-    if (options.baseLastMessageId && start < 0) throw new Error('无法在当前会话中定位上次整理位置，请改用全量整理');
-    messages = allMessages.slice(start + 1);
-    if (!messages.length) throw new Error('上次整理后没有新增消息，无需增量整理');
+    const delta = preparationDelta({ messages: allMessages }, { capturedAt: options.baseCapturedAt || '', conversationHash: '', messageCount: options.baseMessageCount ?? -1, lastMessageId: options.baseLastMessageId, lastMessageLength: options.baseLastMessageLength });
+    if (!delta.count) throw new Error(delta.reason);
+    messages = allMessages.slice(delta.start);
   }
   const conversation = messages.map(m => ({ id: m.id, role: m.role, text: m.text, createdAt: m.createdAt }));
   const conversationHash = createHash('sha256').update(JSON.stringify(conversation)).digest('hex');
@@ -48,7 +46,7 @@ export async function preparationSnapshot(session: AgentSession, inputDir: strin
       files.push(await freezeFile(candidate, inputDir));
     } catch { /* Missing or changing outputs can be added manually after preparation. */ }
   }
-  const snapshot = { capturedAt, messageCount: messages.length, totalMessageCount: allMessages.length, lastMessageId: allMessages.at(-1)?.id, conversationHash, scope, baseDraftId: options.baseDraftId, baseLastMessageId: options.baseLastMessageId, baseCapturedAt: options.baseCapturedAt };
+  const snapshot = { capturedAt, messageCount: messages.length, totalMessageCount: allMessages.length, lastMessageId: allMessages.at(-1)?.id, lastMessageLength: allMessages.at(-1)?.text.length, conversationHash, scope, baseDraftId: options.baseDraftId, baseLastMessageId: options.baseLastMessageId, baseCapturedAt: options.baseCapturedAt };
   await atomicJson(path.join(inputDir, 'source-index.json'), { sourceSessionId: session.id, ...snapshot, conversation: 'conversation.json', handoff, noteWarning, files });
   return { files, snapshot };
 }

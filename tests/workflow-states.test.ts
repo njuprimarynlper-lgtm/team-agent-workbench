@@ -66,7 +66,7 @@ test('normal application shutdown records an interrupted work session', async ()
   } finally { await wb.close(); await cleanup(root); }
 });
 
-test('deleting a running preparation excludes retries and removes all helper attempts; saved results stay protected', async () => {
+test('deleting a running preparation excludes retries and removes helper attempts; saved records can also be deleted', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-state-delete-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     await wb.store.init(); grantTestWorkspace(wb, root);
@@ -82,7 +82,7 @@ test('deleting a running preparation excludes retries and removes all helper att
     release.release(); await deleting;
     assert(!wb.store.sessions.some(s => [first.id, last.id].includes(s.id))); assert(wb.store.sessions.some(s => s.id === parent.id));
     const saved = { ...draft, id: randomUUID(), generation: 'ready', mergeCompletedAt: new Date().toISOString() } as Draft; wb.store.drafts.push(saved);
-    await assert.rejects(wb.deleteDraft(saved.id), /已经上传或保存/); await assert.rejects(wb.retryPreparation(saved.id), /已提交/);
+    await assert.rejects(wb.retryPreparation(saved.id), /已提交/); await wb.deleteDraft(saved.id); assert(!wb.store.drafts.includes(saved));
   } finally { await wb.close(); await cleanup(root); }
 });
 

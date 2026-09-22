@@ -6,6 +6,7 @@ import { settingsSchema } from './config';
 import { migrateSessionContext } from './session-context';
 import { repairConclusionImports } from './conclusion-import-repair';
 import { accountIdentity } from '../shared/account-data';
+import { rememberPreparationProgress } from '../shared/preparation-progress';
 export async function atomicJson(file: string, data: unknown) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = file + '.' + randomUUID() + '.tmp';
@@ -55,6 +56,7 @@ export class Store {
       if (d.generation === 'running') { d.generation = 'error'; d.generationError = '应用关闭后整理已中断，可重试整理，“给团队的补充”已保留。'; }
       else if (!d.generation) { const s = this.sessions.find(s => s.id === d.prepareSessionId); d.generation = d.generatedBody ? 'ready' : 'error'; d.generationError = d.generatedBody ? undefined : s?.error || '此前的整理未完成，可重试整理，“给团队的补充”已保留。'; }
     });
+    for (const session of this.sessions) rememberPreparationProgress(session, this.drafts);
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
     await this.repairConclusionImports();
   }
