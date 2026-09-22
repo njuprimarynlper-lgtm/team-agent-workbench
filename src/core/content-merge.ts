@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ContentMergeAnalysis, Draft } from '../shared/types';
-import { resultTitle } from '../shared/content';
+import { contributionTitle, resultTitle } from '../shared/content';
+import { validatePreparedResults } from './preparation-policy';
 
 const positionSchema = z.object({
   sourceIds: z.array(z.string().uuid()).min(1).max(20),
@@ -31,6 +32,15 @@ export function applyContentMerge(draft: Draft, answer: string) {
     raw = JSON.parse(answer.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
   } catch {
     throw new Error('AI 返回的处理结果格式不完整，请重试。来源条目未发生任何变化。');
+  }
+  if (draft.resultRules) {
+    const artifacts = validatePreparedResults(draft, raw);
+    if (artifacts.length > 1) throw new Error('合并处理只生成一条成果，请重试');
+    const item = artifacts[0];
+    draft.title = item ? contributionTitle(item.category, item.title) : '本次没有需要保留的新内容';
+    draft.body = item?.body || ''; draft.generatedBody = draft.body; draft.resultCategory = item?.category;
+    draft.resultSourceDetails = item?.sourceDetails; draft.mergeAnalysis = undefined;
+    return;
   }
   const parsed = resultSchema.safeParse(raw);
   if (!parsed.success) throw new Error('AI 返回的处理结果缺少标题、正文或有效的冲突结构，请重试。来源条目未发生任何变化。');

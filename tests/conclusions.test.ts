@@ -126,10 +126,10 @@ test('personal conclusion processing follows directions and archives sources onl
     const session = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
     const first = await wb.createConclusion(offlineProjectId, '部署约束', '启动程序时隐藏终端窗口。'), second = await wb.createConclusion(offlineProjectId, '启动验证', 'Windows 启动器已通过回归测试。');
     const draft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [first.id, second.id], '保留 Windows 约束，不要补造测试结果。');
-    await until(() => draft.generation === 'ready'); assert.match(draft.body, /预处理结果/); assert.equal(draft.conclusionMergeInstruction, '保留 Windows 约束，不要补造测试结果。');
+    await until(() => draft.generation === 'ready'); assert.match(draft.body, /统一结论/); assert.equal(draft.conclusionMergeInstruction, '保留 Windows 约束，不要补造测试结果。');
     assert.equal(wb.conclusions(offlineProjectId).length, 2, 'AI draft does not alter the source conclusions');
     await wb.saveContentMerge(draft.id, '统一部署结论', draft.body); const merged = await wb.commitConclusionMerge(draft.id);
-    assert.equal(wb.conclusions(offlineProjectId).length, 1); assert.equal(merged.title, '统一部署结论'); assert(wb.conclusions(offlineProjectId, true).filter(item => item.archived).length === 2);
+    assert.equal(wb.conclusions(offlineProjectId).length, 1); assert.equal(merged.title, '【项目结论】 统一部署结论'); assert(wb.conclusions(offlineProjectId, true).filter(item => item.archived).length === 2);
     const single = await wb.createConclusion(offlineProjectId, '独立约束', '窗口启动应隐藏终端，人工验证范围未知。');
     const instruction = '只改写为新人的检查清单，不需要合并。';
     const processed = await wb.prepareConclusionMerge(offlineProjectId, session.id, [single.id], instruction);
@@ -141,7 +141,7 @@ test('personal conclusion processing follows directions and archives sources onl
     assert.equal(single.archived, undefined, 'a single-source preview also leaves originals intact');
     await wb.saveContentMerge(processed.id, '新人检查清单', '人工修订后的检查步骤');
     const saved = await wb.commitConclusionMerge(processed.id);
-    assert.equal(saved.title, '新人检查清单'); assert.equal(saved.content, '人工修订后的检查步骤');
+    assert.equal(saved.title, '【项目结论】 新人检查清单'); assert.equal(saved.content, '人工修订后的检查步骤');
     assert.equal(single.archived, true); assert.equal(saved.sources[0].id, single.id);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

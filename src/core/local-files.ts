@@ -1,7 +1,7 @@
 import { atomicJson } from './store';
 import { ContentFiles } from './content-files';
 import { AssignmentFiles } from './assignment-files';
-import type { AssignmentCreate, AssignmentStatusChange } from '../shared/assignments';
+import type { AssignmentCreate, AssignmentStatusChange, AssignmentUpload } from '../shared/assignments';
 import type { ContentEdit, ContentMetadata } from '../shared/content';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -240,6 +240,8 @@ export class LocalFileConnection {
   assignmentMembers(binding: RemoteBinding) { return this.assignments().members(binding); }
   assignmentList(binding: RemoteBinding) { return this.assignments().list(binding); }
   assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.assignments().create(binding, input); }
+  assignmentUpload(binding: RemoteBinding, taskId: string, file: AssignmentUpload, local: string) { return this.assignments().upload(binding, taskId, file, local); }
+  assignmentDownload(binding: RemoteBinding, taskId: string, fileId: string, local: string) { return this.assignments().download(binding, taskId, fileId, local); }
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.assignments().status(binding, input); }
   private content() { return new ContentFiles(this.root, async binding => { this.channel(binding); const { user, group } = await this.access(binding.project.remoteRoot); const project = await this.readProject(binding.project.remoteRoot); if (project?.id !== binding.project.id) throw new Error('项目身份已改变'); return { username: user.username, admin: !!user.contentAdminGroups?.includes(group.name) }; }); }
   contentList(binding: RemoteBinding) { return this.content().list(binding); }

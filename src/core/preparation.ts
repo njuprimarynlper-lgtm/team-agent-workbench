@@ -5,6 +5,7 @@ import { contributionCategories, contributionCategoryFields, contributionCategor
 import type { SharedFiles } from './shared-files';
 import { assertRemote, withinRemote } from './paths';
 import { githubRepository } from './artifacts';
+import { preparedArtifact, validatePreparedResults } from './preparation-policy';
 
 // Model output selects an enumerated directory; it cannot invent a filesystem path.
 export function contributionDirectory(binding: RemoteBinding, target: string) {
@@ -68,20 +69,35 @@ export function preparationFieldContract(categories: readonly ContributionCatego
     project_standard: ['statement', 'evidence', 'scope'],
     method_exploration: ['approach', 'uncertainty', 'nextSteps'],
     issue: ['problem', 'impact', 'nextAction'],
-    baseline_change_proposal: ['proposedValue', 'rationale', 'validationNeeded']
+    baseline_change_proposal: ['proposedValue', 'rationale', 'validationNeeded'],
+    requirement: ['statement', 'scope', 'evidence'], design: ['approach', 'rationale', 'limitations'],
+    verification: ['result', 'evidence', 'limitations'], troubleshooting: ['problem', 'likelyCause', 'workaround'],
+    guide: ['scope', 'approach', 'result'], research: ['statement', 'evidence', 'scope'], comparison: ['approach', 'evidence', 'limitations']
   };
   return Object.fromEntries(categories.map(category => [category, fields[category]]));
 }
 
-export const preparationWritingGuide = '精简交接：每项最多三段，每段一到两句话，正文通常控制在 150—250 字，不要重复标题。实验结果只写做了什么（change，合并必要的目标和对照）、验证情况（result，合并关键依据、验证范围与限制）、下一步（nextSteps）。其他类别同样只用给定的三个字段：未奏效方向的 reusableInsight 写经验或后续建议；结论的 evidence 同时写验证边界；问题的 impact 合并关键触发条件；基线建议的 proposedValue 写原值到建议值且注明尚未采纳。只保留影响判断的参数和证据，不罗列日志、返回码、文件清单、增删行数，不另起环境、依据、适用范围、限制等重复章节。静态通过不等于运行、精度或性能通过，未验证与不确定性必须保留，不能为缩短文字而省略关键限制。';
+export const preparationWritingGuide = '精简交接：每项最多三段，每段一到两句话，正文通常控制在 150—250 字，不要重复标题。先写最重要的信息，再写必要依据与限制，只在有明确依据时补充下一步。不按类别增加字段或固定章节，不罗列日志、返回码、文件清单、增删行数。静态通过不等于运行、精度或性能通过，未验证与不确定性必须保留，不能为缩短文字而省略关键限制。';
 
 export function applyPreparation(draft: Draft, answer: string) {
   let raw: unknown;
   try { raw = JSON.parse(answer.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
   catch { throw new Error('AI 返回的整理结果格式不完整，请重试整理。你的补充说明已保留。'); }
+  if (draft.resultRules) {
+    if (!draft.binding) throw new Error('当前会话没有绑定项目');
+    const artifacts = validatePreparedResults(draft, raw).map((item, index) => {
+      const artifact = preparedArtifact(item, `${draft.id}-${index + 1}`, contributionCategoryDirectory(draft.binding!, item.category));
+      artifact.attachments = [...new Set(item.attachmentIds || [])].filter(id => draft.files.some(file => file.id === id)).map(fileId => ({ fileId, selected: false }));
+      if (item.repoUrl) { try { artifact.repoUrl = githubRepository(item.repoUrl); } catch { artifact.repoUrl = undefined; } }
+      return artifact;
+    });
+    const first = artifacts[0];
+    Object.assign(draft, { artifacts, title: first ? artifacts.length === 1 ? first.title : `${artifacts.length} 项候选成果` : '本次没有需要保留的新内容', body: first?.body || '', generatedBody: first?.body || '', repoUrl: first?.repoUrl || '', target: first?.target });
+    return;
+  }
   const parsed = batchResultSchema.safeParse(raw);
   if (parsed.success) {
-    if (parsed.data.artifacts.length > 3 && draft.concise) throw new Error('本次整理超过 3 项，请重新精简整理');
+    if (parsed.data.artifacts.length > 5 && draft.concise) throw new Error('本次整理超过 5 项，请重新精简整理');
     if (!draft.binding) throw new Error('当前会话没有绑定项目，无法确定分类目录。');
     const requested = new Set(draft.requestedCategories?.length ? draft.requestedCategories : contributionCategories);
     const unexpected = parsed.data.artifacts.find(item => !requested.has(item.category));

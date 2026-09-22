@@ -45,7 +45,7 @@ class ContentRules(unittest.TestCase):
 
     def test_private_account_data_is_isolated_versioned_and_not_public(self):
         self.assertEqual(self.call('bob', op='account_read')['records'], {})
-        data = {'material:one': {'title': 'private'}}
+        data = {'material:one': {'title': 'private'}, 'result-rules:preferences': {'combinations': [], 'projects': {self.project: 'development'}}}
         first = self.call('bob', op='account_write', revision=0, records=data, username='alice')
         self.assertEqual(first['revision'], 1)
         self.assertEqual(self.call('alice', op='account_read')['records'], {})
@@ -102,12 +102,82 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(PermissionError): self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=1, status='cancelled'))
         active = self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=1, status='in_progress'))
         with self.assertRaises(ValueError): self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=1, status='completed'))
-        done = self.call('bob', op='assignment_status', change=dict(id=saved['id'], revision=active['revision'], status='completed'))
+        review = self.call('bob', op='assignment_lifecycle', change=dict(id=saved['id'], revision=active['revision'], status='pending_review', submission=dict(summary='已验证任务结果')))
+        done = self.call('alice', op='assignment_lifecycle', change=dict(id=saved['id'], revision=review['revision'], status='completed'))
         self.assertEqual(done['status'], 'completed')
         self.state['users']['alice']['contentAdminGroups'] = []
         with self.assertRaises(PermissionError): self.call('alice', op='assignment_create', task={**task, 'id': str(uuid.uuid4())})
         self.state['users']['bob']['groups'] = []
         with self.assertRaises(PermissionError): self.call('bob', op='assignment_list')
+
+    def test_assignment_review_delete_restore_and_reference_safe_purge(self):
+        self.state['users']['bob']['uid'] = 1001
+        self.state['users']['alice']['uid'] = 1000
+        source = self.publish(kind='file', name='original.txt')
+        spec = dict(id=str(uuid.uuid4()), title='评估是否继续', description='比较候选与基线', acceptance='提供依据', assignee='bob', references=[dict(id=source['id'], revision=1)])
+        first = self.call('alice', op='assignment_create', task=spec)
+        second = self.call('alice', op='assignment_create', task={**spec, 'id': str(uuid.uuid4())})
+        blob = content.assignment_blob(self.root, self.project, 'bob', first['files'][0])
+        def change(actor, task, status, **extra):
+            return self.call(actor, op='assignment_lifecycle', change=dict(id=task['id'], revision=task['revision'], status=status, **extra))
+        with self.assertRaises(ValueError): change('alice', first, 'deleted')
+        with self.assertRaises(ValueError): change('alice', first, 'cancelled', reason='   ')
+        task = change('bob', first, 'in_progress')
+        with self.assertRaises(PermissionError): change('bob', task, 'completed')
+        with self.assertRaises(ValueError): change('alice', task, 'completed')
+        with self.assertRaises(ValueError): change('bob', task, 'pending_review', submission=dict(summary='   '))
+        upload = dict(id=str(uuid.uuid4()), name='proof.txt', sha256=content.digest(self.incoming), size=self.incoming.stat().st_size)
+        with self.assertRaises(PermissionError): self.call('alice', op='assignment_file_upload', taskId=task['id'], file=upload)
+        self.call('bob', op='assignment_file_upload', taskId=task['id'], file=upload)
+        submission = dict(summary='候选不优于基线，不建议继续', references=[dict(id=source['id'], revision=1)], uploadIds=[upload['id']])
+        with self.assertRaises(ValueError): change('bob', task, 'pending_review', submission={**submission, 'references': [dict(id=source['id'], revision=999)]})
+        self.assertEqual(next(item for item in self.call('bob', op='assignment_list') if item['id'] == task['id'])['status'], 'in_progress')
+        task = change('bob', task, 'pending_review', submission=submission)
+        self.assertEqual(task['submissions'][0]['submittedBy'], 'bob')
+        self.assertEqual(len(task['submissions'][0]['files']), 2)
+        self.assertFalse(content.assignment_stage(self.root, self.project, 'bob', task['id'], upload['id']).exists())
+        with self.assertRaises(PermissionError): change('bob', task, 'completed')
+        with self.assertRaises(ValueError): change('alice', task, 'in_progress')
+        with self.assertRaises(ValueError): change('alice', task, 'completed', submission=submission)
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_file_upload', taskId=task['id'], file=upload)
+        self.state['users']['carol']['groups'].append('relation')
+        self.state['users']['carol']['contentAdminGroups'] = ['relation']
+        task = change('carol', task, 'in_progress', reason='补充适用范围')
+        self.assertEqual(task['history'][-1]['by'], 'carol')
+        self.assertEqual(task['history'][-1]['action'], 'rejected')
+        task = change('bob', task, 'pending_review', submission=dict(summary='当前样本内不优于基线，依据见上次附件'))
+        self.assertEqual(len(task['submissions']), 2)
+        with self.assertRaises(ValueError): change('alice', {**task, 'revision': 1}, 'completed')
+        task = change('carol', task, 'completed', reason='按探索目标验收通过')
+        self.assertEqual(task['history'][-1]['by'], 'carol')
+        downloaded = self.call('bob', op='assignment_file_download', taskId=task['id'], fileId=task['submissions'][0]['files'][1]['id'])
+        self.assertEqual(downloaded['sha256'], upload['sha256'])
+        self.state['users']['carol']['contentAdminGroups'] = []
+        with self.assertRaises(PermissionError): change('carol', task, 'deleted')
+        with self.assertRaises(PermissionError): change('bob', task, 'deleted')
+        task = change('alice', task, 'deleted')
+        self.assertFalse(any(item['id'] == task['id'] for item in self.call('bob', op='assignment_list')))
+        self.assertTrue(any(item['id'] == task['id'] and item.get('deletedAt') for item in self.call('alice', op='assignment_list')))
+        self.assertEqual(blob.read_bytes(), b'original')
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_file_download', taskId=task['id'], fileId=first['files'][0]['id'])
+        task = change('alice', task, 'restored')
+        self.assertEqual(task['status'], 'completed'); self.assertEqual(len(task['submissions']), 2)
+        task = change('alice', task, 'deleted')
+        task = change('alice', task, 'purged')
+        self.assertEqual(task['title'], ''); self.assertEqual(task['submissions'], [])
+        self.assertFalse(any(item['id'] == task['id'] for item in self.call('alice', op='assignment_list')))
+        with self.assertRaises(ValueError): self.call('alice', op='assignment_create', task=spec)
+        with self.assertRaises(PermissionError): change('alice', task, 'restored')
+        with self.assertRaises(PermissionError): self.call('alice', op='assignment_file_download', taskId=task['id'], fileId=first['files'][0]['id'])
+        self.assertEqual(content.assignment_resolve(self.root, self.project, 'bob', second['id'], second['files'][0]), blob)
+        self.assertEqual(blob.read_bytes(), b'original')
+        second = change('alice', second, 'cancelled', reason='重复任务')
+        second = change('alice', second, 'deleted')
+        self.assertEqual(blob.read_bytes(), b'original', 'recoverable tasks retain their blobs')
+        change('alice', second, 'purged')
+        self.assertFalse(blob.exists())
+        self.assertEqual(content.safe(self.root, source['path']).read_bytes(), b'original', 'shared source is never deleted with a task')
+        self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
 
     def edit(self, actor, item, **change):
         return self.call(actor, op='edit_content', change={'id': item['id'], 'revision': item['revision'], 'action': 'save', 'title': '新标题', 'description': '新证据', **change})
@@ -213,6 +283,77 @@ class ContentRules(unittest.TestCase):
         self.assertEqual(self.call('alice', op='adopt_content', target=target)['id'], item['id'])
         with self.assertRaises(ValueError): self.call('alice', op='adopt_content', target='/projects/relation/实体抽取/.workbench-project.json')
         with self.assertRaises(ValueError): self.call('alice', op='adopt_content', target='/projects/ocr')
+
+    def test_new_categories_publish_with_matching_paths_and_keep_category_in_assignment_snapshots(self):
+        for category in ['requirement', 'design', 'verification', 'troubleshooting', 'guide', 'research', 'comparison']:
+            folder = content.CONTRIBUTION_FOLDERS[category]
+            field = next(iter(content.CONTRIBUTION_FIELDS[category]))
+            metadata = dict(kind='contribution', category=category, title='简短成果', description='有依据的内容。', fields={field: '有依据的内容。'})
+            item = self.call('bob', op='publish', target=f'/projects/relation/实体抽取/submissions/bob/{folder}/{category}.md', sha256=content.digest(self.incoming), metadata=metadata)
+            self.assertEqual(item['category'], category)
+            task = self.call('alice', op='assignment_create', task=dict(id=str(uuid.uuid4()), title='自派任务', description='验证该成果', assignee='alice', references=[dict(id=item['id'], revision=1)]))
+            self.assertEqual(task['references'][0]['category'], category)
+            started = self.call('alice', op='assignment_status', change=dict(id=task['id'], revision=1, status='in_progress'))
+            self.assertEqual(started['status'], 'in_progress')
+            self.assertEqual(self.call('alice', op='assignment_status', change=dict(id=task['id'], revision=2, status='completed', submission=dict(summary='自派任务已验证')))['status'], 'completed')
+            with self.assertRaises(ValueError): self.edit('alice', item, category='invented')
+            self.assertEqual(next(row for row in content.read_json(self.directory / '.workbench-content.json') if row['id'] == item['id'])['revision'], 1)
+            edited = self.edit('alice', item, category='verification', sourceDetails='验证来源。')
+            self.assertEqual(edited['category'], 'verification'); self.assertEqual(edited['fields'], {}); self.assertEqual(edited['sourceDetails'], '验证来源。')
+
+    def test_task_files_snapshot_shared_attachments_and_deduplicate_only_equal_permissions(self):
+        self.state['users']['bob']['uid'] = 1001
+        self.state['users']['carol']['groups'].append('relation'); self.state['users']['carol']['uid'] = 1002
+        sha = content.digest(self.incoming)
+        shared = self.call('bob', op='publish_attachment', sha256=sha)
+        linked = self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/result.md', sha256=sha, metadata=dict(kind='contribution', title='关联成果', description='验证内容', attachments=[dict(shared, name='data.csv')]))
+        request_id, upload_id = str(uuid.uuid4()), str(uuid.uuid4())
+        upload = dict(id=upload_id, name='data.csv', sha256=sha, size=self.incoming.stat().st_size)
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_file_upload', taskId=request_id, file=upload)
+        staged = self.call('alice', op='assignment_file_upload', taskId=request_id, file=upload)
+        self.assertEqual(staged['md5'], content.hashlib.md5(b'original', usedforsecurity=False).hexdigest())
+        task = dict(id=request_id, title='附件任务', description='审阅文件', assignee='bob', references=[dict(id=linked['id'], revision=1)], uploadIds=[upload_id])
+        first = self.call('alice', op='assignment_create', task=task)
+        self.assertEqual(len(first['files']), 1)
+        self.assertFalse(content.assignment_stage(self.root, self.project, 'alice', request_id, upload_id).exists())
+        self.assertEqual(self.call('alice', op='assignment_create', task=task)['id'], request_id)
+        same = self.call('alice', op='assignment_create', task={**task, 'id': str(uuid.uuid4()), 'uploadIds': []})
+        other = self.call('alice', op='assignment_create', task={**task, 'id': str(uuid.uuid4()), 'assignee': 'carol', 'uploadIds': []})
+        get_blob = lambda item: content.assignment_resolve(self.root, self.project, item['assignee'], item['id'], item['files'][0])
+        self.assertEqual(get_blob(first), get_blob(same)); self.assertNotEqual(get_blob(first), get_blob(other))
+        self.assertNotEqual(first['files'][0]['path'], same['files'][0]['path'])
+        if os.name != 'nt': self.assertTrue((self.root / first['files'][0]['path'].lstrip('/')).is_symlink())
+        with self.assertRaises(PermissionError): self.call('carol', op='assignment_file_download', taskId=request_id, fileId=first['files'][0]['id'])
+        self.edit('alice', linked, action='delete')
+        self.incoming.write_bytes(b'new local version')
+        downloaded = self.call('bob', op='assignment_file_download', taskId=request_id, fileId=first['files'][0]['id'])
+        self.assertEqual(downloaded['sha256'], sha)
+        outgoing = self.root / '.workbench/outbox/bob' / (sha + '-' + downloaded['downloadId'] + '.file')
+        self.assertEqual(outgoing.read_bytes(), b'original')
+        tampered = dict(first['files'][0], path=other['files'][0]['path'])
+        with self.assertRaises(ValueError): content.assignment_resolve(self.root, self.project, 'bob', request_id, tampered)
+        get_blob(first).write_bytes(b'corrupt')
+        with self.assertRaises(ValueError): self.call('bob', op='assignment_file_download', taskId=request_id, fileId=first['files'][0]['id'])
+        self.state['users']['bob']['enabled'] = False
+        with self.assertRaises(PermissionError): self.call('bob', op='assignment_file_download', taskId=same['id'], fileId=same['files'][0]['id'])
+
+    def test_task_dedup_does_not_use_md5_alone_and_rejects_forged_file_selection(self):
+        sha = content.digest(self.incoming)
+        original_hashes = content.assignment_hashes
+        # Simulate an MD5 collision: different SHA-256 values must produce distinct blobs.
+        with patch.object(content, 'assignment_hashes', side_effect=lambda file: dict(original_hashes(file), md5='a' * 32)):
+            first = content.assignment_store(self.root, self.project, 'bob', str(uuid.uuid4()), self.incoming, 'file.txt', sha, self.incoming.stat().st_size, 'test')
+            self.incoming.write_bytes(b'different content')
+            second = content.assignment_store(self.root, self.project, 'bob', str(uuid.uuid4()), self.incoming, 'file.txt', content.digest(self.incoming), self.incoming.stat().st_size, 'test')
+            self.assertNotEqual(content.assignment_blob(self.root, self.project, 'bob', first), content.assignment_blob(self.root, self.project, 'bob', second))
+        task = dict(id=str(uuid.uuid4()), title='非法附件', description='测试', assignee='bob', references=[], uploadIds=[str(uuid.uuid4())])
+        with self.assertRaises(FileNotFoundError): self.call('alice', op='assignment_create', task=task)
+        self.assertEqual(self.call('alice', op='assignment_list'), [])
+        with self.assertRaises(ValueError): self.call('alice', op='assignment_file_upload', taskId=task['id'], file=dict(id=str(uuid.uuid4()), name='../file', sha256=sha, size=8))
+        source = self.publish(name='shared-file.csv', kind='file')
+        linked = self.call('alice', op='assignment_create', task=dict(id=str(uuid.uuid4()), title='关联独立文件', description='读取共享文件', assignee='bob', references=[dict(id=source['id'], revision=1)]))
+        self.assertEqual(linked['references'][0]['kind'], 'file'); self.assertEqual(len(linked['files']), 1)
+        self.assertEqual(linked['files'][0]['name'], 'shared-file.csv')
 
 @unittest.skipUnless(sys.platform == 'linux' and getattr(os, 'geteuid', lambda: 1)() == 0 and content.acl_backend(), 'requires Linux root and ACL support; Windows does not verify kernel permissions')
 class LinuxKernelPermissions(unittest.TestCase):

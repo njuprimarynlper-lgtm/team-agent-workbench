@@ -1,9 +1,9 @@
 import type { AgentSession, ProjectConclusion, SourceFile } from './types';
-import { resultTitle } from './content';
+import { contributionCategoryInfo, resultTitle } from './content';
 
-export function conclusionTitle(conclusion: Pick<ProjectConclusion, 'title' | 'titleAlias'>) {
+export function conclusionTitle(conclusion: Pick<ProjectConclusion, 'title' | 'titleAlias' | 'category'>) {
   const prior = conclusion.title.match(/^【([^】]+)】/)?.[1];
-  const label = prior && ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议'].includes(prior) ? prior : prior === '项目基线变更建议' ? '改进建议' : '项目结论';
+  const label = conclusion.category ? contributionCategoryInfo[conclusion.category].label : prior && Object.values(contributionCategoryInfo).some(info => info.label === prior) ? prior : prior === '项目基线变更建议' ? '改进建议' : '项目结论';
   return resultTitle(label, conclusion.titleAlias?.trim() || conclusion.title, 200);
 }
 

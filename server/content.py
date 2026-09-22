@@ -28,6 +28,8 @@ CONTRIBUTION_FOLDERS = {
     'method_exploration': 'method-explorations',
     'issue': 'issues',
     'baseline_change_proposal': 'baseline-change-proposals',
+    'requirement': 'requirements', 'design': 'designs', 'verification': 'verifications',
+    'troubleshooting': 'troubleshooting', 'guide': 'guides', 'research': 'research', 'comparison': 'comparisons',
 }
 CONTRIBUTION_FIELDS = {
     'experiment_result': {'objective', 'change', 'environment', 'baseline', 'result', 'evidence', 'scope', 'limitations', 'nextSteps'},
@@ -37,6 +39,9 @@ CONTRIBUTION_FIELDS = {
     'method_exploration': {'approach', 'uncertainty', 'nextSteps'},
     'issue': {'problem', 'trigger', 'impact', 'evidence', 'reproduction', 'workaround', 'nextAction'},
     'baseline_change_proposal': {'baselineItem', 'currentValue', 'proposedValue', 'rationale', 'evidence', 'impact', 'validationNeeded'},
+    'requirement': {'statement', 'scope', 'evidence'}, 'design': {'approach', 'rationale', 'limitations'},
+    'verification': {'result', 'evidence', 'limitations'}, 'troubleshooting': {'problem', 'likelyCause', 'workaround'},
+    'guide': {'scope', 'approach', 'result'}, 'research': {'statement', 'evidence', 'scope'}, 'comparison': {'approach', 'evidence', 'limitations'},
 }
 
 MAX_FILE = 2 * 1024 ** 3
@@ -149,23 +154,197 @@ def locate(root, state, user, project_id):
                 return directory, data, group_name, group
     raise PermissionError('项目不存在或当前账号不属于此组')
 
-def assignment_operation(root, state, username, request, directory, project, group_name, admin):
+def assignment_hashes(file):
+    sha, md5, size = hashlib.sha256(), hashlib.md5(usedforsecurity=False), 0
+    with file.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            sha.update(chunk); md5.update(chunk); size += len(chunk)
+    return dict(sha256=sha.hexdigest(), md5=md5.hexdigest(), size=size)
+
+
+def assignment_digest(value):
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+
+
+def assignment_stage(root, project_id, username, task_id, file_id):
+    for identifier in [task_id, file_id]:
+        if not isinstance(identifier, str) or str(uuid.UUID(identifier)) != identifier:
+            raise ValueError('任务附件编号无效')
+    owner = hashlib.sha256(username.encode()).hexdigest()
+    return safe(root, f'.workbench/admin/assignment-stage/{project_id}/{owner}/{task_id}/{file_id}')
+
+
+def assignment_blob(root, project_id, assignee, file):
+    if not re.fullmatch(r'[a-f0-9]{32}', file.get('md5', '')) or not re.fullmatch(r'[a-f0-9]{64}', file.get('sha256', '')) or type(file.get('size')) is not int or not 0 <= file['size'] <= MAX_FILE:
+        raise ValueError('任务附件身份无效')
+    scope = assignment_digest([project_id, assignee, 'group-admins'])
+    return safe(root, f'.workbench/admin/assignment-blobs/{scope}/{file["md5"]}/{file["sha256"]}-{file["size"]}')
+
+
+def assignment_clear_stages(root, project_id, username, task_id, upload_ids):
+    for identifier in upload_ids:
+        staged = assignment_stage(root, project_id, username, task_id, identifier)
+        for file in [staged, staged.with_name(staged.name + '.json')]:
+            with contextlib.suppress(OSError):
+                file.unlink(missing_ok=True)
+
+
+def assignment_resolve(root, project_id, assignee, task_id, file):
+    identifier = file.get('id', '')
+    if not re.fullmatch(r'[a-f0-9]{64}', identifier):
+        raise ValueError('任务附件编号无效')
+    parent = safe(root, f'.workbench/admin/assignment-links/{project_id}/{task_id}')
+    link, blob = parent / identifier, assignment_blob(root, project_id, assignee, file)
+    if file.get('path') != '/' + link.relative_to(root).as_posix():
+        raise ValueError('任务附件路径无效')
+    # Only this root-owned leaf link may resolve; generic safe() remains symlink-denying.
+    if link.is_symlink():
+        if link.resolve() != blob.resolve():
+            raise PermissionError('任务附件链接越界')
+    elif os.name != 'nt' or not link.is_file() or not os.path.samefile(link, blob):
+        raise PermissionError('任务附件链接无效')
+    if assignment_hashes(blob) != {key: file[key] for key in ['sha256', 'md5', 'size']}:
+        raise ValueError('任务附件存储校验失败')
+    return blob
+
+
+def assignment_store(root, project_id, assignee, task_id, source, name, sha, size, origin):
+    name = text(name, 240)
+    if not name or re.search(r'[/\\\x00-\x1f]', name):
+        raise ValueError('附件名称无效')
+    hashes = assignment_hashes(source)
+    if hashes['sha256'] != sha or hashes['size'] != size or size > MAX_FILE:
+        raise ValueError('任务附件快照校验失败')
+    blob = assignment_blob(root, project_id, assignee, hashes)
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(blob.parent, 0o700)
+    if not blob.exists():
+        temp = blob.parent / ('.' + uuid.uuid4().hex)
+        try:
+            shutil.copyfile(source, temp); os.chmod(temp, 0o600); os.replace(temp, blob)
+        finally:
+            temp.unlink(missing_ok=True)
+    if assignment_hashes(blob) != hashes:
+        raise ValueError('去重文件已损坏，不会覆盖')
+    identifier = assignment_digest([name, sha])
+    parent = safe(root, f'.workbench/admin/assignment-links/{project_id}/{task_id}')
+    parent.mkdir(parents=True, exist_ok=True); os.chmod(parent, 0o700)
+    link = parent / identifier
+    if not link.exists() and not link.is_symlink():
+        if os.name == 'nt':
+            os.link(blob, link)  # Windows business-rule tests; deployed Linux always uses symlinks.
+        else:
+            os.symlink(os.path.relpath(blob, parent), link)
+    result = dict(id=identifier, name=name, **hashes, path='/' + link.relative_to(root).as_posix(), source=origin)
+    assignment_resolve(root, project_id, assignee, task_id, result)
+    return result
+
+
+def assignment_snapshot(root, directory, project_id, assignee, identifier, username, selections, upload_ids, origin):
+    content = read_json(directory / '.workbench-content.json', [])
+    references = []
+    candidates = []
+    for selection in selections:
+        item = next((value for value in content if value['id'] == selection['id'] and value['revision'] == selection['revision'] and value['kind'] in ('contribution', 'file')), None)
+        if not item:
+            raise ValueError('关联结论已更新或移除，请刷新后重新选择')
+        if item['kind'] == 'file':
+            source_file = safe(root, item['path'])
+            relative = source_file.relative_to(directory)
+            if any(part.startswith('.') for part in relative.parts):
+                raise PermissionError('关联共享文件路径无效')
+            candidates.append((source_file, source_file.name, item['sha256'], item['size'], item['title']))
+        selected_hashes = selection.get('attachmentHashes')
+        attachments = item.get('attachments', [])
+        if selected_hashes is not None and (not isinstance(selected_hashes, list) or len(selected_hashes) > 30 or any(not any(entry['sha256'] == sha for entry in attachments) for sha in selected_hashes)):
+            raise ValueError('关联附件已变化，请刷新后重新选择')
+        for entry in attachments:
+            if selected_hashes is not None and entry['sha256'] not in selected_hashes:
+                continue
+            expected = '/' + directory.relative_to(root).as_posix() + '/.workbench-attachments/'
+            if not entry['path'].startswith(expected):
+                raise PermissionError('关联附件路径无效')
+            candidates.append((safe(root, entry['path']), entry['name'], entry['sha256'], entry['size'], item['title']))
+        references.append(dict(id=item['id'], revision=item['revision'], title=item['title'], category=item.get('category'), kind=item['kind'], content=item['description'], author=item['author'], updatedAt=item['updatedAt']))
+    for upload_id in upload_ids:
+        staged = assignment_stage(root, project_id, username, identifier, upload_id)
+        receipt = read_json(staged.with_name(staged.name + '.json'))
+        if receipt['id'] != upload_id:
+            raise ValueError('任务附件回执无效')
+        candidates.append((staged, receipt['name'], receipt['sha256'], receipt['size'], origin))
+    unique = {(entry[1], entry[2]): entry for entry in candidates}
+    if len(unique) > 30:
+        raise ValueError('单个任务最多关联 30 个文件')
+    files = [assignment_store(root, project_id, assignee, identifier, *entry) for entry in unique.values()]
+    return references, files
+
+
+def assignment_all_files(task):
+    return task.get('files', []) + [file for submission in task.get('submissions', []) for file in submission.get('files', [])]
+
+
+def assignment_release(root, task, tasks):
+    retained = [file for other in tasks if not other.get('purgedAt') and other['assignee'] == task['assignee'] and other['projectId'] == task['projectId'] for file in assignment_all_files(other)]
+    unused = set()
+    for file in {file['id']: file for file in assignment_all_files(task)}.values():
+        blob = assignment_resolve(root, task['projectId'], task['assignee'], task['id'], file)
+        parent = safe(root, f".workbench/admin/assignment-links/{task['projectId']}/{task['id']}")
+        (parent / file['id']).unlink()
+        if not any(all(other[key] == file[key] for key in ('sha256', 'md5', 'size')) for other in retained):
+            unused.add(blob)
+    for blob in unused:
+        blob.unlink()
+
+
+def assignment_operation(root, state, username, request, directory, project, group_name, admin, incoming=None):
     op = request['op']
     eligible = {name: user for name, user in state['users'].items() if user.get('enabled') and not user.get('missing') and not user.get('provisioning') and group_name in user.get('groups', [])}
     if op == 'assignment_members':
         if not admin:
-            raise PermissionError('只有本组子管理员可以选择任务负责人')
+            raise PermissionError('只有本组组管理员可以选择任务负责人')
         return [dict(username=name, name=user.get('name') or name) for name, user in eligible.items()]
     if not re.fullmatch(r'project_[a-f0-9]{32}', project['id']):
         raise ValueError('项目身份无效')
     # Task records stay outside group-readable project folders. Only the worker exposes them.
     file = safe(root, '.workbench/admin/assignments/' + project['id'] + '.json')
     tasks = read_json(file, [])
+    if op == 'assignment_file_upload':
+        task = next((item for item in tasks if item['id'] == request.get('taskId')), None)
+        if (task and (task.get('deletedAt') or task.get('purgedAt') or task['assignee'] != username or task['status'] != 'in_progress')) or (not task and not admin):
+            raise PermissionError('只有组管理员可以添加派发附件，负责人可在进行中的任务里上传验收附件')
+        data = request.get('file', {})
+        staged = assignment_stage(root, project['id'], username, request.get('taskId'), data.get('id'))
+        name = text(data.get('name'), 240)
+        if not name or re.search(r'[/\\\x00-\x1f]', name) or not incoming or not incoming.is_file():
+            raise ValueError('任务附件无效')
+        hashes = assignment_hashes(incoming)
+        if hashes['size'] > MAX_FILE or hashes['sha256'] != data.get('sha256') or hashes['size'] != data.get('size'):
+            raise ValueError('任务附件快照校验失败')
+        staged.parent.mkdir(parents=True, exist_ok=True); os.chmod(staged.parent, 0o700)
+        if not staged.exists():
+            shutil.copyfile(incoming, staged); os.chmod(staged, 0o600)
+        if assignment_hashes(staged) != hashes:
+            raise ValueError('附件编号已使用')
+        receipt = dict(id=data['id'], name=name, **hashes); atom(staged.with_name(staged.name + '.json'), receipt)
+        return receipt
+    if op == 'assignment_file_download':
+        task = next((item for item in tasks if item['id'] == request.get('taskId')), None)
+        if not task or task.get('purgedAt') or not admin and (task.get('deletedAt') or task['assignee'] != username):
+            raise PermissionError('任务不存在或无权读取附件')
+        attachment = next((item for item in assignment_all_files(task) if item['id'] == request.get('fileId')), None)
+        if not attachment:
+            raise ValueError('任务附件不存在')
+        blob = assignment_resolve(root, project['id'], task['assignee'], task['id'], attachment)
+        download_id = uuid.uuid4().hex; user = state['users'][username]
+        outgoing = safe(root, '.workbench/outbox/' + user.get('systemUsername', username) + '/' + attachment['sha256'] + '-' + download_id + '.file')
+        outgoing.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(blob, outgoing); os.chmod(outgoing, 0o600)
+        acl_apply(['-m', 'u:' + str(user['uid']) + ':r--', str(outgoing)])
+        return dict(attachment, downloadId=download_id)
     if op == 'assignment_list':
-        return [task for task in tasks if admin or task['assignee'] == username]
+        return [task for task in tasks if not task.get('purgedAt') and (admin or not task.get('deletedAt') and task['assignee'] == username)]
     if op == 'assignment_create':
         if not admin:
-            raise PermissionError('只有本组子管理员可以派发任务')
+            raise PermissionError('只有本组组管理员可以派发任务')
         raw = request.get('task')
         if not isinstance(raw, dict):
             raise ValueError('任务格式无效')
@@ -182,39 +361,115 @@ def assignment_operation(root, state, username, request, directory, project, gro
         if not isinstance(selections, list) or len(selections) > 20 or any(not isinstance(item, dict) or not isinstance(item.get('id'), str) or type(item.get('revision')) is not int or item['revision'] < 1 for item in selections) or len({item['id'] for item in selections}) != len(selections):
             raise ValueError('关联结论列表无效')
         existing = next((task for task in tasks if task['id'] == identifier), None)
+        upload_ids = raw.get('uploadIds', [])
+        if not isinstance(upload_ids, list) or len(upload_ids) > 30 or any(not isinstance(value, str) for value in upload_ids) or len(set(upload_ids)) != len(upload_ids):
+            raise ValueError('任务附件列表无效')
+        for upload_id in upload_ids:
+            assignment_stage(root, project['id'], username, identifier, upload_id)
         if existing:
-            if existing['createdBy'] != username or any(existing[key] != value for key, value in values.items()) or [(item['id'], item['revision']) for item in existing['references']] != [(item['id'], item['revision']) for item in selections]:
+            if existing.get('deletedAt') or existing.get('purgedAt'):
+                raise ValueError('任务已删除，不能重新派发同一编号')
+            if existing['createdBy'] != username or any(existing[key] != value for key, value in values.items()) or existing.get('referenceSelections', [dict(id=item['id'], revision=item['revision']) for item in existing['references']]) != selections or existing.get('uploadIds', []) != upload_ids:
                 raise ValueError('任务编号已使用，请重新派发')
+            assignment_clear_stages(root, project['id'], username, identifier, upload_ids)
             return existing
-        content = read_json(directory / '.workbench-content.json', [])
-        references = []
-        for selection in selections:
-            item = next((value for value in content if value['id'] == selection['id'] and value['revision'] == selection['revision'] and value['kind'] == 'contribution'), None)
-            if not item:
-                raise ValueError('关联结论已更新或移除，请刷新后重新选择')
-            references.append(dict(id=item['id'], revision=item['revision'], title=item['title'], content=item['description'], author=item['author'], updatedAt=item['updatedAt']))
+        references, files = assignment_snapshot(root, directory, project['id'], values['assignee'], identifier, username, selections, upload_ids, '派发人上传')
         stamp = now()
-        task = dict(id=identifier, projectId=project['id'], **values, assigneeName=assignee.get('name') or values['assignee'], createdBy=username, createdAt=stamp, updatedAt=stamp, revision=1, status='assigned', references=references)
+        task = dict(id=identifier, projectId=project['id'], **values, assigneeName=assignee.get('name') or values['assignee'], createdBy=username, createdAt=stamp, updatedAt=stamp, revision=1, status='assigned', references=references, referenceSelections=selections, files=files, uploadIds=upload_ids)
         tasks.insert(0, task); atom(file, tasks)
+        assignment_clear_stages(root, project['id'], username, identifier, upload_ids)
         return task
-    if op == 'assignment_status':
+    if op in ('assignment_status', 'assignment_lifecycle'):
         change = request.get('change', {})
+        if not isinstance(change, dict):
+            raise ValueError('任务操作格式无效')
         task = next((item for item in tasks if item['id'] == change.get('id')), None)
-        if not task or (not admin and task['assignee'] != username):
+        if not task or task.get('purgedAt') or (not admin and task['assignee'] != username):
             raise PermissionError('任务不存在或无权访问')
         status = change.get('status')
-        if status not in ('in_progress', 'completed', 'cancelled'):
+        if status not in ('in_progress', 'pending_review', 'completed', 'cancelled', 'deleted', 'restored', 'purged'):
             raise ValueError('任务状态无效')
-        if (status == 'cancelled' and not admin) or (status != 'cancelled' and task['assignee'] != username):
-            raise PermissionError('只能由负责人开始或完成任务，子管理员可以取消任务')
         if type(change.get('revision')) is not int or task['revision'] != change['revision']:
             raise ValueError('任务状态已更新，请刷新后重试')
-        if task['status'] == status:
-            return task
-        if task['status'] in ('completed', 'cancelled') or (status == 'completed' and task['status'] != 'in_progress'):
+        reason = text(change.get('reason', ''), 6000).strip()
+        submission = change.get('submission')
+        if submission is not None and not (status == 'pending_review' or status == 'completed' and task['status'] == 'in_progress'):
+            raise ValueError('当前操作不能修改已提交的验收结果')
+        if submission is not None:
+            if not isinstance(submission, dict):
+                raise ValueError('验收结果格式无效')
+            summary = text(submission.get('summary', ''), 6000).strip()
+            selections, upload_ids = submission.get('references', []), submission.get('uploadIds', [])
+            if not summary:
+                raise ValueError('请填写结果说明')
+            if not isinstance(selections, list) or len(selections) > 20 or any(not isinstance(item, dict) or not isinstance(item.get('id'), str) or type(item.get('revision')) is not int or item['revision'] < 1 for item in selections) or len({item['id'] for item in selections}) != len(selections):
+                raise ValueError('关联成果列表无效')
+            if not isinstance(upload_ids, list) or len(upload_ids) > 30 or any(not isinstance(item, str) for item in upload_ids) or len(set(upload_ids)) != len(upload_ids):
+                raise ValueError('验收附件列表无效')
+            for upload_id in upload_ids:
+                assignment_stage(root, project['id'], username, task['id'], upload_id)
+        next_task = json.loads(json.dumps(task))
+        terminal = task['status'] in ('completed', 'cancelled')
+        action, stamp = status, now()
+        def require_admin():
+            if not admin:
+                raise PermissionError('只有本组组管理员可以执行此操作')
+        def require_assignee():
+            if task['assignee'] != username:
+                raise PermissionError('只有负责人可以提交任务结果或开始工作')
+        def invalid():
             raise ValueError('当前任务状态不允许此操作')
-        task.update(status=status, revision=task['revision'] + 1, updatedAt=now()); atom(file, tasks)
-        return task
+        if status in ('deleted', 'restored', 'purged'):
+            require_admin()
+            if not terminal or (bool(task.get('deletedAt')) if status == 'deleted' else not task.get('deletedAt')):
+                invalid()
+            if status == 'deleted':
+                next_task.update(deletedAt=stamp, deletedBy=username)
+            elif status == 'restored':
+                next_task.pop('deletedAt', None); next_task.pop('deletedBy', None)
+            else:
+                next_task.update(purgedAt=stamp, title='', description='', acceptance='', references=[], files=[], submissions=[], history=[])
+                next_task.pop('referenceSelections', None); next_task.pop('uploadIds', None)
+        else:
+            if task.get('deletedAt') or terminal:
+                invalid()
+            if status == 'cancelled':
+                require_admin()
+                if not reason:
+                    raise ValueError('请填写取消原因')
+            elif status == 'pending_review':
+                require_assignee()
+                if task['status'] != 'in_progress' or submission is None:
+                    invalid()
+            elif status == 'completed':
+                require_admin()
+                if not (task['status'] == 'pending_review' or task['status'] == 'in_progress' and task['assignee'] == username and task['createdBy'] == username and submission is not None):
+                    invalid()
+            elif task['status'] == 'pending_review':
+                require_admin()
+                if not reason:
+                    raise ValueError('请填写退回原因')
+                action = 'rejected'
+            else:
+                require_assignee()
+                if task['status'] == 'in_progress':
+                    return task
+            next_task['status'] = status
+        if submission is not None:
+            references, files = assignment_snapshot(root, directory, project['id'], task['assignee'], task['id'], username, selections, upload_ids, '负责人提交')
+            next_task.setdefault('submissions', []).append(dict(summary=summary, references=references, files=files, submittedBy=username, submittedAt=stamp))
+        next_task.update(revision=task['revision'] + 1, updatedAt=stamp)
+        if status != 'purged':
+            next_task.setdefault('history', []).append(dict(action=action, by=username, at=stamp, **({'note': reason} if reason else {})))
+        tasks[tasks.index(task)] = next_task
+        atom(file, tasks)
+        if submission is not None:
+            assignment_clear_stages(root, project['id'], username, task['id'], upload_ids)
+        if status == 'purged':
+            # Persist first; interrupted cleanup can leak storage but never deletes a live reference.
+            with contextlib.suppress(OSError, ValueError):
+                assignment_release(root, task, tasks)
+        return next_task
     raise ValueError('不支持的任务操作')
 
 
@@ -257,7 +512,7 @@ def handle(root, state, username, request, incoming=None):
         if op == 'account_read':
             return current
         records = request.get('records')
-        if not isinstance(records, dict) or len(json.dumps(records, ensure_ascii=False).encode('utf-8')) > 2 * 1024 * 1024 or any(not re.fullmatch(r'(material|draft|alias|update|seen|dismissed):[^\x00-\x1f]{1,500}', key) for key in records):
+        if not isinstance(records, dict) or len(json.dumps(records, ensure_ascii=False).encode('utf-8')) > 2 * 1024 * 1024 or any(not re.fullmatch(r'(material|draft|alias|update|seen|dismissed|result-rules):[^\x00-\x1f]{1,500}', key) for key in records):
             raise ValueError('账号资料格式无效或超过 2 MB')
         if type(request.get('revision')) is not int or request['revision'] != current['revision']:
             return dict(current, conflict=True)
@@ -314,7 +569,7 @@ def handle(root, state, username, request, incoming=None):
                 temp.unlink(missing_ok=True)
         return dict(path='/' + file.relative_to(root).as_posix(), sha256=sha, size=file.stat().st_size)
     if isinstance(op, str) and op.startswith('assignment_'):
-        return assignment_operation(root, state, username, request, directory, project, group_name, admin)
+        return assignment_operation(root, state, username, request, directory, project, group_name, admin, incoming)
     if op == 'save_brief':
         if not admin:
             raise PermissionError('只有本组组管理员可以修改项目资料')
@@ -465,6 +720,10 @@ def handle(root, state, username, request, incoming=None):
     elif change.get('action') == 'save':
         title = text(change.get('title'), 200).strip()
         description = text(change.get('description'))
+        category = change.get('category')
+        if category is not None and category not in CONTRIBUTION_FOLDERS:
+            raise ValueError('成果类别无效')
+        source_details = text(change.get('sourceDetails'), 8000) if 'sourceDetails' in change else None
         if not title:
             raise ValueError('请填写标题')
         folder = 'curated' if admin else 'submissions/' + username
@@ -472,6 +731,10 @@ def handle(root, state, username, request, incoming=None):
         file = safe(directory, relative)
         repo = text(change.get('repoUrl', ''), 2048)
         publish_bytes(file, ('# ' + title + '\n\n' + (repo + '\n\n' if repo else '') + description).encode(), gid)
+        if category is not None:
+            item.update(category=category, fields={})
+        if source_details is not None:
+            item['sourceDetails'] = source_details
         item.update(title=title, description=description, repoUrl=repo, **({'sourceSessionTitle': text(change.get('sourceSessionTitle'), 120)} if change.get('sourceSessionTitle') else {}), path='/' + str(file.relative_to(root)).replace('\\', '/'), revision=item['revision'] + 1, state='curated' if admin else 'submitted', updatedAt=now(), updatedBy=username, sha256=digest(file), size=file.stat().st_size, sources=list(dict.fromkeys(item.get('sources', []) + [i['id'] for i in merged])), **({'provenance': provenance} if merged else {}))
     elif change.get('action') != 'delete':
         raise ValueError('不支持的修改操作')
@@ -546,7 +809,7 @@ def tick(root):
                             raise ValueError('请求 ID 已使用，不允许更换请求内容')
                         continue
                     request = json.loads(raw)
-                    if request.get('op') in ('publish', 'publish_attachment', 'account_file_upload') or request.get('replacement'):
+                    if request.get('op') in ('publish', 'publish_attachment', 'account_file_upload', 'assignment_file_upload') or request.get('replacement'):
                         filename = request.get('staging')
                         if not isinstance(filename, str) or not re.fullmatch(r'[a-f0-9-]{36}\.upload', filename):
                             raise ValueError('上传暂存路径无效')

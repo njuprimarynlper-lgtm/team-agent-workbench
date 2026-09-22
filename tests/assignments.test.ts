@@ -8,6 +8,10 @@ import { LocalAdminConnection } from '../src/admin/local-connection';
 import { Workbench } from '../src/core/workbench';
 import { sessionContext } from '../src/core/session-context';
 import { memberProfile } from './fixtures/member-profile';
+import { assignmentViewItems, type ProjectAssignment } from '../src/shared/assignments';
+import { projectResultTitle } from '../src/shared/content';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 test('assignments enforce live roles, preserve snapshots, and start a reusable prepared session', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-assignments-')), shared = path.join(root, 'share'); await fs.mkdir(shared);
@@ -21,23 +25,24 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     const project = await alice.createProject('任务验证', 'local_research', { background: '项目背景', objectives: '改善 OCR', acceptance: '覆盖失败样本', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' });
     const bob = await connect('bob'), carol = await connect('carol'), binding = alice.remote.binding(project.id), bobBinding = bob.remote.binding(project.id);
     const file = path.join(root, 'source.md'); await fs.writeFile(file, '依据');
-    await alice.remote.upload(binding, file, binding.project.uploadPath + '/source.md', () => {}, { kind: 'contribution', title: 'OCR 基线结论', description: '低清晰度样本未覆盖，需要建立回归。' });
+    await alice.remote.upload(binding, file, binding.project.uploadPath + '/findings/source.md', () => {}, { kind: 'contribution', category: 'finding', title: '【项目结论】 OCR 基线结论', description: '低清晰度样本未覆盖，需要建立回归。' });
     const content = (await alice.remote.contentList(binding))[0];
     const input = { id: randomUUID(), title: '排查 OCR', description: '分析扫描件失败原因', acceptance: '补充回归样本', assignee: 'bob', references: [{ id: content.id, revision: content.revision }] };
     assert.deepEqual(new Set((await alice.remote.assignmentMembers(binding)).map(item => item.username)), new Set(['alice', 'bob', 'carol']));
-    await assert.rejects(bob.remote.assignmentMembers(bobBinding), /子管理员/);
-    await assert.rejects(bob.remote.assignmentCreate(bobBinding, input), /子管理员/);
+    await assert.rejects(bob.remote.assignmentMembers(bobBinding), /组管理员/);
+    await assert.rejects(bob.remote.assignmentCreate(bobBinding, input), /组管理员/);
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, assignee: 'outside' }), /不属于/);
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, references: [{ id: content.id, revision: 2 }] }), /结论已更新/);
     const task = await alice.remote.assignmentCreate(binding, input);
+    assert.equal(task.references[0].category, 'finding'); assert.equal(projectResultTitle(task.references[0]), '【项目结论】 OCR 基线结论');
     await assert.rejects(bob.startAssignment(project.id, task.id, task.revision, 'codex', path.join(root, 'missing-directory')));
     assert.equal((await bob.remote.assignmentList(bobBinding))[0].status, 'assigned', 'local setup failure must not mark remote work as started');
     assert.equal((await alice.remote.assignmentCreate(binding, input)).id, task.id, 'retry is idempotent');
     assert.equal((await alice.remote.assignmentList(binding)).length, 1);
     assert.deepEqual(await carol.remote.assignmentList(carol.remote.binding(project.id)), []);
     await assert.rejects(carol.remote.assignmentStatus(carol.remote.binding(project.id), { id: task.id, revision: 1, status: 'in_progress' }), /无权/);
-    await assert.rejects(bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: 1, status: 'cancelled' }), /子管理员/);
-    await assert.rejects(bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: 1, status: 'completed' }), /状态/);
+    await assert.rejects(bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: 1, status: 'cancelled' }), /组管理员/);
+    await assert.rejects(bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: 1, status: 'completed' }), /组管理员/);
     await assert.rejects(alice.startAssignment(project.id, task.id, 1, 'codex', root), /负责人/);
     await alice.editSharedContent(project.id, { id: content.id, revision: 1, action: 'delete', curate: true, merge: [] });
     assert.equal((await bob.remote.assignmentList(bobBinding))[0].references[0].content, content.description);
@@ -51,24 +56,62 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     const source = session.sources.find(item => item.sourcePath.includes(':content:'))!; assert.match(await fs.readFile(source.localPath, 'utf8'), /低清晰度/);
     const active = (await bob.remote.assignmentList(bobBinding))[0]; assert.equal(active.status, 'in_progress');
     await assert.rejects(bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: 1, status: 'completed' }), /已更新/);
-    await bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: active.revision, status: 'completed' });
+    const review = await bob.updateAssignment(project.id, { id: task.id, revision: active.revision, status: 'pending_review', submission: { summary: '已补充回归样本，符合任务目标。', references: [], uploadIds: [] } });
+    assert.equal(review.status, 'pending_review');
+    await alice.updateAssignment(project.id, { id: task.id, revision: review.revision, status: 'completed' });
     assert.equal((await alice.remote.assignmentList(binding))[0].status, 'completed');
     const cancel = await alice.remote.assignmentCreate(binding, { ...input, id: randomUUID(), references: [] });
-    await alice.remote.assignmentStatus(binding, { id: cancel.id, revision: cancel.revision, status: 'cancelled' });
+    await alice.remote.assignmentStatus(binding, { id: cancel.id, revision: cancel.revision, status: 'cancelled', reason: '需求撤回' });
     await assert.rejects(bob.startAssignment(project.id, cancel.id, 2, 'codex', root), /取消/);
     const interrupted = await alice.remote.assignmentCreate(binding, { ...input, id: randomUUID(), references: [] });
     const inProgress = await bob.remote.assignmentStatus(bobBinding, { id: interrupted.id, revision: interrupted.revision, status: 'in_progress' });
     const createSession = bob.createSession.bind(bob);
     bob.createSession = async (...args) => {
       const created = await createSession(...args);
-      await alice.remote.assignmentStatus(binding, { id: inProgress.id, revision: inProgress.revision, status: 'cancelled' });
+      await alice.remote.assignmentStatus(binding, { id: inProgress.id, revision: inProgress.revision, status: 'cancelled', reason: '需求撤回' });
       return created;
     };
     const before = bob.store.sessions.length;
     await assert.rejects(bob.startAssignment(project.id, inProgress.id, inProgress.revision, 'codex', root), /状态|更新/);
     assert.equal(bob.store.sessions.length, before, 'cancellation during local preparation must not leave a usable task session');
     bob.createSession = createSession;
+    const own = await alice.remote.assignmentCreate(binding, { ...input, id: randomUUID(), title: '自派回归检查', assignee: 'alice', references: [] });
+    const selfSession = await alice.startAssignment(project.id, own.id, own.revision, 'codex', root);
+    assert.equal(selfSession.assignment?.id, own.id);
+    const ownActive = (await alice.remote.assignmentList(binding)).find(item => item.id === own.id)!;
+    assert.equal(ownActive.status, 'in_progress');
+    await alice.remote.assignmentStatus(binding, { id: own.id, revision: ownActive.revision, status: 'completed', submission: { summary: '自派回归已通过。', references: [], uploadIds: [] } });
+    const all = await alice.remote.assignmentList(binding);
+    assert(assignmentViewItems(all, 'alice', true, 'mine').some(item => item.id === own.id));
+    assert(assignmentViewItems(all, 'alice', true, 'sent').some(item => item.id === own.id));
+    assert(!assignmentViewItems(all, 'alice', true, 'mine').some(item => item.id === task.id));
     await bob.close(); const restored = new Workbench(bob.store.root, () => {}, () => {}); clients.push(restored); await restored.store.init();
     assert.deepEqual(restored.session(session.id).assignment, session.assignment); assert.equal(restored.conclusions(project.id).length, 1);
   } finally { for (const client of clients) await client.close(); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-assignments-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
+test('sent tasks and own work are distinct views; self-assignment appears in both without duplicate records', () => {
+  const values = [{ id: 'self', createdBy: 'alice', assignee: 'alice' }, { id: 'sent', createdBy: 'alice', assignee: 'bob' }, { id: 'received', createdBy: 'carol', assignee: 'alice' }, { id: 'team', createdBy: 'carol', assignee: 'bob' }] as ProjectAssignment[];
+  assert.deepEqual(assignmentViewItems(values, 'alice', true, 'mine').map(item => item.id), ['self', 'received']);
+  assert.deepEqual(assignmentViewItems(values, 'alice', true, 'sent').map(item => item.id), ['self', 'sent']);
+  assert.equal(assignmentViewItems(values, 'alice', true, 'team').length, 4);
+  for (const view of ['mine', 'sent', 'team'] as const) assert.deepEqual(assignmentViewItems(values, 'bob', false, view).map(item => item.id), ['sent', 'team']);
+  assert.equal(projectResultTitle({ title: '旧标题' }), '【项目成果】 旧标题');
+  assert.equal(projectResultTitle({ title: '【项目标准】 兼容标题' }), '【项目标准】 兼容标题');
+  assert.equal(projectResultTitle({ title: '【项目结论】 原标题', category: 'verification' }, '我的别名'), '【验证结果】 我的别名');
+  assert.equal(projectResultTitle({ title: '【项目结论】 旧前缀', category: 'design', provenance: [{}] }), '【设计方案】 旧前缀');
+});
+
+test('assignment screen keeps reference category brackets and separates ownership from status filters without GUI automation', async () => {
+  (globalThis as any).window = { workbench: { call: async () => [] } };
+  try {
+    const { AssignmentsPanel } = await import('../src/renderer/assignments');
+    const task = { id: 'self', projectId: 'p', createdBy: 'alice', assignee: 'alice', assigneeName: 'Alice', title: '自己负责的检查', description: '检查回归', acceptance: '', status: 'assigned', revision: 1, createdAt: '2026-09-22T00:00:00Z', updatedAt: '', references: [{ id: 'reference', title: '必须进行回归', category: 'project_standard', revision: 2, content: '保留关键验证样本。', author: 'bob', updatedAt: '' }] } as ProjectAssignment;
+    const props = { project: { id: 'p', name: '任务项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' }, admin: true, username: 'alice', items: [task, { ...task, id: 'sent', title: '派给其他人的任务', assignee: 'bob' }], loading: false, loadError: '', refresh: async () => {}, start: () => {}, sessions: [], aliases: {} };
+    const html = renderToStaticMarkup(createElement(AssignmentsPanel, props));
+    for (const caption of ['我负责的', '我派发的', '全组任务', '任务归属', '任务范围', '【项目标准】 必须进行回归', '开始工作']) assert(html.includes(caption), caption);
+    assert(!html.includes('派给其他人的任务'));
+    const member = renderToStaticMarkup(createElement(AssignmentsPanel, { ...props, admin: false })); assert(!member.includes('任务归属')); assert(!member.includes('派发任务'));
+    const source = await fs.readFile('src/renderer/assignments.tsx', 'utf8'); assert.match(source, /分配给自己/); assert.doesNotMatch(source, /titleSubject/);
+  } finally { delete (globalThis as any).window; }
 });

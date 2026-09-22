@@ -29,6 +29,52 @@ async function setup() {
 }
 async function settled(wb: Workbench) { const deadline = Date.now() + 15000; while (wb.store.transfers.some(item => ['running', 'queued'].includes(item.status))) { if (Date.now() > deadline) throw Error('queue timed out'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
+test('personal combinations synchronize across computers with explicit conflicts, remain account-private and restore frozen review categories', async () => {
+  const env = await setup();
+  try {
+    const a = env.first, projectId = env.project.id, combo = { id: randomUUID(), name: '算法比赛', categories: ['finding', 'verification'] };
+    const firstRules = a.resultRules(projectId);
+    await a.saveResultRules(projectId, firstRules.owner, firstRules.version, { combinations: [combo], projects: { [projectId]: combo.id } });
+    const session = await a.createSession('codex', '', projectId), now = new Date().toISOString();
+    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, files: [], title: '', body: '', inputDir: path.join(a.store.root, 'input'), outputPath: path.join(a.store.root, 'draft.md'), createdAt: now, generation: 'ready', resultRules: { contract: 2, combinationId: combo.id, name: combo.name, categories: ['finding', 'verification'] }, preparationEvidenceIds: ['message:LOCAL_ONLY'] };
+    applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'verification', topic: '真实测试', title: '验证覆盖范围', origin: 'project', body: '只在当前样本上验证。', evidenceIds: ['message:LOCAL_ONLY'] }] })); a.store.drafts.push(draft); await a.accountSync.sync();
+    assert.equal(a.accountSync.state.status, 'synced', a.accountSync.state.detail || '');
+    const raw = JSON.stringify(await a.remote.accountData()); assert(!raw.includes('message:LOCAL_ONLY')); assert(!raw.includes(session.cwd));
+    const b = await env.client('rules-second'), bob = await env.client('rules-bob', 'bob');
+    assert.equal(b.resultRules(projectId).combination.name, '算法比赛'); assert.equal(bob.resultRules(projectId).combination.id, 'research'); assert.equal(b.store.sessions.length, 0);
+    assert.deepEqual(b.store.drafts[0].resultRules, draft.resultRules); assert.equal(b.store.drafts[0].artifacts![0].category, 'verification');
+    await env.admin.operation({ op: 'group_member', group: 'local_research', username: 'bob', role: 'member' }); await bob.refreshGroups();
+    const bobRules = bob.resultRules(projectId); await bob.saveResultRules(projectId, bobRules.owner, bobRules.version, { combinations: [], projects: { [projectId]: 'development' } }); await bob.accountSync.sync();
+    assert.equal(bob.accountSync.state.status, 'synced', 'ordinary members maintain their own configuration'); assert(!JSON.stringify(await bob.remote.accountData()).includes('算法比赛'));
+    const aRules = a.resultRules(projectId), bRules = b.resultRules(projectId);
+    await a.saveResultRules(projectId, aRules.owner, aRules.version, { ...aRules.preferences, projects: { [projectId]: 'development' } }); await a.accountSync.sync();
+    await b.saveResultRules(projectId, bRules.owner, bRules.version, { ...bRules.preferences, projects: { [projectId]: 'investigation' } }); await b.accountSync.sync();
+    assert.equal(b.accountSync.state.status, 'conflict'); assert(b.accountSync.state.conflicts?.some(item => item.key === 'result-rules:preferences'));
+    await b.accountSync.resolve('result-rules:preferences', 'local'); await a.accountSync.sync(); assert.equal(a.resultRules(projectId).combination.id, 'investigation');
+    assert.deepEqual(draft.resultRules?.categories, ['finding', 'verification']);
+    const profile = memberProfile(env.admin.snapshot.profile!, env.admin.snapshot.state!, 'bob'); await a.configureWorkspace(profile, '1', '', async () => false);
+    assert.equal(a.resultRules(projectId).combination.id, 'development'); assert(!JSON.stringify(await a.remote.accountData()).includes('算法比赛'));
+    await a.configureWorkspace(memberProfile(env.admin.snapshot.profile!, env.admin.snapshot.state!, 'alice'), '1', '', async () => false);
+    assert.equal(a.resultRules(projectId).combination.id, 'investigation');
+  } finally { await env.close(); }
+});
+
+test('new category publishes to its fixed folder and recipients keep the category regardless of their personal combination', async () => {
+  const env = await setup();
+  try {
+    const a = env.first, session = await a.createSession('codex', '', env.project.id), current = a.resultRules(env.project.id);
+    await a.saveResultRules(env.project.id, current.owner, current.version, { combinations: [], projects: { [env.project.id]: 'development' } });
+    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'input'), outputPath: path.join(a.store.root, 'draft.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, combinationId: 'development', name: '软件开发', categories: ['design'] }, preparationEvidenceIds: ['handoff'] };
+    applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'design', topic: '版本化更新', title: '编辑时按版本号检查冲突', body: '以版本号保护并发写入，避免静默覆盖。', origin: 'project', evidenceIds: ['handoff'] }] })); a.store.drafts.push(draft);
+    await a.submitDraft(draft.id); await settled(a); assert(a.store.transfers.every(item => item.status === 'done'));
+    const shared = (await a.remote.contentList(session.binding!))[0]; assert.equal(shared.category, 'design'); assert.match(shared.path, /\/designs\//);
+    const bob = await env.client('recipient', 'bob'); assert(!bob.resultRules(env.project.id).combination.categories.includes('design'));
+    const local = await bob.importContentConclusion(env.project.id, shared.id); assert.equal(local.conclusion.category, 'design');
+    const merged = await a.remote.contentEdit(session.binding!, { id: shared.id, revision: shared.revision, action: 'save', title: '【验证结果】 版本保护回归通过', description: '回归结果。', category: 'verification', sourceDetails: '指定来源的验证记录。', curate: true, merge: [] });
+    assert.equal(merged!.category, 'verification'); assert.deepEqual(merged!.fields, {}); assert.equal(merged!.sourceDetails, '指定来源的验证记录。');
+  } finally { await env.close(); }
+});
+
 test('research folders persist; account restores personal materials and selected files, never sessions or code paths', async () => {
   const env = await setup();
   try {
@@ -52,6 +98,26 @@ test('research folders persist; account restores personal materials and selected
     await a.accountSync.sync(); assert.equal(a.conclusions(project.id)[0].content, '电脑二编辑');
     assert.equal(a.store.sessions.length, 2); assert.equal(a.session(session.id).cwd, session.cwd);
   } finally { await env.close(); }
+});
+
+test('account synchronization while an activity scan awaits its response cannot detach the inbox and lose merge notifications', async () => {
+  const env = await setup(); let release: (() => void) | undefined;
+  try {
+    const a = env.first, bob = await env.client('activity-race', 'bob'), binding = a.remote.binding(env.project.id), file = path.join(env.root, 'source.md');
+    await fs.writeFile(file, '验证内容');
+    for (const name of ['one', 'two']) await a.remote.upload(binding, file, binding.project.uploadPath + '/' + name + '.md', () => {}, { kind: 'contribution', title: name, description: name });
+    const items = await a.remote.contentList(binding); await bob.syncContentUpdates(); await bob.accountSync.sync();
+    const merged = await a.remote.contentEdit(binding, { id: items[0].id, revision: 1, action: 'save', title: '综合结果', description: '合并证据', curate: true, merge: [{ id: items[1].id, revision: 1 }] });
+    const contentList = bob.remote.contentList.bind(bob.remote), gate = new Promise<void>(resolve => { release = resolve; });
+    let entered!: () => void; const pending = new Promise<void>(resolve => { entered = resolve; });
+    bob.remote.contentList = async (...args) => { const result = await contentList(...args); entered(); await gate; return result; };
+    const inbox = bob.store.settings.contentUpdates, scan = bob.syncContentUpdates(); await pending; await bob.accountSync.sync();
+    assert.notEqual(bob.store.settings.contentUpdates, inbox, 'account restore replaces the array during this scan');
+    release!(); const result = await scan;
+    assert(result.some(item => item.id === merged!.id && item.change === 'merged'));
+    assert(result.some(item => item.id === items[1].id && item.change === 'deleted'));
+    bob.remote.contentList = contentList;
+  } finally { release?.(); await env.close(); }
 });
 
 test('attachments are explicit, frozen, deduplicated, dependency-gated and retryable without duplicating successful files', async () => {
@@ -81,7 +147,7 @@ test('attachments are explicit, frozen, deduplicated, dependency-gated and retry
 test('empty concise result is success; cap, valid categories and read/archive merge are enforced', () => {
   const draft = { id: 'd', concise: true, files: [], binding: { project: { remoteRoot: '/p', uploadPath: '/p/submissions/a' } } } as unknown as Draft;
   applyPreparation(draft, '{"artifacts":[]}'); assert.equal(draft.body, ''); assert.equal(draft.artifacts!.length, 0);
-  assert.throws(() => applyPreparation(draft, JSON.stringify({ artifacts: Array(4).fill({ category: 'finding', title: '重复', fields: { statement: '重复' } }) })), /超过 3/);
+  assert.throws(() => applyPreparation(draft, JSON.stringify({ artifacts: Array(6).fill({ category: 'finding', title: '重复', fields: { statement: '重复' } }) })), /超过 5/);
   const result = mergeAccountRecords({ 'update:p': { title: '旧' } }, { 'update:p': { title: '新', readAt: 'now' } }, { 'update:p': { title: '新', actions: [{ kind: 'archived' }] } });
   assert.equal(result.records['update:p'].readAt, 'now'); assert.equal(result.conflicts.length, 0);
 });

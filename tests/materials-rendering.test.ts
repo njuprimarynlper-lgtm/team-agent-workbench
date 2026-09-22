@@ -26,7 +26,7 @@ test('local project results use consistent navigation and actions without renami
     const project = { id: 'personal-project', name: '测试项目' } as Project;
     const library = renderToStaticMarkup(createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {} }));
     assert.match(library, /本地项目成果库 · 测试项目/);
-    assert.match(library, /你在本项目中保存的结论、标准、方法、问题与建议/);
+    assert.match(library, /你在本项目中保存的成果，可供会话引用/);
     assert.match(library, /aria-label="搜索本地项目成果库"/);
     assert.doesNotMatch(library, /管理项目资料|我的资料|我的项目笔记|本地项目结论库|<h1>项目资料/);
     for (const category of ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(library.includes(category), 'renaming the library must not rename its content categories');

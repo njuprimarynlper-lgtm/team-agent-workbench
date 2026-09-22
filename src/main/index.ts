@@ -14,7 +14,7 @@ import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import { safeFilename } from '../core/paths';
 import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
-import { assignmentCreateSchema, assignmentStatusSchema } from '../shared/assignments';
+import { assignmentAllFiles, assignmentCreateSchema, assignmentStatusSchema } from '../shared/assignments';
 import { checkedSessionFile, listSessionFiles, previewSessionFile } from '../core/session-files';
 import { ServerIdentityStore } from '../core/server-identities';
 import { EgressClientProxy } from '../core/egress';
@@ -69,7 +69,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
-      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
+      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
@@ -137,12 +137,23 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived); }
     case 'assignment.list': return workbench.remote.assignmentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
     case 'assignment.members': return workbench.remote.assignmentMembers(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
-    case 'assignment.create': { const p = z.object({ projectId: z.string(), task: assignmentCreateSchema }).parse(raw); return workbench.remote.assignmentCreate(workbench.remote.binding(p.projectId), p.task); }
-    case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.remote.assignmentStatus(workbench.remote.binding(p.projectId), p.change); }
+    case 'assignment.create': { const p = z.object({ projectId: z.string(), task: assignmentCreateSchema }).parse(raw); return workbench.createAssignment(p.projectId, p.task); }
+    case 'assignment.files.pick': { const p = z.object({ projectId: z.string(), taskId: id, selectionId: id.optional() }).parse(raw); return workbench.selectAssignmentFiles(p.projectId, p.taskId, await chooseFiles(owner), p.selectionId); }
+    case 'assignment.file.download': {
+      const p = z.object({ projectId: z.string(), taskId: id, fileId: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw), binding = workbench.remote.binding(p.projectId);
+      const task = (await workbench.remote.assignmentList(binding)).find(item => item.id === p.taskId), file = task && assignmentAllFiles(task).find(item => item.id === p.fileId);
+      if (!file) throw new Error('任务附件不存在或无权访问');
+      const selected = await dialog.showSaveDialog(owner, { defaultPath: safeFilename(file.name) }); if (!selected.filePath) return false;
+      const temporary = path.join(workbench.store.root, 'downloads', randomUUID(), safeFilename(file.name));
+      try { await workbench.remote.assignmentDownload(binding, p.taskId, p.fileId, temporary); await fs.copyFile(temporary, selected.filePath); }
+      finally { await fs.unlink(temporary).catch(() => {}); }
+      return true;
+    }
+    case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.updateAssignment(p.projectId, p.change); }
     case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); await workbench.requireAuth(p.provider, p.cwd); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief); }
     case 'conclusion.match': { const p = z.object({ projectId: z.string(), query: text.min(1) }).parse(raw); return workbench.matchConclusions(p.projectId, p.query); }
-    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1) }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content); }
-    case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1) }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content); }
+    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category); }
+    case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional() }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content, p.category); }
     case 'conclusion.alias.save': { const p = z.object({ id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveConclusionAlias(p.id, p.alias); }
     case 'content.deletion.conclusions': return workbench.deletedContentConclusions(z.object({ eventId: z.string() }).parse(raw).eventId);
     case 'content.deletion.resolve': { const p = z.object({ eventId: z.string(), selections: z.array(z.object({ id, version: z.number().int().positive() })).max(1000) }).parse(raw); return workbench.resolveContentDeletion(p.eventId, p.selections); }
@@ -197,12 +208,15 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = z.object({ id, scope: z.enum(['incremental', 'full']).optional(), categories: z.array(contributionCategorySchema).min(1).max(7).optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope); }
-    case 'draft.reorganize': { const p = z.object({ id, scope: z.enum(['incremental', 'full']), categories: z.array(contributionCategorySchema).min(1).max(7).optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories); }
+    case 'draft.prepare': { const p = z.object({ id, scope: z.enum(['incremental', 'full']).optional() }).parse(raw); return workbench.prepare(p.id, [], undefined, p.scope); }
+    case 'draft.reorganize': { const p = z.object({ id, scope: z.enum(['incremental', 'full']) }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope); }
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);
     case 'draft.delete': return workbench.deleteDraft(sessionInput.parse(raw).id);
     case 'draft.supplement': { const p = z.object({ id, supplement: text, repoUrlOverride: z.string().max(2048) }).parse(raw); return workbench.saveDraftSupplement(p.id, p.supplement, p.repoUrlOverride); }
+    case 'result.rules': return workbench.resultRules(z.object({ projectId: z.string() }).parse(raw).projectId);
+    case 'result.rules.save': { const p = z.object({ projectId: z.string(), owner: z.string(), version: z.string(), preferences: z.unknown() }).parse(raw); return workbench.saveResultRules(p.projectId, p.owner, p.version, p.preferences); }
+    case 'draft.category': { const p = z.object({ id, category: contributionCategorySchema, artifactId: z.string().optional() }).parse(raw); return workbench.changeDraftCategory(p.id, p.category, p.artifactId); }
     case 'draft.artifactSelection': { const p = z.object({ id, artifactId: z.string(), selected: z.boolean() }).parse(raw); return workbench.selectDraftArtifact(p.id, p.artifactId, p.selected); }
     case 'draft.renameResult': { const p = z.object({ id, artifactId: z.string().optional(), title: z.string().trim().min(1).max(120) }).parse(raw); return workbench.renameDraftResult(p.id, p.title, p.artifactId); }
     case 'draft.save': { const p = z.object({ id, title: z.string().max(120), body: text, repoUrl: z.string().max(2048), target: z.string().optional() }).parse(raw); return workbench.saveDraft(p.id, p.title, p.body, p.repoUrl, p.target); }

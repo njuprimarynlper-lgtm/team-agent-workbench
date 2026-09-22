@@ -1,5 +1,5 @@
 import { storageRequest } from './storage-requests';
-import type { AssignmentCreate, AssignmentMember, AssignmentStatusChange, ProjectAssignment } from '../shared/assignments';
+import type { AssignmentCreate, AssignmentMember, AssignmentStatusChange, ProjectAssignment, AssignmentUpload, AssignmentFile } from '../shared/assignments';
 import { hashFile } from './artifacts';
 import type { ContentEdit, ContentMetadata, SharedContent } from '../shared/content';
 import { Client, type SFTPWrapper, type Stats } from 'ssh2';
@@ -192,14 +192,25 @@ export class SftpConnection {
     const s = this.channel(binding); await this.checked(binding, binding.project.remoteRoot);
     return new Promise((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) resolve([]); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
   }
-  private async assignmentRequest(binding: RemoteBinding, input: Record<string, unknown>) {
-    try { return await this.request({ ...input, projectId: binding.project.id }, binding); }
+  private async assignmentRequest(binding: RemoteBinding, input: Record<string, unknown>, local?: string) {
+    try { return await this.request({ ...input, projectId: binding.project.id }, binding, local); }
     catch (error: any) { if (/不支持的内容操作|不支持的任务操作/.test(error.message)) throw new Error('服务器尚未更新任务功能，请管理员在新版管理端点击“更新服务端功能”'); throw error; }
   }
   assignmentMembers(binding: RemoteBinding): Promise<AssignmentMember[]> { return this.assignmentRequest(binding, { op: 'assignment_members' }); }
   assignmentList(binding: RemoteBinding): Promise<ProjectAssignment[]> { return this.assignmentRequest(binding, { op: 'assignment_list' }); }
   assignmentCreate(binding: RemoteBinding, input: AssignmentCreate): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_create', task: input }); }
-  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_status', change: input }); }
+  assignmentUpload(binding: RemoteBinding, taskId: string, file: AssignmentUpload, local: string) { return this.assignmentRequest(binding, { op: 'assignment_file_upload', taskId, file }, local); }
+  async assignmentDownload(binding: RemoteBinding, taskId: string, fileId: string, local: string): Promise<AssignmentFile> {
+    const s = this.channel(binding), profile = this.profile!;
+    const result = await this.assignmentRequest(binding, { op: 'assignment_file_download', taskId, fileId });
+    if (this.channel(binding) !== s || this.profile !== profile || result.id !== fileId || !/^[a-f0-9]{64}$/.test(result.sha256) || !/^[a-f0-9]{32}$/.test(result.downloadId)) throw new Error('任务附件下载回执无效');
+    const remote = '/.workbench/outbox/' + systemUsername(profile.username) + '/' + result.sha256 + '-' + result.downloadId + '.file';
+    await fsp.mkdir(path.dirname(local), { recursive: true });
+    try { await pipeline(s.createReadStream(remote), fs.createWriteStream(local, { flags: 'wx' })); if (await hashFile(local) !== result.sha256 || (await fsp.stat(local)).size !== result.size) throw new Error('任务附件校验失败'); }
+    finally { s.unlink(remote, () => {}); }
+    return result;
+  }
+  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_lifecycle', change: input }); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.request({ op: 'edit_content', projectId: binding.project.id, change }, binding) as Promise<SharedContent | undefined>; }
   contentAdopt(binding: RemoteBinding, target: string) { return this.request({ op: 'adopt_content', projectId: binding.project.id, target }, binding); }
   async contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.request({ op: 'edit_content', projectId: binding.project.id, change, replacement: { extension: path.extname(file), sha256: await hashFile(file) } }, binding, file); }

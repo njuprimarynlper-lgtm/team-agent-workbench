@@ -4,7 +4,7 @@ import { SftpConnection } from './sftp';
 import { LocalFileConnection } from './local-files';
 import type { ConnectionProfile, RemoteBinding } from '../shared/types';
 import type { ProjectBrief } from '../shared/project-brief';
-import type { AssignmentCreate, AssignmentStatusChange } from '../shared/assignments';
+import type { AssignmentCreate, AssignmentStatusChange, AssignmentUpload } from '../shared/assignments';
 
 export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
@@ -29,6 +29,8 @@ export class SharedFiles {
   assignmentMembers(binding: RemoteBinding) { return this.backend.assignmentMembers(binding); }
   assignmentList(binding: RemoteBinding) { return this.backend.assignmentList(binding); }
   assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.backend.assignmentCreate(binding, input); }
+  assignmentUpload(binding: RemoteBinding, taskId: string, file: AssignmentUpload, local: string) { return this.backend.assignmentUpload(binding, taskId, file, local); }
+  assignmentDownload(binding: RemoteBinding, taskId: string, fileId: string, local: string) { return this.backend.assignmentDownload(binding, taskId, fileId, local); }
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.backend.assignmentStatus(binding, input); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.backend.contentAdopt(binding, target); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.backend.contentEdit(binding, change); }

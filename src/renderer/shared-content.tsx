@@ -4,7 +4,7 @@ import { SharedContentDeleteDialog, sharedDeleteSelection } from './shared-conte
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentSession, Draft, Project } from '../shared/types';
-import { canDeleteSharedContent, contentAliasKey, contributionCategoryInfo, resultTitle, contributionTitle, titleSubject, type ContentDeleteResult, type SharedContent } from '../shared/content';
+import { canDeleteSharedContent, contentAliasKey, contributionCategoryInfo, projectResultLabel, projectResultTitle, contributionTitle, titleSubject, type ContentDeleteResult, type SharedContent } from '../shared/content';
 export function SharedContentLibrary({ project, username, admin, aliases, aliasSaved, attach, attachSessions, notice, mergeSessions, mergeStarted, focusPath, focusHandled, resultId, returnToUpdates }: { project: Project; username: string; admin: boolean; aliases: Record<string, string>; aliasSaved: () => Promise<void>; attach: (item: SharedContent, sessionIds: string[]) => Promise<void>; attachSessions: AgentSession[]; notice: (text: string) => void; mergeSessions: AgentSession[]; mergeStarted: (draft: Draft) => void; focusPath?: string; focusHandled?: () => void; resultId?: string; returnToUpdates?: () => void }) {
   const [items, setItems] = useState<SharedContent[]>([]), [search, setSearch] = useState(''), [kind, setKind] = useState('all'), [selected, setSelected] = useState('');
   const [operationGroup, setOperationGroup] = useState<SharedContent['state']>('submitted');
@@ -75,9 +75,9 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     catch (e: any) { setError(e.message); }
     finally { setAttachBusy(false); }
   };
-  const categoryLabel = (value: SharedContent) => value.provenance?.length ? '项目结论' : value.category ? contributionCategoryInfo[value.category].label : value.kind === 'trajectory' ? '会话轨迹' : value.kind === 'file' ? '共享文件' : '项目成果';
+  const categoryLabel = (value: SharedContent) => value.kind === 'trajectory' ? '会话轨迹' : value.kind === 'file' ? '共享文件' : projectResultLabel(value);
   const alias = (value: SharedContent) => aliases[contentAliasKey(project.id, value.id)] || '';
-  const displayTitle = (value: SharedContent) => value.kind === 'contribution' ? resultTitle(categoryLabel(value), alias(value) || value.title, 200) : alias(value) || value.title;
+  const displayTitle = (value: SharedContent) => value.kind === 'contribution' ? projectResultTitle(value, alias(value)) : alias(value) || value.title;
   const matching = items.filter(i => (kind === 'all' || i.kind === kind) && [displayTitle(i), i.title, categoryLabel(i), i.description, i.author, i.repoUrl || '', i.createdAt, i.updatedAt, new Date(i.updatedAt).toLocaleDateString()].join(' ').toLocaleLowerCase().includes(search.toLocaleLowerCase()));
   const filtered = matching.filter(i => !admin || i.state === operationGroup);
   const deletion = sharedDeleteSelection(filtered, deleteSelection, username, admin);

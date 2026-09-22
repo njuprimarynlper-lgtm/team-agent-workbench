@@ -104,7 +104,7 @@ export class ContentFiles {
         const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
         const temp = file + '.' + randomUUID() + '.tmp';
         try { await fs.writeFile(temp, `# ${change.title}\n\n${change.repoUrl ? change.repoUrl + '\n\n' : ''}${change.description}`, { flag: 'wx' }); await fs.rename(temp, file); } finally { await fs.rm(temp, { force: true }); }
-        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, ...(change.sourceSessionTitle ? { sourceSessionTitle: change.sourceSessionTitle } : {}), path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
+        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, ...(change.category ? { category: change.category, fields: {} } : {}), ...(change.sourceDetails !== undefined ? { sourceDetails: change.sourceDetails } : {}), ...(change.sourceSessionTitle ? { sourceSessionTitle: change.sourceSessionTitle } : {}), path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
       }
       await this.authorize(binding);
       if (change.action === 'save' && attachments.length) item.attachments = attachments;

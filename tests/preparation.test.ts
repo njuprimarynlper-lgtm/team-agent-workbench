@@ -194,9 +194,9 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     await bob.syncContentUpdates(); await bob.markContentUpdates(); const archived = await bob.clearReadContentUpdates(); assert(archived.every(item => item.readAt), 'archived dynamics remain in history');
     await fixture.write({ status: 'ready', turn: 'success', mergeResult: { title: '统一项目结论', overview: '融合而非拼接的综合判断。', consensus: ['两项材料可共同支撑后续验证。'], conflicts: [], evidence: [], scope: '当前项目', unresolved: ['补齐回归数据。'] } });
     const mergeDraft = await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id)); await until(() => mergeDraft.generation === 'ready');
-    assert.match(mergeDraft.body, /综合结论/); assert.match(mergeDraft.body, /来源记录/); assert.equal((await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id))).id, mergeDraft.id);
+    assert.match(mergeDraft.body, /融合而非拼接的综合判断/); assert.doesNotMatch(mergeDraft.body, /^## /m); assert.equal((await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id))).id, mergeDraft.id);
     await wb.saveContentMerge(mergeDraft.id, '人工复核后的统一结论', mergeDraft.body + '\n\n人工确认：保留冲突记录。');
-    const merged = await wb.commitContentMerge(mergeDraft.id); assert.equal(merged.title, '【综合整理】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
+    const merged = await wb.commitContentMerge(mergeDraft.id); assert.equal(merged.title, '【项目结论】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
     assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).filter(item => shared.some(source => source.id === item.id)).length, 1);
     assert.equal(merged.provenance?.length, 2); assert.deepEqual(new Set(merged.provenance?.map(item => item.id)), new Set(shared.map(item => item.id)));
     const mergeUpdates = await bob.syncContentUpdates(), mergeUpdate = mergeUpdates.find(item => item.change === 'merged'); assert(mergeUpdate); assert.equal(mergeUpdate.title, merged.title); assert.equal(mergeUpdate.sourceTitles?.length, 1); assert.equal(mergeUpdate.sourceSessionTitle, '覆盖率验证会话');

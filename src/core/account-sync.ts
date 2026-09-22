@@ -9,6 +9,7 @@ import { contentAttachmentSchema } from '../shared/content';
 import { hashFile } from './artifacts';
 import { safeFilename } from './paths';
 import { rememberPreparationProgress } from '../shared/preparation-progress';
+import { resultPreferencesSchema } from '../shared/result-rules';
 
 const canonical = (value: any): string => JSON.stringify(value === undefined ? null : value, (_key, entry) => entry && typeof entry === 'object' && !Array.isArray(entry) ? Object.fromEntries(Object.keys(entry).sort().map(key => [key, entry[key]])) : entry);
 export function mergeAccountRecords(base: AccountRecords, local: AccountRecords, remote: AccountRecords, choices: Record<string, { local: string; remote: string; choice: 'local' | 'remote' }> = {}) {
@@ -45,13 +46,14 @@ export class AccountSync {
   private owns(draft: Draft, profile: ConnectionProfile) { return !!draft.binding && accountIdentity(draft.binding) === accountIdentity(profile); }
   private collect(profile = this.profile!): AccountRecords {
     const records: AccountRecords = {}, key = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
+    if (this.store.settings.resultPreferences?.[key]) records['result-rules:preferences'] = this.store.settings.resultPreferences[key];
     // Losing group access must never mean deleting the account's existing private records.
     for (const [id, value] of Object.entries(this.base)) if (id.startsWith('draft:') && value && !projectIds.has(value.projectId)) records[id] = value;
     for (const item of this.store.conclusions) if (item.accountOwner === key) records['material:' + item.id] = { ...item, sources: item.sources.map(source => ({ ...source, path: source.path && !/^[A-Za-z]:|^file:/.test(source.path) ? source.path : undefined })) };
     for (const draft of this.store.drafts) if (this.owns(draft, profile)) {
       const selectedFiles = new Set(draft.artifacts?.flatMap(item => (item.attachments || []).filter(entry => entry.selected).map(entry => entry.fileId)));
       // Account restoration contains reviewed results, never conversations, CLI state or local code paths.
-      records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: this.store.sessions.find(session => session.id === draft.sessionId)?.title || draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, submitted: draft.submitted ? 'restored' : undefined };
+      records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: this.store.sessions.find(session => session.id === draft.sessionId)?.title || draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, evidenceIds: undefined, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, resultRules: draft.resultRules, resultCategory: draft.resultCategory, resultSourceDetails: draft.resultSourceDetails, mergeProjectId: draft.mergeProjectId, conclusionMergeProjectId: draft.conclusionMergeProjectId, conclusionMergeInstruction: draft.conclusionMergeInstruction, mergeSources: draft.mergeSources, mergeCompletedAt: draft.mergeCompletedAt, mergeResultId: draft.mergeResultId, mergeResultPath: draft.mergeResultPath, submitted: draft.submitted ? 'restored' : undefined };
     }
     for (const [id, alias] of Object.entries(this.store.settings.contentAliases || {})) records['alias:' + id] = alias;
     const prefix = `${profile.id}:${profile.username}:`;
@@ -62,6 +64,9 @@ export class AccountSync {
   }
   private apply(records: AccountRecords, profile: ConnectionProfile) {
     const owner = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
+    const preferences = records['result-rules:preferences'];
+    if (preferences) (this.store.settings.resultPreferences ||= {})[owner] = resultPreferencesSchema.parse(preferences);
+    else if (preferences === null && this.store.settings.resultPreferences) delete this.store.settings.resultPreferences[owner];
     // A deletion received from another computer must not erase local progress.
     for (const session of this.store.sessions) rememberPreparationProgress(session, this.store.drafts);
     const materials: ProjectConclusion[] = [];
@@ -73,8 +78,8 @@ export class AccountSync {
         const restored: Draft = { ...value, files: (value.files || []).map((file: any) => ({ ...file, localPath: this.blobPath(file), sourcePath: '账号附件：' + file.name })), inputDir, outputPath: path.join(inputDir, '..', 'draft.md'), restored: true, binding: { connectionId: profile.id, host: profile.host, port: profile.port, username: profile.username, fingerprint: profile.fingerprint, project }, generation: value.generation === 'running' ? 'error' : value.generation };
         if (!existing) this.store.drafts.push(restored);
         else if (!['running'].includes(existing.generation || '')) {
-          const artifacts = restored.artifacts?.map(item => { const prior = existing.artifacts?.find(prior => prior.id === item.id); return { ...item, submitted: prior?.submitted || item.submitted, attachments: [...(item.attachments || []), ...(prior?.attachments || []).filter(entry => !entry.selected && !item.attachments?.some(other => other.fileId === entry.fileId))] }; });
-          Object.assign(existing, { title: value.title, titleAlias: value.titleAlias, body: value.body, supplement: value.supplement, artifacts });
+          const artifacts = restored.artifacts?.map(item => { const prior = existing.artifacts?.find(prior => prior.id === item.id); return { ...item, evidenceIds: prior?.evidenceIds || item.evidenceIds, submitted: prior?.submitted || item.submitted, attachments: [...(item.attachments || []), ...(prior?.attachments || []).filter(entry => !entry.selected && !item.attachments?.some(other => other.fileId === entry.fileId))] }; });
+          Object.assign(existing, { title: value.title, titleAlias: value.titleAlias, body: value.body, supplement: value.supplement, artifacts, resultRules: value.resultRules, resultCategory: value.resultCategory, resultSourceDetails: value.resultSourceDetails });
         }
       }
     }

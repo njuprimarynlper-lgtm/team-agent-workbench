@@ -39,9 +39,21 @@ else if (command === 'login') {
     const requestText = JSON.stringify(m.params || {});
     const semanticMerge = /semanticMerge|conclusionProcessing/.test(requestText);
     const preparation = semanticMerge || /destinationId|artifacts/.test(requestText);
+    const promptText = (m.params?.input || m.params?.prompt || []).map(item => item.text || '').join('\n');
+    const strictResult = raw => {
+      if (!/preparationContractVersion:2/.test(promptText)) return JSON.stringify(raw);
+      const evidenceIds = JSON.parse(promptText.match(/合法来源清单：(\[[^\n]*?\])。/)?.[1] || '[]');
+      const categories = JSON.parse(promptText.match(/启用类别清单：(\[[^\n]*?\])。/)?.[1] || '["finding"]');
+      const artifacts = raw.artifacts || [{ ...raw, body: raw.body || [raw.overview, ...(raw.consensus || []), ...(raw.unresolved || [])].filter(Boolean).join(' ') }];
+      return JSON.stringify({ artifacts: artifacts.map(item => ({ ...item,
+        category: item.category || (categories.includes('finding') ? 'finding' : categories[0]),
+        topic: item.topic || item.title, origin: item.origin || 'project',
+        body: item.body || Object.values(item.fields || {}).join(' '),
+        evidenceIds: item.evidenceIds || evidenceIds.slice(0, 1) })) });
+    };
     const answer = provider => semanticMerge
-      ? current.mergeRaw ?? JSON.stringify(current.mergeResult || { title: '统一整理的结论', overview: '已根据多条来源形成统一结论。', consensus: ['材料共同支持继续验证。'], conflicts: [], evidence: [], scope: '当前项目阶段', unresolved: [] })
-      : preparation ? current.preparationRaw ?? JSON.stringify(current.preparationResult || { title: '模型验证结果', body: '已根据阶段摘要整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' })
+      ? current.mergeRaw ?? strictResult(current.mergeResult || { title: '统一整理的结论', overview: '已根据多条来源形成统一结论。', consensus: ['材料共同支持继续验证。'], conflicts: [], evidence: [], scope: '当前项目阶段', unresolved: [] })
+      : preparation ? current.preparationRaw ?? strictResult(current.preparationResult || { title: '模型验证结果', body: '已根据阶段摘要整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' })
         : provider === 'codex' ? '# 模型验证结果\n已根据阶段摘要整理。测试已通过。' : '# Cursor 验证结果\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m.method === 'account/login/start' ? { ...m, params: { type: m.params.type } } : m) + '\n');
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
