@@ -43,6 +43,12 @@ test('personal combinations synchronize across computers with explicit conflicts
     const b = await env.client('rules-second'), bob = await env.client('rules-bob', 'bob');
     assert.equal(b.resultRules(projectId).combination.name, '算法比赛'); assert.equal(bob.resultRules(projectId).combination.id, 'research'); assert.equal(b.store.sessions.length, 0);
     assert.deepEqual(b.store.drafts[0].resultRules, draft.resultRules); assert.equal(b.store.drafts[0].artifacts![0].category, 'verification');
+    const empty: Draft = { ...draft, id: randomUUID(), artifacts: [], body: '', emptyResult: { code: 'already_saved', explanation: '已有成果保留了本次验证边界。', existingResults: [{ id: 'existing', title: '验证覆盖范围' }] } };
+    a.store.drafts.push(empty); await a.accountSync.sync(); await b.accountSync.sync();
+    assert.equal(b.store.drafts.find(item => item.id === empty.id)?.emptyResult?.code, 'already_saved');
+    await b.confirmEmptyPreparation(empty.id); await b.accountSync.sync(); await a.accountSync.sync();
+    assert(a.store.drafts.find(item => item.id === empty.id)?.emptyResult?.confirmedAt);
+    assert.equal(b.store.sessions.length, 0, 'confirmation synchronizes without restoring the source Session');
     await env.admin.operation({ op: 'group_member', group: 'local_research', username: 'bob', role: 'member' }); await bob.refreshGroups();
     const bobRules = bob.resultRules(projectId); await bob.saveResultRules(projectId, bobRules.owner, bobRules.version, { combinations: [], projects: { [projectId]: 'development' } }); await bob.accountSync.sync();
     assert.equal(bob.accountSync.state.status, 'synced', 'ordinary members maintain their own configuration'); assert(!JSON.stringify(await bob.remote.accountData()).includes('算法比赛'));

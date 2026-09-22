@@ -29,7 +29,7 @@ function statusTone(draft: Draft, transfers: Transfer[]) {
   const status = taskStatus(draft, transfers);
   if (/失败|未完成/.test(status)) return 'error';
   if (/正在|整理中|融合中|处理中/.test(status)) return 'running';
-  if (/已上传|已保存/.test(status)) return 'done';
+  if (/已上传|已保存|已确认/.test(status)) return 'done';
   return 'queued';
 }
 

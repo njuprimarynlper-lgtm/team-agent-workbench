@@ -144,8 +144,11 @@ test('in-flight preparation freezes rules, later preparation uses changed select
     assert.equal(wb.conclusions(offlineProjectId)[0].category, 'design');
     await assert.rejects(wb.changeDraftCategory(prepared.id, 'finding', prepared.artifacts![0].id), /启用/);
     const restored = new Store(wb.store.root); await restored.init(); assert.deepEqual(restored.drafts[0].resultRules, prepared.resultRules); assert.equal(restored.drafts[0].artifacts![0].category, 'design');
-    const next = await wb.reorganizePreparation(prepared.id, 'full'); await until(() => next.generation !== 'running');
+    const next = await wb.reorganizePreparation(prepared.id, 'full', ['research', 'comparison']); await until(() => next.generation !== 'running');
     assert.equal(next.generation, 'ready', next.generationError || ''); assert.equal(next.resultRules!.combinationId, 'investigation');
+    assert.deepEqual(next.resultRules!.categories, ['research', 'comparison']); assert.deepEqual(next.requestedCategories, ['research', 'comparison']);
+    await assert.rejects(wb.reorganizePreparation(next.id, 'full', ['design']), /启用/);
+    await assert.rejects(wb.reorganizePreparation(next.id, 'full', []), /至少/);
     prepared.artifacts![0].submitted = 'uploaded'; await assert.rejects(wb.changeDraftCategory(prepared.id, 'requirement', prepared.artifacts![0].id), /已提交/);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });

@@ -1,7 +1,9 @@
 import type { Draft, Transfer } from './types';
+import { isEmptyPreparation } from './preparation-review';
 export function contributionStatus(draft: Draft, transfer?: Transfer) {
   if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '处理结果已保存' : '合并完成';
   if (draft.submitted) return transfer ? ({ queued: '等待上传', running: '上传中', done: '上传成功', error: '上传失败' })[transfer.status] : '上传状态待核对';
+  if (isEmptyPreparation(draft)) return draft.emptyResult?.confirmedAt ? '已确认无需保留' : '无新成果 · 待确认';
   if (draft.conclusionMergeProjectId) return draft.generation === 'running' ? '按要求处理中' : draft.generation === 'error' ? '处理失败' : draft.generation === 'canceled' ? '已停止' : '预处理结果待确认';
   return draft.generation === 'running' ? draft.mergeSources?.length ? '语义融合中' : '整理中' : draft.generation === 'error' ? draft.mergeSources?.length ? '融合失败' : '整理失败' : draft.generation === 'canceled' ? '已停止' : draft.mergeSources?.length ? '待确认合并' : '待确认';
 }

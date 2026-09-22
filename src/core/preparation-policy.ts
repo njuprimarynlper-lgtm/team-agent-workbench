@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { contributionCategoryFields, contributionCategorySchema, contributionTitle } from '../shared/content';
 import type { Draft, DraftArtifact } from '../shared/types';
+import type { EmptyPreparationResult } from '../shared/preparation-review';
 
 export const preparedResultSchema = z.object({
   category: contributionCategorySchema, topic: z.string().trim().min(1).max(100),
@@ -21,9 +22,19 @@ export function containsLocalEnvironmentError(text: string) {
 }
 const normalized = (text: string) => text.normalize('NFKC').toLocaleLowerCase().replace(/[\p{P}\p{Z}\s]/gu, '');
 
-export function validatePreparedResults(draft: Draft, raw: unknown) {
-  const parsed = z.object({ artifacts: z.array(preparedResultSchema).max(5) }).safeParse(raw);
+export function reviewPreparedResults(draft: Draft, raw: unknown) {
+  const parsed = z.object({
+    artifacts: z.array(preparedResultSchema).max(5),
+    sourceReview: z.object({ status: z.enum(['complete', 'incomplete']), inputCount: z.number().int().nonnegative().optional(), conversationHash: z.string().optional(), explanation: z.string().max(600).optional() }).optional(),
+    emptyReason: z.object({ code: z.enum(['already_saved', 'no_reusable_content', 'no_matching_category']), explanation: z.string().trim().min(1).max(600), existingResultIds: z.array(z.string()).max(100).default([]) }).optional()
+  }).safeParse(raw);
   if (!parsed.success) throw new Error('整理结果不符合精简规则（最多 5 条，标题不超过 40 字、正文不超过 500 字，须有主题和来源），请重试整理');
+  if (draft.resultRules?.contract === 3) {
+    const review = parsed.data.sourceReview;
+    if (!review || review.status !== 'complete') throw new Error('未能完整读取本次材料，不能判断是否有新成果。' + (review?.explanation || '请重试整理。'));
+    if (review.inputCount !== (draft.snapshot?.messageCount ?? draft.mergeSources?.length ?? 0) || draft.snapshot && review.conversationHash !== draft.snapshot.conversationHash) throw new Error('AI 读取的材料范围与本次快照不一致，请重试整理，不能将此结果视为没有新内容');
+    if (!parsed.data.artifacts.length && !parsed.data.emptyReason) throw new Error('AI 返回了空结果，但未说明原因，请重试整理');
+  }
   const categories = new Set(draft.resultRules!.categories), evidence = new Set(draft.preparationEvidenceIds || []);
   const topics = new Set<string>(), titles = new Set<string>(), bodies = new Set<string>();
   const results: z.infer<typeof preparedResultSchema>[] = [];
@@ -36,7 +47,21 @@ export function validatePreparedResults(draft: Draft, raw: unknown) {
     if (!topic || topics.has(topic) || titles.has(title) || bodies.has(body)) throw new Error('同一主题被重复整理，请合为一条后重试');
     topics.add(topic); titles.add(title); bodies.add(body); results.push(item);
   }
-  return results;
+  let emptyResult: EmptyPreparationResult | undefined;
+  if (!results.length) {
+    if (parsed.data.artifacts.length) emptyResult = { code: 'filtered', explanation: `模型返回了 ${parsed.data.artifacts.length} 条候选，但都被本机环境故障排除规则过滤。请核对整理范围和分类；这不代表原会话没有项目成果。` };
+    else if (parsed.data.emptyReason) {
+      const reason = parsed.data.emptyReason;
+      const existing = draft.preparationExistingResults || [];
+      if (reason.existingResultIds.some(id => !existing.some(item => item.id === id)) || reason.code === 'already_saved' && !reason.existingResultIds.length) throw new Error('空结果未关联有效的已有成果，无法核对去重依据，请重试整理');
+      emptyResult = { code: reason.code, explanation: reason.explanation, existingResults: existing.filter(item => reason.existingResultIds.includes(item.id)) };
+    }
+  }
+  return { artifacts: results, emptyResult };
+}
+
+export function validatePreparedResults(draft: Draft, raw: unknown) {
+  return reviewPreparedResults(draft, raw).artifacts;
 }
 
 export function preparedArtifact(item: z.infer<typeof preparedResultSchema>, id: string, target: string): DraftArtifact {

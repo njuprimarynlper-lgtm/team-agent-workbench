@@ -5,7 +5,8 @@ import { AccountSyncStatus } from './account-sync';
 import { ContentUpdatesPanel } from './content-updates';
 import { ConclusionLibrary } from './conclusions';
 import { ResultRulesEditor } from './result-rules';
-import { activeResultCombination, type ResultCombination } from '../shared/result-rules';
+import { PreparationOptionsModal } from './preparation-options';
+import { activeResultCombination } from '../shared/result-rules';
 import { accountIdentity } from '../shared/account-data';
 import { AssignmentsPanel } from './assignments';
 import { SessionFilesDialog } from './session-files';
@@ -18,13 +19,12 @@ import { createRoot } from 'react-dom/client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Folder, FolderOpen, FileText, Plus, Settings as SettingsIcon, ArrowUp, ArrowUpDown, ArrowLeft, RefreshCw, Upload, Download, Link, X, Check, ChevronRight, MessageSquare, Layers, Server, Unplug, Search, Paperclip, Square, ShieldCheck, FileArchive, HardDrive, PanelRightClose, Sparkles, ExternalLink, Copy, Terminal, CircleHelp, BellRing, Pencil, Puzzle, Network, ClipboardList } from 'lucide-react';
-import type { AgentCapabilitySelection, AgentSession, ConclusionMatch, ConclusionOrganization, ConnectionProfile, ContentUpdate, Draft, FilePreview, PreparationScope, Project, Provider, RemoteEntry, Settings, Snapshot, WorkspaceAccess } from '../shared/types';
+import type { AgentCapabilitySelection, AgentSession, ConclusionMatch, ConclusionOrganization, ConnectionProfile, ContentUpdate, Draft, FilePreview, Project, Provider, RemoteEntry, Settings, Snapshot, WorkspaceAccess } from '../shared/types';
 import './styles.css';
 import { DraftEditor, draftStatus } from './draft-editor';
 import { DraftTaskList } from './draft-list';
 import { DraftDeleteDialog } from './draft-delete';
-import { preparationCheckpoint, preparationDelta } from '../shared/preparation-progress';
-import type { PreparationCheckpoint } from '../shared/types';
+import { preparationCheckpoint } from '../shared/preparation-progress';
 import { ModelPicker } from './model-picker';
 import { PermissionPicker } from './permissions';
 import { ComposerSettings } from './composer-settings';
@@ -50,16 +50,6 @@ function Modal({ title, children, close, wide = false }: { title: string; childr
 function SessionRenameModal({ session, close, saved }: { session: AgentSession; close: () => void; saved: () => Promise<void> }) {
   const [title, setTitle] = useState(session.title), [busy, setBusy] = useState(false), [error, setError] = useState('');
   return <Modal title="重命名会话" close={close}><div className="modal-body"><label className="field">会话名称<input autoFocus aria-label="会话名称" maxLength={120} value={title} onChange={event => setTitle(event.target.value)}/></label><p className="muted small">新名称会用于本机列表；之后上传的成果和轨迹也会把它作为来源会话名展示给团队成员。</p>{error && <div className="inline-error" role="alert">{error}</div>}</div><footer><button className="secondary" onClick={close}>取消</button><button className="primary" disabled={busy || !title.trim() || title.trim() === session.title} onClick={async () => { setBusy(true); setError(''); try { await api.call('session.rename', { id: session.id, title: title.trim() }); await saved(); close(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{busy ? '正在保存…' : '保存名称'}</button></footer></Modal>;
-}
-function PreparationOptionsModal({ session, baseline, combination, close, started }: { session: AgentSession; baseline?: PreparationCheckpoint; combination: ResultCombination; close: () => void; started: (scope: PreparationScope) => Promise<void> }) {
-  const delta = preparationDelta(session, baseline?.snapshot);
-  const incrementalCount = delta.count;
-  const canIncremental = !!baseline && incrementalCount > 0;
-  const [configuring, setConfiguring] = useState(false);
-  const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const [scope, setScope] = useState<PreparationScope>(canIncremental ? 'incremental' : 'full');
-  if (configuring && session.binding) return <Modal title="我的成果分类" close={() => setConfiguring(false)} wide><ResultRulesEditor projectId={session.binding.project.id} projectName={session.binding.project.name} saved={() => setConfiguring(false)}/></Modal>;
-  return <Modal title={baseline ? '选择整理范围' : '整理成果'} close={close}><div className="modal-body">{baseline && <><p className="muted small">按 Session 的整理进度新建任务，删除记录或成果不会重置进度。</p><div className="preparation-options preparation-scope-options"><label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="增量整理" checked={scope === 'incremental'} disabled={busy || !canIncremental} onChange={() => setScope('incremental')}/><span><b>增量整理</b><small>{canIncremental ? `只整理最近成功整理后新增或续写的 ${incrementalCount} 条消息。` : delta.reason}</small></span></label><label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="全量整理" checked={scope === 'full'} disabled={busy} onChange={() => setScope('full')}/><span><b>全量整理</b><small>重新读取完整 Session；需要重新提炼已删除成果时选此项。</small></span></label></div></>}<p className="muted small">只保留值得复用的新内容，最多 5 条；没有新内容就不生成。本机环境故障不整理。</p>{session.binding && <p className="muted small">使用“{combination.name}”分类组合 · <button className="text-button" disabled={busy} onClick={() => setConfiguring(true)}>调整我的分类</button></p>}{error && <div className="inline-error" role="alert">{error}</div>}</div><footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || (scope === 'incremental' && !canIncremental)} onClick={async () => { setBusy(true); setError(''); try { await started(scope); close(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{busy ? '正在启动…' : baseline ? `开始${scope === 'incremental' ? '增量' : '全量'}整理` : '开始整理'}</button></footer></Modal>;
 }
 function ConclusionMatchModal({ matches, close, confirm, skip }: { matches: ConclusionMatch[]; close: () => void; confirm: (ids: string[]) => Promise<void>; skip: () => Promise<void> }) {
   const [selected, setSelected] = useState(matches.slice(0, 5).map(item => item.conclusion.id)), [busy, setBusy] = useState(false), [error, setError] = useState('');
@@ -329,7 +319,7 @@ function App() {
     {closingSession && <Modal title="停止并关闭会话" close={() => setClosingSession(undefined)}><div className="modal-body"><p>“{closingSession.title}”正在运行。关闭将停止当前任务，已保存的对话和阶段摘要仍可重新打开。正在执行的操作可能已经产生部分改动。</p></div><footer><button className="secondary" onClick={() => setClosingSession(undefined)}>继续工作</button><button className="primary" onClick={() => void run(async () => { await api.call('session.close', { id: closingSession.id }); setClosingSession(undefined); })}>停止并关闭</button></footer></Modal>}
     {renamingSession && <SessionRenameModal session={renamingSession} close={() => setRenamingSession(undefined)} saved={refresh}/>}
     {deletingDraft && <DraftDeleteDialog draft={deletingDraft} close={() => setDeletingDraft(undefined)} remove={async () => { await api.call('draft.delete', { id: deletingDraft.id }); setDeletingDraft(undefined); setNotice('整理记录已删除，成果和增量进度已保留'); await refresh(); }}/>}
-    {preparingSession && <PreparationOptionsModal combination={activeResultCombination(resultPreferences, preparingSession.binding?.project.id || '')} session={preparingSession} baseline={preparationCheckpoint(preparingSession, state.drafts)} close={() => setPreparingSession(undefined)} started={async scope => { const d = await api.call<Draft>('draft.prepare', { id: preparingSession.id, scope }); setDraftReturnToList(false); setDraftId(d.id); setView('drafts'); await refresh(); }}/>}
+    {preparingSession && <PreparationOptionsModal combination={activeResultCombination(resultPreferences, preparingSession.binding?.project.id || '')} session={preparingSession} baseline={preparationCheckpoint(preparingSession, state.drafts)} close={() => setPreparingSession(undefined)} started={async (scope, categories) => { const d = await api.call<Draft>('draft.prepare', { id: preparingSession.id, scope, categories }); setDraftReturnToList(false); setDraftId(d.id); setView('drafts'); await refresh(); }}/>}
     {connectOpen && <ConnectModal settings={state.settings} connection={connection} egress={state.egress} close={() => setConnectOpen(false)} run={run} onConnected={() => { setConnectOpen(false); setNotice('登录成功，账号身份与工作组已刷新'); void refresh(); }}/> }
     {onboarding && onboardingWorkspace && connection?.connected && <ProjectOnboarding key={onboarding.contextKey} profile={connection.profile} workspace={onboardingWorkspace} close={() => setOnboarding(undefined)} created={async p => { await refresh(); setProjectId(p.id); setOnboarding(undefined); setNotice('项目说明、成果目录与轨迹目录已创建，本组成员可查看项目资料'); }}/>}
     {projectCreateOpen && <ProjectBriefEditor groups={creatableGroups} initialGroup={createGroup} admin close={() => setProjectCreateOpen(false)} saved={async p => { await refresh(); if (p) setProjectId(p.id); setProjectCreateOpen(false); setNotice('项目与公共成果、轨迹目录已创建'); }}/>}

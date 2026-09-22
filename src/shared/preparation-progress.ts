@@ -1,11 +1,17 @@
 import type { AgentSession, Draft, PreparationCheckpoint, PreparationSnapshot } from './types';
+import { isEmptyPreparation } from './preparation-review';
 
 // Progress belongs to the source Session, not to a deletable task or its results.
 export function preparationCheckpoint(session: AgentSession, drafts: Draft[] = []): PreparationCheckpoint | undefined {
   let checkpoint = session.preparationCheckpoint;
+  // Old builds advanced progress on an unexplained empty response. If its
+  // record still exists, let the user review it before treating it as consumed.
+  if (drafts.some(draft => draft.id === checkpoint?.draftId && isEmptyPreparation(draft) && !draft.emptyResult?.confirmedAt)) checkpoint = undefined;
   for (const draft of drafts) {
     if (draft.sessionId !== session.id || draft.generation !== 'ready' || draft.mergeSources?.length || !draft.snapshot || draft.restored) continue;
+    if (isEmptyPreparation(draft) && !draft.emptyResult?.confirmedAt) continue;
     const snapshot = draft.snapshot, previous = checkpoint?.snapshot;
+    if (checkpoint?.draftId === draft.id && previous?.conversationHash === snapshot.conversationHash && previous.lastMessageLength === undefined && snapshot.lastMessageLength !== undefined) checkpoint = { draftId: draft.id, snapshot };
     if (!previous || snapshot.capturedAt > previous.capturedAt || snapshot.capturedAt === previous.capturedAt && (snapshot.totalMessageCount ?? snapshot.messageCount) > (previous.totalMessageCount ?? previous.messageCount)) checkpoint = { draftId: draft.id, snapshot };
   }
   return checkpoint;
@@ -14,6 +20,7 @@ export function preparationCheckpoint(session: AgentSession, drafts: Draft[] = [
 export function rememberPreparationProgress(session: AgentSession, drafts: Draft[]) {
   const checkpoint = preparationCheckpoint(session, drafts);
   if (checkpoint) session.preparationCheckpoint = structuredClone(checkpoint);
+  else delete session.preparationCheckpoint;
 }
 
 export function preparationDelta(session: Pick<AgentSession, 'messages'>, snapshot?: PreparationSnapshot) {

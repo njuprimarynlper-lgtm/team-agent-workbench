@@ -1,17 +1,18 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AgentSession, Draft, ProjectConclusion, Settings, Transfer, SessionInput } from '../shared/types';
 import { settingsSchema } from './config';
 import { migrateSessionContext } from './session-context';
 import { repairConclusionImports } from './conclusion-import-repair';
 import { accountIdentity } from '../shared/account-data';
 import { rememberPreparationProgress } from '../shared/preparation-progress';
-export async function atomicJson(file: string, data: unknown) {
+export async function atomicJson(file: string, data: unknown, ascii = false) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = file + '.' + randomUUID() + '.tmp';
   try {
-    await fs.writeFile(temp, JSON.stringify(data, null, 2), { mode: 0o600 });
+    const json = JSON.stringify(data, null, 2);
+    await fs.writeFile(temp, ascii ? json.replace(/[\u007f-\uffff]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')) : json, { mode: 0o600 });
     // Windows scanners may briefly hold the destination. Never unlink the old file to replace it.
     for (let attempt = 0; ; attempt++) {
       try { await fs.rename(temp, file); break; }
@@ -56,6 +57,16 @@ export class Store {
       if (d.generation === 'running') { d.generation = 'error'; d.generationError = '应用关闭后整理已中断，可重试整理，“给团队的补充”已保留。'; }
       else if (!d.generation) { const s = this.sessions.find(s => s.id === d.prepareSessionId); d.generation = d.generatedBody ? 'ready' : 'error'; d.generationError = d.generatedBody ? undefined : s?.error || '此前的整理未完成，可重试整理，“给团队的补充”已保留。'; }
     });
+    for (const draft of this.drafts) {
+      const snapshot = draft.snapshot;
+      if (!snapshot?.lastMessageId || snapshot.lastMessageLength !== undefined || draft.restored) continue;
+      try {
+        const messages = JSON.parse(await fs.readFile(path.join(draft.inputDir, 'conversation.json'), 'utf8'));
+        if (createHash('sha256').update(JSON.stringify(messages)).digest('hex') !== snapshot.conversationHash) continue;
+        const last = messages.at(-1);
+        if (last?.id === snapshot.lastMessageId && typeof last.text === 'string') snapshot.lastMessageLength = last.text.length;
+      } catch { /* Missing legacy snapshots retain the conservative boundary replay. */ }
+    }
     for (const session of this.sessions) rememberPreparationProgress(session, this.drafts);
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
     await this.repairConclusionImports();

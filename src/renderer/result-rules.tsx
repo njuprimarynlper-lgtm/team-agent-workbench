@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { contributionCategoryInfo, materialCategories } from '../shared/content';
 import { resultCategoryBoundaries, resultPreferencesSchema, resultPresets, type ResultCombination, type ResultRulesState } from '../shared/result-rules';
 
-export function ResultRulesEditor({ projectId, projectName, initialState, saved }: { projectId: string; projectName: string; initialState?: ResultRulesState; saved?: () => void }) {
+export function ResultRulesEditor({ projectId, projectName, initialState, saved }: { projectId: string; projectName: string; initialState?: ResultRulesState; saved?: (state: ResultRulesState) => void }) {
   const [data, setData] = useState(initialState), [form, setForm] = useState<ResultCombination | undefined>(initialState?.combination);
   const [editing, setEditing] = useState(false), [busy, setBusy] = useState(!initialState), [error, setError] = useState(''), [notice, setNotice] = useState('');
   useEffect(() => {
@@ -17,7 +17,7 @@ export function ResultRulesEditor({ projectId, projectName, initialState, saved 
       if (editing && !removeId) combinations = [...combinations.filter(item => item.id !== form.id), form];
       const preferences = resultPreferencesSchema.parse({ combinations, projects: removeId ? data.preferences.projects : { ...data.preferences.projects, [projectId]: form.id } });
       const result = await window.workbench.call<ResultRulesState>('result.rules.save', { projectId, owner: data.owner, version: data.version, preferences });
-      setData(result); setForm(result.combination); setEditing(false); setNotice(removeId ? '组合已删除' : '已保存，后续整理使用这套分类'); saved?.();
+      setData(result); setForm(result.combination); setEditing(false); setNotice(removeId ? '组合已删除' : '已保存，后续整理使用这套分类'); saved?.(result);
     } catch (reason: any) { setError(reason.issues?.map((issue: { message: string }) => issue.message).join('；') || reason.message); } finally { setBusy(false); }
   };
   return <><div className="modal-body result-rules-editor">

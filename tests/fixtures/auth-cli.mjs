@@ -41,11 +41,15 @@ else if (command === 'login') {
     const preparation = semanticMerge || /destinationId|artifacts/.test(requestText);
     const promptText = (m.params?.input || m.params?.prompt || []).map(item => item.text || '').join('\n');
     const strictResult = raw => {
-      if (!/preparationContractVersion:2/.test(promptText)) return JSON.stringify(raw);
+      if (!/preparationContractVersion:[23]/.test(promptText)) return JSON.stringify(raw);
       const evidenceIds = JSON.parse(promptText.match(/合法来源清单：(\[[^\n]*?\])。/)?.[1] || '[]');
       const categories = JSON.parse(promptText.match(/启用类别清单：(\[[^\n]*?\])。/)?.[1] || '["finding"]');
       const artifacts = raw.artifacts || [{ ...raw, body: raw.body || [raw.overview, ...(raw.consensus || []), ...(raw.unresolved || [])].filter(Boolean).join(' ') }];
-      return JSON.stringify({ artifacts: artifacts.map(item => ({ ...item,
+      const reviewed = /preparationContractVersion:3/.test(promptText) ? {
+        sourceReview: { status: 'complete', inputCount: Number(promptText.match(/本次输入条数：(\d+)。/)?.[1] || 0), conversationHash: promptText.match(/冻结对话哈希：([^。]*)。/)?.[1] || '' },
+        ...(!artifacts.length ? { emptyReason: { code: 'no_reusable_content', explanation: '本次材料没有可单独保留的新内容。', existingResultIds: [] } } : {})
+      } : {};
+      return JSON.stringify({ ...reviewed, artifacts: artifacts.map(item => ({ ...item,
         category: item.category || (categories.includes('finding') ? 'finding' : categories[0]),
         topic: item.topic || item.title, origin: item.origin || 'project',
         body: item.body || Object.values(item.fields || {}).join(' '),

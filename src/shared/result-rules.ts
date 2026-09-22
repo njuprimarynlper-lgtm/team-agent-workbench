@@ -32,7 +32,7 @@ export const resultPreferencesSchema = z.object({ combinations: z.array(resultCo
   if (Object.values(value.projects).some(id => !ids.has(id))) context.addIssue({ code: 'custom', message: '请先为使用该组合的项目选择其他组合，再删除组合' });
 });
 export type ResultPreferences = z.infer<typeof resultPreferencesSchema>;
-export interface ResultRuleSnapshot { contract: 2; combinationId: string; name: string; categories: ContributionCategory[] }
+export interface ResultRuleSnapshot { contract: 2 | 3; combinationId: string; name: string; categories: ContributionCategory[] }
 export interface ResultRulesState { owner: string; version: string; preferences: ResultPreferences; combination: ResultCombination }
 export function activeResultCombination(preferences: ResultPreferences, projectId: string): ResultCombination {
   return [...resultPresets, ...preferences.combinations].find(item => item.id === preferences.projects[projectId]) || resultPresets[0];

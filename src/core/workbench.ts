@@ -13,8 +13,9 @@ import type { PermissionMode } from '../shared/types';
 import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
 import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
 import { Store, atomicJson } from './store';
-import { preparationSnapshot } from './preparation-snapshot';
+import { preparationSnapshot, prepareReadableInputs } from './preparation-snapshot';
 import { preparationPrompt } from './preparation-prompt';
+import { emptyPreparationResult, isEmptyPreparation } from '../shared/preparation-review';
 import { preparationCheckpoint, rememberPreparationProgress } from '../shared/preparation-progress';
 import { activeResultCombination, resultPreferencesSchema, type ResultRulesState, type ResultRuleSnapshot } from '../shared/result-rules';
 import { SharedFiles } from './shared-files';
@@ -161,7 +162,8 @@ export class Workbench {
   }
   private preparationRules(projectId: string, categories?: ContributionCategory[]): ResultRuleSnapshot {
     const { combination } = this.resultRules(projectId);
-    return { contract: 2, combinationId: combination.id, name: combination.name, categories: categories?.length ? [...categories] : [...combination.categories] };
+    if (categories && (!categories.length || categories.some(category => !combination.categories.includes(category as any)))) throw new Error('请选择当前分类组合中启用的类别');
+    return { contract: 3, combinationId: combination.id, name: combination.name, categories: categories ? [...categories] : [...combination.categories] };
   }
   matchConclusions(projectId: string, query: string) { return rankConclusions(this.conclusions(projectId), query); }
   async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory) {
@@ -732,7 +734,7 @@ export class Workbench {
           if (parent) rememberPreparationProgress(parent, [draft]);
         }
         await this.store.save(); this.broadcast();
-        this.notice(draft.generation === 'ready' ? draft.conclusionMergeProjectId ? `“${draft.title}”预处理结果已生成，请审阅后保存。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，待确认上传。` : `“${draft.title}”整理失败：${draft.generationError}`);
+        this.notice(draft.generation === 'ready' ? isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”预处理结果已生成，请审阅后保存。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，待确认上传。` : `“${draft.title}”整理失败：${draft.generationError}`);
         const runtime = this.runtimes.get(id); if (runtime) { this.runtimes.delete(id); await runtime.close(); }
       }
     }
@@ -860,7 +862,7 @@ export class Workbench {
     const sources = selected as NonNullable<(typeof selected)[number]>[];
     const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
     await fs.mkdir(inputDir, { recursive: true });
-    await atomicJson(path.join(inputDir, 'merge-sources.json'), sources.map(item => ({ id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt, category: item.category, fields: item.fields, description: item.description, repoUrl: item.repoUrl })));
+    await atomicJson(path.join(inputDir, 'merge-sources.json'), sources.map(item => ({ id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt, category: item.category, fields: item.fields, description: item.description, repoUrl: item.repoUrl })), true);
     const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', parent.id, parent.model); prepared.title = '项目文档语义合并';
     const mergeSources: ContentMergeSource[] = sources.map(item => ({ id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt }));
     const draft: Draft = { resultRules: this.preparationRules(projectId), id: draftId, sessionId, prepareSessionId: prepared.id, preparationVersion: 4, mergeProjectId: projectId, mergeSources, generation: 'running', title: `${sources.length} 条项目文档 · 语义合并`, body: '', files: [], binding: structuredClone(binding), inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
@@ -874,7 +876,7 @@ export class Workbench {
     if (sources.some(item => !item)) throw new Error('待处理结论已变化，请刷新后重新选择');
     const selected = sources as ProjectConclusion[], draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
     await fs.mkdir(inputDir, { recursive: true });
-    await atomicJson(path.join(inputDir, 'merge-sources.json'), selected.map(item => ({ id: item.id, revision: item.version, title: item.title, author: '本机结论库', updatedAt: item.updatedAt, description: item.content, sources: item.sources.map(source => ({ title: source.title, content: source.content, revision: source.revision, path: source.path })) })));
+    await atomicJson(path.join(inputDir, 'merge-sources.json'), selected.map(item => ({ id: item.id, revision: item.version, title: item.title, author: '本机结论库', updatedAt: item.updatedAt, description: item.content, sources: item.sources.map(source => ({ title: source.title, content: source.content, revision: source.revision, path: source.path })) })), true);
     const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', parent.id, parent.model); prepared.title = '本地结论预处理';
     const mergeSources: ContentMergeSource[] = selected.map(item => ({ id: item.id, revision: item.version, title: item.title, author: '本机结论库', updatedAt: item.updatedAt }));
     const draft: Draft = { binding: structuredClone(parent.binding), resultRules: this.preparationRules(projectId), id: draftId, sessionId, prepareSessionId: prepared.id, preparationVersion: 5, conclusionMergeProjectId: projectId, conclusionMergeInstruction: instruction, mergeSources, generation: 'running', title: `${selected.length} 条本地结论 · 预处理`, body: '', files: [], inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
@@ -900,7 +902,7 @@ export class Workbench {
     if (source.mergeSources?.length) throw new Error('项目文档或本地结论合并不支持增量整理');
     if (source.generation !== 'ready') throw new Error('请等待本次整理完成后再选择新的整理范围');
     const parent = this.session(source.sessionId); if (parent.purpose !== 'work') throw new Error('原工作会话不存在，无法再次整理');
-    const requestedCategories = categories?.length ? [...new Set(categories)].filter(category => contributionCategories.includes(category)) : [...this.resultRules(parent.binding!.project.id).combination.categories];
+    const requestedCategories = categories ? [...new Set(categories)] : [...this.resultRules(parent.binding!.project.id).combination.categories];
     if (!requestedCategories.length) throw new Error('请至少选择一种整理结果');
     return this.createPreparation(parent.id, [], requestedCategories, scope, source);
   }
@@ -910,6 +912,20 @@ export class Workbench {
     const active = this.store.drafts.find(draft => draft.sessionId === key && !draft.mergeSources?.length && draft.generation === 'running'); if (active) return Promise.resolve(active);
     const pending = this.reorganizing.get(key); if (pending) return pending;
     const operation = this.createReorganization(source, scope, categories).finally(() => { this.reorganizing.delete(key); this.preparing.delete(key); }); this.reorganizing.set(key, operation); this.preparing.set(key, operation); return operation;
+  }
+  confirmEmptyPreparation(id: string) {
+    return this.edit('draft:' + id, async () => {
+      const draft = this.draft(id);
+      if (!isEmptyPreparation(draft) || draft.submitted || draft.mergeCompletedAt) throw new Error('只有已完成且没有新成果的整理可以确认');
+      if (draft.emptyResult?.confirmedAt) return draft;
+      const previous = draft.emptyResult, parent = this.store.sessions.find(session => session.id === draft.sessionId);
+      const checkpoint = parent?.preparationCheckpoint;
+      draft.emptyResult = { ...emptyPreparationResult(draft), confirmedAt: new Date().toISOString() };
+      if (parent) rememberPreparationProgress(parent, this.store.drafts);
+      try { await this.store.save(); }
+      catch (error) { draft.emptyResult = previous; if (parent) parent.preparationCheckpoint = checkpoint; throw error; }
+      this.broadcast(); return draft;
+    }, false);
   }
   private async runPreparation(draft: Draft) {
     if (draft.mergeSources?.length) return this.runContentMergePreparation(draft);
@@ -921,12 +937,13 @@ export class Workbench {
     this.preparationTimers.set(draft.id, setTimeout(() => { if (active()) void this.failPreparation(draft, '整理等待超时，请检查网络或 CLI 后重试。补充说明已保留。'); }, this.preparationTimeoutMs));
     void (async () => {
       if (!active()) return;
+      const { index, conversation } = await prepareReadableInputs(draft.inputDir, active);
+      if (!active()) return;
       if (draft.resultRules) {
-        const index = JSON.parse(await fs.readFile(path.join(draft.inputDir, 'source-index.json'), 'utf8'));
-        const conversation = JSON.parse(await fs.readFile(path.join(draft.inputDir, 'conversation.json'), 'utf8')) as { id: string }[];
-        draft.preparationEvidenceIds = [...conversation.map(item => 'message:' + item.id), ...(index.handoff ? ['handoff'] : []), ...draft.files.map(file => 'file:' + file.id)];
-        await this.store.save(); if (!active()) return;
+        draft.preparationEvidenceIds = [...conversation.map((item: { id: string }) => 'message:' + item.id), ...(index.handoff ? ['handoff'] : []), ...draft.files.map(file => 'file:' + file.id)];
         const existing = this.conclusions(draft.binding!.project.id).slice(0, 100).map(item => ({ id: item.id, title: item.title, content: item.content.slice(0, 2000) }));
+        draft.preparationExistingResults = existing.map(({ id, title }) => ({ id, title }));
+        await this.store.save(); if (!active()) return;
         await this.send(attempt, preparationPrompt(draft, existing)); return;
       }
       const categories = draft.requestedCategories?.length ? draft.requestedCategories : [...contributionCategories];

@@ -58,7 +58,9 @@ for (const deleteRecord of [false, true]) for (const deleteResult of [false, tru
     assert.equal(next.baseDraftId, draft.id);
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(next.inputDir, 'conversation.json'), 'utf8')).map((item: any) => item.id), ['new']);
     await until(() => next.generation === 'ready');
-    assert.equal(restored.preparationCheckpoint?.draftId, next.id, 'successful empty results still advance progress');
+    assert.equal(restored.preparationCheckpoint?.draftId, draft.id, 'empty output must be confirmed before progress advances');
+    await wb.confirmEmptyPreparation(next.id);
+    assert.equal(restored.preparationCheckpoint?.draftId, next.id, 'explicit confirmation advances progress');
     assert.equal(wb.conclusions(offlineProjectId).length, deleteResult ? 0 : 1);
     const full = await wb.prepare(restored.id, [], undefined, 'full');
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(full.inputDir, 'conversation.json'), 'utf8')).map((item: any) => item.id), ['old', 'new']);

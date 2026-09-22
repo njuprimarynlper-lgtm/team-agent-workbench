@@ -5,7 +5,7 @@ import { contributionCategories, contributionCategoryFields, contributionCategor
 import type { SharedFiles } from './shared-files';
 import { assertRemote, withinRemote } from './paths';
 import { githubRepository } from './artifacts';
-import { preparedArtifact, validatePreparedResults } from './preparation-policy';
+import { preparedArtifact, reviewPreparedResults } from './preparation-policy';
 
 // Model output selects an enumerated directory; it cannot invent a filesystem path.
 export function contributionDirectory(binding: RemoteBinding, target: string) {
@@ -85,13 +85,15 @@ export function applyPreparation(draft: Draft, answer: string) {
   catch { throw new Error('AI 返回的整理结果格式不完整，请重试整理。你的补充说明已保留。'); }
   if (draft.resultRules) {
     if (!draft.binding) throw new Error('当前会话没有绑定项目');
-    const artifacts = validatePreparedResults(draft, raw).map((item, index) => {
+    const review = reviewPreparedResults(draft, raw);
+    const artifacts = review.artifacts.map((item, index) => {
       const artifact = preparedArtifact(item, `${draft.id}-${index + 1}`, contributionCategoryDirectory(draft.binding!, item.category));
       artifact.attachments = [...new Set(item.attachmentIds || [])].filter(id => draft.files.some(file => file.id === id)).map(fileId => ({ fileId, selected: false }));
       if (item.repoUrl) { try { artifact.repoUrl = githubRepository(item.repoUrl); } catch { artifact.repoUrl = undefined; } }
       return artifact;
     });
     const first = artifacts[0];
+    draft.emptyResult = review.emptyResult;
     Object.assign(draft, { artifacts, title: first ? artifacts.length === 1 ? first.title : `${artifacts.length} 项候选成果` : '本次没有需要保留的新内容', body: first?.body || '', generatedBody: first?.body || '', repoUrl: first?.repoUrl || '', target: first?.target });
     return;
   }
