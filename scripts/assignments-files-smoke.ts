@@ -46,7 +46,7 @@ async function main() {
     await form.getByLabel('任务负责人', { exact: true }).selectOption('bob'); await form.getByLabel('任务标题', { exact: true }).fill('排查扫描件识别失败');
     await form.getByLabel('任务目标与工作范围', { exact: true }).fill('分析 OCR 低清晰度扫描件，定位失败原因并提出改进。');
     await form.getByLabel('任务验收要求', { exact: true }).fill('提供回归样本和验证报告');
-    await form.getByLabel('关联结论：OCR 回归基线', { exact: true }).check();
+    await form.getByLabel('关联成果：OCR 回归基线', { exact: true }).check();
     await expect(form).toContainText('与任务相关'); await a.page.screenshot({ path: path.join(data, 'assign-task.png') });
     await form.getByRole('button', { name: '确认派发', exact: true }).click(); await expect(form).toHaveCount(0);
     await expect(a.page.locator('.assignment-detail')).toContainText('负责人：bob');

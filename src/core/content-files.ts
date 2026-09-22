@@ -65,7 +65,7 @@ export class ContentFiles {
       const items = await this.read(binding), existing = items.find(i => i.path === target);
       if (existing) {
         if (existing.sha256 === sha256 && existing.author === actor.username) return existing;
-        throw new Error('目标已有内容，请从公共成果中修改，并核对最新版本');
+        throw new Error('目标已有内容，请从团队项目成果库中修改，并核对最新版本');
       }
       const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
       try { await fs.copyFile(source, file, fs.constants.COPYFILE_EXCL); }

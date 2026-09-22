@@ -13,7 +13,7 @@ function relatedTransfers(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskStatus(draft: Draft, transfers: Transfer[]) {
-  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到项目资料' : '已保存到公共区';
+  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到本地成果库' : '已保存到团队成果库';
   const related = relatedTransfers(draft, transfers);
   if (draftIsPreserved(draft)) {
     if (related.some(item => item.status === 'error')) return '上传未完成';
@@ -34,8 +34,8 @@ function statusTone(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskKind(draft: Draft) {
-  if (draft.conclusionMergeProjectId) return '项目资料处理';
-  if (draft.mergeProjectId) return '项目文档合并';
+  if (draft.conclusionMergeProjectId) return '本地成果处理';
+  if (draft.mergeProjectId) return '团队成果合并';
   if (draft.preparationScope === 'incremental') return '增量整理';
   if (draft.preparationScope === 'full') return '全量整理';
   return '会话成果整理';
@@ -43,7 +43,7 @@ function taskKind(draft: Draft) {
 
 export function DraftTaskList({ drafts, sessions, transfers, open }: { drafts: Draft[]; sessions: AgentSession[]; transfers: Transfer[]; open: (draft: Draft) => void }) {
   const ordered = [...drafts].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  return <section className="draft-task-list" aria-label="整理任务列表">
+  return <section className="draft-task-list" aria-label="成果整理任务列表">
     {ordered.map(draft => {
       const source = sessions.find(session => session.id === draft.sessionId), status = taskStatus(draft, transfers), preserved = draftIsPreserved(draft);
       const projectName = draft.binding?.project.name || source?.binding?.project.name || '本机项目';

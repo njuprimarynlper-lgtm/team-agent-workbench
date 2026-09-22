@@ -101,8 +101,8 @@ try {
   await expect(page.getByLabel('成果提醒')).toHaveText('待确认');
   await expect(page.locator('.toast')).toContainText('整理完成');
   assert.equal((await snap()).transfers.length, 0);
-  await page.getByRole('button', { name: '打开整理任务', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '整理任务', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '打开成果整理', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '成果整理', exact: true })).toBeVisible();
   await expect(page.locator(`.draft-task-card[data-draft-id="${preparingId}"]`)).toContainText('待确认');
   await expect(page.locator(`.draft-task-card[data-draft-id="${preparingId}"]`)).toContainText('来源：GPT 模型验证');
   await page.locator(`.draft-task-card[data-draft-id="${preparingId}"] .draft-task-open`).click();
@@ -121,8 +121,8 @@ try {
   if (!packaged) await page.screenshot({ path: path.join(artifacts, 'preparation-compact.png') });
   await page.setViewportSize({ width: 1520, height: 980 });
   // Ready drafts can be canceled without discarding the review or accidentally uploading.
-  await page.getByRole('button', { name: '返回整理任务列表', exact: true }).first().click();
-  await expect(page.getByRole('heading', { name: '整理任务', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '返回成果整理', exact: true }).first().click();
+  await expect(page.getByRole('heading', { name: '成果整理', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '工作会话', exact: true }).click();
   await expect(page.getByLabel('任务输入')).toHaveValue('整理期间继续准备下一项任务');
   assert.equal((await snap()).drafts[0].generation, 'ready');

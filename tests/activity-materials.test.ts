@@ -153,7 +153,7 @@ test('activity history distinguishes the original revision from the actually imp
   const html = renderToStaticMarkup(createElement(ContentActionRecord, { event, action }));
   assert.match(html, /已加入更新后的成果/); assert.match(html, /更新后的综合结论/); assert.match(html, /第 2 版/); assert.match(html, /此动态记录的是第 1 版/);
   const modal = renderToStaticMarkup(createElement(UpdatedContentConfirmation, { original: event, latest: { ...event, title: '更新后的综合结论', revision: 2 }, busy: false, confirm: () => {}, close: () => {}, view: () => {} }));
-  assert.match(modal, /旧版风险标题/); assert.match(modal, /更新后的综合结论/); assert.match(modal, /将第 2 版存为项目笔记/);
+  assert.match(modal, /旧版风险标题/); assert.match(modal, /更新后的综合结论/); assert.match(modal, /将第 2 版存入本地成果库/);
   const repaired = renderToStaticMarkup(createElement(ContentActionRecord, { event, action: { ...action, sourceRevision: 1, correctedFromTitle: '曾被误归入的资料' } }));
-  assert.match(repaired, /已纠正旧版自动归并/); assert.match(repaired, /已恢复为独立笔记/); assert.doesNotMatch(repaired, /已加入更新后的成果/);
+  assert.match(repaired, /已纠正旧版自动归并/); assert.match(repaired, /已恢复为独立成果/); assert.doesNotMatch(repaired, /已加入更新后的成果/);
 });

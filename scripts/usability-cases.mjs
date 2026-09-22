@@ -9,7 +9,7 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   const state = await call('snapshot'), a = state.sessions[0];
   const b = await call('session.create', { provider: 'codex', cwd: data, projectId: state.connection.profile.projects[0].id });
   const select = id => page.locator(`.session-row[data-session-id="${id}"]`).click();
-  const openDraft = async id => { await page.getByRole('button', { name: '打开整理任务', exact: true }).click(); await expect(page.getByRole('heading', { name: '整理任务', exact: true })).toBeVisible(); await page.locator(`.draft-task-card[data-draft-id="${id}"] .draft-task-open`).click(); };
+  const openDraft = async id => { await page.getByRole('button', { name: '打开成果整理', exact: true }).click(); await expect(page.getByRole('heading', { name: '成果整理', exact: true })).toBeVisible(); await page.locator(`.draft-task-card[data-draft-id="${id}"] .draft-task-open`).click(); };
   const input = page.getByLabel('任务输入', { exact: true });
   await select(a.id); await input.fill('A 独立输入');
   const source = path.join(data, 'reference-code.py'); await fs.writeFile(source, 'CODE_MUST_STAY_LOCAL = True');
@@ -77,7 +77,7 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await expect(page.getByRole('button', { name: /^确认上传/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '删除整理任务', exact: true })).toHaveCount(0);
   await expect.poll(async () => (await call('snapshot')).transfers[0]?.status).toBe('done');
-  await page.getByRole('button', { name: '打开整理任务', exact: true }).click();
+  await page.getByRole('button', { name: '打开成果整理', exact: true }).click();
   await expect(page.locator(`.draft-task-card[data-draft-id="${draft.id}"]`)).toContainText('已保留，不可删除');
   const evidence = (await call('snapshot')).drafts[0].files;
   assert.equal(evidence.length, a.sources.length + 1); // Existing project context plus the attachment, retained locally.
@@ -101,7 +101,7 @@ export async function restoredCases(page, expected) {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue(text);
   }
-  await page.getByRole('button', { name: '打开整理任务', exact: true }).click();
+  await page.getByRole('button', { name: '打开成果整理', exact: true }).click();
   await page.locator(`.draft-task-card[data-draft-id="${expected.draft.id}"] .draft-task-open`).click();
   await expect(page.getByLabel('给团队的补充（可选）', { exact: true })).toHaveValue('保存失败后仍保留的说明');
   const snapshot = await page.evaluate(() => window.workbench.call('snapshot'));
