@@ -263,10 +263,15 @@ export class Workbench {
     for (const item of overflow) item.archived = true;
     return { conclusion, action: 'created' };
   }
+  private localCopiesOfRemovedContent(projectId: string, contentId: string, removedPath?: string) {
+    return this.conclusions(projectId, true).filter(item => item.sources.some(source =>
+      source.kind === 'remote' && source.id === contentId ||
+      source.kind === 'session' && (source.publication?.contentId === contentId || !!removedPath && source.publication?.path === removedPath)));
+  }
   deletedContentConclusions(eventId: string) {
     const event = this.store.settings.contentUpdates?.find(item => item.eventId === eventId && item.change === 'deleted');
     if (!event) throw new Error('删除动态不存在，请刷新');
-    return this.store.conclusions.filter(item => !item.deletedAt && item.projectId === event.projectId && item.sources.some(source => source.kind === 'remote' && source.id === event.id));
+    return this.localCopiesOfRemovedContent(event.projectId, event.id, event.removedPath);
   }
   async resolveContentDeletion(eventId: string, selections: { id: string; version: number }[]) {
     const related = this.deletedContentConclusions(eventId), selected = new Set(selections.map(item => item.id));
@@ -300,9 +305,17 @@ export class Workbench {
   }
   private organizeSharedContent(projectId: string, item: SharedContent) {
     const published = this.conclusions(projectId, true).find(value => value.sources.some(source => source.kind === 'session' && source.publication?.path === item.path) && !teamResultDifference(item, [value]));
-    if (published) return { conclusion: published, action: 'duplicate' as const };
+    if (published) { this.linkPublishedContentId(projectId, item); return { conclusion: published, action: 'duplicate' as const }; }
     const localTitle = item.category ? contributionTitle(item.category, this.localContentTitle(projectId, item)) : resultTitle('项目结论', this.localContentTitle(projectId, item));
     return this.organizeConclusion(projectId, localTitle, item.description || item.title, { id: item.id, kind: 'remote', title: localTitle, content: item.description, ...(item.sourceDetails ? { details: item.sourceDetails } : {}), revision: item.revision, sha256: item.sha256, path: item.path, updatedAt: item.updatedAt }, item.category);
+  }
+  private linkPublishedContentId(projectId: string, item: SharedContent) {
+    let changed = false;
+    for (const conclusion of this.conclusions(projectId, true)) for (const source of conclusion.sources) {
+      if (source.kind !== 'session' || !source.publication || source.publication.path !== item.path || source.publication.revision !== item.revision || source.publication.contentId === item.id) continue;
+      source.publication.contentId = item.id; changed = true;
+    }
+    return changed;
   }
   private syncDraftConclusions(draft: Draft, preserveExisting = false) {
     if (!draft.binding || draft.mergeSources?.length || draft.generation !== 'ready') return [];
@@ -377,9 +390,9 @@ export class Workbench {
     for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id && inbox[index].change !== 'deleted') {
       if (inbox[index].readAt || inbox[index].actions?.length) inbox[index].unavailableAt = now; else inbox.splice(index, 1);
     }
-    const hasLocalCopy = this.store.conclusions.some(item => !item.deletedAt && item.projectId === projectId && item.sources.some(source => source.kind === 'remote' && source.id === target.id));
+    const hasLocalCopy = this.localCopiesOfRemovedContent(projectId, target.id, target.path).length > 0;
     const eventId = `${key}:deleted:${target.id}:${target.revision}`;
-    if (!inbox.some(item => item.eventId === eventId)) inbox.unshift({ eventId, projectId, projectName: binding.project.name, id: target.id, title: target.title, author: target.author, updatedBy: binding.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
+    if (!inbox.some(item => item.eventId === eventId)) inbox.unshift({ eventId, projectId, projectName: binding.project.name, id: target.id, removedPath: target.path, title: target.title, author: target.author, updatedBy: binding.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
     await this.store.save(); this.broadcast();
   }
   async deleteSharedContents(projectId: string, raw: ContentDeleteSelection[]): Promise<ContentDeleteResult> {
@@ -436,6 +449,7 @@ export class Workbench {
       try {
         const items = await this.remote.contentList(this.remote.binding(project.id));
         if (!this.remote.connected || !this.remote.profile || this.remote.profile.id !== profile.id || accountIdentity(this.remote.profile) !== accountIdentity(profile)) return this.contentUpdates();
+        for (const item of items) if (this.linkPublishedContentId(project.id, item)) changed = true;
         // Account restoration replaces these containers while the network request is pending.
         // Always mutate the current inbox; a detached array would silently lose this scan.
         const seen = this.store.settings.contentSeen ||= {}, inbox = this.store.settings.contentUpdates ||= [];
@@ -461,7 +475,7 @@ export class Workbench {
             const change = mergedSources.length ? 'merged' as const : contentChanged;
             add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
-          for (const source of removed) add({ eventId: `${key}:deleted:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, sourceSessionTitle: source.sourceSessionTitle, change: 'deleted', occurredAt: detectedAt, detectedAt });
+          for (const source of removed) add({ eventId: `${key}:deleted:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, sourceSessionTitle: source.sourceSessionTitle, change: 'deleted', occurredAt: detectedAt, detectedAt });
         } else {
           const recent = Date.now() - 24 * 60 * 60 * 1000;
           for (const item of items.filter(item => Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
