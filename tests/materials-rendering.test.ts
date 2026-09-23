@@ -21,25 +21,31 @@ test('local project results use consistent navigation and actions without renami
   (globalThis as any).window = { workbench: { call: async () => [] } };
   try {
     const { ConclusionLibrary } = await import('../src/renderer/conclusions');
+    const { ProjectResults } = await import('../src/renderer/project-results');
     const { SessionMaterials } = await import('../src/renderer/session-materials');
     const { ContentUpdatesPanel } = await import('../src/renderer/content-updates');
     const project = { id: 'personal-project', name: '测试项目' } as Project;
     const library = renderToStaticMarkup(createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {} }));
-    assert.match(library, /本地项目成果库 · 测试项目/);
+    assert.match(library, /个人成果 · 测试项目/);
     assert.match(library, /你在本项目中保存的成果，可供会话引用/);
-    assert.match(library, /aria-label="搜索本地项目成果库"/);
+    assert.match(library, /aria-label="搜索个人成果"/);
     assert.doesNotMatch(library, /管理项目资料|我的资料|我的项目笔记|本地项目结论库|<h1>项目资料/);
     for (const category of ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(library.includes(category), 'renaming the library must not rename its content categories');
     assert.match(library, />新建成果<\/button>/);
+    const unified = renderToStaticMarkup(createElement(ProjectResults, { projectName: project.name, scope: 'personal', changeScope: () => {}, children: createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {}, embedded: true }) }));
+    assert.equal(unified.match(/<h1>/g)?.length, 1); assert.match(unified, /项目成果库 · 测试项目/);
+    assert.equal(unified.match(/role="tab"/g)?.length, 2);
+    assert.match(unified, /aria-label="个人"[^>]*aria-selected="true"/);
+    assert.match(unified, /role="tabpanel" id="results-panel-personal" aria-labelledby="results-tab-personal"/);
     const session = renderToStaticMarkup(createElement(SessionMaterials, { session: { binding: { project } } as AgentSession, changed: async () => {} }));
     assert.match(session, />引用项目成果<\/button>/);
     const activity = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ eventId: 'event', projectId: project.id, projectName: project.name, id: 'result', title: '共享成果', revision: 1, change: 'new', occurredAt: '2026-09-22', detectedAt: '2026-09-22' }], aliases: {}, view: () => {}, changed: async () => {} }));
-    assert.match(activity, />查看结果<\/button>/); assert.match(activity, /标记已处理/); assert.doesNotMatch(activity, />存入本地成果库<\/button>|加入项目资料/);
+    assert.match(activity, />查看结果<\/button>/); assert.match(activity, /标记已处理/); assert.doesNotMatch(activity, />存入个人成果库<\/button>|加入项目资料/);
     // This role-neutral entry must not become an administrator-only label.
     const main = await fs.readFile('src/renderer/main.tsx', 'utf8');
-    assert.match(main, /title="本地项目成果库" data-tooltip="本地项目成果库" aria-label="本地项目成果库"/);
+    assert.match(main, /title="项目成果库" data-tooltip="项目成果库" aria-label="项目成果库"/);
     assert.doesNotMatch(main, /管理项目资料|我的资料（当前项目）|我的项目笔记|本地项目结论库|整理项目文档/);
-    assert.match(main, /title="团队项目成果库" data-tooltip="团队项目成果库" aria-label="团队项目成果库"/, 'both roles use the same shared library entry');
+    assert.doesNotMatch(main, /title="(?:团队|个人)成果库"/, 'the rail exposes a single results entry');
     assert.match(main, /title="成果整理" data-tooltip="成果整理" aria-label="打开成果整理"/);
     assert.match(main, /<h1>成果整理<\/h1>/);
   } finally { delete (globalThis as any).window; }
@@ -50,10 +56,10 @@ test('team project results have one name for both roles while administrative con
   const common = { project: { id: 'p', name: '测试项目' } as Project, username: 'member', aliases: {}, aliasSaved: async () => {}, attach: async () => {}, attachSessions: [], notice: () => {}, mergeSessions: [], mergeStarted: () => {} };
   for (const admin of [false, true]) {
     const html = renderToStaticMarkup(createElement(SharedContentLibrary, { ...common, admin }));
-    assert.match(html, /<h1>团队项目成果库 · 测试项目<\/h1>/);
+    assert.match(html, /<h1>团队成果 · 测试项目<\/h1>/);
     assert.match(html, /aria-label="搜索团队成果"/);
     assert.match(html, /aria-label="团队成果类型"/);
-    assert.doesNotMatch(html, /整理项目文档|公共成果|本地项目成果库/);
+    assert.doesNotMatch(html, /整理项目文档|公共成果|个人成果库/);
     assert.equal(html.includes('多选语义合并'), admin);
     assert.equal(html.includes('aria-label="团队成果操作状态"'), admin);
     const result = renderToStaticMarkup(createElement(SharedContentLibrary, { ...common, admin, resultId: 'result', returnToUpdates: () => {} }));
@@ -69,7 +75,7 @@ test('result preparation separates stored results from deletable task records', 
   const html = renderToStaticMarkup(createElement(DraftTaskList, { drafts, sessions: [], transfers: [], open: () => {}, remove: () => {} }));
   assert.match(html, /aria-label="成果整理任务列表"/);
   assert.match(html, /本地成果处理/); assert.match(html, /团队成果合并/);
-  assert.match(html, /已保存到本地成果库/); assert.match(html, /已保存到团队成果库/);
+  assert.match(html, /已保存到个人成果库/); assert.match(html, /已保存到团队成果库/);
   assert.equal(html.match(/成果已单独保存/g)?.length, 2);
   assert.equal(html.match(/aria-label="删除整理记录：/g)?.length, 2);
   assert.doesNotMatch(html, /项目资料处理|项目文档合并|不可删除/);

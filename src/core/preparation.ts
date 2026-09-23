@@ -6,6 +6,7 @@ import type { SharedFiles } from './shared-files';
 import { assertRemote, withinRemote } from './paths';
 import { githubRepository } from './artifacts';
 import { preparedArtifact, reviewPreparedResults } from './preparation-policy';
+import { assertReadableResultText, humanReadableWritingGuide } from '../shared/result-reading';
 
 // Model output selects an enumerated directory; it cannot invent a filesystem path.
 export function contributionDirectory(binding: RemoteBinding, target: string) {
@@ -77,7 +78,7 @@ export function preparationFieldContract(categories: readonly ContributionCatego
   return Object.fromEntries(categories.map(category => [category, fields[category]]));
 }
 
-export const preparationWritingGuide = '精简交接：每项最多三段，每段一到两句话，正文通常控制在 150—250 字，不要重复标题。先写最重要的信息，再写必要依据与限制，只在有明确依据时补充下一步。不按类别增加字段或固定章节，不罗列日志、返回码、文件清单、增删行数。静态通过不等于运行、精度或性能通过，未验证与不确定性必须保留，不能为缩短文字而省略关键限制。';
+export const preparationWritingGuide = humanReadableWritingGuide + '\n精简交接：每项最多三段，正文通常控制在 150—250 字，不要重复标题。不按类别增加字段或固定章节，不罗列日志、返回码、文件清单、增删行数。静态通过不等于运行、精度或性能通过，未验证与不确定性必须保留。';
 
 export function applyPreparation(draft: Draft, answer: string) {
   let raw: unknown;
@@ -107,6 +108,7 @@ export function applyPreparation(draft: Draft, answer: string) {
     const artifacts = parsed.data.artifacts.map((item, index) => {
       const allowed = new Set(contributionCategoryFields[item.category]);
       const fields = Object.fromEntries(Object.entries(item.fields).filter(([key, value]) => allowed.has(key) && value.trim()));
+      assertReadableResultText(item.title, '标题'); Object.values(fields).forEach(value => assertReadableResultText(value));
       const body = artifactMarkdown(item.category, fields);
       if (!body) throw new Error(`“${item.title}”没有可提交的${contributionCategoryInfo[item.category].label}字段。`);
       let repoUrl = '';
@@ -122,6 +124,7 @@ export function applyPreparation(draft: Draft, answer: string) {
   // Existing unfinished jobs may still return the version-2 shape. Preserve them as one finding.
   let result: z.infer<typeof legacyResultSchema>;
   try { result = legacyResultSchema.parse(raw); } catch { throw new Error('AI 返回的整理结果格式不完整，请重试整理。你的补充说明已保留。'); }
+  assertReadableResultText(result.title, '标题'); assertReadableResultText(result.body);
   let repoUrl = ''; if (result.repoUrl) { try { repoUrl = githubRepository(result.repoUrl); } catch {} }
   const body = result.body.replace(/^#\s+(.+)\r?\n+/u, (full, heading) => heading.trim() === result.title.trim() ? '' : full);
   const target = draft.binding ? contributionCategoryDirectory(draft.binding, 'finding') : undefined;

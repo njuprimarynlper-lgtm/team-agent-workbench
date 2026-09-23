@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { contributionCategoryFields, contributionCategorySchema, contributionTitle } from '../shared/content';
 import type { Draft, DraftArtifact } from '../shared/types';
 import type { EmptyPreparationResult } from '../shared/preparation-review';
+import { assertReadableResultText } from '../shared/result-reading';
 
 export const preparedResultSchema = z.object({
   category: contributionCategorySchema, topic: z.string().trim().min(1).max(100),
@@ -42,6 +43,7 @@ export function reviewPreparedResults(draft: Draft, raw: unknown) {
     if (item.origin === 'local_environment' || containsLocalEnvironmentError([item.topic, item.title, item.body, item.sourceDetails].filter(Boolean).join('\n'))) continue;
     if (!categories.has(item.category)) throw new Error('整理结果使用了当前组合未启用的类别，请重试整理');
     if (item.evidenceIds.some(id => !evidence.has(id))) throw new Error('整理结果引用了本次冻结材料中不存在的来源，请重试整理');
+    assertReadableResultText(item.title, '标题'); assertReadableResultText(item.body);
     if (item.body.split(/\n\s*\n/).length > 3) throw new Error('成果正文超过三段，请重新精简整理');
     const topic = normalized(item.topic), title = normalized(item.title), body = normalized(item.body);
     if (!topic || topics.has(topic) || titles.has(title) || bodies.has(body)) throw new Error('同一主题被重复整理，请合为一条后重试');
@@ -52,6 +54,7 @@ export function reviewPreparedResults(draft: Draft, raw: unknown) {
     if (parsed.data.artifacts.length) emptyResult = { code: 'filtered', explanation: `模型返回了 ${parsed.data.artifacts.length} 条候选，但都被本机环境故障排除规则过滤。请核对整理范围和分类；这不代表原会话没有项目成果。` };
     else if (parsed.data.emptyReason) {
       const reason = parsed.data.emptyReason;
+      assertReadableResultText(reason.explanation, '空结果说明');
       const existing = draft.preparationExistingResults || [];
       if (reason.existingResultIds.some(id => !existing.some(item => item.id === id)) || reason.code === 'already_saved' && !reason.existingResultIds.length) throw new Error('空结果未关联有效的已有成果，无法核对去重依据，请重试整理');
       emptyResult = { code: reason.code, explanation: reason.explanation, existingResults: existing.filter(item => reason.existingResultIds.includes(item.id)) };

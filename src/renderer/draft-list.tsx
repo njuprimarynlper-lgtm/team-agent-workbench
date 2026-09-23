@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ChevronRight, FileArchive, Trash2 } from 'lucide-react';
 import type { AgentSession, Draft, Transfer } from '../shared/types';
 import { contributionStatus } from '../shared/contribution-status';
+import { draftDeleteBatchLimit, type DraftDeleteResult } from '../shared/draft-delete';
+import { DraftBulkDeleteDialog } from './draft-delete';
 
 export function draftIsPreserved(draft: Draft) {
   return !!draft.mergeCompletedAt || !!draft.submitted || !!draft.artifacts?.some(item => item.submitted);
@@ -13,7 +15,7 @@ function relatedTransfers(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskStatus(draft: Draft, transfers: Transfer[]) {
-  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到本地成果库' : '已保存到团队成果库';
+  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到个人成果库' : '已保存到团队成果库';
   const related = relatedTransfers(draft, transfers);
   if (draftIsPreserved(draft)) {
     if (related.some(item => item.status === 'error')) return '上传未完成';
@@ -41,14 +43,20 @@ function taskKind(draft: Draft) {
   return '会话成果整理';
 }
 
-export function DraftTaskList({ drafts, sessions, transfers, open, remove }: { drafts: Draft[]; sessions: AgentSession[]; transfers: Transfer[]; open: (draft: Draft) => void; remove?: (draft: Draft) => void }) {
+export function DraftTaskList({ drafts, sessions, transfers, open, remove, removeMany }: { drafts: Draft[]; sessions: AgentSession[]; transfers: Transfer[]; open: (draft: Draft) => void; remove?: (draft: Draft) => void; removeMany?: (ids: string[]) => Promise<DraftDeleteResult> }) {
+  const [selecting, setSelecting] = useState(false), [selectedIds, setSelectedIds] = useState<string[]>([]), [pending, setPending] = useState<Draft[]>();
   const ordered = [...drafts].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  return <section className="draft-task-list" aria-label="成果整理任务列表">
+  const selected = ordered.filter(draft => selectedIds.includes(draft.id)), firstBatch = ordered.slice(0, draftDeleteBatchLimit);
+  return <>{removeMany && <div className="draft-list-toolbar">
+    <button className="secondary" onClick={() => { setSelecting(!selecting); setSelectedIds([]); }}>{selecting ? '取消多选' : '批量删除记录'}</button>
+    {selecting && <><label className="check-row"><input type="checkbox" aria-label="全选整理记录" checked={!!firstBatch.length && firstBatch.every(draft => selectedIds.includes(draft.id))} onChange={event => setSelectedIds(event.target.checked ? firstBatch.map(draft => draft.id) : [])}/><span>{ordered.length > draftDeleteBatchLimit ? `选择前 ${draftDeleteBatchLimit} 条` : '全选当前列表'}</span></label><span className="muted small">已选 {selected.length} 条</span><button className="primary danger" disabled={!selected.length} onClick={() => setPending(structuredClone(selected))}>删除选中的 {selected.length} 条记录</button></>}
+  </div>}<section className="draft-task-list" aria-label="成果整理任务列表">
     {ordered.map(draft => {
       const source = sessions.find(session => session.id === draft.sessionId), status = taskStatus(draft, transfers), preserved = draftIsPreserved(draft);
       const projectName = draft.binding?.project.name || source?.binding?.project.name || '本机项目';
       const resultCount = draft.artifacts?.length || draft.mergeSources?.length || (draft.body ? 1 : 0);
-      return <article className="draft-task-card" data-draft-id={draft.id} key={draft.id}>
+      return <article className={'draft-task-card' + (selecting ? ' selecting' : '') + (selecting && selectedIds.includes(draft.id) ? ' selected' : '')} data-draft-id={draft.id} key={draft.id}>
+        {selecting && <label className="draft-task-selection"><input type="checkbox" aria-label={`选择整理记录：${draft.titleAlias || draft.title}`} checked={selectedIds.includes(draft.id)} disabled={!selectedIds.includes(draft.id) && selected.length >= draftDeleteBatchLimit} onChange={event => setSelectedIds(ids => event.target.checked ? [...new Set([...ids, draft.id])] : ids.filter(id => id !== draft.id))}/></label>}
         <button className="draft-task-open" aria-label={`查看整理任务：${draft.titleAlias || draft.title}`} onClick={() => open(draft)}>
           <span className="draft-task-icon"><FileArchive size={21}/></span>
           <span className="draft-task-body">
@@ -59,8 +67,12 @@ export function DraftTaskList({ drafts, sessions, transfers, open, remove }: { d
           </span>
           <ChevronRight size={18}/>
         </button>
-        {remove && <button className="text-button danger draft-task-delete" aria-label={`删除整理记录：${draft.titleAlias || draft.title}`} onClick={() => remove(draft)}><Trash2 size={13}/>删除记录</button>}
+        {remove && !selecting && <button className="text-button danger draft-task-delete" aria-label={`删除整理记录：${draft.titleAlias || draft.title}`} onClick={() => remove(draft)}><Trash2 size={13}/>删除记录</button>}
       </article>;
     })}
-  </section>;
+  </section>{pending && removeMany && <DraftBulkDeleteDialog drafts={pending} close={() => setPending(undefined)} remove={async ids => {
+    const result = await removeMany(ids); setSelectedIds(result.failures.map(item => item.id));
+    if (!result.failures.length) setSelecting(false);
+    return result;
+  }}/>}</>;
 }

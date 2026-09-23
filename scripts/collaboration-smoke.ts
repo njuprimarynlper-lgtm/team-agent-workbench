@@ -85,10 +85,10 @@ try {
   await expect(ap.locator('.content-update-toast')).toContainText('bob');
   await ap.getByTitle('关闭本轮动态提示', { exact: true }).click(); await expect(ap.locator('.content-update-toast')).toHaveCount(0);
   await ap.getByTitle('团队动态', { exact: true }).click(); await expect(ap.getByRole('heading', { name: '团队动态', exact: true })).toBeVisible(); await expect(ap.locator('.update-entry')).toHaveCount(2); await expect(ap.locator('.update-feed')).toContainText('上传成果');
-  await bp.getByTitle('团队项目成果库', { exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).locator('.content-card-summary').click();
+  await bp.getByTitle('项目成果库', { exact: true }).click(); await bp.getByRole('tab', { name: '团队', exact: true }).click(); await bp.locator('.content-card').filter({ hasText: '第一项结论' }).locator('.content-card-summary').click();
   await bp.getByRole('button', { name: '修改自己的提交', exact: true }).click(); await bp.getByLabel('团队成果内容').fill('Bob 补充的验证依据'); await bp.getByRole('button', { name: '保存修改', exact: true }).click();
   await expect(bp.locator('.content-detail')).toContainText('Bob 补充的验证依据');
-  await ap.locator('.sidebar').getByRole('button', { name: '团队项目成果库', exact: true }).click(); await ap.getByRole('button', { name: '多选语义合并', exact: true }).click();
+  await ap.locator('.sidebar').getByRole('button', { name: '项目成果库', exact: true }).click(); await ap.getByRole('tab', { name: '团队', exact: true }).click(); await ap.getByRole('button', { name: '多选语义合并', exact: true }).click();
   await expect(ap.getByLabel('团队成果操作状态')).toHaveValue('submitted');
   await ap.getByLabel('选择合并：第一项结论').check();
   await ap.getByLabel('团队成果操作状态').selectOption('curated'); await expect(ap.locator('.content-card')).toHaveCount(0);
@@ -106,7 +106,7 @@ try {
   await ap.getByRole('button', { name: '打开成果整理', exact: true }).click();
   const savedMerge = ap.locator('.draft-task-card').filter({ hasText: 'Alice 统一整理的结论' });
   await expect(savedMerge).toContainText('已保存到公共区'); await expect(savedMerge).toContainText('已保留，不可删除');
-  await ap.getByTitle('团队项目成果库', { exact: true }).click();
+  await ap.getByTitle('项目成果库', { exact: true }).click(); await ap.getByRole('tab', { name: '团队', exact: true }).click();
 
   await bp.getByRole('button', { name: '刷新', exact: true }).click(); await bp.getByLabel('搜索团队成果').fill('统一整理');
   await expect(bp.locator('.content-card')).toHaveCount(1); await bp.locator('.content-card-summary').click();
@@ -118,7 +118,7 @@ try {
   const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v3'));
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
-  await bp.getByTitle('本地项目成果库', { exact: true }).click(); await expect(bp.getByRole('heading', { name: `本地项目成果库 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
+  await bp.getByTitle('项目成果库', { exact: true }).click(); await bp.getByRole('tab', { name: '个人', exact: true }).click(); await expect(bp.getByRole('heading', { name: `项目成果库 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
   await bp.getByRole('button', { name: '新建成果', exact: true }).click(); await bp.getByLabel('项目成果标题').fill('手工发布检查'); await bp.getByLabel('项目成果内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存成果', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
   const extraSession = await call(bp, 'session.create', { provider: 'codex', cwd: data, projectId: project.id });
   await call(bp, 'session.rename', { id: extraSession.id, title: '另一个验证会话' });
@@ -141,7 +141,7 @@ try {
   await ap.getByRole('button', { name: '项目资料 · 待完善', exact: true }).click();
   await ap.getByLabel('项目背景', { exact: true }).fill('新项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('新目标'); await ap.getByLabel('验收标准', { exact: true }).fill('新指标'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
   await expect(ap.getByRole('button', { name: '项目资料 · v1', exact: true })).toBeVisible();
-  await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('团队项目成果库', { exact: true }).click();
+  await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('项目成果库', { exact: true }).click(); await ap.getByRole('tab', { name: '团队', exact: true }).click();
   await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.getByLabel('团队成果操作状态').selectOption('curated'); await ap.locator('.content-card-summary').click();
   await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });
   await expect.poll(async () => (await call(bp, 'snapshot')).sessions.every((session: any) => session.status === 'idle')).toBe(true);
@@ -154,7 +154,7 @@ try {
   assert.deepEqual(afterRestart.settings.contentUpdates, beforeRestart.settings.contentUpdates);
   assert.deepEqual(await call(reopened.page, 'conclusion.list', { projectId: project.id, includeArchived: true }), conclusionsBefore);
   await expect(reopened.page.locator(`.session-row[data-session-id="${extraSession.id}"]`)).toBeVisible();
-  await reopened.page.getByTitle('本地项目成果库', { exact: true }).click();
+  await reopened.page.getByTitle('项目成果库', { exact: true }).click(); await reopened.page.getByRole('tab', { name: '个人', exact: true }).click();
   await reopened.page.locator('.content-card').filter({ hasText: '手工发布检查' }).locator('.content-card-summary').click();
   await reopened.page.getByRole('button', { name: '加入会话', exact: true }).click();
   await expect(reopened.page.getByLabel('使用成果的会话：另一个验证会话')).toBeChecked(); await expect(reopened.page.getByLabel('使用成果的会话：另一个验证会话')).toBeDisabled();

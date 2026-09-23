@@ -77,7 +77,7 @@ test('semantic content merge preserves consensus, conflicts, evidence and source
   }));
   assert.equal(draft.title, '【综合整理】 项目统一结论');
   assert.match(draft.body, /综合结论/); assert.match(draft.body, /差异与冲突/); assert.match(draft.body, /仍需组管理员确认/);
-  assert.match(draft.body, /风险复核（bob · v1）/); assert.match(draft.body, /来源记录/);
+  assert.match(draft.body, /风险复核（bob · v1）/); assert.match(draft.resultSourceDetails!, /来源记录/); assert.doesNotMatch(draft.body, /11111111-1111|22222222-2222/);
   assert.throws(() => applyContentMerge(draft, JSON.stringify({ title: '错误引用', overview: '无效', consensus: [], conflicts: [], evidence: [{ claim: '伪造', sourceIds: ['33333333-3333-4333-8333-333333333333'] }], unresolved: [] })), /未选择的来源/);
 });
 

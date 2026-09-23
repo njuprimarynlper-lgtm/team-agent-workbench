@@ -12,6 +12,7 @@ import { preparationSnapshot, prepareReadableInputs } from '../src/core/preparat
 import { applyPreparation } from '../src/core/preparation';
 import { preparationCheckpoint, preparationDelta } from '../src/shared/preparation-progress';
 import { contributionStatus } from '../src/shared/contribution-status';
+import { needsPreparationConfirmation } from '../src/shared/preparation-review';
 import { resultPresets } from '../src/shared/result-rules';
 import { PreparationOptionsModal } from '../src/renderer/preparation-options';
 import { EmptyPreparationReview } from '../src/renderer/preparation-empty';
@@ -77,17 +78,35 @@ test('empty confirmation is durable, idempotent, rollback-safe and never creates
     await wb.store.init(); grantTestWorkspace(wb, root);
     const session = await wb.createSession('codex', root, offlineProjectId); session.messages.push(message);
     const draft = { ...ready(), sessionId: session.id, binding: session.binding }; applyPreparation(draft, reviewed()); wb.store.drafts.push(draft);
+    assert.equal(wb.store.drafts.filter(needsPreparationConfirmation).length, 1);
     assert.equal(preparationCheckpoint(session, [draft]), undefined);
     const save = wb.store.save.bind(wb.store); wb.store.save = async () => { throw new Error('disk failure'); };
     await assert.rejects(wb.confirmEmptyPreparation(draft.id), /disk failure/); assert(!draft.emptyResult?.confirmedAt); assert.equal(Boolean(session.preparationCheckpoint), false);
+    assert.equal(wb.store.drafts.filter(needsPreparationConfirmation).length, 1, 'failed confirmation keeps its reminder');
     wb.store.save = save; await wb.confirmEmptyPreparation(draft.id);
     const confirmedAt = draft.emptyResult!.confirmedAt; await wb.confirmEmptyPreparation(draft.id); assert.equal(draft.emptyResult!.confirmedAt, confirmedAt);
     assert.equal(session.preparationCheckpoint?.draftId, draft.id); assert.equal(preparationDelta(session, session.preparationCheckpoint?.snapshot).count, 0);
     assert.equal(wb.store.conclusions.length, 0); assert.equal(wb.store.transfers.length, 0); assert.equal(contributionStatus(draft), '已确认无需保留');
+    assert.equal(wb.store.drafts.filter(needsPreparationConfirmation).length, 0, 'retaining the confirmed empty record must not keep a pending badge');
     const reopened = new Store(root); await reopened.init(); assert.equal(reopened.drafts[0].emptyResult?.confirmedAt, confirmedAt);
+    assert.equal(reopened.drafts.filter(needsPreparationConfirmation).length, 0, 'the reminder stays cleared after restarting');
     draft.generation = 'error'; await assert.rejects(wb.confirmEmptyPreparation(draft.id), /只有已完成/); draft.generation = 'ready'; await wb.confirmEmptyPreparation(draft.id);
     await wb.deleteDraft(draft.id); assert.equal(session.preparationCheckpoint?.draftId, draft.id);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
+test('preparation reminders distinguish reviewable results from completed, stopped and running records', () => {
+  const result = { ...ready(), body: '待核对的成果' };
+  const pending = [ready(), result, { ...result, conclusionMergeProjectId: 'p' }, { ...result, mergeProjectId: 'p' }];
+  const completed: Draft[] = [
+    { ...ready(), emptyResult: { code: 'already_saved', explanation: '已有成果覆盖', confirmedAt: '2026-09-23T02:01:35Z' } },
+    { ...result, submitted: 'upload' },
+    { ...result, conclusionMergeProjectId: 'p', mergeCompletedAt: '2026-09-23' },
+    { ...result, mergeProjectId: 'p', mergeCompletedAt: '2026-09-23' },
+    ...(['running', 'error', 'canceled'] as const).map(generation => ({ ...result, generation })),
+  ];
+  assert.deepEqual([...pending, ...completed].filter(needsPreparationConfirmation), pending);
+  assert.equal(completed.filter(needsPreparationConfirmation).length, 0);
 });
 
 test('old automatically advanced empty checkpoints fall back to the last retained nonempty result', () => {

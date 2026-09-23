@@ -196,9 +196,9 @@ test('activity history distinguishes the original revision from the actually imp
   const html = renderToStaticMarkup(createElement(ContentActionRecord, { event, action }));
   assert.match(html, /已加入更新后的成果/); assert.match(html, /更新后的综合结论/); assert.match(html, /第 2 版/); assert.match(html, /此动态记录的是第 1 版/);
   const detail = renderToStaticMarkup(createElement(ActivityResultActions, { event, item: { ...item, title: '更新后的综合结论', revision: 2 }, changed: async () => {}, notice: () => {} }));
-  assert.match(detail, /动态记录第 1 版，当前展示第 2 版/); assert.match(detail, /存入本地成果库<\/button>/); assert.match(detail, /标记已处理/);
+  assert.match(detail, /动态记录第 1 版，当前展示第 2 版/); assert.match(detail, /存入个人成果库<\/button>/); assert.match(detail, /标记已处理/);
   const reopened = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ ...event, actions: [action] }], aliases: {}, view: () => {}, changed: async () => {} }));
-  assert.match(reopened, /class="badge running">待处理/); assert.match(reopened, /查看结果/); assert.doesNotMatch(reopened, /<button[^>]*>存入本地成果库/);
+  assert.match(reopened, /class="badge running">待处理/); assert.match(reopened, /查看结果/); assert.doesNotMatch(reopened, /<button[^>]*>存入个人成果库/);
   const processed = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ ...event, actions: [action], readAt: now }], aliases: {}, view: () => {}, changed: async () => {}, filters: { scope: 'processed', filter: 'all' } }));
   assert.match(processed, /class="badge done">已处理/); assert.match(processed, /设为待处理/); assert.match(processed, /<summary>处理记录/);
   const repaired = renderToStaticMarkup(createElement(ContentActionRecord, { event, action: { ...action, sourceRevision: 1, correctedFromTitle: '曾被误归入的资料' } }));

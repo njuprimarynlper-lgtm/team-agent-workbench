@@ -98,7 +98,7 @@ try {
   await send(legacy.id, '旧会话继续', 2); assert(!(await get(legacy.id)).messages.filter(m => m.role === 'user').at(-1).text.includes(f.sha256));
   await page.screenshot({ path: path.join(artifacts, 'session-context-clean.png') });
   const processSource = await call('conclusion.create', { projectId: profile.projects[0].id, title: '单条启动约束', content: '启动时隐藏终端；验收范围未知。' });
-  await page.getByTitle('本地项目成果库', { exact: true }).click();
+  await page.getByTitle('项目成果库', { exact: true }).click(); await page.getByRole('tab', { name: '个人', exact: true }).click();
   await expect(page.getByRole('button', { name: /处理选中的/ })).toHaveCount(0);
   await page.getByLabel('选择成果：单条启动约束', { exact: true }).check();
   await expect(page.getByRole('button', { name: '处理选中的 1 条成果', exact: true })).toBeEnabled();
@@ -124,6 +124,7 @@ try {
   assert(processingPrompt.includes(direction)); assert(!processingPrompt.includes('这不是拼接或摘要任务'));
   assert((await call('conclusion.list', { projectId: profile.projects[0].id })).some(item => item.id === processSource.id));
   await page.getByLabel('结果标题', { exact: true }).fill('新人检查清单');
+  await page.getByRole('button', { name: '编辑内容', exact: true }).click();
   await page.getByLabel('预处理结果内容', { exact: true }).fill('人工核对后的检查步骤。');
   await page.screenshot({ path: path.join(data, 'conclusion-processing-preview.png') });
   await page.getByRole('button', { name: '保存新成果并将 1 条原成果移入历史', exact: true }).click();
