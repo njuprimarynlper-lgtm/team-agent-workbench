@@ -2,6 +2,8 @@
 
 用户版可以在新建会话时选择 Claude Code。工作台调用本机安装的 `claude` CLI，沿用它自己的登录与配置；团队 SSH 账号、项目权限和模型账号仍相互独立。管理员版不需要保存任何 Claude 凭据。
 
+**正式分发前核对授权。** Anthropic 的 [Agent SDK 说明](https://code.claude.com/docs/en/agent-sdk/overview) 指出，未经其事先批准，第三方产品不能向用户提供 claude.ai 登录或套餐额度。本接入的 `claude -p` 属于程序化调用路径；团队规模部署前应确认适用条款或改用 Anthropic 支持的 API Key 认证方式。
+
 ## 准备与登录
 
 1. 按 [Claude Code 官方安装说明](https://code.claude.com/docs/en/quickstart) 在成员电脑安装 CLI，确认 `claude --version` 可运行。若自动检测不到，在“设置 → 本机与 CLI”选择 `claude.exe` 或 `claude.cmd`。
