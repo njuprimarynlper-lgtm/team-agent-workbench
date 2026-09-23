@@ -21,14 +21,15 @@ try {
     await page.locator(`.session-row[data-session-id="${session.id}"]`).click();
     await call('provider.auth', { provider, cwd: data });
     await page.getByRole('button', { name: '整理成果', exact: true }).click();
-    await page.getByRole('button', { name: '整理所选类型（2）', exact: true }).click();
+    await page.getByRole('button', { name: '开始全量整理', exact: true }).click();
     await expect(page.getByLabel('整理状态')).toContainText('已整理好');
     const initial = await call('snapshot'), draft = initial.drafts.find(d => d.sessionId === session.id);
     const helper = initial.sessions.find(s => s.id === draft.prepareSessionId);
     assert.equal(helper.permissionMode, 'full'); assert.deepEqual(helper.approvals, []);
     await expect(page.locator('.approval')).toHaveCount(0); await expect(page.getByLabel('待授权提醒')).toHaveCount(0);
     await page.getByLabel('给团队的补充（可选）').fill('保留的补充');
-    await page.getByRole('button', { name: '重新整理', exact: true }).click();
+    // A retry keeps this draft and its supplement; "再次整理" now creates a separate task.
+    await call('draft.retry', { id: draft.id });
     await expect.poll(async () => (await call('snapshot')).drafts.find(d => d.id === draft.id)?.prepareSessionId).not.toBe(helper.id);
     await expect(page.getByLabel('整理状态')).toContainText('已整理好');
     const after = await call('snapshot'), retried = after.sessions.find(s => s.id === after.drafts.find(d => d.id === draft.id).prepareSessionId);
@@ -36,7 +37,7 @@ try {
     assert.equal(after.sessions.find(s => s.id === session.id).permissionMode, 'review');
     assert.equal(after.transfers.length, 0, 'preparation never uploads automatically');
     await expect(page.getByLabel('给团队的补充（可选）')).toHaveValue('保留的补充');
-    await expect(page.getByRole('button', { name: /^确认上传/ })).toBeEnabled();
+    await expect(page.getByRole('button', { name: /^(提交 \d+ 项成果|确认上传)/ })).toBeEnabled();
     await fs.mkdir(path.join(root, 'artifacts'), { recursive: true });
     await page.screenshot({ path: path.join(root, 'artifacts', `preparation-full-access-${provider}.png`) });
     await page.locator('.draft-back').click();

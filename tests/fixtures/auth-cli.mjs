@@ -95,6 +95,7 @@ else if (command === 'login') {
       log('turn/start');
       if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
       send({ id: m.id, result: { turn: { id: turnId } } });
+      if (current.userQuestion) { send({ id: 'user-question', method: 'item/tool/requestUserInput', params: { threadId: 'fake-thread', turnId, questions: [{ id: 'direction', question: '下一步做什么？', options: [{ label: '继续验证' }, { label: '先整理' }] }] } }); return; }
       if (current.refreshAuth) { send({ id: 'auth-refresh', method: 'account/chatgptAuthTokens/refresh', params: { reason: 'unauthorized', previousAccountId: 'fixture-account' } }); return; }
       if (current.permissionDenied) { send({ method: 'item/completed', params: { threadId: 'fake-thread', item: { id: 'denied-command', type: 'commandExecution', command: 'test command', exitCode: 1, status: 'failed', aggregatedOutput: current.permissionDenied } } }); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); return; }
       if (current.toolApproval || current.policyApproval && approvalPolicy !== 'never') { send({ id: 'tool-approval', method: 'item/commandExecution/requestApproval', params: { threadId: 'fake-thread', turnId, command: 'test command', cwd: process.cwd(), reason: 'Needs approval outside sandbox', availableDecisions: current.denyOnly ? ['decline'] : ['accept', 'decline'] } }); return; }
@@ -124,6 +125,7 @@ else if (command === 'login') {
       if (current.steerDelay) setTimeout(reply, current.steerDelay); else reply();
     } else if (m.method === 'session/prompt') {
       if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }
+      if (current.userQuestion) { globalThis.questionPromptId = m.id; send({ id: 'user-question', method: 'cursor/ask_question', params: { sessionId: 'fake-session', questions: [{ id: 'direction', prompt: '先做什么？', options: [{ id: 'verify', label: '验证' }, { id: 'write', label: '写说明' }] }, { id: 'checks', prompt: '检查哪些？', allowMultiple: true, options: [{ id: 'unit', label: '单元测试' }, { id: 'ui', label: '界面测试' }] }] } }); return; }
       if (current.toolApproval || current.policyApproval && !process.argv.includes('--force')) { globalThis.toolPromptId = m.id; send({ id: 'tool-approval', method: 'session/request_permission', params: { sessionId: 'fake-session', toolCall: { title: 'Cursor 请求执行命令', rawInput: { command: 'test command' } }, options: current.noOnce ? [{ optionId: 'always', kind: 'allow_always' }] : [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } }); return; }
       if (current.turn === 'hang') return;
       if (current.turn === 'crash') { process.exit(9); return; }
@@ -134,6 +136,7 @@ else if (command === 'login') {
         }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
       } else send({ id: m.id, error: { code: -32000, message: current.turn === 'network' ? 'Network timeout: connection reset' : 'Unauthenticated: Please log in again' } });
     }
+    else if (m.id === 'user-question' && m.result) { log({ questionResult: m.result }); if (globalThis.questionPromptId) send({ id: globalThis.questionPromptId, result: { stopReason: 'end_turn' } }); else send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId, status: 'completed' } } }); }
     else if (m.id === 'auth-refresh') { log(m.result?.accessToken ? 'auth-refresh-ok' : 'auth-refresh-rejected'); send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId, ...(m.error ? { error: { message: m.error.message } } : {}) } } }); }
     else if (m.id === 'patch-approval' && m.result) send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId, status: 'completed' } } });
     else if (m.id === 'tool-approval' && m.result) { if (globalThis.toolPromptId) send({ id: globalThis.toolPromptId, result: { stopReason: 'end_turn' } }); else send({ method: 'turn/completed', params: { threadId: 'fake-thread', turn: { id: turnId } } }); }

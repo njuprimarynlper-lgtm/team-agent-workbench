@@ -6,7 +6,7 @@ import { validateCodexStorage, type CodexStorage } from './codex-storage';
 import { CodexAuthBridge } from './codex-auth-bridge';
 import { permissionLabels } from '../shared/permission-presentation';
 import { codexCapabilities, cursorCommandCapabilities, cursorPluginCapabilities, emptyCapabilityCatalog } from './provider-capabilities';
-export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: () => void; }
+export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; }
 const now = () => new Date().toISOString();
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
 export class AgentRuntime {
@@ -232,24 +232,42 @@ export class AgentRuntime {
       approval.title = 'Codex 请求额外权限'; approval.options = [{ id: 'accept', label: '允许本轮', kind: 'allow' }, { id: 'decline', label: '拒绝', kind: 'deny' }];
     } else if (method === 'item/tool/requestUserInput' || method === 'cursor/ask_question') {
       approval.title = p.title || 'Agent 需要补充信息';
-      approval.questions = (p.questions || []).map((q: any) => ({ id: q.id, text: q.question || q.prompt, options: (q.options || []).map((o: any) => o.label) }));
-      approval.options = [{ id: 'answer', label: '提交回答', kind: 'answer' }, { id: 'skip', label: '跳过', kind: 'deny' }];
+      approval.questions = (p.questions || []).map((q: any) => ({ id: q.id, text: q.question || q.prompt, options: (q.options || []).map((o: any) => ({ id: o.id || o.label, label: o.label })), allowMultiple: method === 'cursor/ask_question' && !!q.allowMultiple }));
+      approval.options = [{ id: 'answer', label: '提交回答', kind: 'answer' }, { id: 'skip', label: method === 'cursor/ask_question' ? '跳过' : '不提供信息，继续', kind: 'deny' }];
     } else if (method === 'cursor/create_plan') {
       approval.title = p.name || 'Cursor 方案确认'; approval.details = p.plan || pretty(p);
       approval.options = [{ id: 'accept', label: '采用方案', kind: 'allow' }, { id: 'decline', label: '不采用', kind: 'deny' }];
     } else if (method === 'mcpServer/elicitation/request') {
       this.rpc.respond(m.id!, { action: 'decline', content: null }); this.message(randomUUID(), 'system', '已拒绝当前界面尚不支持的 MCP 表单请求。'); return;
     } else { this.rpc.reject(m.id!); this.message(randomUUID(), 'system', 'CLI 请求暂不支持，已明确返回错误：' + method); return; }
-    this.requests.set(id, m); this.session.approvals.push(approval); this.session.status = 'approval'; this.hooks.changed(); this.hooks.needsApproval?.();
+    this.requests.set(id, m); this.session.approvals.push(approval); this.session.status = 'approval'; this.hooks.changed(); this.hooks.needsApproval?.(approval.questions ? 'question' : 'approval');
   }
-  answer(id: string, option: string, answers: Record<string, string> = {}) {
+  answer(id: string, option: string, answers: Record<string, string | string[]> = {}) {
     const req = this.requests.get(id), approval = this.session.approvals.find(a => a.id === id);
     if (!req || !approval || !approval.options.some(x => x.id === option)) throw new Error('确认项已过期或选项无效');
     const p = req.params || {}; let result: unknown;
     if (req.method === 'session/request_permission') result = { outcome: { outcome: 'selected', optionId: option } };
     else if (req.method === 'cursor/create_plan') result = { outcome: { outcome: option === 'accept' ? 'accepted' : 'rejected' } };
-    else if (req.method === 'cursor/ask_question') result = option === 'skip' ? { outcome: { outcome: 'skipped', reason: '用户跳过' } } : { outcome: { outcome: 'answered', answers: (p.questions || []).map((q: any) => ({ questionId: q.id, selectedOptionIds: (q.options || []).filter((o: any) => o.label === answers[q.id]).map((o: any) => o.id) })) } };
-    else if (req.method === 'item/tool/requestUserInput') result = { answers: Object.fromEntries((p.questions || []).map((q: any) => [q.id, { answers: [answers[q.id] || '用户选择跳过，请根据已有信息继续'] }])) };
+    else if (req.method === 'cursor/ask_question') {
+      if (option === 'skip') result = { outcome: { outcome: 'skipped', reason: '用户跳过' } };
+      else {
+        const selected = (p.questions || []).map((q: any) => {
+          const value = answers[q.id], ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+          const allowed = new Set((q.options || []).map((o: any) => o.id));
+          if (!ids.length || (!q.allowMultiple && ids.length !== 1) || new Set(ids).size !== ids.length || ids.some(id => !allowed.has(id))) throw new Error('请为每个问题选择有效答案');
+          return { questionId: q.id, selectedOptionIds: ids };
+        });
+        if (!selected.length) throw new Error('当前提问没有可提交的问题');
+        result = { outcome: { outcome: 'answered', answers: selected } };
+      }
+    } else if (req.method === 'item/tool/requestUserInput') {
+      result = { answers: Object.fromEntries((p.questions || []).map((q: any) => {
+        if (option === 'skip') return [q.id, { answers: ['我暂不提供更多信息，请根据已有信息继续。'] }];
+        const value = answers[q.id];
+        if (typeof value !== 'string' || !value.trim()) throw new Error('请为每个问题填写答案');
+        return [q.id, { answers: [value.trim()] }];
+      })) };
+    }
     else if (req.method === 'item/permissions/requestApproval') result = { permissions: option === 'accept' ? p.permissions : {}, scope: 'turn' };
     else result = { decision: option };
     this.rpc.respond(req.id!, result); this.hooks.event({ direction: 'user', method: req.method, result });

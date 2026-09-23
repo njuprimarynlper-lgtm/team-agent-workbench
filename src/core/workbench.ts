@@ -451,7 +451,7 @@ export class Workbench {
     if (runtime) return runtime;
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
-    runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: () => this.notice(`待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage, this.providerEnvironment());
+    runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: kind => this.notice(kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage, this.providerEnvironment());
     this.runtimes.set(s.id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
     return runtime;
   }
@@ -765,7 +765,7 @@ export class Workbench {
     if (this.sending.has(id) || this.stoppingSessions.has(id)) throw new Error('正在停止此会话，请稍后重新打开');
     s.closedAt = undefined; await this.store.save(); this.broadcast(); return s;
   }
-  answer(id: string, requestId: string, option: string, answers?: Record<string, string>) { const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); runtime.answer(requestId, option, answers); }
+  answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) { const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); runtime.answer(requestId, option, answers); }
   async attachLocal(id: string, files: string[]) {
     const s = this.session(id); if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
     const directory = path.join(s.cwd, '.workbench', 'sources', id);
