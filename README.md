@@ -8,11 +8,13 @@
 
 <a id="install"></a>
 
-## 从源码直接启动（Windows）
+## Windows 安装与启动
 
 适用于 Windows x64，目前在 Windows 11 x64 验证。普通成员运行用户端；负责 Linux 账号、工作组和网络出口的总管理员运行管理端。项目组管理员也使用用户端。
 
-**已安装 Node.js、npm、Python，也仍需准备本项目依赖。** 这些工具不包含工作台使用的 React、SSH 库、构建工具和 Electron 桌面运行文件。源码首次启动会自动下载它们；请先确认本机能联网下载。只想解压后直接运行、避免在使用电脑下载依赖，需要部署人员提供已打包的完整程序，不能使用 GitHub 的源码 ZIP 代替。
+安装顺序：**检查 Node/npm → 获取源码 → 安装项目依赖 → 下载 Electron → 启动客户端 → 登录账号**。已装好 Node/npm 的用户可从第 2 步开始；已有完整源码的用户从第 3 步开始。普通使用不要求本机安装 Python。
+
+以下命令均在 **PowerShell** 中执行，每一步成功后再继续下一步。首次安装需要能下载 npm 包和 Electron，具体网络条件见[下载与联网](#download-network)。
 
 ### 1. 安装 Node.js
 
@@ -40,36 +42,64 @@ Set-Location .\team-agent-workbench
 
 GitHub 的 **Download ZIP 是源码包**，仍需 Node 和首次依赖下载；它不是免安装程序。不要只下载单个 `.cmd` 文件，也不要在压缩包内直接运行。
 
+打开源码文件夹，在资源管理器地址栏输入 `powershell` 并回车，即可在此目录打开终端。也可以在已有 PowerShell 中切换到源码目录，例如：
+
+```powershell
+Set-Location 'D:\project\team-agent-workbench'
+Test-Path .\package-lock.json
+```
+
+把示例路径换成自己的解压或克隆位置。**检查结果应为 `True`**；若为 `False`，先进入包含 `package.json`、`package-lock.json` 的那一层目录。后续命令都在此目录执行。
+
 <a id="project-dependencies"></a>
 
-### 3. 安装项目依赖并启动客户端（首次需联网）
+### 3. 安装项目依赖
 
-安装 Node/npm 只是准备好了运行与安装工具。以下内容由启动器继续准备，无需逐个手动安装：
+在源码目录执行：
 
-| 内容 | 用途 | 如何准备、保存在哪里 |
-| --- | --- | --- |
-| 项目 npm 依赖 | React 界面、SSH/SFTP、Markdown、配套 Codex CLI，以及源码构建工具等 | 启动器按 `package-lock.json` 执行 `npm ci`，安装到本仓库 `node_modules/` |
-| Electron 桌面运行文件 | 工作台窗口及其内置 Chromium / Node 运行环境；系统 Node 不能代替它 | 启动器单独运行 Electron 安装脚本，下载到 `node_modules/electron/dist/` |
-| 当前版本的应用文件 | 将源码编译成可以运行的用户端和管理端 | 启动器在本机构建到 `dist/`，此步骤本身不下载依赖 |
+```powershell
+npm.cmd ci --include=dev --include=optional --no-audit --no-fund --loglevel=info
+if ($LASTEXITCODE -ne 0) { throw '项目依赖安装失败，请先处理上方错误，再重试此步骤。' }
+Write-Host '项目依赖安装完成，可以继续第 4 步。'
+```
 
-`node_modules/`、`dist/` 等生成内容没有提交到 Git，所以克隆仓库或下载源码 ZIP 不会得到它们。**安装 Python 也不会提供这些 npm 依赖**；普通客户端使用不要求额外安装 Python，开发测试和 Linux 服务端另有 Python 要求。已经全局安装的 CLI 或其他项目的依赖，也不代替本仓库锁定的依赖。
+终端会显示包下载和安装信息。**看到“项目依赖安装完成”才进入下一步**；若报错，保留终端中的错误，按[安装失败处理](#install-errors)修复后重跑本步骤。不要删除或重新生成 `package-lock.json`。
 
-在源码文件夹中双击对应入口，或在该文件夹的 PowerShell 中执行：
+这一步把 React、SSH/SFTP、Markdown、配套 Codex CLI 和构建工具等安装到本项目的 `node_modules/`。它们不随 Node.js、npm 或 Python 提供，也不包含在 GitHub 源码 ZIP 中。`npm ci` 会按锁文件重建此目录，首次安装或更新依赖时执行即可。
 
-| 身份 | 双击入口 / PowerShell 命令 |
-| --- | --- |
-| 普通成员、项目组管理员 | `.\start-user-dev.cmd` |
-| 总管理员 | `.\start-admin-dev.cmd` |
+### 4. 下载并检查 Electron 桌面运行环境
 
-首次运行会依次执行上面的准备步骤，需要本机具备相应[下载网络](#download-network)。安装耗时取决于网络和缓存；进度窗口会显示当前阶段，可查看日志或取消。**出现用户端登录窗口，或管理端主界面，即表示客户端启动成功**。团队连接和模型登录还需完成下一步。
+继续在同一个终端执行：
 
-以后仍使用同一入口。**正常重复启动复用已有依赖，不会每次全量下载，但每次都会构建当前源码。** 同一源码目录的两个客户端共用这些依赖。失败时按[启动排障](#troubleshooting)处理，日志位于 `.test-data/launcher/`。
+```powershell
+node .\node_modules\electron\install.js
+if ($LASTEXITCODE -ne 0) { throw 'Electron 下载失败，请先处理上方错误，再重试此步骤。' }
+if (-not (Test-Path .\node_modules\electron\dist\electron.exe)) { throw 'Electron 运行文件缺失，请检查下载结果。' }
+Write-Host 'Electron 桌面运行环境已就绪，版本：'
+Get-Content .\node_modules\electron\dist\version
+```
 
-这些情况会重新执行依赖安装：`package.json` 或 `package-lock.json` 改变、Node 主版本改变、关键依赖缺失，或启动器的安装记录 `.test-data/launcher/dependencies.txt` 丢失。更换到新解压的源码目录也要重新准备。npm/Electron 可能复用本机下载缓存，但不保证在离线环境中完成；Electron 文件缺失或版本不符时会单独补齐。
+这一步下载并校验工作台窗口所需的 Electron，保存在 `node_modules/electron/dist/`；系统 Node 不能代替它。已有匹配版本时会直接复用。**看到“Electron 桌面运行环境已就绪”和版本号才继续**。若仅这一步失败，修复网络后重跑第 4 步即可，无需重新执行 `npm ci`。
 
-**没有依赖下载网络：**请部署人员在联网环境构建并交付对应版本的完整安装包或免安装程序。程序包已包含工作台所需的库和桌面运行环境；模型服务、团队连接仍需各自的网络和账号，Cursor / Claude Code 的准备范围见[模型环境](#model-setup)。
+### 5. 启动客户端
 
-### 4. 完成首次连接
+普通成员与项目组管理员执行：
+
+```powershell
+npm.cmd run start
+```
+
+负责服务器账号和工作组管理的总管理员执行：
+
+```powershell
+npm.cmd run start:admin
+```
+
+选择所需的一条执行即可。命令会先构建当前源码，终端显示 `Built isolated User and Admin applications.` 后打开对应应用。**出现用户端登录窗口或管理端主界面，才算启动成功**。源码构建不需要再下载 npm 依赖；构建报错时应用不会启动。
+
+此方式会保留终端输出。使用期间保持终端打开；结束时先关闭客户端窗口。下次使用仍在源码目录执行同一条启动命令，无需重复第 3、4 步。用户端与管理端需要同时使用时，可分别在两个终端启动。
+
+### 6. 完成首次连接
 
 | 使用者 | 接下来做什么 |
 | --- | --- |
@@ -78,6 +108,29 @@ GitHub 的 **Download ZIP 是源码包**，仍需 Node 和首次依赖下载；�
 | 总管理员 | 准备[符合条件的 Linux 服务器](#server-requirements)，连接后初始化团队空间、创建工作组并分配成员；已有团队继续使用原目录。详细步骤见[部署指导](docs/deployment-guide.md)。 |
 
 模型服务需要代理时，先由管理员启用[管理端网络出口](docs/network-egress.md)，成员再填入接入码。没有团队服务器、只想本机联调时，按[本地模式使用说明](docs/local-filesystem.md)操作。
+
+<a id="install-errors"></a>
+
+### 安装失败时怎么处理
+
+| 卡在哪一步 / 报错 | 用户可以执行的处理 |
+| --- | --- |
+| 第 3 步找不到 `package.json` 或 `package-lock.json` | 执行 `Get-Location` 查看当前位置，再用 `Set-Location '实际源码目录'` 切到完整仓库根目录。 |
+| 第 3 步下载超时、连接失败 | 执行 `npm.cmd config get registry` 查看下载源，再执行 `npm.cmd ping` 检查该源连通性；修复本机网络或公司 npm 代理后，重跑第 3 步。`ping` 成功不代表所有包地址都可下载，具体以安装错误为准。 |
+| 第 3 步提示锁文件与依赖清单不一致 | 获取同一版本的完整源码，让维护者修复不一致；不要通过删除锁文件绕过。 |
+| 第 4 步下载失败或长时间没有新输出 | 可按 `Ctrl+C` 中止，检查终端错误与 Electron 下载网络，再重跑第 4 步。npm 下载正常不代表 Electron 下载正常。 |
+| 第 3、4 步提示证书错误 | 让本机网络管理员配置公司受信任证书；保留 TLS 校验。第 4 步使用的 Node 若支持 `--use-system-ca`，可用 `node --use-system-ca .\node_modules\electron\install.js` 使用系统证书。 |
+| 第 5 步构建失败 | 保留从 `npm.cmd run start` 开始的终端输出，交给维护者；不要直接运行旧 `dist` 冒充更新成功。 |
+
+手动安装的错误直接显示在当前终端，npm 还会在失败时打印详细日志路径；手动命令不会生成双击启动器的 `.test-data/launcher/` 日志。反馈问题时附上失败步骤、实际命令、Node 版本和最后的报错文字，隐藏凭据。
+
+**完全无法下载依赖：**请部署人员在联网环境构建并交付对应版本的完整安装程序或免安装程序。GitHub 的源码 ZIP 不包含依赖，不能作为离线程序使用。团队 SSH 和模型服务仍需各自的网络与账号。
+
+### 可选：双击便捷启动
+
+仓库也提供 `start-user-dev.cmd` 和 `start-admin-dev.cmd`。它们把依赖安装、Electron 检查、构建和打开应用合并到启动流程中，显示进度并提供日志与取消入口；失败或超时会报告具体阶段。要逐步看到命令输出、确认每一步结果，请使用上面的安装流程。
+
+双击入口使用独立的安装记录 `.test-data/launcher/dependencies.txt`。手动安装不会创建这份记录，因此首次改用双击入口仍会执行一次 `npm ci`；之后在记录有效、依赖完整时复用。`package.json` / `package-lock.json` 改变、Node 主版本改变、关键依赖或记录缺失时会重新安装；更换源码目录也需要重新准备。npm/Electron 可能复用缓存，但不能保证离线成功。
 
 ### 更新已有源码
 
@@ -91,12 +144,11 @@ git status --short
 
 ```powershell
 git pull --ff-only
-.\start-user-dev.cmd
 ```
 
-拉取遇到冲突时先处理，不要强制覆盖。更新管理端时，最后运行 `.\start-admin-dev.cmd`。
+拉取失败时先处理，不要强制覆盖。若本次更新修改了 `package.json`、`package-lock.json`，或你更换了 Node 主版本，重新执行第 3、4 步。随后按第 5 步运行 `npm.cmd run start` 或 `npm.cmd run start:admin`。沿用双击入口的用户重新运行原入口即可，它会检查是否需要准备依赖。
 
-使用源码 ZIP 的用户重新下载并解压到新文件夹，再运行其中的入口。默认账号、会话和草稿保存在 `%APPDATA%\TeamAgentUser` / `%APPDATA%\TeamAgentAdmin`，更新源码不需要删除这些目录；若自行设置了数据目录，应继续使用原配置。源码入口与已安装的 EXE 分别更新。
+使用源码 ZIP 的用户重新下载并解压到新文件夹，进入新目录后执行第 3～5 步。默认账号、会话和草稿保存在 `%APPDATA%\TeamAgentUser` / `%APPDATA%\TeamAgentAdmin`，更新源码不需要删除这些目录；若自行设置了数据目录，应继续使用原配置。源码入口与已安装的 EXE 分别更新。
 
 <a id="requirements"></a>
 
@@ -104,9 +156,9 @@ git pull --ff-only
 
 ### 先确定使用哪种交付方式
 
-| 使用方式 | 本机需要准备 | 会自动准备什么 |
+| 使用方式 | 本机需要准备 | 项目依赖与构建 |
 | --- | --- | --- |
-| 从源码双击 `start-user-dev.cmd` / `start-admin-dev.cmd` | Windows x64、Windows PowerShell 5.1、**Node.js ≥ 22.12.0 x64（含 npm）**、完整源码、依赖下载网络 | 安装锁定的 npm 依赖、下载 Electron、构建当前源码 |
+| 从源码安装：按上方命令逐步执行，或使用双击入口 | Windows x64、Windows PowerShell 5.1、**Node.js ≥ 22.12.0 x64（含 npm）**、完整源码、依赖下载网络 | 安装锁定的 npm 依赖、下载 Electron、构建当前源码；上方步骤逐项给出命令与成功标志 |
 | 安装程序 `.exe` / 完整免安装 `.zip` | Windows x64；ZIP 须完整解压 | 运行环境已随包提供，无需安装 Node.js/npm |
 | 开发、测试或重新打包 | 上述源码环境；Python 3.9+ 用于 Python 相关测试；Git 用于版本管理；打包用户版前准备 Cursor 运行文件 | 按仓库脚本构建与打包，不安装系统级开发工具 |
 
