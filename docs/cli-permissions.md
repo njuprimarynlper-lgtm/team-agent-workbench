@@ -12,6 +12,9 @@
 | Cursor | Allowlist（白名单） | 已允许的操作直接执行，其余操作可能需要用户批准 |
 | Cursor | Auto-review（自动审查） | 当前 ACP 接入不提供可靠的切换支持，选项禁用并注明原因 |
 | Cursor | Run Everything（全部运行） | 自动执行工具操作，明确禁止的操作仍可能被拒绝 |
+| Claude Code | 手动批准 | 未预先允许的操作交给用户单次确认 |
+| Claude Code | 自动审查 | 使用 Claude Code 的 `auto` 模式，仍可能要求用户确认 |
+| Claude Code | 跳过权限询问 | 使用 `bypassPermissions`，仍受明确拒绝规则和组织策略约束 |
 
 当前权限显示在输入框底部，点击后向上展开选项及影响说明，不再单独占用聊天区上方一行。不显示底层错误、错误码或沙盒探测日志。模式名表达批准行为；文件是否可写是独立的限制，不命名为“只读权限”或“工作目录内读写权限”。
 
@@ -34,13 +37,15 @@ Cursor Run Everything 显式使用 --force --sandbox disabled acp，仍受团队
 
 Cursor CLI 的命令行帮助包含 --auto-review，但本机打包版本的 ACP 路径未可靠接入该选择，不能仅根据 CLI 通用参数宣称已生效。因此不发送此参数、不把它映射为 --force，也不修改账号的自动审查设置。后端同样拒绝通过接口给 Cursor 创建或切换 auto 会话。已有配置中的 auto-review 可以作为“已保存设置”显示，不承诺为当前 ACP 会话生效。Agent / Ask / Plan 是任务模式，不作为批准模式。
 
+Claude Code 沿用设置时不传 `--permission-mode`；手动批准、自动审查、跳过权限询问分别传 `default`、`auto`、`bypassPermissions`。`-p` 会话通过 `--permission-prompt-tool stdio` 把未被规则决定的工具请求和 `AskUserQuestion` 交给用户端。工作台只答复当前请求，不写入 Claude Code 的永久允许规则。CLI 已保存的允许、拒绝和组织策略继续生效。当前界面不能可靠读取这些规则的完整有效集合，因此“已保存设置”显示为沿用 Claude Code 设置，不推断具体文件或网络范围。
+
 ## 会话与授权
 
 修改权限重启当前会话的底层进程，保留原生会话 ID、模型、消息和项目绑定。运行中需先停止；修改后由用户主动继续，不重放任务。切换提供方时不会把 Codex 的“帮我批准”带入 Cursor。
 
 来自 CLI 的一次性批准请求仍交给用户，包含“帮我批准”或完全访问下实际发出的残余请求。工作台不代用户点击允许，不把一次性授权扩展成永久授权；过期请求不能审批后续操作。
 
-成果整理单独固定为完全访问：Codex danger-full-access + never，Cursor --force --sandbox disabled + Agent 模式；新建、重试和旧整理助手恢复均使用该策略，不继承或修改原工作会话的权限。整理范围仍由任务要求限定为冻结材料，上传仍需用户确认。Codex 会话独立存储及旧会话上下文迁移保持不变，见 [会话隔离](codex-session-isolation.md)。
+成果整理单独固定为完全访问：Codex danger-full-access + never，Cursor --force --sandbox disabled + Agent 模式，Claude Code `bypassPermissions`；新建、重试和旧整理助手恢复均使用该策略，不继承或修改原工作会话的权限。整理范围仍由任务要求限定为冻结材料，上传仍需用户确认。Codex 会话独立存储及旧会话上下文迁移保持不变，见 [会话隔离](codex-session-isolation.md)。
 
 ## 验证
 

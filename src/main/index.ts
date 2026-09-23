@@ -39,7 +39,7 @@ async function syncServerIdentities(clearKey?: string) {
     await context.workbench.store.save(); context.broadcast();
   }));
 }
-const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider = z.enum(['codex', 'cursor']);
+const id = z.string().uuid(), text = z.string().max(2 * 1024 * 1024), provider = z.enum(['codex', 'cursor', 'claude']);
 const sessionInput = z.object({ id });
 const capability = z.object({ id: z.string().min(1).max(500), kind: z.enum(['skill', 'plugin']), name: z.string().min(1).max(200) });
 async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpenDialog(owner, { title: '选择要共享的文件', properties: ['openFile', 'multiSelections'] })).filePaths; }
@@ -70,7 +70,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
       for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
-      for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
+      for (const p of ['codex', 'cursor', 'claude'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
     case 'layout.sidebar': { const p = z.object({ height: z.number().int().min(180).max(4000) }).parse(raw); workbench.store.settings.sidebarProjectHeight = p.height; await workbench.store.save(); return true; }
@@ -131,7 +131,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'content.sync': return workbench.syncContentUpdates();
     case 'content.updates': return workbench.contentUpdates();
-    case 'content.updates.read': return workbench.markContentUpdates(z.object({ eventIds: z.array(z.string()).max(300).optional() }).parse(raw || {}).eventIds);
+    case 'content.updates.read': { const p = z.object({ eventIds: z.array(z.string()).max(10000).optional(), processed: z.boolean().optional() }).parse(raw || {}); return workbench.markContentUpdates(p.eventIds, p.processed); }
     case 'content.updates.clear': return workbench.clearReadContentUpdates();
     case 'content.updates.dismiss': return workbench.dismissContentUpdates(z.object({ eventIds: z.array(z.string()) }).parse(raw).eventIds);
     case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived); }
@@ -208,8 +208,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope); }
-    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']) }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories); }
+    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional(), temporary: z.boolean().optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.temporary); }
+    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']), temporary: z.boolean().optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.temporary); }
     case 'draft.confirmEmpty': return workbench.confirmEmptyPreparation(sessionInput.parse(raw).id);
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);

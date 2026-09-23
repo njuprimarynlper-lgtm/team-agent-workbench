@@ -23,9 +23,12 @@ async function fields(page, username) {
 }
 async function login(user, username, first = false, profile) {
   const { page } = user;
-  if (!first) await page.locator('.connection-button').click();
+  if (!first) {
+    const loginOpen = await page.getByLabel('成员账号').waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
+    if (!loginOpen) await page.locator('.connection-button').click();
+  }
   if (first) await setConnectionProfile(user, profile);
-  await page.getByLabel('本机工作路径', { exact: true }).fill(data); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
+  await page.getByLabel('代码目录（选填）', { exact: true }).fill(data); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
   await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
 try {

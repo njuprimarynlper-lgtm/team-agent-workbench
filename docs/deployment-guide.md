@@ -21,14 +21,14 @@
 
 本地模式不能证明生产权限隔离。拥有 Windows 共享目录系统权限的人仍可绕过应用直接访问文件。
 
-团队共享与模型网络是两条独立通路。SSH/SFTP 始终用于共享空间；只有部分成员无法直接访问 Codex/Cursor 时，才需要另行部署可选的[管理端网络出口](network-egress.md)。
+团队共享与模型网络是两条独立通路。SSH/SFTP 始终用于共享空间；只有部分成员无法直接访问 Codex、Cursor 或 Claude Code 时，才需要另行部署可选的[管理端网络出口](network-egress.md)。
 
 ## 新电脑从源码启动
 
 1. 准备 64 位（x64）Node.js 22 或更高版本。可安装到系统并保留 npm / PATH 选项；也可将官方便携压缩包完整解压到仓库 `.tools/node-v版本号-win-x64/`，该目录中须同时包含 `node.exe` 和 `npm.cmd`。入口按版本顺序逐一验证 Node 和 npm 的可运行性，每次探测最多 10 秒；失败则尝试下一目录、系统 PATH、自定义目录。所有候选不可用时，窗口允许选择解压后的离线 Node 目录，保存在本仓库 `.tools/node-path.txt`，也可通过 `WORKBENCH_NODE_DIR` 指定。无需修改系统环境变量。
 2. 拉取或解压完整仓库，保留 `package-lock.json`、`scripts`、`src` 等文件。无需复制其他电脑的 `dist` 或生成新的启动脚本。
 3. 双击根目录的 `start-user-dev.cmd` 或 `start-admin-dev.cmd`。首次运行需要下载依赖，等待准备完成；启动日志位于 `.test-data/launcher/`。失败时检查弹窗给出的日志，修复网络或环境后重新双击即可。
-4. 用户版按使用指导连接团队账号并登录个人模型账号。Codex CLI 随 npm 依赖安装；使用 Cursor 时可在应用内设置已安装的 Cursor Agent CLI 路径，或运行 `powershell -ExecutionPolicy Bypass -File scripts/prepare-runtimes.ps1` 准备仓库配套的 Cursor 运行文件。
+4. 用户版按使用指导连接团队账号并登录个人模型账号。Codex CLI 随 npm 依赖安装；Claude Code 需按官方说明单独安装，使用 `claude auth login` 登录；使用 Cursor 时可在应用内设置已安装的 Cursor Agent CLI 路径，或运行 `powershell -ExecutionPolicy Bypass -File scripts/prepare-runtimes.ps1` 准备仓库配套的 Cursor 运行文件。
 
 依赖下载发生在应用启动前，使用本机 npm / Electron 的下载和代理配置；工作台中的可选管理端模型出口不负责这一步。无法下载依赖的电脑应由部署人员交付对应版本的完整安装包或免安装目录。
 
@@ -141,7 +141,7 @@ npm run test:egress-ui
 - 用户只能选择本机工作路径，共享路径由账号权限与配置确定。
 - 成果按类别进入项目 `submissions/账号/{experiments,failed-directions,findings,issues,baseline-change-proposals}/`，轨迹上传进入 `trajectories/账号/`。分类子目录由受控文件操作器在首次上传时创建。
 - 网络中断和应用重启不会把待上传内容改投其他项目或身份。
-- 未启用管理端出口时，CLI 保持原有直连环境；启用后，仅工作台启动的 Codex/Cursor CLI 收到本机代理变量。
-- 管理端出口只允许配置中的 Codex/Cursor HTTPS 域名和 443 端口，并由用户端校验接入码中的 TLS 证书指纹。
+- 未启用管理端出口时，CLI 保持原有直连环境；启用后，仅工作台启动的 Codex、Cursor 或 Claude Code CLI 收到本机代理变量。
+- 管理端出口只允许配置中的 Codex、Cursor 或 Claude Code HTTPS 域名和 443 端口，并由用户端校验接入码中的 TLS 证书指纹。
 
 本地模式的详细目录与权限桩行为见 [本地文件系统联调](local-filesystem.md)，正式身份边界见 [身份与协作说明](identity-content.md)。

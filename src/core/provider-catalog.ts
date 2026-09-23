@@ -34,10 +34,14 @@ export function codexQuota(result: any): QuotaWindow[] {
   }
   return windows;
 }
-export const quotaUrl = (provider: Provider) => provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : 'https://cursor.com/dashboard/spending';
+export const quotaUrl = (provider: Provider) => provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : provider === 'claude' ? 'https://claude.ai/settings/usage' : 'https://cursor.com/dashboard/spending';
 export async function inspectCatalog(provider: Provider, executable: string, cwd: string, signal?: AbortSignal, timeout = 20000, env: NodeJS.ProcessEnv = {}): Promise<ProviderCatalog> {
-  const result: ProviderCatalog = { models: [], quota: { windows: [], detail: provider === 'cursor' ? '当前 Cursor CLI 未提供个人套餐额度查询。请打开官方额度页查看各用量池的余额和重置日期。' : '额度暂不可用；这不代表额度为零。可重试或打开官方额度页。', url: quotaUrl(provider) }, checkedAt: new Date().toISOString() };
+  const result: ProviderCatalog = { models: [], quota: { windows: [], detail: provider === 'cursor' ? '当前 Cursor CLI 未提供个人套餐额度查询。请打开官方额度页查看各用量池的余额和重置日期。' : provider === 'claude' ? 'Claude Code CLI 未提供可靠的套餐额度接口，请在官方额度页查看。' : '额度暂不可用；这不代表额度为零。可重试或打开官方额度页。', url: quotaUrl(provider) }, checkedAt: new Date().toISOString() };
   if (signal?.aborted) throw new Error('查询已取消');
+  if (provider === 'claude') {
+    result.models = [{ id: 'sonnet', name: 'Sonnet' }, { id: 'opus', name: 'Opus' }, { id: 'haiku', name: 'Haiku' }];
+    return result;
+  }
   if (provider === 'cursor') {
     try {
       const output = await new Promise<string>((resolve, reject) => {

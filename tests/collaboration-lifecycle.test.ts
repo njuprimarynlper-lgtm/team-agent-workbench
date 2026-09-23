@@ -73,9 +73,12 @@ test('personal activity actions show destinations, reject invalid transitions an
     const updatedSource = await x.bob.attachContent(first.id, remote.id);
     assert.notEqual(updatedSource.id, a.id, 'new versions must not be collapsed with legacy snapshots');
     assert.equal(updatedSource.contentRef?.revision, newer.revision);
+    await x.bob.markContentUpdates([event.eventId], false);
+    assert.equal(event.readAt, undefined, 'a member can reopen an already imported activity');
     await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: newer.revision, action: 'delete', curate: true, merge: [] });
     const after = await x.bob.syncContentUpdates(), removed = after.find(item => item.id === remote.id && item.change === 'deleted')!;
     assert(after.find(item => item.eventId === event.eventId)?.unavailableAt, 'processed events survive shared removal');
+    assert.deepEqual(after.find(item => item.eventId === event.eventId)?.actions, event.actions, 'reopened history survives shared removal too');
     assert.equal(removed.readAt, undefined); assert.equal(removed.actions, undefined);
     await x.bob.resolveContentDeletion(removed.eventId, []); assert.equal(x.bob.contentUpdates().find(item => item.eventId === removed.eventId)?.actions?.[0].kind, 'kept_conclusion');
     await x.bob.resolveContentDeletion(removed.eventId, [{ id: local.id, version: local.version }]); assert.equal(x.bob.contentUpdates().find(item => item.eventId === removed.eventId)?.actions?.at(-1)?.kind, 'deleted_conclusion');

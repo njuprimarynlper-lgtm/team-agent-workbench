@@ -3,30 +3,31 @@ import { Layers, SlidersHorizontal, X } from 'lucide-react';
 import type { AgentSession, PreparationCheckpoint, PreparationScope } from '../shared/types';
 import { preparationDelta } from '../shared/preparation-progress';
 import { contributionCategoryInfo, type ContributionCategory } from '../shared/content';
-import type { ResultCombination, ResultRulesState } from '../shared/result-rules';
+import type { MaterialCategory, ResultCombination, ResultRulesState } from '../shared/result-rules';
 import { ResultRulesEditor } from './result-rules';
 
 export function PreparationOptionsModal({ session, baseline, combination, close, started, again = false }: {
   session: AgentSession; baseline?: PreparationCheckpoint; combination?: ResultCombination; again?: boolean;
-  close: () => void; started: (scope: PreparationScope, categories: ContributionCategory[]) => Promise<void>;
+  close: () => void; started: (scope: PreparationScope, categories: ContributionCategory[], temporary: boolean) => Promise<void>;
 }) {
   const delta = preparationDelta(session, baseline?.snapshot), canIncremental = !!baseline && delta.count > 0;
   const [scope, setScope] = useState<PreparationScope>(canIncremental ? 'incremental' : 'full');
-  const [rules, setRules] = useState<ResultRulesState>(), [selected, setSelected] = useState<ContributionCategory[]>(combination?.categories || []);
+  const [rules, setRules] = useState<ResultRulesState>(), [selected, setSelected] = useState<MaterialCategory[]>(combination?.categories || []);
+  const [temporary, setTemporary] = useState<ResultCombination>();
   const [configuring, setConfiguring] = useState(false), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const active = rules?.combination || combination;
+  const active = temporary || rules?.combination || combination;
   useEffect(() => {
     let current = true;
-    setLoading(true);
+    setLoading(true); setTemporary(undefined);
     void window.workbench.call<ResultRulesState>('result.rules', { projectId: session.binding?.project.id }).then(value => {
       if (current) { setRules(value); setSelected(value.combination.categories); }
     }, reason => { if (current) setError(reason.message); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [session.binding?.project.id]);
+  }, [session.id, session.binding?.project.id]);
   const disabled = busy || loading;
   return <div className="modal-backdrop"><section className={'modal preparation-dialog' + (configuring ? ' wide' : '')} role="dialog" aria-modal="true" aria-labelledby="preparation-options-title">
-    <header><h2 id="preparation-options-title">{configuring ? '调整我的分类' : again ? '再次整理成果' : '整理成果'}</h2><button className="icon" aria-label={configuring ? '返回整理选项' : '关闭整理选项'} disabled={busy} onClick={() => configuring ? setConfiguring(false) : close()}><X size={18}/></button></header>
-    {configuring && session.binding ? <ResultRulesEditor projectId={session.binding.project.id} projectName={session.binding.project.name} initialState={rules} saved={value => { setRules(value); setSelected(value.combination.categories); setConfiguring(false); }}/> : <>
+    <header><h2 id="preparation-options-title">{configuring ? '调整分类组合' : again ? '再次整理成果' : '整理成果'}</h2><button className="icon" aria-label={configuring ? '返回整理选项' : '关闭整理选项'} disabled={busy} onClick={() => configuring ? setConfiguring(false) : close()}><X size={18}/></button></header>
+    {configuring && session.binding ? <ResultRulesEditor projectId={session.binding.project.id} projectName={session.binding.project.name} initialState={rules} temporary={temporary && { ...temporary, categories: selected }} appliedTemporary={value => { setTemporary(value); setSelected(value.categories); setConfiguring(false); }} saved={value => { setRules(value); setTemporary(undefined); setSelected(value.combination.categories); setConfiguring(false); }}/> : <>
       <div className="modal-body">
         <p className="preparation-intro">{session.title} · {session.messages.length} 条会话消息</p>
         {(baseline || again) && <fieldset className="preparation-range"><legend>整理范围</legend><div className="preparation-options">
@@ -34,8 +35,8 @@ export function PreparationOptionsModal({ session, baseline, combination, close,
           <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="全量整理" checked={scope === 'full'} disabled={disabled} onChange={() => setScope('full')}/><span><b>重新整理整个会话</b><small>读取全部 {session.messages.length} 条消息；已有成果会作为去重参考，并说明没有新成果的原因。</small></span></label>
         </div></fieldset>}
         <section className="preparation-classification" aria-label="本次成果分类">
-          <header><div><span className="preparation-section-label"><Layers size={16}/>本次成果分类</span><h3>{active?.name || '正在读取分类…'}</h3></div><button className="secondary classification-adjust" disabled={disabled || !rules} onClick={() => setConfiguring(true)}><SlidersHorizontal size={16}/>调整我的分类</button></header>
-          <p>选择本次需要的类别。调整分类组合可添加其他类别，并用于后续整理。</p>
+          <header><div><span className="preparation-section-label"><Layers size={16}/>本次成果分类</span><h3>{active?.name || '正在读取分类…'}</h3></div><button className="secondary classification-adjust" disabled={disabled || !rules} onClick={() => setConfiguring(true)}><SlidersHorizontal size={16}/>调整分类组合</button></header>
+          <p>{temporary ? '临时组合仅用于本次整理，不保存为个人组合，不修改项目默认设置。' : '选择本次需要的类别。在“调整分类组合”中可新建组合，或使用不保存的临时组合。'}</p>
           <div className="preparation-category-choices">{active?.categories.map(category => <label key={category} className={'preparation-category-choice' + (selected.includes(category) ? ' selected' : '')}><input type="checkbox" checked={selected.includes(category)} disabled={disabled} onChange={event => setSelected(values => event.target.checked ? [...values, category] : values.filter(value => value !== category))}/>{contributionCategoryInfo[category].label}</label>)}</div>
           {!selected.length && !loading && <p className="inline-error" role="alert">请至少选择一个类别。</p>}
         </section>
@@ -44,7 +45,7 @@ export function PreparationOptionsModal({ session, baseline, combination, close,
       </div>
       <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={disabled || !rules || !selected.length || scope === 'incremental' && !canIncremental} onClick={async () => {
         setBusy(true); setError('');
-        try { await started(scope, selected); close(); } catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
+        try { await started(scope, selected, !!temporary); close(); } catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
       }}>{busy ? '正在创建…' : loading ? '正在读取分类…' : `开始${scope === 'incremental' ? '增量' : '全量'}整理`}</button></footer>
     </>}
   </section></div>;

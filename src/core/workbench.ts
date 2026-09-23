@@ -17,10 +17,11 @@ import { preparationSnapshot, prepareReadableInputs } from './preparation-snapsh
 import { preparationPrompt } from './preparation-prompt';
 import { emptyPreparationResult, isEmptyPreparation } from '../shared/preparation-review';
 import { preparationCheckpoint, rememberPreparationProgress } from '../shared/preparation-progress';
-import { activeResultCombination, resultPreferencesSchema, type ResultRulesState, type ResultRuleSnapshot } from '../shared/result-rules';
+import { activeResultCombination, resultPreferencesSchema, temporaryResultCombination, type ResultRulesState, type ResultRuleSnapshot } from '../shared/result-rules';
 import { SharedFiles } from './shared-files';
 import { TransferQueue } from './transfers';
 import { AgentRuntime } from './agents';
+import { ClaudeRuntime } from './claude-runtime';
 import { prepareCodexStorage } from './codex-storage';
 import { sessionContext } from './session-context';
 import { resolveProvider, inspectProvider } from './providers';
@@ -40,7 +41,7 @@ import { rankConclusions } from './conclusion-matcher';
 export class Workbench {
   store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
   private assignmentUploads: AssignmentUploads;
-  private runtimes = new Map<string, AgentRuntime>(); private sending = new Set<string>();
+  private runtimes = new Map<string, AgentRuntime | ClaudeRuntime>(); private sending = new Set<string>();
   private steering = new Set<string>();
   private changingSettings = new Set<string>();
   private canceledSends = new Set<string>();
@@ -114,9 +115,16 @@ export class Workbench {
     } else delete aliases[key];
     await this.store.save(); this.broadcast(); return value;
   }
-  async markContentUpdates(eventIds?: string[]) {
+  async markContentUpdates(eventIds?: string[], processed = true) {
     const selected = eventIds ? new Set(eventIds) : undefined, now = new Date().toISOString(); let changed = false;
-    for (const item of this.store.settings.contentUpdates || []) if (!item.readAt && (!selected || selected.has(item.eventId))) { this.addContentAction(item, { kind: 'archived', at: now }); changed = true; }
+    for (const item of this.store.settings.contentUpdates || []) {
+      if (selected && !selected.has(item.eventId)) continue;
+      if (processed && !item.readAt) { this.addContentAction(item, { kind: 'archived', at: now }); changed = true; }
+      else if (!processed && item.readAt) {
+        delete item.readAt; delete item.archiveReason; item.statusChangedAt = now; changed = true;
+        // Keep earlier actions as history; reopening never reverses a saved copy or a session reference.
+      }
+    }
     if (changed) { await this.store.save(); this.broadcast(); } return this.contentUpdates();
   }
   async clearReadContentUpdates() {
@@ -160,8 +168,9 @@ export class Workbench {
       this.broadcast(); return this.resultRules(projectId);
     }, false);
   }
-  private preparationRules(projectId: string, categories?: ContributionCategory[]): ResultRuleSnapshot {
-    const { combination } = this.resultRules(projectId);
+  private preparationRules(projectId: string, categories?: ContributionCategory[], temporary = false): ResultRuleSnapshot {
+    const saved = this.resultRules(projectId);
+    const combination = temporary ? temporaryResultCombination(categories) : saved.combination;
     if (categories && (!categories.length || categories.some(category => !combination.categories.includes(category as any)))) throw new Error('请选择当前分类组合中启用的类别');
     return { contract: 3, combinationId: combination.id, name: combination.name, categories: categories ? [...categories] : [...combination.categories] };
   }
@@ -256,7 +265,7 @@ export class Workbench {
   private addContentAction(event: ContentUpdate, action: ContentUpdateAction) {
     const actions = event.actions ||= [];
     if (!actions.some(prior => prior.kind === action.kind && prior.targetId === action.targetId && prior.sourceRevision === action.sourceRevision)) actions.push(action);
-    event.readAt ||= action.at;
+    event.readAt ||= action.at; event.statusChangedAt = action.at;
   }
   private recordContentAction(projectId: string, contentId: string, revision: number, action: Omit<ContentUpdateAction, 'at' | 'sourceRevision'>) {
     const at = new Date().toISOString();
@@ -320,7 +329,7 @@ export class Workbench {
     const seen = this.store.settings.contentSeen ||= {}, inbox = this.store.settings.contentUpdates ||= [];
     seen[key] = Object.fromEntries(before.filter(item => item.id !== target.id).map(item => [item.id, this.contentSeenState(item)]));
     for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id && inbox[index].change !== 'deleted') {
-      if (inbox[index].readAt) inbox[index].unavailableAt = now; else inbox.splice(index, 1);
+      if (inbox[index].readAt || inbox[index].actions?.length) inbox[index].unavailableAt = now; else inbox.splice(index, 1);
     }
     const hasLocalCopy = this.store.conclusions.some(item => !item.deletedAt && item.projectId === projectId && item.sources.some(source => source.kind === 'remote' && source.id === target.id));
     const eventId = `${key}:deleted:${target.id}:${target.revision}`;
@@ -393,7 +402,7 @@ export class Workbench {
           const removed = Object.entries(prior).filter(([id]) => !current[id]).map(([id, value]) => ({ id, ...value }));
           for (const source of removed) {
             for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === source.id) {
-              if (inbox[index].readAt) inbox[index].unavailableAt = detectedAt; else inbox.splice(index, 1);
+              if (inbox[index].readAt || inbox[index].actions?.length) inbox[index].unavailableAt = detectedAt; else inbox.splice(index, 1);
               changed = true;
             }
             // A shared deletion is a notification, never permission to remove local knowledge or names.
@@ -432,7 +441,7 @@ export class Workbench {
     if (next.length > 120) throw new Error('会话名称不能超过 120 个字符');
     session.title = next; await this.store.save(); this.broadcast(); return session;
   }
-  async detect() { this.providers = await Promise.all((['codex', 'cursor'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
+  async detect() { this.providers = await Promise.all((['codex', 'cursor', 'claude'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
   snapshot(): Snapshot { return { activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
   async requireAuth(provider: Provider, cwd: string) {
     const prior = this.accounts.states[provider];
@@ -451,8 +460,11 @@ export class Workbench {
     if (runtime) return runtime;
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
-    runtime = new AgentRuntime(s, executable, { changed: this.changed, event: value => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: error => this.accounts.failed(s.provider, error, s.cwd), needsApproval: kind => this.notice(kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) }, storage, this.providerEnvironment());
-    this.runtimes.set(s.id, runtime); runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
+    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd), needsApproval: (kind: 'question' | 'approval') => this.notice(kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment()) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment());
+    this.runtimes.set(s.id, runtime);
+    if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
+    else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };
     return runtime;
   }
   async capabilities(id: string, forceRefresh = false) {
@@ -521,7 +533,7 @@ export class Workbench {
   }
   async networkChanged() {
     if (this.store.sessions.some(s => ['starting', 'running', 'approval'].includes(s.status))) throw new Error('请等待正在运行的任务结束或先停止任务，再切换网络出口');
-    for (const provider of ['codex', 'cursor'] as Provider[]) this.accounts.invalidate(provider);
+    for (const provider of ['codex', 'cursor', 'claude'] as Provider[]) this.accounts.invalidate(provider);
     for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
     const runtimes = [...this.runtimes.values()]; this.runtimes.clear(); await Promise.all(runtimes.map(runtime => runtime.close()));
   }
@@ -553,8 +565,8 @@ export class Workbench {
     if (!model || model.length > 256 || /[\x00-\x1f\x7f]/.test(model)) throw new Error('请选择有效的模型');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
     if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再切换模型');
-    // Reconnect on the next send: both providers resume the original native session.
-    // Cursor applies session/set_model after session/load; Codex resumes with model.
+    // Reconnect on the next send and resume the original native conversation.
+    // Cursor applies session/set_model after session/load; Codex and Claude resume with the selected model.
     return this.updateSessionSettings(s, () => { s.model = model; });
   }
   async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true) {
@@ -695,7 +707,7 @@ export class Workbench {
     this.assertWorkspace();
     const s = this.session(id); this.assertCanWork(s.binding);
     if (!userText.trim()) throw new Error('请输入引导内容');
-    if (s.provider !== 'codex') throw new Error('当前 Cursor 接入暂不支持生成中引导，请等待本轮结束后发送');
+    if (s.provider !== 'codex') throw new Error(`当前 ${s.provider === 'claude' ? 'Claude Code' : 'Cursor'} 接入暂不支持生成中引导，请等待本轮结束后发送`);
     if (s.closedAt || this.stoppingSessions.has(id) || this.closing) throw new Error('会话已关闭或正在停止，引导未发送');
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
     if (this.steering.has(id)) throw new Error('上一条引导正在发送，请稍候');
@@ -827,13 +839,14 @@ export class Workbench {
       await this.store.save(); this.broadcast(); return source;
     }, false);
   }
-  prepare(id: string, extraFiles: string[] = [], categories?: ContributionCategory[], scope?: PreparationScope): Promise<Draft> {
+  prepare(id: string, extraFiles: string[] = [], categories?: ContributionCategory[], scope?: PreparationScope, temporary = false): Promise<Draft> {
     const pending = this.preparing.get(id); if (pending) return pending;
     const active = this.store.drafts.find(d => d.sessionId === id && !d.mergeSources?.length && (scope ? d.generation === 'running' : !d.submitted)); if (active) return Promise.resolve(active);
     const binding = this.session(id).binding; if (!binding) return Promise.reject(new Error('请先为会话绑定项目'));
-    const requestedCategories = [...new Set(categories || this.resultRules(binding.project.id).combination.categories)].filter(category => contributionCategories.includes(category));
+    if (temporary && !categories?.length) return Promise.reject(new Error('请至少选择一种临时整理类别'));
+    const requestedCategories = [...new Set(categories || this.resultRules(binding.project.id).combination.categories)];
     if (!requestedCategories.length) return Promise.reject(new Error('请至少选择一种整理结果'));
-    const operation = this.createPreparation(id, extraFiles, requestedCategories, scope).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
+    const operation = this.createPreparation(id, extraFiles, requestedCategories, scope, undefined, temporary).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
   }
   prepareContentMerge(projectId: string, sessionId: string, sourceIds: string[]): Promise<Draft> {
     const unique = [...new Set(sourceIds)];
@@ -882,11 +895,11 @@ export class Workbench {
     const draft: Draft = { binding: structuredClone(parent.binding), resultRules: this.preparationRules(projectId), id: draftId, sessionId, prepareSessionId: prepared.id, preparationVersion: 5, conclusionMergeProjectId: projectId, conclusionMergeInstruction: instruction, mergeSources, generation: 'running', title: `${selected.length} 条本地结论 · 预处理`, body: '', files: [], inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
   }
-  private async createPreparation(id: string, extraFiles: string[], requestedCategories: ContributionCategory[], scope: PreparationScope = 'full', source?: Draft) {
+  private async createPreparation(id: string, extraFiles: string[], requestedCategories: ContributionCategory[], scope: PreparationScope = 'full', source?: Draft, temporary = false) {
     const parent = this.session(id); if (parent.purpose !== 'work') throw new Error('请从工作会话创建整理结果');
     this.assertCanWork(parent.binding);
     if (!parent.binding) throw new Error('请先绑定项目');
-    const resultRules = this.preparationRules(parent.binding.project.id, requestedCategories);
+    const resultRules = this.preparationRules(parent.binding.project.id, requestedCategories, temporary);
     const checkpoint = preparationCheckpoint(parent, this.store.drafts);
     if (scope === 'incremental' && !checkpoint) throw new Error('没有已完成的整理进度，请先全量整理');
     const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
@@ -898,20 +911,21 @@ export class Workbench {
     draft.resultRules = resultRules;
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
   }
-  private async createReorganization(source: Draft, scope: PreparationScope, categories?: ContributionCategory[]) {
+  private async createReorganization(source: Draft, scope: PreparationScope, categories?: ContributionCategory[], temporary = false) {
     if (source.mergeSources?.length) throw new Error('项目文档或本地结论合并不支持增量整理');
     if (source.generation !== 'ready') throw new Error('请等待本次整理完成后再选择新的整理范围');
     const parent = this.session(source.sessionId); if (parent.purpose !== 'work') throw new Error('原工作会话不存在，无法再次整理');
+    if (temporary && !categories?.length) throw new Error('请至少选择一种临时整理类别');
     const requestedCategories = categories ? [...new Set(categories)] : [...this.resultRules(parent.binding!.project.id).combination.categories];
     if (!requestedCategories.length) throw new Error('请至少选择一种整理结果');
-    return this.createPreparation(parent.id, [], requestedCategories, scope, source);
+    return this.createPreparation(parent.id, [], requestedCategories, scope, source, temporary);
   }
-  reorganizePreparation(id: string, scope: PreparationScope, categories?: ContributionCategory[]): Promise<Draft> {
+  reorganizePreparation(id: string, scope: PreparationScope, categories?: ContributionCategory[], temporary = false): Promise<Draft> {
     const source = this.draft(id), key = source.sessionId;
     const creating = this.preparing.get(key); if (creating) return creating;
     const active = this.store.drafts.find(draft => draft.sessionId === key && !draft.mergeSources?.length && draft.generation === 'running'); if (active) return Promise.resolve(active);
     const pending = this.reorganizing.get(key); if (pending) return pending;
-    const operation = this.createReorganization(source, scope, categories).finally(() => { this.reorganizing.delete(key); this.preparing.delete(key); }); this.reorganizing.set(key, operation); this.preparing.set(key, operation); return operation;
+    const operation = this.createReorganization(source, scope, categories, temporary).finally(() => { this.reorganizing.delete(key); this.preparing.delete(key); }); this.reorganizing.set(key, operation); this.preparing.set(key, operation); return operation;
   }
   confirmEmptyPreparation(id: string) {
     return this.edit('draft:' + id, async () => {

@@ -32,6 +32,10 @@ export function spawnCLI(executable: string, args: string[], cwd: string, env: N
   if (/cursor-agent\.(cmd|ps1)$/i.test(executable) && fs.existsSync(path.join(dir, 'node.exe')) && fs.existsSync(path.join(dir, 'index.js'))) {
     return spawn(path.join(dir, 'node.exe'), [path.join(dir, 'index.js'), ...args], { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
   }
+  if (process.platform === 'win32' && path.basename(executable).toLowerCase() === 'claude.cmd') {
+    const native = path.join(dir, 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe');
+    if (fs.existsSync(native)) return spawn(native, args, { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
+  }
   if (process.platform === 'win32' && /\.(cmd|bat|ps1)$/i.test(executable)) {
     const quote = (s: string) => "'" + s.replace(/'/g, "''") + "'";
     return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = [System.Text.UTF8Encoding]::new(); & ' + [executable, ...args].map(quote).join(' ')], { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });

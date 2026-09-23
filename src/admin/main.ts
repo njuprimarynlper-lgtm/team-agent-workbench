@@ -24,7 +24,7 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
   const changed = () => { if (window && !window.isDestroyed()) window.webContents.send('admin:changed'); };
   const protect = (value: string) => safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(value) : Buffer.from(value, 'utf8');
   const unprotect = (value: Buffer) => safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(value) : value.toString('utf8');
-  egressConfig = { enabled: false, listenHost: '0.0.0.0', listenPort: 18443, publicHost: os.hostname(), upstreamMode: 'direct', upstreamHost: '', upstreamPort: 0, upstreamUsername: '', codex: true, cursor: true };
+  egressConfig = { enabled: false, listenHost: '0.0.0.0', listenPort: 18443, publicHost: os.hostname(), upstreamMode: 'direct', upstreamHost: '', upstreamPort: 0, upstreamUsername: '', codex: true, cursor: true, claude: false };
   try { egressConfig = adminEgressConfigSchema.parse(JSON.parse(await fs.readFile(egressConfigFile, 'utf8'))); } catch {}
   try { egressSecret = JSON.parse(unprotect(await fs.readFile(egressSecretFile))); } catch { egressSecret = { accessCode: randomBytes(24).toString('base64url') }; }
   const certificate = await ensureEgressCertificate(path.join(app.getPath('userData'), 'egress-tls'));
@@ -59,7 +59,7 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
         egressSecret.accessCode = randomBytes(24).toString('base64url'); await saveEgress(); await egress.restart(egressConfig, egressSecret); changed(); value = true;
       } else if (action === 'egress.copy') {
         const invite = encodeEgressInvite({ version: 1, host: egressConfig.publicHost, port: egressConfig.listenPort, fingerprint: certificate.fingerprint, accessCode: egressSecret.accessCode }); clipboard.writeText(invite); value = true;
-      } else if (action === 'egress.test') { value = await egress.probe((payload as any)?.provider === 'cursor' ? 'cursor' : 'codex'); }
+      } else if (action === 'egress.test') { value = await egress.probe((payload as any)?.provider === 'claude' ? 'claude' : (payload as any)?.provider === 'cursor' ? 'cursor' : 'codex'); }
       else if (action === 'connect') {
         if (remote.snapshot.busy) throw new Error('请等待当前管理操作完成后更换连接');
         storageAbort?.abort(); storageAbort = undefined;

@@ -21,10 +21,11 @@ const sameSecret = (actual: string, expected: string) => {
   return timingSafeEqual(left, right);
 };
 const hostMatches = (host: string, suffixes: string[]) => suffixes.some(suffix => host === suffix || host.endsWith('.' + suffix));
-export function providerForHost(host: string): 'codex' | 'cursor' | undefined {
+export function providerForHost(host: string): 'codex' | 'cursor' | 'claude' | undefined {
   host = host.toLowerCase().replace(/\.$/, '');
   if (hostMatches(host, ['openai.com', 'chatgpt.com', 'oaistatic.com', 'oaiusercontent.com'])) return 'codex';
   if (hostMatches(host, ['cursor.com', 'cursor.sh', 'cursorapi.com', 'cursor-cdn.com', 'cursorvm.com'])) return 'cursor';
+  if (hostMatches(host, ['anthropic.com', 'claude.ai'])) return 'claude';
 }
 
 function readLine(socket: DuplexSocket, limit = 8192, timeout = 15000): Promise<{ line: string; rest: Buffer }> {
@@ -129,10 +130,10 @@ export class EgressRelay extends EventEmitter {
     for (const socket of this.connections) socket.destroy(); this.connections.clear();
     const server = this.server; this.server = undefined; if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.changed();
   }
-  async probe(provider: 'codex' | 'cursor') {
+  async probe(provider: 'codex' | 'cursor' | 'claude') {
     if (!this.config.enabled || !this.server?.listening) throw new Error('网络出口尚未启动');
-    if (!this.config[provider]) throw new Error(provider === 'codex' ? 'Codex 出口未启用' : 'Cursor 出口未启用');
-    const result = await connectTarget(this.config, this.secret, provider === 'codex' ? 'chatgpt.com' : 'api2.cursor.sh', 443); result.socket.destroy();
+    if (!this.config[provider]) throw new Error(provider === 'codex' ? 'Codex 出口未启用' : provider === 'claude' ? 'Claude Code 出口未启用' : 'Cursor 出口未启用');
+    const result = await connectTarget(this.config, this.secret, provider === 'codex' ? 'chatgpt.com' : provider === 'claude' ? 'api.anthropic.com' : 'api2.cursor.sh', 443); result.socket.destroy();
     return true;
   }
   private async accept(socket: tls.TLSSocket) {
@@ -146,7 +147,7 @@ export class EgressRelay extends EventEmitter {
       if (request.kind === 'ping') { socket.end(JSON.stringify({ ok: true }) + '\n'); event = { ...event, status: 'closed' }; return; }
       const host = typeof request.host === 'string' ? request.host.toLowerCase().replace(/\.$/, '') : '', port = Number(request.port), provider = providerForHost(host);
       event.target = `${host}:${port}`; event.provider = provider || 'control';
-      if (!provider || !this.config[provider] || port !== 443) throw new Error('目标不在 Codex/Cursor 出口白名单内');
+      if (!provider || !this.config[provider] || port !== 443) throw new Error('目标不在已启用的 CLI 出口白名单内');
       const target = await connectTarget(this.config, this.secret, host, port); event.status = 'connected'; this.record(event);
       socket.write(JSON.stringify({ ok: true }) + '\n'); if (target.rest.length) socket.write(target.rest); if (rest.length) target.socket.write(rest);
       socket.on('data', chunk => { event.bytesUp += chunk.length; }); target.socket.on('data', chunk => { event.bytesDown += chunk.length; });

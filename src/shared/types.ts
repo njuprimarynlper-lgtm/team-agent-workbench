@@ -1,7 +1,7 @@
 import type { ContentMetadata, ContributionCategory, GitRevision } from './content';
 import type { ProjectBrief } from './project-brief';
 import type { UserEgressSettings, UserEgressStatus } from './egress';
-export type Provider = 'codex' | 'cursor';
+export type Provider = 'codex' | 'cursor' | 'claude';
 export type PermissionMode = 'inherit' | 'review' | 'auto' | 'full';
 export interface PermissionReport { provider: Provider; checkedAt: string; source: 'config' | 'runtime'; sandbox: string; approval: string; reviewer?: string; warnings: string[]; allowedModes?: PermissionMode[]; execution?: 'passed' | 'blocked' | 'unknown'; executionDetail?: string; cursorConfig?: { files: string[]; allow: string[]; deny: string[] }; }
 export interface PermissionIssue { kind: 'sandbox' | 'policy' | 'filesystem'; message: string; at: string; }
@@ -47,7 +47,7 @@ export interface PreparationCheckpoint { draftId: string; snapshot: PreparationS
 export interface ContentMergeSource { id: string; revision: number; title: string; author: string; updatedAt: string }
 export interface ContentMergeAnalysis { overview: string; consensus: string[]; conflicts: { topic: string; positions: { sourceIds: string[]; statement: string }[]; resolution?: string; requiresDecision: boolean }[]; evidence: { claim: string; sourceIds: string[] }[]; scope?: string; unresolved: string[] }
 export interface ContentUpdateAction { kind: 'saved_conclusion' | 'attached_session' | 'kept_conclusion' | 'deleted_conclusion' | 'acknowledged' | 'archived'; at: string; targetId?: string; targetTitle?: string; sourceRevision?: number; sourceTitle?: string; correctedFromTitle?: string }
-export interface ContentUpdate { eventId: string; projectId: string; projectName: string; id: string; path?: string; title: string; author?: string; updatedBy?: string; revision: number; category?: ContributionCategory; sourceSessionTitle?: string; change: 'new' | 'updated' | 'deleted' | 'merged'; sourceTitles?: string[]; occurredAt: string; detectedAt: string; readAt?: string; actions?: ContentUpdateAction[]; archiveReason?: 'own_change'; unavailableAt?: string }
+export interface ContentUpdate { eventId: string; projectId: string; projectName: string; id: string; path?: string; title: string; author?: string; updatedBy?: string; revision: number; category?: ContributionCategory; sourceSessionTitle?: string; change: 'new' | 'updated' | 'deleted' | 'merged'; sourceTitles?: string[]; occurredAt: string; detectedAt: string; readAt?: string; statusChangedAt?: string; actions?: ContentUpdateAction[]; archiveReason?: 'own_change'; unavailableAt?: string }
 export interface ConclusionSource { details?: string; id: string; kind: 'remote' | 'session' | 'manual' | 'conclusion'; title: string; content?: string; revision?: number; path?: string; updatedAt: string }
 export interface ProjectConclusion { category?: ContributionCategory; accountOwner?: string; id: string; projectId: string; title: string; titleAlias?: string; content: string; sources: ConclusionSource[]; updatedAt: string; version: number; archived?: boolean; deletedAt?: string; automatic?: boolean }
 export interface ConclusionMatch { conclusion: ProjectConclusion; score: number; reasons: string[] }

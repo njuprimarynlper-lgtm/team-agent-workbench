@@ -92,6 +92,7 @@ export async function setCursorManualReview(cwd: string) {
 }
 export async function inspectPermissions(provider: Provider, executable: string, cwd: string, env: NodeJS.ProcessEnv = {}): Promise<PermissionReport> {
   if (provider === 'cursor') return cursorPermissions(cwd);
+  if (provider === 'claude') return { provider, checkedAt: new Date().toISOString(), source: 'config', sandbox: 'claude-code', approval: 'inherit', warnings: ['实际权限由 Claude Code 的用户、项目和组织设置决定；会话启动时按所选模式运行。'] };
   const rpc = new JsonRpc(executable, ['app-server'], cwd, false, env), timeout = 8000;
   const timer = setTimeout(() => void rpc.close(), timeout + 1000);
   rpc.on('message', m => { if (m.id !== undefined) rpc.reject(m.id, '权限检测不执行 Agent 请求'); });

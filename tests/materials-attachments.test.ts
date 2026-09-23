@@ -154,8 +154,9 @@ test('empty concise result is success; cap, valid categories and read/archive me
   const draft = { id: 'd', concise: true, files: [], binding: { project: { remoteRoot: '/p', uploadPath: '/p/submissions/a' } } } as unknown as Draft;
   applyPreparation(draft, '{"artifacts":[]}'); assert.equal(draft.body, ''); assert.equal(draft.artifacts!.length, 0);
   assert.throws(() => applyPreparation(draft, JSON.stringify({ artifacts: Array(6).fill({ category: 'finding', title: '重复', fields: { statement: '重复' } }) })), /超过 5/);
-  const result = mergeAccountRecords({ 'update:p': { title: '旧' } }, { 'update:p': { title: '新', readAt: 'now' } }, { 'update:p': { title: '新', actions: [{ kind: 'archived' }] } });
-  assert.equal(result.records['update:p'].readAt, 'now'); assert.equal(result.conflicts.length, 0);
+  const readAt = '2026-09-23T00:00:00.000Z';
+  const result = mergeAccountRecords({ 'update:p': { title: '旧' } }, { 'update:p': { title: '新', readAt } }, { 'update:p': { title: '新', actions: [{ kind: 'archived' }] } });
+  assert.equal(result.records['update:p'].readAt, readAt); assert.equal(result.conflicts.length, 0);
 });
 
 test('account switching never exports another account and loss of membership keeps private records', async () => {
