@@ -9,6 +9,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import { repairConclusionImports } from '../src/core/conclusion-import-repair';
+import { mergeAccountRecords } from '../src/core/account-sync';
 import { conclusionTitle } from '../src/shared/conclusion-context';
 import type { ContentUpdate, Draft, ProjectConclusion, RemoteBinding } from '../src/shared/types';
 import type { SharedContent } from '../src/shared/content';
@@ -81,6 +82,47 @@ test('stale activity imports cannot silently adopt a renamed revision or record 
   } finally { await x.close(); }
 });
 
+test('activity can be marked processed and reopened without changing local results, sources or newer events', async () => {
+  const item = remote('独立成果', '确认过的项目依据'), other = remote('另一项成果', '其他依据'), x = await fixture([item, other]);
+  try {
+    const event = x.wb.contentUpdates().find(value => value.id === item.id)!, untouched = structuredClone(x.wb.contentUpdates().find(value => value.id === other.id)!);
+    await x.wb.markContentUpdates([event.eventId]);
+    assert(event.readAt && event.statusChangedAt); assert.equal(x.wb.conclusions(offlineProjectId).length, 0);
+    await x.wb.markContentUpdates([event.eventId]); assert.equal(event.actions?.length, 1, 'repeating the mark is idempotent');
+    const local = (await x.wb.importContentConclusion(offlineProjectId, item.id, 1)).conclusion;
+    const session = await x.wb.createSession('codex', x.root, offlineProjectId); await x.wb.attachConclusion(session.id, local.id);
+    const before = structuredClone({ conclusions: x.wb.store.conclusions, sources: session.sources, actions: event.actions });
+    const newer = { ...activity(item), eventId: event.eventId + ':newer', revision: 2, change: 'updated' as const };
+    x.wb.store.settings.contentUpdates!.push(newer);
+    await x.wb.markContentUpdates([event.eventId], false);
+    assert.equal(event.readAt, undefined); assert(event.statusChangedAt);
+    assert.deepEqual({ conclusions: x.wb.store.conclusions, sources: session.sources, actions: event.actions }, before);
+    assert.deepEqual(x.wb.contentUpdates().find(value => value.id === other.id), untouched);
+    assert.equal(newer.readAt, undefined);
+    const restored = new Store(x.root); await restored.init();
+    const pending = restored.settings.contentUpdates!.find(value => value.eventId === event.eventId)!;
+    assert.equal(pending.readAt, undefined); assert.equal(pending.statusChangedAt, event.statusChangedAt);
+    assert.deepEqual(pending.actions, event.actions);
+    await x.wb.markContentUpdates([event.eventId]); assert(event.readAt); assert.equal(newer.readAt, undefined);
+  } finally { await x.close(); }
+});
+
+test('account sync keeps the latest processing choice and merges history even when another computer records a save', () => {
+  const event = activity(remote('项目成果', '依据'));
+  const base = { ...event, readAt: '2026-09-23T01:00:00Z', actions: [{ kind: 'archived', at: '2026-09-23T01:00:00Z' }] };
+  const reopened = { ...base, readAt: undefined, statusChangedAt: '2026-09-23T01:03:00Z' };
+  const saved = { ...base, readAt: '2026-09-23T01:02:00Z', statusChangedAt: '2026-09-23T01:02:00Z', actions: [...base.actions, { kind: 'saved_conclusion', targetId: 'local', at: '2026-09-23T01:02:00Z' }] };
+  for (const [left, right] of [[reopened, saved], [saved, reopened]]) {
+    const merged = mergeAccountRecords({ 'update:event': base }, { 'update:event': left }, { 'update:event': right });
+    assert.equal(merged.conflicts.length, 0); assert.equal(merged.records['update:event'].readAt, undefined);
+    assert.equal(merged.records['update:event'].statusChangedAt, reopened.statusChangedAt);
+    assert.equal(merged.records['update:event'].actions.length, 2);
+  }
+  const processed = { ...saved, readAt: '2026-09-23T01:04:00Z', statusChangedAt: '2026-09-23T01:04:00Z' };
+  const merged = mergeAccountRecords({ 'update:event': base }, { 'update:event': reopened }, { 'update:event': processed });
+  assert.equal(merged.records['update:event'].readAt, processed.readAt);
+});
+
 test('different local result IDs also remain independent when their titles and content are identical', async () => {
   const x = await fixture([]);
   try {
@@ -147,13 +189,18 @@ test('legacy recovery is deterministic and never resurrects a deleted copy or sp
 });
 
 test('activity history distinguishes the original revision from the actually imported result without opening windows', async () => {
-  const { ContentActionRecord, UpdatedContentConfirmation } = await import('../src/renderer/content-updates');
+  const { ContentActionRecord, ContentUpdatesPanel } = await import('../src/renderer/content-updates');
+  const { ActivityResultActions } = await import('../src/renderer/activity-result-actions');
   const item = remote('旧版风险标题', '旧内容'), event = activity(item);
   const action = { kind: 'saved_conclusion' as const, targetTitle: '更新后的综合结论', sourceTitle: '更新后的综合结论', sourceRevision: 2, at: now };
   const html = renderToStaticMarkup(createElement(ContentActionRecord, { event, action }));
   assert.match(html, /已加入更新后的成果/); assert.match(html, /更新后的综合结论/); assert.match(html, /第 2 版/); assert.match(html, /此动态记录的是第 1 版/);
-  const modal = renderToStaticMarkup(createElement(UpdatedContentConfirmation, { original: event, latest: { ...event, title: '更新后的综合结论', revision: 2 }, busy: false, confirm: () => {}, close: () => {}, view: () => {} }));
-  assert.match(modal, /旧版风险标题/); assert.match(modal, /更新后的综合结论/); assert.match(modal, /将第 2 版存入本地成果库/);
+  const detail = renderToStaticMarkup(createElement(ActivityResultActions, { event, item: { ...item, title: '更新后的综合结论', revision: 2 }, changed: async () => {}, notice: () => {} }));
+  assert.match(detail, /动态记录第 1 版，当前展示第 2 版/); assert.match(detail, /存入本地成果库<\/button>/); assert.match(detail, /标记已处理/);
+  const reopened = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ ...event, actions: [action] }], aliases: {}, view: () => {}, changed: async () => {} }));
+  assert.match(reopened, /class="badge running">待处理/); assert.match(reopened, /查看结果/); assert.doesNotMatch(reopened, /<button[^>]*>存入本地成果库/);
+  const processed = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ ...event, actions: [action], readAt: now }], aliases: {}, view: () => {}, changed: async () => {}, filters: { scope: 'processed', filter: 'all' } }));
+  assert.match(processed, /class="badge done">已处理/); assert.match(processed, /设为待处理/); assert.match(processed, /<summary>处理记录/);
   const repaired = renderToStaticMarkup(createElement(ContentActionRecord, { event, action: { ...action, sourceRevision: 1, correctedFromTitle: '曾被误归入的资料' } }));
   assert.match(repaired, /已纠正旧版自动归并/); assert.match(repaired, /已恢复为独立成果/); assert.doesNotMatch(repaired, /已加入更新后的成果/);
 });

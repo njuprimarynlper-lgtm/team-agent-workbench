@@ -21,6 +21,10 @@ export const resultCategoryBoundaries: Record<MaterialCategory, { question: stri
 const categoriesSchema = z.array(materialCategorySchema).min(1, '至少启用一个类别').max(materialCategories.length).refine(values => new Set(values).size === values.length, '类别不能重复');
 export const resultCombinationSchema = z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(30), categories: categoriesSchema });
 export interface ResultCombination { id: string; name: string; categories: MaterialCategory[] }
+export const temporaryCombinationId = 'temporary';
+export function temporaryResultCombination(categories: unknown): ResultCombination {
+  return { id: temporaryCombinationId, name: '临时组合', categories: categoriesSchema.parse(categories) };
+}
 export const resultPresets: ResultCombination[] = [
   { id: 'research', name: '算法研究', categories: ['finding', 'project_standard', 'method_exploration', 'verification', 'issue', 'baseline_change_proposal'] },
   { id: 'development', name: '软件开发', categories: ['requirement', 'project_standard', 'design', 'finding', 'verification', 'issue', 'troubleshooting', 'guide', 'baseline_change_proposal'] },

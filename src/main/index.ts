@@ -131,7 +131,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'content.sync': return workbench.syncContentUpdates();
     case 'content.updates': return workbench.contentUpdates();
-    case 'content.updates.read': return workbench.markContentUpdates(z.object({ eventIds: z.array(z.string()).max(300).optional() }).parse(raw || {}).eventIds);
+    case 'content.updates.read': { const p = z.object({ eventIds: z.array(z.string()).max(10000).optional(), processed: z.boolean().optional() }).parse(raw || {}); return workbench.markContentUpdates(p.eventIds, p.processed); }
     case 'content.updates.clear': return workbench.clearReadContentUpdates();
     case 'content.updates.dismiss': return workbench.dismissContentUpdates(z.object({ eventIds: z.array(z.string()) }).parse(raw).eventIds);
     case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived); }
@@ -208,8 +208,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope); }
-    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']) }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories); }
+    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional(), temporary: z.boolean().optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.temporary); }
+    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']), temporary: z.boolean().optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.temporary); }
     case 'draft.confirmEmpty': return workbench.confirmEmptyPreparation(sessionInput.parse(raw).id);
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);

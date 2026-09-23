@@ -118,7 +118,7 @@ test('initial and repeated preparation show the same category choices; empty rev
   const session = { id: 'session', title: '工作会话', messages: [message], binding: draft.binding } as AgentSession;
   for (const again of [false, true]) {
     const html = renderToStaticMarkup(React.createElement(PreparationOptionsModal, { session, combination: resultPresets[0], again, close: () => {}, started: async () => {} }));
-    for (const caption of ['本次成果分类', '调整我的分类', '项目结论', '方法探索', 'type="checkbox"']) assert(html.includes(caption), caption);
+    for (const caption of ['本次成果分类', '调整分类组合', '项目结论', '方法探索', 'type="checkbox"']) assert(html.includes(caption), caption);
     if (again) { assert(html.includes('重新整理整个会话')); assert(html.includes('只看新增内容')); }
   }
   let calls = 0;

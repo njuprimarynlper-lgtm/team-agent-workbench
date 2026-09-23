@@ -103,6 +103,25 @@
 .delete-selection-list { max-height: 240px; overflow-y: auto; padding-left: 24px; overflow-wrap: anywhere; }
 .delete-selection-list li + li { margin-top: 8px; }
 
+.updates-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
+.updates-filters .updates-scope { margin: 0 auto 0 0; padding: 4px; gap: 3px; border: 1px solid #dce5df; border-radius: 10px; background: #edf2ee; }
+.updates-filters .updates-scope button { padding: 8px 14px; border: 0; border-radius: 7px; gap: 8px; color: #65756b; }
+.updates-filters .updates-scope button.active { color: #235d3d; background: #fff; box-shadow: 0 1px 3px #153b2415; }
+.updates-count { min-width: 21px; padding: 1px 6px; border-radius: 10px; background: #e3eae5; color: #526a5b; font-size: 11px; }
+.updates-scope button.active .updates-count { background: #dceee2; color: #256340; }
+.updates-type-filter { display: flex; align-items: center; gap: 8px; color: #63776a; font-size: 12px; }
+.updates-type-filter select { width: auto; min-width: 155px; }
+.updates-bulk-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; padding: 12px 14px; border: 1px solid #dce5df; border-radius: 9px; background: #f0f5f1; font-size: 12px; }
+.updates-bulk-actions > .danger { margin-left: auto; }
+.updates-page .update-entry-actions { flex-direction: column; align-items: stretch; min-width: 134px; }
+.updates-page .update-entry-body h2 { margin: 10px 0 7px; font-size: 16px; line-height: 1.5; overflow-wrap: anywhere; }
+.updates-page .update-history { margin-top: 10px; }
+.activity-result-actions { display: grid; gap: 12px; margin: 0 0 18px; padding: 16px 18px; border: 1px solid #dbe5de; border-radius: 10px; background: #f4f8f5; }
+.activity-result-status { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; font-size: 12px; color: #64766a; }
+.activity-result-actions .activity-revision-note { margin: 0; color: #7d642e; font-size: 12px; }
+.activity-own-actions { width: 100%; margin-top: 12px; color: #748279; font-size: 12px; }
+.activity-own-actions summary { cursor: pointer; margin-bottom: 8px; }
+@media (max-width: 1050px) { .updates-page .update-entry-actions { flex-direction: row; flex-wrap: wrap; } .updates-filters .updates-scope { width: 100%; } .updates-filters .updates-scope button { flex: 1; } }
 .update-entry.selecting-delete { grid-template-columns: 20px 44px minmax(0, 1fr) auto; }
 .update-entry.selecting-delete > .check-row { margin-top: 12px; }
 @media (max-width: 1050px) { .update-entry.selecting-delete { grid-template-columns: 20px 40px minmax(0, 1fr); } .update-entry.selecting-delete .update-entry-actions { grid-column: 3; } }

@@ -33,8 +33,8 @@ test('local project results use consistent navigation and actions without renami
     assert.match(library, />新建成果<\/button>/);
     const session = renderToStaticMarkup(createElement(SessionMaterials, { session: { binding: { project } } as AgentSession, changed: async () => {} }));
     assert.match(session, />引用项目成果<\/button>/);
-    const activity = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ eventId: 'event', projectId: project.id, projectName: project.name, id: 'result', title: '共享成果', revision: 1, change: 'new', occurredAt: '2026-09-22', detectedAt: '2026-09-22' }], aliases: {}, apply: async () => undefined, view: () => {}, deletionResolved: async () => {} }));
-    assert.match(activity, />存入本地成果库<\/button>/); assert.doesNotMatch(activity, /加入项目资料/);
+    const activity = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ eventId: 'event', projectId: project.id, projectName: project.name, id: 'result', title: '共享成果', revision: 1, change: 'new', occurredAt: '2026-09-22', detectedAt: '2026-09-22' }], aliases: {}, view: () => {}, changed: async () => {} }));
+    assert.match(activity, />查看结果<\/button>/); assert.match(activity, /标记已处理/); assert.doesNotMatch(activity, />存入本地成果库<\/button>|加入项目资料/);
     // This role-neutral entry must not become an administrator-only label.
     const main = await fs.readFile('src/renderer/main.tsx', 'utf8');
     assert.match(main, /title="本地项目成果库" data-tooltip="本地项目成果库" aria-label="本地项目成果库"/);

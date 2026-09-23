@@ -18,7 +18,12 @@ export function mergeAccountRecords(base: AccountRecords, local: AccountRecords,
     const b = base[key] ?? null, l = local[key] ?? null, r = remote[key] ?? null;
     if (canonical(l) === canonical(r) || canonical(b) === canonical(r)) records[key] = l;
     else if (canonical(b) === canonical(l)) records[key] = r;
-    else if (key.startsWith('update:') && l && r) records[key] = { ...r, ...l, readAt: l.readAt || r.readAt, unavailableAt: l.unavailableAt || r.unavailableAt, actions: [...new Map([...(r.actions || []), ...(l.actions || [])].map((a: unknown) => [canonical(a), a])).values()] };
+    else if (key.startsWith('update:') && l && r) {
+      // A later explicit reopen wins over an earlier completion, while action history is retained.
+      const leftTime = Date.parse(l.statusChangedAt || l.readAt || '') || 0, rightTime = Date.parse(r.statusChangedAt || r.readAt || '') || 0;
+      const status = leftTime > rightTime ? l : rightTime > leftTime ? r : !l.readAt ? l : r;
+      records[key] = { ...r, ...l, readAt: status.readAt, statusChangedAt: status.statusChangedAt, archiveReason: status.archiveReason, unavailableAt: l.unavailableAt || r.unavailableAt, actions: [...new Map([...(r.actions || []), ...(l.actions || [])].map((a: unknown) => [canonical(a), a])).values()] };
+    }
     else if (key.startsWith('dismissed:')) records[key] = !!(l || r);
     else if (key.startsWith('seen:') && l && r) records[key] = { ...r, ...l };
     else {
