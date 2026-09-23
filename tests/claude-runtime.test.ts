@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +10,7 @@ import { ClaudeRuntime, claudeNativeMode } from '../src/core/claude-runtime';
 import { claudeAuth } from '../src/core/provider-auth';
 import { claudeCapabilities } from '../src/core/provider-capabilities';
 import { settingsSchema } from '../src/core/config';
+import { packageHistory } from '../src/core/artifacts';
 
 const fixture = path.resolve('tests/fixtures/claude-cli.cjs');
 const removeTemp = async (dir: string) => { if (!path.resolve(dir).startsWith(path.resolve(os.tmpdir()) + path.sep)) throw new Error('Unexpected temporary directory'); await fs.rm(dir, { recursive: true, force: true }); };
@@ -52,6 +54,11 @@ test('Claude streams, requests approval and answers, then resumes the same conve
     assert.equal(session.messages.filter(m => m.role === 'assistant').at(-1)?.text, 'continued');
     assert.equal(approvals, 2); assert.equal(questions, 2); assert.equal(done, 2);
     assert.equal(session.status, 'idle'); assert.equal(session.approvals.length, 0);
+    const archive = await packageHistory(session, cwd, cwd);
+    const metadata = JSON.parse(execFileSync('python', ['-c', 'import sys,zipfile; print(zipfile.ZipFile(sys.argv[1]).read("session.json").decode("utf-8"))', archive], { encoding: 'utf8' }));
+    assert.equal(metadata.captureSource, 'claude-code-stream-json');
+    assert.equal(metadata.trainingConsent, false);
+    assert.equal(metadata.session.nativeId, id);
     await runtime.close();
   } finally { await removeTemp(cwd); }
 });
