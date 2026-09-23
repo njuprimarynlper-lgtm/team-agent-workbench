@@ -24,7 +24,7 @@ export interface SessionFile { path: string; name: string; size: number; modifie
 export interface MessageContext { nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
 export interface Message { id: string; role: 'user' | 'assistant' | 'tool' | 'system'; text: string; userText?: string; context?: MessageContext; steering?: boolean; createdAt: string }
 export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'deny' | 'answer' }
-export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: string[] }[] }
+export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: { id: string; label: string }[]; allowMultiple?: boolean }[] }
 export interface RemoteBinding { connectionId: string; host: string; port: number; username: string; fingerprint: string; project: Project }
 export interface AgentSession {
   id: string; title: string; provider: Provider; model?: string; closedAt?: string; nativeId?: string; nativePath?: string; codexStorage?: 'workbench';

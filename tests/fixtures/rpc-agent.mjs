@@ -16,11 +16,13 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
       if (turn === 1) send({ method: 'item/started', params: { threadId: nativeId, turnId: 'turn-1', item: { id: 'patch-1', type: 'fileChange', changes: [{ path: 'solution.py', kind: { type: 'update' }, diff: '-old\n+new' }] } } });
       send({ method: 'item/started', params: { threadId: 'another-thread', turnId: 'turn-' + turn, item: { id: 'patch-1', type: 'fileChange', changes: [{ path: 'wrong.py', diff: 'unrelated' }] } } });
       send({ id: 'approval-1', method: 'item/fileChange/requestApproval', params: { threadId: nativeId, turnId: 'turn-' + turn, itemId: 'patch-1', reason: 'retry without sandbox?' } });
-    } else send({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: { command: 'echo test', threadId: nativeId } });
+    } else if (mode === 'codex-question') send({ id: 'approval-1', method: 'item/tool/requestUserInput', params: { threadId: nativeId, questions: [{ id: 'direction', question: '下一步做什么？', options: [{ label: '继续验证' }, { label: '先整理' }] }] } });
+    else send({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: { command: 'echo test', threadId: nativeId } });
   } else if (m.method === 'session/prompt') {
     globalThis.promptRequestId = m.id;
     send({ method: 'session/update', params: { sessionId: nativeId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Cursor 中文回复' } } } });
-    send({ id: 'approval-1', method: 'session/request_permission', params: { toolCall: { title: 'test command' }, options: [{ optionId: 'allow-once', kind: 'allow_once', name: 'Allow once' }, { optionId: 'reject-once', kind: 'reject_once', name: 'Reject' }] } });
+    if (mode === 'cursor-question') send({ id: 'approval-1', method: 'cursor/ask_question', params: { sessionId: nativeId, questions: [{ id: 'direction', prompt: '先做什么？', options: [{ id: 'verify', label: '验证' }, { id: 'write', label: '写说明' }] }, { id: 'checks', prompt: '检查哪些？', allowMultiple: true, options: [{ id: 'unit', label: '单元测试' }, { id: 'ui', label: '界面测试' }] }] } });
+    else send({ id: 'approval-1', method: 'session/request_permission', params: { toolCall: { title: 'test command' }, options: [{ optionId: 'allow-once', kind: 'allow_once', name: 'Allow once' }, { optionId: 'reject-once', kind: 'reject_once', name: 'Reject' }] } });
   } else if (m.id === 'approval-1' && m.result) {
     if (mode.startsWith('codex')) { send({ method: 'item/completed', params: { threadId: nativeId, item: { id: 'answer-1', type: 'agentMessage', text: '中文回复' } } }); send({ method: 'turn/completed', params: { threadId: nativeId, turn: { id: 'turn-' + turn, status: 'completed' } } }); }
     else send({ id: globalThis.promptRequestId, result: { stopReason: 'end_turn' } });
