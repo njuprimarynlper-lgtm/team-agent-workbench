@@ -30,7 +30,9 @@ test('local project results use consistent navigation and actions without renami
     assert.match(library, /你在本项目中保存的成果，可供会话引用/);
     assert.match(library, /aria-label="搜索个人成果"/);
     assert.doesNotMatch(library, /管理项目资料|我的资料|我的项目笔记|本地项目结论库|<h1>项目资料/);
-    for (const category of ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(library.includes(category), 'renaming the library must not rename its content categories');
+    assert.match(library, /aria-label="个人成果类别"/);
+    assert.match(library, /全部类别（0）/);
+    for (const category of ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(!library.includes(category), 'an empty library must not offer project preset categories');
     assert.match(library, />新建成果<\/button>/);
     const unified = renderToStaticMarkup(createElement(ProjectResults, { projectName: project.name, scope: 'personal', changeScope: () => {}, children: createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {}, embedded: true }) }));
     assert.equal(unified.match(/<h1>/g)?.length, 1); assert.match(unified, /项目成果库 · 测试项目/);
@@ -58,10 +60,14 @@ test('team project results have one name for both roles while administrative con
     const html = renderToStaticMarkup(createElement(SharedContentLibrary, { ...common, admin }));
     assert.match(html, /<h1>团队成果 · 测试项目<\/h1>/);
     assert.match(html, /aria-label="搜索团队成果"/);
-    assert.match(html, /aria-label="团队成果类型"/);
+    assert.doesNotMatch(html, /aria-label="团队成果内容形式"/, 'a content format filter is unnecessary in an empty library');
     assert.doesNotMatch(html, /整理项目文档|公共成果|个人成果库/);
     assert.equal(html.includes('多选语义合并'), admin);
-    assert.equal(html.includes('aria-label="团队成果操作状态"'), admin);
+    assert.match(html, /aria-label="团队成果类别"/);
+    assert.match(html, /全部类别（0）/);
+    assert.equal(html.includes('包含个人库已有成果'), admin);
+    assert.doesNotMatch(html, /维护全部成果|返回差异列表|全部类型|全部标签/);
+    assert.doesNotMatch(html, /团队成果操作状态|未操作|已操作|待整理|已整理/);
     const result = renderToStaticMarkup(createElement(SharedContentLibrary, { ...common, admin, resultId: 'result', returnToUpdates: () => {} }));
     assert.match(result, /<h1>动态结果 · 测试项目<\/h1>/);
     assert.doesNotMatch(result, /aria-label="搜索团队成果"|多选语义合并/);

@@ -33,7 +33,7 @@ try {
   const row = ap.locator('tbody tr').filter({ hasText: 'test1' });
   const config = await memberProfile(admin, 'test1'); assert.equal(config.workPath, ''); assert.deepEqual(config.projects, []);
   const user = await launch('user'), up = user.page;
-  await setConnectionProfile(user, config); await up.getByLabel('本机工作路径', { exact: true }).fill(data);
+  await setConnectionProfile(user, config);
   await up.getByLabel('成员账号').fill('test1'); await up.getByLabel('登录密码', { exact: true }).fill('1');
   await expect(up.getByLabel('共享工作路径', { exact: true })).toHaveCount(0); await expect(up.getByLabel('Linux 工作路径', { exact: true })).toHaveCount(0);
   await up.getByRole('button', { name: '登录', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
@@ -51,7 +51,8 @@ try {
   for (const group of ['ocr', 'nlp']) {
     if (group !== 'ocr') await up.getByTitle('在 ' + group + ' 创建项目', { exact: true }).click();
     await expect(up.getByRole('dialog', { name: '完善项目资料' })).toContainText(group + ' · 项目初始化');
-    await completeProjectSetup(up, '同名项目');
+    await fs.mkdir(path.join(data, group), { recursive: true });
+    await completeProjectSetup(up, '同名项目', path.join(data, group));
   }
   await expect(up.locator('.workgroup-project')).toHaveCount(2);
   // One saved account/connection discovers both groups again on the next login.
@@ -68,10 +69,9 @@ try {
   const projects = (await snap()).connection.profile.projects, ocr = projects.find(p => p.groupName === 'local_ocr');
   await up.locator('[data-project-id="' + ocr.id + '"]').click();
   await up.getByTitle('新建会话', { exact: true }).click(); await up.getByLabel('Codex 登录状态').getByText('已登录', { exact: true }).waitFor();
-  assert.deepEqual(await up.getByLabel('绑定共享项目').locator('optgroup').evaluateAll(elements => elements.map(e => e.label).sort()), ['nlp', 'ocr']);
-  await expect(up.getByLabel('绑定共享项目')).toHaveValue(ocr.id);
+  await expect(up.getByLabel('绑定共享项目')).toHaveCount(0);
   await up.getByRole('button', { name: '创建会话', exact: true }).click(); await expect(up.locator('.modal')).toHaveCount(0);
-  const bound = (await snap()).sessions.find(s => s.binding?.project.id === ocr.id); assert(bound);
+  const bound = (await snap()).sessions.find(s => s.binding?.project.id === ocr.id); assert(bound); assert.equal(bound.cwd, await fs.realpath(path.join(data, 'ocr')));
   await up.locator('[data-group-name="local_nlp"] .workgroup-project').click();
   assert.equal((await snap()).sessions.find(s => s.id === bound.id).binding.project.id, ocr.id);
   await up.screenshot({ path: path.join(data, 'two-groups.png') });

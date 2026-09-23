@@ -8,19 +8,20 @@ import { childRemote, assertRemote, safeFilename } from './paths';
 import { SharedFiles } from './shared-files';
 import { Store } from './store';
 import { attachmentPath } from '../shared/attachments';
-export interface TransferInput { id?: string; dependsOn?: string[]; attachment?: boolean; name?: string; local: string; binding: RemoteBinding; folder: string; kind: Transfer['kind']; sessionId?: string; metadata?: ContentMetadata; trajectoryHash?: string }
+import { linkConclusionPublications } from './conclusion-publications';
+export interface TransferInput { conclusionSourceId?: string; id?: string; dependsOn?: string[]; attachment?: boolean; name?: string; local: string; binding: RemoteBinding; folder: string; kind: Transfer['kind']; sessionId?: string; metadata?: ContentMetadata; trajectoryHash?: string }
 export class TransferQueue {
   private active = false;
   private persisting = new Set<string>();
   constructor(private store: Store, private remote: SharedFiles, private changed: () => void) {}
-  async enqueue(local: string, binding: RemoteBinding, folder: string, kind: Transfer['kind'], sessionId?: string, metadata?: ContentMetadata, trajectoryHash?: string) {
-    return (await this.enqueueMany([{ local, binding, folder, kind, sessionId, metadata, trajectoryHash }]))[0];
+  async enqueue(local: string, binding: RemoteBinding, folder: string, kind: Transfer['kind'], sessionId?: string, metadata?: ContentMetadata, trajectoryHash?: string, conclusionSourceId?: string) {
+    return (await this.enqueueMany([{ local, binding, folder, kind, sessionId, metadata, trajectoryHash, conclusionSourceId }]))[0];
   }
   async enqueueMany(inputs: TransferInput[]): Promise<Transfer[]> {
     const transfers: Transfer[] = await Promise.all(inputs.map(async input => {
       assertRemote(input.binding.project.remoteRoot, input.folder);
       const id = input.id || randomUUID(), sha256 = await hashFile(input.local);
-      return { id, sha256, attachment: input.attachment, dependsOn: input.dependsOn, metadata: input.metadata, trajectoryHash: input.trajectoryHash, kind: input.kind, name: input.name || path.basename(input.local), status: 'queued', bytes: 0, total: (await fsp.stat(input.local)).size, target: input.attachment ? attachmentPath(input.binding, sha256) : childRemote(input.folder, `${new Date().toISOString().replace(/[:.]/g, '-')}-${id.slice(0, 8)}-${safeFilename(path.basename(input.local))}`), projectName: input.binding.project.name, createdAt: new Date().toISOString(), sessionId: input.sessionId, localPath: input.local, binding: structuredClone(input.binding) };
+      return { id, sha256, conclusionSourceId: input.conclusionSourceId, attachment: input.attachment, dependsOn: input.dependsOn, metadata: input.metadata, trajectoryHash: input.trajectoryHash, kind: input.kind, name: input.name || path.basename(input.local), status: 'queued', bytes: 0, total: (await fsp.stat(input.local)).size, target: input.attachment ? attachmentPath(input.binding, sha256) : childRemote(input.folder, `${new Date().toISOString().replace(/[:.]/g, '-')}-${id.slice(0, 8)}-${safeFilename(path.basename(input.local))}`), projectName: input.binding.project.name, createdAt: new Date().toISOString(), sessionId: input.sessionId, localPath: input.local, binding: structuredClone(input.binding) };
     }));
     transfers.forEach(item => this.persisting.add(item.id));
     this.store.transfers.unshift(...transfers.slice().reverse());
@@ -65,6 +66,7 @@ export class TransferQueue {
             if (task.metadata?.attachments?.length && JSON.stringify(receipt?.attachments) !== JSON.stringify(task.metadata.attachments)) throw new Error('服务端未保留附件信息，请先更新服务端再重试');
           }
           task.status = 'done'; task.completedAt = new Date().toISOString(); task.bytes = task.total;
+          linkConclusionPublications(this.store.conclusions, this.store.drafts, [task]);
           if (task.kind === 'history') { const session = this.store.sessions.find(s => s.id === task.sessionId); if (session) { session.lastArchiveAt = task.completedAt; session.lastTrajectoryHash = task.trajectoryHash; } }
           await this.store.save();
         }

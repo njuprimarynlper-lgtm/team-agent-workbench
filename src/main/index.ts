@@ -1,4 +1,5 @@
 import { ownDataDirectory } from '../shared/single-instance';
+import { runtimeAssets } from '../shared/runtime-assets';
 import { draftDeleteIdsSchema } from '../shared/draft-delete';
 import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
@@ -23,7 +24,7 @@ import { decodeEgressInvite } from '../core/egress-config';
 type WindowContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; slot: number; broadcast: () => void; notice: (message: string) => void };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
 let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false; let pendingStoredWindow = false;
-const entry = path.join(__dirname, 'index.html');
+const entry = path.join(__dirname, runtimeAssets, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
 const serverIdentities = new ServerIdentityStore(path.join(app.getPath('userData'), 'server-identities.json'));
@@ -70,7 +71,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
-      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
+      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences', 'projectDirectories'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
       for (const p of ['codex', 'cursor'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
@@ -79,6 +80,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'account.sync': await workbench.accountSync.sync(); return workbench.accountSync.state;
     case 'account.sync.resolve': { const p = z.object({ key: z.string(), choice: z.enum(['local', 'remote']) }).parse(raw); await workbench.accountSync.resolve(p.key, p.choice); return workbench.accountSync.state; }
     case 'workspace.research': return workbench.researchWorkspace();
+    case 'project.directory.save': { const p = z.object({ projectId: z.string().min(1), directory: z.string().max(32768), contextKey: z.string().max(4096) }).parse(raw); return workbench.saveProjectDirectory(p.projectId, p.directory, p.contextKey); }
     case 'provider.auth': {
       const p = z.object({ provider, cwd: z.string().optional() }).parse(raw);
       return workbench.accounts.check(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'));
@@ -314,7 +316,7 @@ async function storedDatasetSlots() {
 }
 async function createWindow(preferredSlot?: number) {
   const slot = claimSlot(preferredSlot);
-  const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
+  const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, runtimeAssets, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   windows.add(window);
   const emit = (event: WorkbenchEvent) => { if (!window.isDestroyed()) window.webContents.send('workbench:event', event); };
   let emitTimer: NodeJS.Timeout | undefined;

@@ -14,7 +14,6 @@ export function ProjectResults({ projectName, scope, changeScope, children }: { 
         changeScope(next); tabs.current[next]?.focus();
       }}>{value === 'team' ? <UsersRound size={18}/> : <UserRound size={18}/>}<span>{value === 'team' ? '团队' : '个人'}</span><small>{value === 'team' ? '项目成员共享' : '仅自己可见'}</small></button>)}
     </div>
-    <p className="result-scope-description">{scope === 'team' ? '由成员提交、组管理员统一维护；成员可修改自己的未整理提交。' : '保存会话整理结果和你选用的团队成果，由你维护，并随同一账号同步。'}</p>
     <section className="result-scope-panel" role="tabpanel" id={`results-panel-${scope}`} aria-labelledby={`results-tab-${scope}`} tabIndex={0}>{children}</section>
   </div>;
 }

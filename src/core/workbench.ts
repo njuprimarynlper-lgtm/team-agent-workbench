@@ -30,6 +30,9 @@ import { freezeFile, packageDraftArtifact, packageHistory, hashFile, contributio
 import { editableArtifact, freezeDraftAttachments } from './draft-attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
+import { projectDirectoryKey } from '../shared/project-directory';
+import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
+import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
 import { attachedConclusion, conclusionTitle } from '../shared/conclusion-context';
 import { safeFilename, localWithin } from './paths';
@@ -206,37 +209,56 @@ export class Workbench {
     return this.deleteConclusions([{ id, version }]);
   }
   async deleteConclusions(selections: { id: string; version: number }[]) {
-    const conclusions = selections.map(selection => {
-      const conclusion = this.store.conclusions.find(item => item.id === selection.id && !item.deletedAt);
-      if (!conclusion) throw new Error('结论不存在，请刷新后重新选择');
-      if (conclusion.version !== selection.version) throw new Error('结论已更新，请重新查看后再确认删除');
-      return conclusion;
-    });
-    // Validate the complete selection before removing any record.
-    const now = new Date().toISOString();
-    for (const conclusion of conclusions) {
-      conclusion.deletedAt = now; conclusion.archived = true;
-      for (const origin of conclusion.sources) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(conclusion.projectId, origin.id, origin.revision, { kind: 'deleted_conclusion', targetId: conclusion.id, targetTitle: conclusionTitle(conclusion) });
-    }
-    await this.store.save(); this.broadcast();
+    return this.edit('conclusion-delete', async () => {
+      const conclusions = selections.map(selection => {
+        const conclusion = this.store.conclusions.find(item => item.id === selection.id && !item.deletedAt);
+        if (!conclusion || !this.conclusions(conclusion.projectId, true).includes(conclusion)) throw new Error('结论不存在，请刷新后重新选择');
+        if (conclusion.version !== selection.version) throw new Error('结论已更新，请重新查看后再确认删除');
+        return conclusion;
+      });
+      const before = conclusions.map(value => ({ value, snapshot: structuredClone(value) }));
+      const events = (this.store.settings.contentUpdates || []).filter(event => conclusions.some(conclusion => conclusion.projectId === event.projectId && conclusion.sources.some(source => source.kind === 'remote' && source.id === event.id))).map(value => ({ value, snapshot: structuredClone(value) }));
+      const now = new Date().toISOString();
+      for (const conclusion of conclusions) {
+        conclusion.deletedAt = now; conclusion.archived = true;
+        for (const origin of conclusion.sources) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(conclusion.projectId, origin.id, origin.revision, { kind: 'deleted_conclusion', targetId: conclusion.id, targetTitle: conclusionTitle(conclusion) });
+      }
+      const changed = [...before, ...events].map(entry => ({ ...entry, applied: JSON.stringify(entry.value) }));
+      try { await this.store.save(); }
+      catch (error) {
+        for (const { value, snapshot, applied } of changed) if (JSON.stringify(value) === applied) { for (const key of Object.keys(value)) delete (value as any)[key]; Object.assign(value, snapshot); }
+        throw error;
+      }
+      this.broadcast();
+    }, false);
   }
   private organizeConclusion(projectId: string, title: string, content: string, source: ConclusionSource, category?: ContributionCategory): ConclusionOrganization {
     const project = this.conclusions(projectId, true);
     // A shared source may also occur in an explicitly merged document. Prefer
     // its own material; lexical similarity is for retrieval, never for saving.
-    const sourced = project.find(item => item.sources.length === 1 && item.sources[0].kind === source.kind && item.sources[0].id === source.id);
+    const candidates = project.filter(item => item.sources.length === 1 && item.sources[0].kind === source.kind && item.sources[0].id === source.id);
+    // Preserve personal rewrites. A fresh team copy is separate from them, and
+    // subsequent imports reuse that copy instead of creating more duplicates.
+    const sourced = source.kind === 'remote'
+      ? candidates.find(item => normalizedResultBody(item.content) === normalizedResultBody(content)) || candidates.find(item => item.automatic)
+      : candidates[0];
     if (sourced) {
       const prior = sourced.sources.find(value => value.kind === source.kind && value.id === source.id)!;
-      const changed = JSON.stringify(prior) !== JSON.stringify(source) || !!(sourced.automatic && sourced.sources.length === 1 && sourced.title !== title);
-      Object.assign(prior, source); sourced.archived = undefined;
-      if (changed && sourced.automatic && sourced.sources.length === 1) { sourced.title = title; sourced.content = content; sourced.version++; sourced.updatedAt = source.updatedAt; }
+      const nextSource = { ...source, ...(prior.publication ? { publication: prior.publication } : {}) };
+      const changed = JSON.stringify(prior) !== JSON.stringify(nextSource) || !!(sourced.automatic && sourced.sources.length === 1 && sourced.title !== title);
+      Object.assign(prior, nextSource); sourced.archived = undefined;
+      if (changed) {
+        if (sourced.automatic) { sourced.title = title; sourced.content = content; }
+        sourced.version++; sourced.updatedAt = source.updatedAt;
+      }
       if (sourced.automatic && category) sourced.category = category;
       return { conclusion: sourced, action: changed ? 'updated' : 'duplicate' };
     }
-    const conclusion: ProjectConclusion = { id: randomUUID(), projectId, title: title.trim(), content: content.trim(), sources: [source], updatedAt: source.updatedAt, version: 1, automatic: true };
+    const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile;
+    const conclusion: ProjectConclusion = { id: randomUUID(), projectId, ...(profile ? { accountOwner: accountIdentity(profile) } : {}), title: title.trim(), content: content.trim(), sources: [source], updatedAt: source.updatedAt, version: 1, automatic: true };
     if (category) conclusion.category = category;
     this.store.conclusions.unshift(conclusion);
-    const overflow = this.store.conclusions.filter(item => item.projectId === projectId && item.automatic && !item.archived).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(100);
+    const overflow = this.conclusions(projectId, true).filter(item => item.automatic && !item.archived).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(100);
     for (const item of overflow) item.archived = true;
     return { conclusion, action: 'created' };
   }
@@ -276,8 +298,10 @@ export class Workbench {
     }
   }
   private organizeSharedContent(projectId: string, item: SharedContent) {
+    const published = this.conclusions(projectId, true).find(value => value.sources.some(source => source.kind === 'session' && source.publication?.path === item.path) && !teamResultDifference(item, [value]));
+    if (published) return { conclusion: published, action: 'duplicate' as const };
     const localTitle = item.category ? contributionTitle(item.category, this.localContentTitle(projectId, item)) : resultTitle('项目结论', this.localContentTitle(projectId, item));
-    return this.organizeConclusion(projectId, localTitle, item.description || item.title, { id: item.id, kind: 'remote', title: localTitle, content: item.description, ...(item.sourceDetails ? { details: item.sourceDetails } : {}), revision: item.revision, path: item.path, updatedAt: item.updatedAt }, item.category);
+    return this.organizeConclusion(projectId, localTitle, item.description || item.title, { id: item.id, kind: 'remote', title: localTitle, content: item.description, ...(item.sourceDetails ? { details: item.sourceDetails } : {}), revision: item.revision, sha256: item.sha256, path: item.path, updatedAt: item.updatedAt }, item.category);
   }
   private syncDraftConclusions(draft: Draft, preserveExisting = false) {
     if (!draft.binding || draft.mergeSources?.length || draft.generation !== 'ready') return [];
@@ -306,12 +330,32 @@ export class Workbench {
       const title = draft.titleAlias || titleSubject(draft.title) || draft.title, content = contributionBody(draft);
       results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }));
     }
+    linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     return results;
   }
   async importContentConclusion(projectId: string, contentId: string, expectedRevision?: number) {
-    const binding = this.remote.binding(projectId), item = (await this.remote.contentList(binding)).find(value => value.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
-    if (expectedRevision !== undefined && item.revision !== expectedRevision) throw new Error('这条成果已更新，请重新点击“加入项目资料”，确认最新内容后再加入');
-    const result = this.organizeSharedContent(projectId, item); this.recordContentAction(projectId, contentId, item.revision, { kind: 'saved_conclusion', targetId: result.conclusion.id, targetTitle: conclusionTitle(result.conclusion), sourceTitle: item.title }); await this.store.save(); this.broadcast(); return result;
+    const owner = () => { const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile; return profile ? accountIdentity(profile) : ''; };
+    const expectedOwner = owner();
+    return this.edit('content-import:' + projectId + ':' + contentId, async () => {
+      if (owner() !== expectedOwner) throw new Error('账号已改变，请重新查看团队成果');
+      const binding = this.remote.binding(projectId), item = (await this.remote.contentList(binding)).find(value => value.id === contentId);
+      if (owner() !== expectedOwner) throw new Error('账号已改变，请重新查看团队成果');
+      if (!item) throw new Error('内容已删除，请刷新');
+      if (expectedRevision !== undefined && item.revision !== expectedRevision) throw new Error('这条成果已更新，请刷新并确认最新内容后再存入个人成果库');
+      const before = this.conclusions(projectId, true).map(value => ({ value, snapshot: structuredClone(value) }));
+      const events = (this.store.settings.contentUpdates || []).filter(event => event.projectId === projectId && event.id === contentId).map(value => ({ value, snapshot: structuredClone(value) }));
+      const result = this.organizeSharedContent(projectId, item);
+      this.recordContentAction(projectId, contentId, item.revision, { kind: 'saved_conclusion', targetId: result.conclusion.id, targetTitle: conclusionTitle(result.conclusion), sourceTitle: item.title });
+      const changed = [...before, ...events].filter(({ value, snapshot }) => JSON.stringify(value) !== JSON.stringify(snapshot)).map(entry => ({ ...entry, applied: JSON.stringify(entry.value) }));
+      const createdValue = JSON.stringify(result.conclusion);
+      try { await this.store.save(); }
+      catch (error) {
+        if (result.action === 'created') this.store.conclusions = this.store.conclusions.filter(value => value.id !== result.conclusion.id || JSON.stringify(value) !== createdValue);
+        for (const { value, snapshot, applied } of changed) if (JSON.stringify(value) === applied) { for (const key of Object.keys(value)) delete (value as any)[key]; Object.assign(value, snapshot); }
+        throw error;
+      }
+      this.broadcast(); return result;
+    }, false);
   }
   private contentSeenState(item: SharedContent): ContentSeenState {
     return { revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
@@ -471,7 +515,29 @@ export class Workbench {
     await this.requireAuth(s.provider, s.cwd);
     return (await this.runtime(s)).capabilities(forceRefresh);
   }
-  assertWorkspace() { if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号并选择本机工作目录'); }
+  assertWorkspace() { if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号'); }
+  async saveProjectDirectory(projectId: string, directory: string, contextKey: string) {
+    const checkContext = () => {
+      const profile = this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile;
+      const project = profile?.projects.find(item => item.id === projectId);
+      if (!profile || !project || projectDirectoryKey(profile, projectId) !== contextKey) throw new Error('账号或项目已改变，请重新打开项目设置');
+      this.assertCanWork(this.remote.connected ? this.remote.binding(projectId) : { connectionId: profile.id, host: profile.host, port: profile.port, username: profile.username, fingerprint: profile.fingerprint, project });
+    };
+    return this.edit('project-directory:' + contextKey, async () => {
+      checkContext();
+      let canonical = directory.trim();
+      if (canonical) {
+        if (!path.isAbsolute(canonical) || !(await fs.stat(canonical).catch(() => undefined))?.isDirectory()) throw new Error('请选择已存在的代码目录，或留空');
+        canonical = await fs.realpath(canonical);
+      }
+      checkContext();
+      const directories = this.store.settings.projectDirectories ||= {}, previous = directories[contextKey];
+      directories[contextKey] = canonical;
+      try { await this.store.save(); }
+      catch (error) { if (previous === undefined) delete directories[contextKey]; else directories[contextKey] = previous; throw error; }
+      this.broadcast(); return canonical;
+    }, false);
+  }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
     if (this.configuring) throw new Error('正在登录，请等待结果');
     const previous = this.store.settings.workspaceSnapshot?.profile;
@@ -583,7 +649,13 @@ export class Workbench {
     const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath };
     this.store.sessions.unshift(session);
     const managed = cwd.startsWith(path.join(this.store.root, 'workspaces') + path.sep);
-    if (purpose === 'work' && binding) { if (!managed) { this.store.settings.projectDirectories ||= {}; this.store.settings.projectDirectories[binding.connectionId + ':' + binding.project.id] = cwd; } if (includeBrief && this.remote.connected) await this.refreshProjectContext(session.id).catch(e => this.notice('项目资料引用未加入：' + e.message)); }
+    if (purpose === 'work' && binding) {
+      const profile = this.remote.connected ? this.remote.profile : cached;
+      // Legacy callers may still supply a directory on their first session.
+      // Once a project choice exists (including an explicit skip), never replace it here.
+      if (profile) (this.store.settings.projectDirectories ||= {})[projectDirectoryKey(profile, binding.project.id)] ??= managed ? '' : cwd;
+      if (includeBrief && this.remote.connected) await this.refreshProjectContext(session.id).catch(e => this.notice('项目资料引用未加入：' + e.message));
+    }
     this.store.settings.lastWorkspace = purpose === 'work' && !managed ? cwd : this.store.settings.lastWorkspace; await this.store.save(); this.broadcast(); return session;
   }
   async researchWorkspace() { const directory = path.join(this.store.root, 'workspaces', randomUUID()); await fs.mkdir(directory, { recursive: true }); return directory; }
@@ -1212,7 +1284,7 @@ export class Workbench {
         this.remote.channel(d.binding);
         const attachments = await freezeDraftAttachments(d, selected, this.store.root);
         const packages = await Promise.all(selected.map(item => packageDraftArtifact(d, item, this.store.root)));
-        const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { kind: 'contribution' as const, category: item.category, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
+        const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ conclusionSourceId: item.id, local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { kind: 'contribution' as const, category: item.category, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
         const transfers = batch.slice(attachments.transfers.length);
         this.syncDraftConclusions(d);
         selected.forEach((item, index) => { item.submitted = transfers[index].id; });
@@ -1221,7 +1293,7 @@ export class Workbench {
       if (!d.body.trim()) throw new Error('请先填写成果说明');
       this.remote.channel(d.binding); const artifact = { id: d.id, category: 'finding' as const, title: d.title, fields: { statement: d.body }, body: d.body, repoUrl: d.repoUrl, target: target || d.target || d.binding.project.uploadPath, selected: true };
       const zip = await packageDraftArtifact(d, artifact, this.store.root);
-      const transfer = await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, { kind: 'contribution', title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle });
+      const transfer = await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, { kind: 'contribution', title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle }, undefined, d.id);
       this.syncDraftConclusions(d);
       d.submitted = transfer.id; await this.store.save(); this.broadcast(); return transfer;
     } finally { this.submittingDrafts.delete(id); }

@@ -7,6 +7,8 @@ import { migrateSessionContext } from './session-context';
 import { repairConclusionImports } from './conclusion-import-repair';
 import { accountIdentity } from '../shared/account-data';
 import { rememberPreparationProgress } from '../shared/preparation-progress';
+import { migrateProjectDirectories } from '../shared/project-directory';
+import { linkConclusionPublications } from './conclusion-publications';
 export async function atomicJson(file: string, data: unknown, ascii = false) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = file + '.' + randomUUID() + '.tmp';
@@ -40,6 +42,7 @@ export class Store {
         delete raw.offlineAuthorization;
       }
       this.settings = settingsSchema.parse(raw);
+      migrateProjectDirectories(this.settings);
     } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地设置损坏，请保留文件并检查：' + path.join(this.root, 'settings.json')); }
     for (const key of ['sessions', 'transfers', 'drafts', 'conclusions'] as const) {
       try { const data = JSON.parse(await fs.readFile(path.join(this.root, key + '.json'), 'utf8')); if (!Array.isArray(data)) throw new Error('Invalid array'); (this[key] as unknown[]) = data; } catch (e: any) { if (e.code !== 'ENOENT') throw new Error(`本地 ${key}.json 无法读取`); }
@@ -70,6 +73,7 @@ export class Store {
     for (const session of this.sessions) rememberPreparationProgress(session, this.drafts);
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
     await this.repairConclusionImports();
+    linkConclusionPublications(this.conclusions, this.drafts, this.transfers);
   }
   async repairConclusionImports() {
     const before = structuredClone({ conclusions: this.conclusions, updates: this.settings.contentUpdates || [] });

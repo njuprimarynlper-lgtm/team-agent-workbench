@@ -1,4 +1,5 @@
 import { ownDataDirectory } from '../shared/single-instance';
+import { runtimeAssets } from '../shared/runtime-assets';
 import { app, BrowserWindow, ipcMain, dialog, clipboard, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -17,7 +18,7 @@ app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
 let window: BrowserWindow; let remote: AdminConnection | LocalAdminConnection; let egress: EgressRelay; let egressConfig: AdminEgressConfig; let egressSecret: { accessCode: string; upstreamPassword?: string };
 let storageAbort: AbortController | undefined;
-const entry = path.join(__dirname, 'index.html');
+const entry = path.join(__dirname, runtimeAssets, 'index.html');
 if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
   const config = path.join(app.getPath('userData'), 'connection.json');
   const egressConfigFile = path.join(app.getPath('userData'), 'egress.json'), egressSecretFile = path.join(app.getPath('userData'), 'egress-secrets.bin');
@@ -41,7 +42,7 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
       catch (error) { remote.snapshot.connectionError = errorMessage(error); }
     }
   } catch {}
-  window = new BrowserWindow({ width: 1320, height: 900, minWidth: 1040, minHeight: 720, show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 管理员版', backgroundColor: '#f6f7f9', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
+  window = new BrowserWindow({ width: 1320, height: 900, minWidth: 1040, minHeight: 720, show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 管理员版', backgroundColor: '#f6f7f9', webPreferences: { preload: path.join(__dirname, runtimeAssets, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false } });
   window.setMenuBarVisibility(false); window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', e => e.preventDefault()); window.webContents.session.setPermissionRequestHandler((_c, _p, cb) => cb(false));
   ipcMain.handle('admin', async (event, action: string, payload: unknown) => {

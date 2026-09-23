@@ -8,7 +8,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
-import { completeProjectSetup } from './onboarding-helpers.mjs';
+import { completeProjectSetup, completeProjectDirectory } from './onboarding-helpers.mjs';
 import { memberProfile, setConnectionProfile } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 
@@ -30,7 +30,7 @@ async function connectUser(user, username, profile) {
   const { page } = user;
   await setConnectionProfile(user, profile);
   await expect(page.getByRole('button', { name: '添加其他服务器', exact: true })).toHaveCount(0);
-  await page.getByLabel('本机工作路径', { exact: true }).fill(data);
+
   await expect(page.getByLabel('共享工作路径', { exact: true })).toHaveCount(0);
   await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill(memberPassword);
   await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
@@ -55,7 +55,7 @@ try {
   const alice = await launch('user', 'alice'); await connectUser(alice, aliceName, aliceProfile);
   await completeProjectSetup(alice.page, '华为算法比赛');
   const bobProfile = await memberProfile(admin, bobName);
-  const bob = await launch('user', 'bob'); await connectUser(bob, bobName, bobProfile);
+  const bob = await launch('user', 'bob'); await connectUser(bob, bobName, bobProfile); await completeProjectDirectory(bob.page);
   const snapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')), p = snapshot.connection.profile.projects[0];
   assert.equal(await bob.page.getByTitle('创建远端项目', { exact: true }).count(), 0);
   const source = path.join(data, 'competition-note.md'); await fs.writeFile(source, '# 比赛协同联调\n用户 A 与用户 B 各迭代两轮。');

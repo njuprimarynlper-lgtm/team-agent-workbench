@@ -49,10 +49,8 @@ try {
   await expect(page.getByText('代码和个人工作文件所在的本机目录。这里只需要选择这一处路径。', { exact: true })).toHaveCount(0);
   await expect(page.locator('.workspace-discovery-note')).toHaveCount(0);
   await page.getByLabel('登录密码', { exact: true }).fill('not-persisted');
-  await expect(page.getByRole('button', { name: '登录', exact: true })).toBeDisabled();
-  await app.evaluate(({ dialog }, directory) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] }); }, workspace);
-  await page.getByRole('button', { name: '选择目录', exact: true }).click();
-  await expect(page.getByLabel('本机工作路径', { exact: true })).toHaveValue(workspace);
+  await expect(page.getByLabel('代码目录（选填）', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '选择目录', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '登录', exact: true })).toBeEnabled();
   assert.equal((await page.evaluate(() => window.workbench.call('snapshot'))).settings.connections[0].localRoot, share);
   await page.setViewportSize({ width: 1100, height: 760 });
@@ -65,8 +63,7 @@ try {
   await expect(page.getByLabel('团队连接（已保存）')).toHaveCount(0);
   await page.getByLabel('成员账号').fill('alice');
   await expect(page.getByLabel('成员账号')).toHaveValue('alice');
-  await expect(page.getByLabel('本机工作路径', { exact: true })).toHaveValue('');
-  await page.getByLabel('本机工作路径', { exact: true }).fill(workspace);
+  await expect(page.getByLabel('代码目录（选填）', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: path.join(data, 'multiple-connections.png') });
   await setConnectionProfile({ app, page }, profiles.incomplete);
   await expect(page.getByRole('alert')).toContainText('本地测试连接缺少共享目录');

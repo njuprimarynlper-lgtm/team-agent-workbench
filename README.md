@@ -1,27 +1,209 @@
 # 团队工作台
 
-最新修改：项目资料分类、精简整理、会话内引用、可选代码目录、账号私有同步和成果附件。Session 不参与账号同步。使用、兼容和服务端升级要求见 [本次更新说明](docs/project-materials-2026-09-21.md)。
+在 Windows 上使用 Codex / Cursor 工作会话，通过 Linux SSH/SFTP 共享项目资料和成果。包含独立的用户端与管理端，成员使用自己的团队账号和模型账号。
 
-当前开发版增加子管理员按成员派发任务、关联共享结论、成员一键准备工作会话，以及会话文件预览、完整路径和文件夹定位。Linux 任务功能需同步新版管理端和服务器文件操作器。详见 [用户指南](docs/user-guide.md)。
+[快速安装](#install) · [完整前置条件](#requirements) · [启动排障](#troubleshooting) · [使用指南](docs/user-guide.md) · [服务器部署](docs/deployment-guide.md) · [开发与验证](#development)
 
-Windows 本地 Agent 工作台与独立的团队管理应用。远端使用 Linux 账号、SSH/SFTP 和文件系统，受限文件操作器统一执行公共内容写入权限。当前开发版 **0.7.0**（未生成新安装包）。
+当前源码版本 **0.7.0**。截至 2026-09-23，[GitHub Releases](https://github.com/njuprimarynlper-lgtm/team-agent-workbench/releases) 尚未发布安装包；使用当前功能请按下面的源码方式启动。部署人员已有的 0.6.3 安装包不包含当前全部修改。
 
-用户流程、状态转换和编辑/删除边界见 [状态图与操作表](docs/workflow-states.md)。
-
-产品操作见 [团队工作台使用指导](docs/user-guide.md)；环境准备、本地打桩、Linux 服务端、安装迁移与验收见 [部署指导](docs/deployment-guide.md)。部分成员无法直接访问模型服务时，可选用[管理端网络出口](docs/network-egress.md)；可直连成员无需启用。
+<a id="install"></a>
 
 ## 从源码直接启动（Windows）
 
-准备 64 位 Node.js 22 或更高版本（包含 npm）：可安装到系统，也可将官方便携版完整解压到仓库 `.tools/node-v版本号-win-x64/`。启动器按版本从高到低试运行项目内 Node/npm，损坏、不兼容或超时会跳过，再尝试系统 PATH 和自定义目录；仍不可用时可在窗口选择已安装或已解压的离线 Node 目录。只修改本次启动环境。拉取或解压完整仓库后，直接双击根目录中的入口，**无需自己生成 CMD 脚本**：
+适用于 Windows x64，目前在 Windows 11 x64 验证。普通成员运行用户端；负责 Linux 账号、工作组和网络出口的总管理员运行管理端。项目组管理员也使用用户端。
 
-- [start-user-dev.cmd](start-user-dev.cmd)
-- [start-admin-dev.cmd](start-admin-dev.cmd)
+### 1. 安装 Node.js
 
-首次启动自动运行 `npm ci` 安装锁定的依赖，之后依赖清单或 Node.js 主版本变化时自动重新安装。每次启动都构建当前目录的源码，成功后打开对应应用；失败会弹窗并提供日志位置，不会退回旧构建。首次安装需要本机能下载 npm 依赖和 Electron；公司网络按本机 npm / Electron 的代理配置访问。
+从 [Node.js 官网](https://nodejs.org/en/download) 选择 **24 LTS → Windows → x64 → Windows Installer (.msi)**，保留 npm 和加入 PATH 的默认选项，完成安装。
 
-Electron 运行文件会单独检查并自动补齐，兼容新版 Electron 不在 `npm ci` 阶段下载程序文件的行为。下载失败后再次启动只重试运行文件准备，保留已安装依赖；文件缺失或版本不符也会修复。支持的 Node 版本会在下载时使用 Windows 已信任的证书，保留 TLS 校验。安装、Electron 下载和构建分别记录日志，错误弹窗不会阻塞另一个启动入口。
+已有 **Node.js ≥ 22.12.0 x64（含 npm）** 可以复用，包括为 Codex 安装的 Node.js 24.21.0，无需重复安装。安装后重新打开 PowerShell，检查：
 
-两个版本可同时运行，不会保留后台终端窗口。更新代码后关闭旧窗口，再双击对应入口。两个入口共用同一启动流程。源码入口与已安装的 EXE 分别更新；应用使用步骤见[使用指导](docs/user-guide.md)，Cursor CLI 准备见[部署指导](docs/deployment-guide.md)。
+```powershell
+node -p "process.version + ' ' + process.arch"
+npm.cmd --version
+```
+
+第一条应输出 `v22.12.0` 或更高版本及 `x64`，第二条应输出 npm 版本。无法安装 MSI 时，可使用[便携版或自定义 Node 目录](#node-options)。
+
+### 2. 获取完整源码
+
+**不使用 Git：**打开[仓库首页](https://github.com/njuprimarynlper-lgtm/team-agent-workbench)，点击 **Code → Download ZIP**，右键“全部解压”。打开包含 `package.json` 和 `start-user-dev.cmd` 的那一层文件夹，例如 `D:\project\team-agent-workbench-main`。可换成任意当前用户可写的目录。
+
+**使用 Git：**先安装 [Git for Windows](https://git-scm.com/install/windows)，然后在准备存放项目的文件夹中打开 PowerShell：
+
+```powershell
+git clone https://github.com/njuprimarynlper-lgtm/team-agent-workbench.git
+Set-Location .\team-agent-workbench
+```
+
+GitHub 的 **Download ZIP 是源码包**，仍需 Node 和首次依赖下载；它不是免安装程序。不要只下载单个 `.cmd` 文件，也不要在压缩包内直接运行。
+
+### 3. 启动客户端
+
+在源码文件夹中双击对应入口，或在该文件夹的 PowerShell 中执行：
+
+| 身份 | 双击入口 / PowerShell 命令 |
+| --- | --- |
+| 普通成员、项目组管理员 | `.\start-user-dev.cmd` |
+| 总管理员 | `.\start-admin-dev.cmd` |
+
+首次启动会自动安装依赖、下载 Electron 并构建应用，需要本机具备相应[下载网络](#download-network)。进度窗口会显示当前阶段，可查看日志或取消；**出现用户端登录窗口，或管理端主界面，即表示客户端启动成功**。团队连接和模型登录还需完成下一步。
+
+以后仍使用同一入口。启动器会复用已准备好的依赖，并构建当前源码；两个客户端可同时运行。失败时按[启动排障](#troubleshooting)处理，日志位于 `.test-data/launcher/`。
+
+### 4. 完成首次连接
+
+| 使用者 | 接下来做什么 |
+| --- | --- |
+| 团队成员 | 向管理员取得 SSH 地址、端口、个人账号和密码，登录后进入已分配的工作组与项目。代码目录进入项目后选填，后续可改。 |
+| 使用 AI 会话的成员 | 在客户端检测并登录自己的 Codex 或 Cursor 账号。Codex CLI 随源码依赖安装；使用 Cursor 时，先按[模型环境准备](#model-setup)安装或指定 Cursor Agent CLI。 |
+| 总管理员 | 准备[符合条件的 Linux 服务器](#server-requirements)，连接后初始化团队空间、创建工作组并分配成员；已有团队继续使用原目录。详细步骤见[部署指导](docs/deployment-guide.md)。 |
+
+模型服务需要代理时，先由管理员启用[管理端网络出口](docs/network-egress.md)，成员再填入接入码。没有团队服务器、只想本机联调时，按[本地模式使用说明](docs/local-filesystem.md)操作。
+
+### 更新已有源码
+
+关闭需要更新的客户端。在 Git 克隆的仓库目录先执行：
+
+```powershell
+git status --short
+```
+
+若显示本地修改，先保留或提交这些修改再更新。工作区干净时执行：
+
+```powershell
+git pull --ff-only
+.\start-user-dev.cmd
+```
+
+拉取遇到冲突时先处理，不要强制覆盖。更新管理端时，最后运行 `.\start-admin-dev.cmd`。
+
+使用源码 ZIP 的用户重新下载并解压到新文件夹，再运行其中的入口。默认账号、会话和草稿保存在 `%APPDATA%\TeamAgentUser` / `%APPDATA%\TeamAgentAdmin`，更新源码不需要删除这些目录；若自行设置了数据目录，应继续使用原配置。源码入口与已安装的 EXE 分别更新。
+
+<a id="requirements"></a>
+
+## 前置条件（首次使用先看这里）
+
+### 先确定使用哪种交付方式
+
+| 使用方式 | 本机需要准备 | 会自动准备什么 |
+| --- | --- | --- |
+| 从源码双击 `start-user-dev.cmd` / `start-admin-dev.cmd` | Windows x64、Windows PowerShell 5.1、**Node.js ≥ 22.12.0 x64（含 npm）**、完整源码、依赖下载网络 | 安装锁定的 npm 依赖、下载 Electron、构建当前源码 |
+| 安装程序 `.exe` / 完整免安装 `.zip` | Windows x64；ZIP 须完整解压 | 运行环境已随包提供，无需安装 Node.js/npm |
+| 开发、测试或重新打包 | 上述源码环境；Python 3.9+ 用于 Python 相关测试；Git 用于版本管理；打包用户版前准备 Cursor 运行文件 | 按仓库脚本构建与打包，不安装系统级开发工具 |
+
+目前在 Windows 11 x64 验证。Windows PowerShell、仓库脚本和应用程序须能在本机运行；企业策略禁止执行时，需要由本机管理员处理策略。管理端首次生成出口证书会调用 Windows 的 PKI 组件（`New-SelfSignedCertificate`）。源码目录以及应用数据目录需对当前 Windows 用户可写。
+
+源码版要求 22.12.0 是因为锁定的 Electron 及其下载工具声明了这一最低版本。**已经为 Codex/GPT 安装的 Node 可以直接复用**，满足版本、x64 和 npm 条件即可；Node.js 24.21.0 满足要求，无需再装一套“工作台专用 Node”。只有能运行 Codex 并不足以证明版本符合工作台构建依赖。
+
+<a id="node-options"></a>
+
+### 源码电脑：运行环境与文件
+
+在 PowerShell 中检查：
+
+```powershell
+node -p "process.version + ' ' + process.arch"
+npm.cmd --version
+where.exe node
+where.exe npm
+```
+
+第一条应显示 `v22.12.0` 或更高版本及 `x64`，第二条应能输出 npm 版本。安装 Node 后，新开终端再检查；通过双击入口启动时同样需要能找到完整的 Node/npm。
+
+- 可以使用系统已安装的 Node，或完整解压官方便携版至 `.tools/node-v版本号-win-x64/`；目录必须包含 Node、npm 及其配套文件，不能只复制 `node.exe`。
+- 启动器依次检查项目内便携版本（从高到低）、系统 PATH 和自定义目录；每次自检最多 10 秒。自定义目录可由窗口选择并记在 `.tools/node-path.txt`，或通过 `WORKBENCH_NODE_DIR` 指定；不修改系统 PATH。
+- 从 Git 拉取或解压完整仓库，保留根目录的 `package.json`、`package-lock.json`、两个 `.cmd` 入口，以及 `scripts/`、`src/`、`server/` 等目录。仅复制启动脚本或 `dist/` 不能作为完整源码交付。
+- 普通启动不要求本机另装 Python 或 Git；它们用于对应的开发测试、代码版本信息和源码管理。Linux 服务器的 Python 要求见下文。
+- 项目代码目录在进入项目时选填，可后续更改；它不是登录前置条件。若要让 AI 操作本机项目文件，需要提供可访问的对应目录。
+
+<a id="download-network"></a>
+
+### 首次下载与联网条件
+
+**源码首次启动不仅需要 Node，还需要下载 npm 依赖和 Electron。应用内的“管理端网络出口”在这一阶段尚未启动，不能代替安装下载网络。**
+
+| 用途 | 需要能访问的目标 | 如何配置 |
+| --- | --- | --- |
+| 安装源码依赖 | 锁文件中指定的 npm 包下载地址 | 本机 npm 网络、代理和企业证书配置 |
+| 准备桌面运行环境 | 当前 Electron 版本的下载源 | 本机 Electron 下载网络/镜像/代理；保留证书和文件校验 |
+| 准备可选 Cursor CLI | `downloads.cursor.com` 对应运行包 | 本机下载网络，或已有的 Cursor Agent CLI |
+| 团队共享 | 管理员提供的 SSH/SFTP 主机和端口 | 内网连通、防火墙放行，以及个人团队账号 |
+| Codex / Cursor 登录与模型请求 | 所选服务的登录和模型接口 | 本机可用网络，或下文的管理端出口 |
+
+公司代理需要的账号和受信任证书应先由本机环境配置；不要关闭 TLS 校验。服务器可访问、模型代理可用，都不代表 npm 或 Electron 下载一定可用。无法联网安装依赖的电脑，应使用部署人员交付的**对应版本完整安装包或免安装目录**；仓库当前源码为 0.7.0，已有的 0.6.3 安装包不包含当前全部修改。
+
+<a id="model-setup"></a>
+
+### 用户端：团队账号与模型环境
+
+- 团队正式使用需要管理员提供 SSH 地址、端口、个人成员账号和密码，并已完成账号开通、工作组分配与共享目录准备。仅安装客户端不会获得团队或项目权限。
+- 使用 Codex 时，源码依赖安装会提供配套 CLI；也可以在设置中指定已有 CLI。使用者仍需自己的可用模型账号或 CLI 已支持的服务认证配置、相应服务权限及额度。
+- 使用 Cursor 时，需要 **Cursor Agent CLI**，仅安装 Cursor 编辑器或提供编辑器的 `cursor` 命令不够。可在应用内指定已有 Agent CLI，或在仓库执行以下命令准备配套运行文件（先安装 npm 依赖，下载脚本需要 Windows 的 `curl.exe` 可用）：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-runtimes.ps1
+```
+
+- 使用安装包时，用户版已包含配套 Codex/Cursor 运行文件；仍需在新电脑上登录个人模型账号。只使用其中一种提供方时，不需要登录另一种。
+- 模型登录过程中通常需要浏览器授权，或按 CLI 提供的方式完成登录。团队 SSH 密码与模型账号是两套独立凭据。
+
+<a id="server-requirements"></a>
+
+### 管理端与 Linux 服务器
+
+管理人员本机需满足所选交付方式的 Windows 前置条件。管理团队账号时需使用服务器已有的 root 或具备所需 sudo 权限的账号；Windows 管理员身份不能代替 Linux 权限。仅管理共享空间、账号和出口时，无需本机登录模型账号。
+
+正式 SSH/SFTP 部署的服务器必须具备：
+
+- Linux、**Python 3.9+**、OpenSSH 服务及 SFTP、`shadow/passwd` 用户组管理命令和 `procps`。
+- ACL 支持：`setfacl` 或 `libacl`，且实际团队目录所在文件系统支持设置 ACL。
+- 运行中的 systemd，或可管理的 Supervisor。无 systemd 容器中，Supervisor 的配置、Unix socket 及父目录须由 root 管理，主配置需加载 `conf.d/*.conf` 或 `*.ini`，`supervisorctl` 可访问该实例；SSH 需支持配置校验及 `service` 重载。容器启动流程必须启动同一 Supervisor，并持久化团队目录与服务配置。
+- 可用的 root/sudo 管理账号；当前不支持要求交互 TTY 的 sudo 策略。普通成员账号由管理员创建并加入工作组。
+- 首次初始化时，指定团队根目录不存在或为空；已有团队继续使用原目录。成员只需服务器地址、端口和个人凭据，项目共享路径由系统分配。
+- 缺少 `acl` / `supervisor` 时，管理员可在“准备运行环境”中补齐：在线安装使用已配置的软件源（当前自动安装支持 Debian/Ubuntu 的 apt-get）；离线需预先准备匹配发行版、架构和完整依赖的 `.deb` 包，存放于 root 管理的目录。SSH、Python和用户管理命令也需在连接前准备好。
+
+客户端通过 SSH/SFTP 使用共享空间。服务器不需要部署 Node.js、Codex/Cursor 或模型账号；本地文件系统模式仅用于联调和演示，不要求 Linux 服务器，不能替代正式权限验证。
+
+### 可选：通过管理端访问模型服务
+
+只有成员本机无法访问模型服务时才需要此通路：管理端所在电脑必须能访问模型服务或已有 HTTP/SOCKS5 上游代理，并启用“网络出口”。成员需能连通该电脑提供的地址和 TCP 端口（默认 `18443`），取得并粘贴对应管理端的接入码。
+
+管理端须持续运行；关闭或断网会使该出口不可用，目前不会自动切换到其他管理端。此出口不代替成员的模型账号、额度或 SSH 账号，也不负责源码启动前的 npm/Electron 下载。配置方法见 [管理端网络出口](docs/network-egress.md)。
+
+<a id="troubleshooting"></a>
+
+### 启动进度与卡住时的日志
+
+双击入口后会显示启动进度：检查 Node/npm → 等待其他入口准备 → 安装依赖 → 准备桌面运行环境 → 构建 → 打开应用。支持“查看日志”和“取消启动”。依赖安装、Electron 下载分别最多等待 10 分钟，构建最多 3 分钟，等待其他启动入口最多 15 分钟；超时会报告失败阶段，不会无限等待或启动旧构建。
+
+| 现象 | 处理方法 |
+| --- | --- |
+| 找不到 `node` / `npm`，或版本、架构不符合要求 | 新开终端检查 Node/npm；运行 `where.exe node` 和 `where.exe npm` 核对路径，或指定完整便携 Node 目录。 |
+| 手动执行 npm 报 `npm.ps1` 被禁止 | 本页命令使用 `npm.cmd`；无需为此修改系统执行策略。若项目 PowerShell 脚本本身被企业策略阻止，联系本机管理员。 |
+| 停在安装依赖或准备桌面运行环境 | 点击“查看日志”，检查相应下载错误、代理和企业证书；应用内模型出口不负责这些下载。超时或修复网络后可重试。 |
+| 提示正在等待另一个启动入口 | 另一个入口正在安装或构建；等待其完成，或在不需要的启动进度窗口中取消。 |
+| 只出现 PowerShell，没有进度或错误提示 | 先找下面的启动日志；没有日志时，在源码文件夹中运行诊断命令。 |
+| 已进入客户端，但没有工作组或项目 | 请管理员确认账号已分组并开通目录权限，再刷新；这属于团队配置。 |
+| CLI 不存在、未登录或检测失败 | 核对 Agent CLI、个人模型账号和网络配置；Cursor 编辑器的命令不能代替 Cursor Agent CLI。 |
+
+日志统一位于仓库 `.test-data/launcher/`：
+
+- `user-日期-时间-进程号.log` / `admin-日期-时间-进程号.log`：实际 Node/npm 路径与版本、启动阶段、等待和错误。
+- 同前缀的 `install-error.log`、`electron-error.log`、`build-error.log`：对应步骤的详细错误；无 `error` 的日志保存正常输出。
+- 若只有 PowerShell 窗口且没有上述日志，在仓库目录运行下面的诊断命令，让脚本启动错误直接显示出来。企业执行策略拦截、缺少脚本等发生在日志创建前的错误，也可据此区分。
+
+```powershell
+powershell.exe -NoLogo -NoProfile -STA -NonInteractive -ExecutionPolicy Bypass -File .\scripts\start-dev-hidden.ps1 user -NoDialogs
+```
+
+此命令仍会执行启动流程，准备成功后打开应用。排障时提供主启动日志末尾及对应错误日志的报错，勿提交账号密码、接入码或个人凭据。修复环境后重新启动即可；Electron 下载失败后的重试会复用已安装的 npm 依赖。
+
+## 功能与版本说明
+
+最新修改：项目资料分类、精简整理、会话内引用、可选代码目录、账号私有同步和成果附件。Session 不参与账号同步。使用、兼容和服务端升级要求见 [本次更新说明](docs/project-materials-2026-09-21.md)。
+
+当前开发版增加子管理员按成员派发任务、关联共享结论、成员一键准备工作会话，以及会话文件预览、完整路径和文件夹定位。Linux 任务功能需同步新版管理端和服务器文件操作器。详见 [用户指南](docs/user-guide.md)。用户流程、状态转换和编辑/删除边界见 [状态图与操作表](docs/workflow-states.md)。
 
 当前开发版提供可选的 Codex/Cursor 网络出口。管理员版自动生成本机 TLS 证书和接入码，可选择本机直连、HTTP 代理或 SOCKS5 代理；用户版只需在登录窗口勾选并粘贴一次接入码。工作台仅给自身启动的 CLI 注入本机代理环境，成员仍使用自己的 Codex/Cursor 账号，团队协作数据仍走原有 SSH/SFTP 共享空间。
 
@@ -65,7 +247,7 @@ Electron 运行文件会单独检查并自动补齐，兼容新版 Electron 不�
 
 ## 安装与迁移
 
-0.6.3 产物位于 `release/0.6.3/admin` 和 `release/0.6.3/user`（按版本分目录，打包新版本不会覆盖正在运行的旧版）：
+以下适用于部署人员另行交付的完整安装包。`release/` 是本机打包输出目录，未纳入 Git，GitHub 源码 ZIP 中没有这些文件。已有 0.6.3 产物保存在打包电脑的 `release/0.6.3/admin` 和 `release/0.6.3/user`，不包含当前 0.7.0 的全部功能：
 
 - `TeamAgent-admin-0.6.3-x64.exe`：管理员版安装程序。
 - `TeamAgent-user-0.6.3-x64.exe`：用户版安装程序。
@@ -77,13 +259,13 @@ Electron 运行文件会单独检查并自动补齐，兼容新版 Electron 不�
 
 ## 第一次连接
 
-用户版每次启动或新开账号窗口时都默认打开登录对话框。首次填写 SSH 服务器地址、端口、成员账号和密码，只需另选一处 Windows 本机工作目录；后续自动回填除密码外的信息，用户重新输入密码登录。需要更换服务器时直接修改地址或端口，不另设“添加服务器”和连接选择器。本地联调的共享区由启动器预置，不向用户提供共享根目录输入。本机工作目录与共享区仍独立存储。
+用户版每次启动或新开账号窗口时都默认打开登录对话框。首次填写 SSH 服务器地址、端口、成员账号和密码；后续自动回填除密码外的信息，用户重新输入密码登录。代码目录在进入对应项目时选填，后续可在项目设置中更改。需要更换服务器时直接修改地址或端口，不另设“添加服务器”和连接选择器。本地联调的共享区由启动器预置，不向用户提供共享根目录输入。本机工作目录与共享区仍独立存储。
 
 共享工作路径由工作组自动分配，用户不填写。一个账号可以加入多个组，一次登录即可发现全部授权组和项目，无需按组建立连接。未分组账号可完成登录，但没有工作台，只显示联系管理员和刷新入口。某个组目录不可访问时在该组显示错误，不影响其他组。账号认证或成员信息读取失败会给出错误，不能误报成未分组。
 
 加入工作组并成功核验后，本机记住这次核验的工作组与项目清单：断网后本地会话和草稿继续可用，没有时间限制；上传和公共成果等共享读写仍需连接服务器并重新核验权限，本地记录不替代远端授权。点击登录后即保存地址、端口和账号，临时网络故障或密码错误也不需要下次重新填写；本机目录和服务器身份也可保存。登录密码和 sudo 密码只保留在本次连接的内存中，不落盘，不进入模型 prompt。
 
-管理员版通过左下角 **连接设置** 修改，用户版通过右上角服务器按钮修改服务器、账号和本机目录。新服务器按本机的 `IP/主机名:端口` 在首次连接时确认一次并立即记住；这份信任在多个用户端账号窗口之间共享，换账号或随后密码错误都不会重复确认。账号、会话、草稿和传输记录仍按窗口隔离。正常登录页不显示指纹或技术信息；服务器身份变化时客户端停止登录，并在错误旁提供“重新确认”。
+管理员版通过左下角 **连接设置** 修改，用户版通过右上角服务器按钮修改服务器和账号。新服务器按本机的 `IP/主机名:端口` 在首次连接时确认一次并立即记住；这份信任在多个用户端账号窗口之间共享，换账号或随后密码错误都不会重复确认。账号、会话、草稿和传输记录仍按窗口隔离。正常登录页不显示指纹或技术信息；服务器身份变化时客户端停止登录，并在错误旁提供“重新确认”。
 
 总管理员需要服务器已经存在的 root 或 sudo 管理账号。Windows 的管理员身份、安装顺序、应用名称都不能赋予 Linux 管理权限。普通成员仅需要服务器分配的个人账号。
 
@@ -184,18 +366,38 @@ Linux 成员通过 chroot 内 root 拥有、普通成员不可修改的 `/.workb
 
 `.workbench/` 含本地阶段摘要与临时资料，建议加入业务仓库的 `.gitignore`。程序不会擅自修改业务仓库忽略规则。程序退出或网络中断后，未完成的传输保留为待处理状态，不会自动切换到当前项目继续上传。
 
+<a id="development"></a>
+
 ## 开发与构建
 
+普通使用按[快速安装](#install)即可。开发、测试需满足上面的[完整前置条件](#requirements)，所有命令均在仓库根目录的 PowerShell 中执行。
+
+安装依赖与可选运行文件（打包用户版前必须准备配套 CLI）：
+
 ```powershell
-npm ci
-powershell -ExecutionPolicy Bypass -File scripts/prepare-runtimes.ps1
-npm run check
-python -m unittest discover -s tests -p test_admin.py
-npm run test:ui
-npm run start           # 用户版
-npm run start:admin     # 管理员版
-npm run package
+npm.cmd ci
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-runtimes.ps1
 ```
+
+验证代码：
+
+```powershell
+npm.cmd run check
+npm.cmd run test:server
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\startup-process.test.ps1
+```
+
+`check` 执行类型检查、后台测试和隔离构建，不启动桌面应用；`test:server` 需要本机 Python 3.9+。启动进程单元测试使用替身，验证超时和取消逻辑，不能替代新电脑实际下载及窗口验收。测试范围、桌面测试和剩余验证边界见[后台测试约定](docs/background-testing.md)与 [VERIFICATION.md](VERIFICATION.md)。
+
+运行或打包（按需选择，不必逐行执行）：
+
+```powershell
+npm.cmd run start           # 用户版
+npm.cmd run start:admin     # 管理员版
+npm.cmd run package         # 两版安装包输出到 release/<版本号>/
+```
+
+桌面验证命令 `npm.cmd run test:desktop`、`npm.cmd run test:ui` 会启动真实 Windows 进程或 Electron 窗口，应在专用测试环境执行。
 
 `scripts/build.mjs` 分别编译两个入口，只将所需文件放入 `dist/user`、`dist/admin`。安装包脚本读取这两个目录并使用不同的应用 ID。`scripts/check-providers.ts` 对真实 CLI 做初始化握手，不发送模型任务。
 

@@ -14,7 +14,8 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     await alice.store.init(); await bob.store.init();
     await assert.rejects(alice.createSession('codex', root), /验证/);
     assert.equal(alice.workspaceReady, false);
-    await alice.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
+    await alice.configureWorkspace(server.profile('alice'), 'test-password', '', async () => true);
+    assert.equal(alice.store.settings.localWorkspace, '');
     assert.equal(alice.workspaceReady, true); assert.equal(alice.remote.workspace!.canCreateProject, true);
     const project = await alice.createProject('实体抽取');
     assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));

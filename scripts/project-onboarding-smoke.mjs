@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
-import { completeProjectSetup } from './onboarding-helpers.mjs';
+import { completeProjectSetup, completeProjectDirectory } from './onboarding-helpers.mjs';
 import { memberProfile, setConnectionProfile } from './connection-helpers.mjs';
 const expect = baseExpect.configure({ timeout: 20000 });
 const root = process.cwd(), data = path.join(root, '.test-data', 'project-onboarding-ui-' + Date.now()), share = path.join(data, 'share'); await fs.mkdir(share, { recursive: true });
@@ -25,7 +25,7 @@ async function login(user, username, first = false, profile) {
   const { page } = user;
   if (!first) await page.locator('.connection-button').click();
   if (first) await setConnectionProfile(user, profile);
-  await page.getByLabel('本机工作路径', { exact: true }).fill(data); await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
+  await page.getByLabel('成员账号').fill(username); await page.getByLabel('登录密码', { exact: true }).fill('1');
   await page.getByRole('button', { name: '登录', exact: true }).click(); await expect(page.getByLabel('成员账号')).toHaveCount(0);
 }
 try {
@@ -74,6 +74,7 @@ try {
   const box = await guide().getByRole('button', { name: '保存并创建项目' }).boundingBox(); assert(box && box.y >= 0 && box.y + box.height <= 760);
   await up.screenshot({ path: path.join(data, 'project-brief-form.png') });
   await guide().getByRole('button', { name: '保存并创建项目' }).click(); await expect(guide()).toHaveCount(0);
+  await completeProjectDirectory(up);
   const file = path.join(share, 'projects/alpha/客户资料整理/项目说明.md'), text = await fs.readFile(file, 'utf8');
   assert(text.includes('暂存的背景')); assert(text.includes('没有代码仓')); assert(text.includes('每周评审'));
   assert((await fs.stat(path.join(share, 'projects/alpha/客户资料整理/trajectories'))).isDirectory());
@@ -86,6 +87,7 @@ try {
     fs.rename = async (from, to) => { if (String(to).endsWith('settings.json')) { fs.rename = rename; await new Promise(resolve => setTimeout(resolve, 1200)); } return rename(from, to); };
   });
   await login(teammate, 'dave', true, profiles.dave); await expect(teammate.page.getByRole('dialog', { name: '完善项目资料' })).toHaveCount(0);
+  await completeProjectDirectory(teammate.page);
   const sharedBrief = teammate.page.locator('.file-row').filter({ hasText: '项目说明.md' });
   await expect(sharedBrief).toBeVisible({ timeout: 5000 }); await sharedBrief.click(); await expect(teammate.page.locator('.preview-content')).toContainText('只使用脱敏样例');
   // Reconnect in the same desktop app: another account/group never receives Alice's draft.

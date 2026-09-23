@@ -8,7 +8,7 @@ function BriefFields({ brief, setBrief, busy, readOnly }: { brief: ProjectBrief;
   return <>{briefFields.map(field => <label className="field" key={field.key}>{field.label}{field.required ? ' *' : '（可选）'}<textarea aria-label={field.label} rows={field.required ? 3 : 2} maxLength={6000} disabled={busy} readOnly={readOnly} value={brief[field.key]} placeholder={field.placeholder} onChange={event => { const value = event.target.value; setBrief(previous => ({ ...previous, [field.key]: value })); }}/></label>)}</>;
 }
 
-export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel = '保存新版本' }: { project: Project; admin: boolean; cancel?: () => void; saved: (revision: number) => Promise<void>; saveLabel?: string }) {
+export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel = '保存新版本', localSettings }: { project: Project; admin: boolean; cancel?: () => void; saved: (revision: number) => Promise<void>; saveLabel?: string; localSettings?: React.ReactNode }) {
   const [brief, setBrief] = useState<ProjectBrief>(blank), [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(true), [error, setError] = useState('');
   useEffect(() => {
@@ -21,6 +21,7 @@ export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel 
   }, [project.id]);
   const invalid = briefFields.filter(field => field.required).some(field => !brief[field.key].trim());
   return <><div className="modal-body project-settings-form">
+    {localSettings}
     <div className="callout"><span className="project-file-icon" aria-hidden="true">MD</span><div><b>{project.name}</b><small>下列字段与共享项目根目录中的“项目说明.md”一一对应；保存后会生成新版本并立即刷新该文件。</small></div></div>
     {error && <div className="inline-error" role="alert">{error}</div>}
     <p className="muted small">资料版本：{revision ? 'v' + revision : '待完善'}{!admin && ' · 只读（仅本组组管理员可修改）'}</p>

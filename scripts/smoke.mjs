@@ -49,7 +49,7 @@ try {
   await assert.rejects(page.evaluate(cwd => window.workbench.call('session.create', { provider: 'codex', cwd }), data));
   await page.getByRole('button', { name: '连接团队账号', exact: true }).click();
   const profile = server.profile('alice');
-  await page.getByLabel('本机工作路径', { exact: true }).fill(data);
+
   assert.equal(await page.getByLabel('Linux 工作路径', { exact: true }).count(), 0);
   await page.getByLabel('服务器地址', { exact: true }).fill(profile.host);
   await page.getByLabel('SFTP 端口', { exact: true }).fill(String(profile.port));

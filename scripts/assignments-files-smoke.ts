@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Workbench } from '../src/core/workbench';
+import { projectDirectoryKey } from '../src/shared/project-directory';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { memberProfile } from '../tests/fixtures/member-profile';
 // @ts-expect-error Shared fixture.
@@ -36,7 +37,10 @@ async function main() {
       const app = await electron.launch({ args: ['dist/user'], cwd: process.cwd(), env, timeout: 60000 }); apps.push(app);
       const page = await app.firstWindow(); pages.push(page); page.on('pageerror', error => errors.push(error.message));
       const login = page.locator('.modal').filter({ hasText: '登录团队工作台' }); await login.waitFor();
-      await call(page, 'remote.connect', { profile: profiles[username], password: '1', localPath: data }); await login.getByRole('button', { name: '取消', exact: true }).click();
+      await call(page, 'remote.connect', { profile: profiles[username], password: '1' });
+      const connected = (await call(page, 'snapshot')).connection.profile;
+      await call(page, 'project.directory.save', { projectId: project.id, directory: data, contextKey: projectDirectoryKey(connected, project.id) });
+      await login.getByRole('button', { name: '取消', exact: true }).click();
       return { app, page };
     };
     const a = await launch('alice');
@@ -59,11 +63,11 @@ async function main() {
     await b.page.screenshot({ path: path.join(data, 'member-task.png') });
     await b.page.getByRole('button', { name: '开始工作', exact: true }).click();
     const newSession = b.page.locator('.modal').filter({ hasText: '新建工作会话' });
-    await expect(newSession.getByLabel('绑定共享项目')).toBeDisabled();
+    await expect(newSession.getByLabel('绑定共享项目')).toHaveCount(0);
     await newSession.getByRole('button', { name: '创建会话', exact: true }).click(); await expect(newSession).toHaveCount(0);
     await expect(b.page.getByLabel('任务输入', { exact: true })).toHaveValue(/分析 OCR/);
     let snapshot = await call(b.page, 'snapshot'); const working = snapshot.sessions.find((item: any) => item.assignment);
-    assert(working); assert.equal(working.messages.length, 0); assert.equal(working.assignment.sourceIds.length, 2);
+    assert(working); assert.equal(working.binding.project.id, project.id); assert.equal(working.messages.length, 0); assert.equal(working.assignment.sourceIds.length, 2);
     await expect(b.page.locator('.source-chips')).toContainText('派发时 v1');
     await b.page.getByRole('button', { name: '我的任务', exact: true }).click(); await b.page.getByRole('button', { name: '继续工作', exact: true }).click();
     assert.equal((await call(b.page, 'snapshot')).sessions.length, 2);
@@ -85,7 +89,7 @@ async function main() {
     await files.getByRole('button', { name: '复制路径', exact: true }).click(); await expect(files.getByRole('button', { name: '路径已复制', exact: true })).toBeVisible();
     assert.equal(await call(b.page, 'session.file.open', { id: historical.id, path: artifact, reveal: true }), artifact);
     await b.page.screenshot({ path: path.join(data, 'local-file-preview.png') });
-    await files.getByRole('button', { name: '关闭', exact: true }).click(); await b.page.getByRole('button', { name: '会话文件', exact: true }).click();
+    await files.getByRole('button', { name: '关闭', exact: true }).click(); await b.page.getByRole('button', { name: '更多会话操作', exact: true }).click(); await b.page.getByRole('button', { name: '会话文件', exact: true }).click();
     await expect(b.page.getByRole('dialog', { name: '会话文件', exact: true })).toContainText(artifact);
     await b.app.close(); const reopened = await launch('bob');
     snapshot = await call(reopened.page, 'snapshot'); assert(snapshot.sessions.find((item: any) => item.id === working.id).assignment);
