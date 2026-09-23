@@ -82,7 +82,7 @@ export async function packageHistory(session: AgentSession, sessionDir: string, 
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const clone = structuredClone(session); clone.approvals = [];
   const entries: { name: string; text?: string; file?: string }[] = [
-    { name: 'session.json', text: JSON.stringify({ schemaVersion: 1, captureSource: session.provider === 'codex' ? 'codex-app-server' : 'cursor-acp', trainingConsent: false, capturedAt: new Date().toISOString(), session: clone }, null, 2) },
+    { name: 'session.json', text: JSON.stringify({ schemaVersion: 1, captureSource: session.provider === 'codex' ? 'codex-app-server' : session.provider === 'claude' ? 'claude-code-stream-json' : 'cursor-acp', trainingConsent: false, capturedAt: new Date().toISOString(), session: clone }, null, 2) },
     { name: 'conversation.md', text: historyMarkdown(clone) }
   ];
   try { entries.push({ name: 'events.jsonl', text: frozenEvents ?? await fsp.readFile(path.join(sessionDir, 'events.jsonl'), 'utf8') }); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }

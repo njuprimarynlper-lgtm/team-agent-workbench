@@ -3,6 +3,7 @@ import type { AgentSession, PermissionMode, PermissionReport, Provider } from '.
 export const permissionLabels: Record<Provider, Record<PermissionMode, string>> = {
   codex: { inherit: '沿用 Codex 设置', review: '请求批准', auto: '帮我批准', full: '完全访问' },
   cursor: { inherit: '沿用 Cursor 设置', review: 'Allowlist（白名单）', auto: 'Auto-review（自动审查）', full: 'Run Everything（全部运行）' },
+  claude: { inherit: '沿用 Claude Code 设置', review: '手动批准', auto: '自动审查', full: '跳过权限询问' },
 };
 export const permissionEffects: Record<Provider, Record<PermissionMode, string>> = {
   codex: {
@@ -17,6 +18,12 @@ export const permissionEffects: Record<Provider, Record<PermissionMode, string>>
     auto: '自动审查工具操作，部分操作仍可能需要你确认。',
     full: '自动执行工具操作，明确禁止的操作仍可能无法执行。',
   },
+  claude: {
+    inherit: '沿用 Claude Code 已保存的权限规则，未预先允许的操作会向你请求批准。',
+    review: '未预先允许的操作会向你请求批准。',
+    auto: '由 Claude Code 自动审查操作，必要时仍向你请求批准。',
+    full: '跳过常规权限询问，仍受明确拒绝规则和管理策略约束。',
+  },
 };
 
 // Filesystem scope and approval routing are independent. Only call a Codex
@@ -26,6 +33,7 @@ function codexApprovalMode(report: PermissionReport): PermissionMode | undefined
 }
 function reportMode(report: PermissionReport): PermissionMode | undefined {
   if (report.provider === 'cursor') return report.approval === 'allowlist' ? 'review' : report.approval === 'auto-review' ? 'auto' : report.approval === 'unrestricted' ? 'full' : undefined;
+  if (report.provider === 'claude') return report.approval === 'inherit' ? 'inherit' : ['manual', 'default'].includes(report.approval) ? 'review' : report.approval === 'auto' ? 'auto' : report.approval === 'bypassPermissions' ? 'full' : undefined;
   if (['danger-full-access', 'dangerFullAccess'].includes(report.sandbox) && report.approval === 'never') return 'full';
   if (['workspace-write', 'workspaceWrite'].includes(report.sandbox)) return codexApprovalMode(report);
 }

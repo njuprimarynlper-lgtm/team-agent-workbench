@@ -33,6 +33,14 @@ export function cursorAuth(output: string, code: number | null, environmentCrede
   return state('error', 'CLI 返回了无法识别的认证状态，请检查版本后重试。');
 }
 
+export function claudeAuth(output: string, code: number | null, environmentCredential = false): ProviderAuth {
+  let result: any;
+  try { result = JSON.parse(output); } catch { return state('error', '无法读取 Claude Code 登录状态，请更新 CLI 后重试。'); }
+  if (code === 0 && result?.loggedIn === true) return { ...state('authenticated', '正在使用本机 Claude Code 已登录的账号。'), identity: identityText(result.email), plan: identityText(result.subscriptionType) };
+  if (code === 1 && result?.loggedIn === false) return environmentCredential ? state('configured', '已配置 Claude Code 环境凭据，尚未在线验证。') : state('unauthenticated', '尚未登录 Claude Code，请先登录个人账号。');
+  return authFailure(result?.error || 'Claude Code auth status failed');
+}
+
 export async function inspectAuth(provider: Provider, executable: string, cwd: string, signal?: AbortSignal, timeout = 20000, env: NodeJS.ProcessEnv = {}): Promise<ProviderAuth> {
   if (signal?.aborted) return state('error', '登录检测已取消。');
   if (provider === 'codex') {
@@ -48,7 +56,7 @@ export async function inspectAuth(provider: Provider, executable: string, cwd: s
     finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); await rpc.close(); }
   }
   return new Promise(resolve => {
-    const child = spawnCLI(executable, ['status', '--format', 'json'], cwd, env);
+    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'status'] : ['status', '--format', 'json'], cwd, env);
     let output = '', settled = false;
     const finish = (auth: ProviderAuth, stop = false) => {
       if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
@@ -61,7 +69,7 @@ export async function inspectAuth(provider: Provider, executable: string, cwd: s
     // Do not surface raw stderr, which may contain tokens or account data.
     child.stderr.resume();
     child.on('error', () => finish(state('error', '无法启动 CLI，请检查程序路径。')));
-    child.on('close', code => finish(cursorAuth(output, code, Boolean(process.env.CURSOR_API_KEY || process.env.CURSOR_AUTH_TOKEN))));
+    child.on('close', code => finish(provider === 'claude' ? claudeAuth(output, code, Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_USE_BEDROCK || process.env.CLAUDE_CODE_USE_VERTEX || process.env.CLAUDE_CODE_USE_FOUNDRY)) : cursorAuth(output, code, Boolean(process.env.CURSOR_API_KEY || process.env.CURSOR_AUTH_TOKEN))));
   });
 }
 
@@ -70,14 +78,14 @@ export function loginUrl(provider: Provider, output: string): string | undefined
   for (const candidate of output.match(/https:\/\/[^\s<>"\x1b]+/g) || []) {
     try {
       const url = new URL(candidate);
-      const allowed = provider === 'codex' ? ['auth.openai.com', 'auth0.openai.com'] : ['cursor.com', 'www.cursor.com', 'authenticator.cursor.sh'];
+      const allowed = provider === 'codex' ? ['auth.openai.com', 'auth0.openai.com'] : provider === 'claude' ? ['claude.ai', 'www.claude.ai', 'auth.anthropic.com', 'console.anthropic.com', 'platform.claude.com'] : ['cursor.com', 'www.cursor.com', 'authenticator.cursor.sh'];
       if (allowed.includes(url.hostname) && !url.username && !url.password) return url.href;
     } catch {}
   }
 }
 
 export class ProviderAccounts {
-  states: Record<Provider, ProviderAuth> = { codex: state('unknown', '尚未检测登录状态'), cursor: state('unknown', '尚未检测登录状态') };
+  states: Record<Provider, ProviderAuth> = { codex: state('unknown', '尚未检测登录状态'), cursor: state('unknown', '尚未检测登录状态'), claude: state('unknown', '尚未检测登录状态') };
   private jobs = new Map<string, { provider: Provider; key: string; controller: AbortController; promise: Promise<ProviderAuth> }>();
   private latest = new Map<Provider, string>();
   private logins = new Map<Provider, () => void>();
@@ -129,7 +137,7 @@ export class ProviderAccounts {
     try { executable = await resolveProvider(provider, this.configuredPath(provider)); }
     catch { reservation(); this.set(provider, state('error', '无法启动 CLI，请检查程序路径。')); return; }
     if (canceled || this.closed) return;
-    const child = spawnCLI(executable, ['login'], cwd, this.environment()); let output = '', settled = false;
+    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'login'] : ['login'], cwd, this.environment()); let output = '', settled = false;
     const finish = (kind: 'exit' | 'cancel' | 'timeout' | 'error', code?: number | null) => {
       if (settled) return; settled = true; clearTimeout(timer); this.logins.delete(provider);
       if (kind !== 'exit') { const stopped = stopCLI(child); this.stopping.add(stopped); void stopped.finally(() => this.stopping.delete(stopped)); }

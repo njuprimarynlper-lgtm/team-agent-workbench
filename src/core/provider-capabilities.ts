@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnCLI, stopCLI } from './rpc';
 import type { AgentCapabilityCatalog, AgentCapabilityOption, Provider } from '../shared/types';
 
 const clean = (value: unknown) => typeof value === 'string' ? value.trim().slice(0, 1000) : '';
@@ -60,3 +61,45 @@ export async function cursorPluginCapabilities(cwd: string): Promise<AgentCapabi
 }
 
 export function emptyCapabilityCatalog(provider: Provider): AgentCapabilityCatalog { return { provider, skills: [], plugins: [], checkedAt: new Date().toISOString() }; }
+
+async function claudeLocalSkills(cwd: string): Promise<AgentCapabilityOption[]> {
+  const roots = [path.join(os.homedir(), '.claude'), ...ancestors(cwd).map(dir => path.join(dir, '.claude'))];
+  const result = new Map<string, AgentCapabilityOption>();
+  for (const root of roots) for (const kind of ['skills', 'commands'] as const) {
+    let entries: import('node:fs').Dirent[] = [];
+    try { entries = await fs.readdir(path.join(root, kind), { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
+      const file = kind === 'skills' && entry.isDirectory() ? path.join(root, kind, entry.name, 'SKILL.md') : kind === 'commands' && entry.isFile() && entry.name.endsWith('.md') ? path.join(root, kind, entry.name) : '';
+      if (!file) continue;
+      try {
+        const content = await fs.readFile(file, 'utf8');
+        const invocation = kind === 'commands' ? entry.name.slice(0, -3) : entry.name;
+        const match = content.match(/^description:\s*(.+)$/m);
+        result.set('skill:' + invocation, { id: 'skill:' + invocation, kind: 'skill', name: invocation, invocation, description: clean(match?.[1]) || 'Claude Code Skill', path: file, source: root === roots[0] ? '个人' : '当前项目', enabled: true });
+      } catch {}
+    }
+  }
+  return [...result.values()];
+}
+
+export async function claudeCapabilities(cwd: string, executable: string, env: NodeJS.ProcessEnv = {}): Promise<AgentCapabilityCatalog> {
+  const catalog = emptyCapabilityCatalog('claude');
+  catalog.skills = await claudeLocalSkills(cwd);
+  try {
+    const output = await new Promise<string>((resolve, reject) => {
+      const child = spawnCLI(executable, ['plugin', 'list', '--json'], cwd, env); let value = '', settled = false;
+      const finish = (success: boolean) => { if (settled) return; settled = true; clearTimeout(timer); void stopCLI(child).then(() => success ? resolve(value) : reject(new Error('插件列表不可用'))); };
+      const timer = setTimeout(() => finish(false), 10000);
+      child.stdout.on('data', data => { value += String(data); if (value.length > 1024 * 1024) finish(false); });
+      child.stderr.resume(); child.on('error', () => finish(false)); child.on('close', code => finish(code === 0));
+    });
+    const parsed = JSON.parse(output || '[]');
+    const entries = Array.isArray(parsed) ? parsed : Array.isArray(parsed.installed) ? parsed.installed : [];
+    catalog.plugins = entries.flatMap((item: any) => {
+      const name = clean(item?.name || item?.id);
+      if (!name) return [];
+      return [{ id: 'plugin:' + name, kind: 'plugin' as const, name, invocation: name, description: clean(item.description) || 'Claude Code 已安装插件', source: 'Claude Code', enabled: item.enabled !== false, unavailableReason: item.enabled === false ? '已停用' : undefined }];
+    });
+  } catch { catalog.pluginError = '已安装插件列表不可用；已配置的插件仍由 Claude Code 自行加载。'; }
+  return catalog;
+}
