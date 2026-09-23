@@ -23,6 +23,7 @@ try {
   await expect(page.getByLabel('提供给成员的地址')).not.toHaveValue('');
   await expect(page.getByLabel('网络出口端口')).toHaveValue('18443');
   await expect(page.getByLabel('上游代理类型')).toHaveValue('direct');
+  await expect(page.getByLabel('Claude Code', { exact: true })).not.toBeChecked();
   await expect(page.getByText('用户端接入码', { exact: true })).toBeVisible();
   await expect(page.getByText('仅记录用户端上报的账号标识、产品、目标域名和流量，不保存提问、回答或个人账号凭据；账号标识不用于权限认证。', { exact: true })).toBeVisible();
   const first = await page.evaluate(() => window.admin.call('snapshot'));
@@ -30,6 +31,8 @@ try {
   assert.match(first.egress.inviteCode, /^TAE1\./);
   assert.match(first.egress.fingerprint, /^[A-F0-9]{64}$/);
   await page.getByLabel('启用管理端出口').check();
+  await page.getByText('监听与产品范围', { exact: true }).click();
+  await page.getByLabel('Claude Code', { exact: true }).check();
   await page.getByLabel('提供给成员的地址').fill('127.0.0.1');
   await page.getByLabel('网络出口端口').fill('18444');
   await page.getByRole('button', { name: '保存并应用', exact: true }).click();
@@ -38,6 +41,7 @@ try {
   const running = await page.evaluate(() => window.admin.call('snapshot'));
   assert.equal(running.egress.running, true);
   assert.equal(running.egress.config.publicHost, '127.0.0.1');
+  assert.equal(running.egress.config.claude, true);
   await page.getByRole('button', { name: '更新接入码', exact: true }).click();
   await expect(page.getByText('接入码已更新，已接入成员需要重新配置', { exact: true })).toBeVisible();
   const rotated = await page.evaluate(() => window.admin.call('snapshot'));

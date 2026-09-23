@@ -1,0 +1,155 @@
+{
+  "groups": [
+    {"title": "开始使用", "pages": ["start", "quickstart-member", "quickstart-lead", "quickstart-admin", "roles", "login", "workspace"]},
+    {"title": "个人工作", "pages": ["sessions", "references", "conclusions"]},
+    {"title": "团队协作", "pages": ["share-results", "activity", "tasks", "files"]},
+    {"title": "项目组管理员", "pages": ["project-admin"]},
+    {"title": "总管理员", "pages": ["people", "storage", "gateway"]},
+    {"title": "问题处理", "pages": ["help"]},
+    {"title": "使用场景", "pages": ["example", "case-new-member", "case-egress-mixed"]},
+    {"title": "参考资料", "collapsed": true, "pages": ["glossary", "classification-reference"]},
+    {"title": "部署与运维", "collapsed": true, "pages": ["deployment", "egress-reference"]},
+    {"title": "技术附录", "collapsed": true, "pages": ["steering-reference", "bulk-delete-reference", "preparation-reference", "background-reference", "workflow-reference", "identity-reference", "permission-reference", "storage-reference", "materials-reference", "acceptance-reference"]}
+  ],
+  "titles": {
+    "start": "开始使用",
+    "glossary": "术语与进一步阅读",
+    "gateway": "通过管理端访问 Codex 和 Cursor",
+    "references": "选择 AI 需要的参考资料",
+    "section-5-1": "选择并带入本次需要的项目成果",
+    "section-5-3": "处理项目说明和团队成果更新",
+    "section-6-1": "发起成果整理",
+    "section-6-3": "核对并上传团队成果",
+    "section-11-2": "派发和验收任务",
+    "section-12-3": "调整工作组成员与角色",
+    "section-14-1": "管理员开通模型网络出口",
+    "section-14-2": "成员接入管理端出口",
+    "section-14-3": "更新接入码与排查连接",
+    "section-16-1": "登录与会话问题",
+    "section-16-3": "管理操作与传输问题"
+  },
+  "quickstarts": [
+    {
+      "id": "quickstart-member", "title": "成员快速上手",
+      "intro": "完成团队登录、第一轮 AI 对话和一次成果分享。只有模型服务无法直连时，才启用管理端出口。",
+      "steps": [
+        {"target": "section-2-1", "note": "准备团队账号、服务器地址和本机工作目录。"},
+        {"target": "section-14-2", "note": "本机无法直连 Codex 或 Cursor 时使用管理员提供的接入码；团队 SSH 连接保持原样。", "optional": true},
+        {"target": "section-4-1", "note": "选择项目并创建第一条 AI 会话。"},
+        {"target": "section-4-3", "note": "核对自己的模型账号、模型和执行权限。"},
+        {"target": "references", "note": "只带入当前工作相关的项目资料与结论。"},
+        {"target": "section-6-1", "note": "AI 读取本次对话副本，你可以继续工作。"},
+        {"target": "section-6-3", "note": "确认文字内容；代码和完整对话不会随成果包上传。"},
+        {"target": "section-10-3", "note": "从上传结果核对共享区中对应的成果。"}
+      ]
+    },
+    {
+      "id": "quickstart-lead", "title": "项目组管理员快速上手",
+      "intro": "登录用户版并取得项目组管理员权限后，创建项目、组织工作，并维护团队成果。模型网络是否通过管理端，与项目权限分别配置。",
+      "steps": [
+        {"target": "section-11-1", "note": "写清目标、验收标准、范围与协作约定。"},
+        {"target": "section-11-2", "note": "指定负责人、关联成果与文件，提交后核对验收证据。"},
+        {"target": "section-11-3", "note": "修订、整理或按权限批量删除共享内容。"},
+        {"target": "section-11-4", "note": "审阅共识、分歧和证据，再确认保存。"},
+        {"target": "activity", "note": "成员从动态决定是否存入本地成果库或加入会话。"}
+      ]
+    },
+    {
+      "id": "quickstart-admin", "title": "总管理员快速上手",
+      "intro": "使用管理员版维护团队账号、成员关系和可选模型网络出口。",
+      "steps": [
+        {"target": "deployment", "note": "新部署或服务端升级时先核对环境与版本；已有团队不要重新初始化。", "optional": true},
+        {"target": "section-12-1", "note": "使用已有的 root 或 sudo 管理账号登录管理员版。"},
+        {"target": "section-12-2", "note": "确认组内首位成员是否适合担任组管理员。"},
+        {"target": "section-12-3", "note": "给已有用户加组，或设置项目组管理员。"},
+        {"target": "storage", "note": "按组、成员和文件夹查看，不会自动删除内容。"},
+        {"target": "gateway", "note": "仅为无法直连的成员启用；管理员版需保持运行。"}
+      ]
+    }
+  ],
+  "home": {
+    "intro": "从你现在要做的事开始。选择角色进入快速上手，或搜索具体操作与问题。",
+    "cards": [
+      {"target": "quickstart-member", "description": "开始 AI 工作，提交任务验收，分享并采用团队成果。", "action": "从登录开始 →"},
+      {"target": "quickstart-lead", "description": "创建项目，派发并验收任务，维护团队成果。", "action": "建立项目协作 →"},
+      {"target": "quickstart-admin", "description": "创建成员与组，查看空间，按需配置网络出口。", "action": "开始团队管理 →"}
+    ],
+    "common_actions": ["section-4-1", "section-6-3", "section-4-3", "activity", "references", "section-12-3", "section-10-2", "section-14-2", "help", "case-egress-mixed", "example"],
+    "search_defaults": ["section-6-3", "section-4-3", "section-14-2", "section-16-1"],
+    "deployment_target": "deployment"
+  },
+  "example_details": {
+    "summary": "Alice 是项目组管理员，Bob 是成员。两人用统一样例、评测环境和验收标准比较量化格式转换方案；先各自验证，再共享有证据的结论。",
+    "actors": [
+      {"name": "Alice · 组管理员", "role": "建立项目和验收标准，维护团队成果，派发并验收任务。"},
+      {"name": "Bob · 成员", "role": "在独立目录开展实验，标明证据与适用范围，提交任务验收。"}
+    ],
+    "diagram": {
+      "caption": "算法竞赛协作：从共同标准到验收",
+      "lanes": [
+        {"label": "协作主线", "nodes": ["统一样例与评测口径", "Alice / Bob 并行探索", "人工核对后发布成果", "从动态选择采用", "派发补测并验收"]},
+        {"label": "信息边界", "nodes": ["代码目录与 Session 留本机", "成果和选定附件进入共享区", "会话轨迹按需单独上传", "代码合并仍通过 Git"]}
+      ]
+    },
+    "checks": ["结论写明输入、设备、代码版本和计时方法，分歧保留证据。", "团队成果只有在成员核对并确认上传后才共享；另一位成员自行决定是否采用。", "补测任务须有验收说明和证据，AI 回答结束不代表任务完成。"],
+    "targets": ["section-11-1", "section-6-3", "activity", "section-11-2", "section-9-2"]
+  },
+  "use_cases": [
+    {
+      "id": "case-new-member", "title": "新成员加入项目并交付任务",
+      "situation": "一位新成员加入已有工作组，需要从登录、理解任务到提交可验收的结果，完成首次协作。",
+      "actors": [
+        {"name": "总管理员", "role": "提供团队 SSH 账号，将成员加入正确的工作组。"},
+        {"name": "项目组管理员", "role": "创建项目与任务，写明目标、验收要求和关联资料，负责最终审核。"},
+        {"name": "新成员", "role": "使用用户版和自己的模型账号工作，核对证据后提交验收。"}
+      ],
+      "prerequisites": ["团队服务器和项目已可用；总管理员已给成员账号及工作组权限。", "组管理员已派发任务，并写明负责人、目标、验收要求与可用资料。", "成员已准备自己的 Codex 或 Cursor 账号；模型网络不通时再按成员接入步骤启用管理端出口。"],
+      "steps": [
+        {"label": "进入正确的项目", "detail": "成员在用户版输入服务器地址、SSH 端口和自己的团队账号，登录后展开工作组并选择项目；看不到项目时先刷新工作组或联系管理员。"},
+        {"label": "看清任务要求", "detail": "打开分配给自己的任务，核对目标、验收标准、附件和资料快照。任务附件只对负责人和本组管理员开放。"},
+        {"label": "从任务开始工作", "detail": "点击“开始工作”，选择本机目录、模型和权限。工作台准备会话与输入草稿，但不会自动向 AI 发送；成员先检查草稿和带入资料，再主动发送。"},
+        {"label": "形成可复核的结果", "detail": "成员使用自己的模型账号开展验证，记录方法、输入、版本和证据；需要团队复用的结论可另行整理并确认上传。"},
+        {"label": "提交并完成验收", "detail": "成员对照验收要求填写结果说明，按需关联成果、共享文件或本地验收附件，再提交验收。组管理员查看证据，选择通过或写明原因退回。"}
+      ],
+      "done": ["成员看到任务进入待验收或已完成状态，组管理员能看到说明与证据。", "若任务被退回，成员沿用原会话补充结果后再次提交；历史验收记录保留。"],
+      "boundaries": ["团队 SSH 账号决定可见工作组和项目；模型账号决定个人 AI 登录与额度，两者分别登录。", "关闭 AI 会话、上传团队成果或得到模型回答，都不会自动把任务标为完成。"],
+      "diagram": {
+        "caption": "新成员首次交付：权限准备与任务验收是两段流程",
+        "lanes": [
+          {"label": "角色准备", "nodes": ["总管理员开通账号与组", "组管理员建立项目和任务", "成员登录并确认项目可见"]},
+          {"label": "任务交付", "nodes": ["阅读任务与验收要求", "检查草稿后发送给 AI", "整理证据并提交验收", "组管理员通过或退回"]}
+        ]
+      },
+      "targets": ["section-2-1", "section-9-1", "section-9-2", "section-11-2", "section-14-2"]
+    },
+    {
+      "id": "case-egress-mixed", "title": "成员 A 直连，成员 B 通过管理端访问模型",
+      "situation": "A 和 B 都能通过 SSH 打开团队项目。A 能直连 Codex 或 Cursor；B 的网络无法直连模型，但能访问管理员电脑。",
+      "actors": [
+        {"name": "成员 A", "role": "用户版保持直连，模型 CLI 使用自己的模型账号访问厂商。"},
+        {"name": "成员 B", "role": "用户版使用管理员接入码；自己的模型账号仍用于厂商登录和额度。"},
+        {"name": "总管理员", "role": "在管理员版启动网络出口，核对可达地址和端口，测试所需模型服务。"}
+      ],
+      "prerequisites": ["A、B 都已用各自的团队 SSH 账号进入授权项目；B 能访问管理员电脑的内网地址。", "管理员电脑能直连模型服务，或已在管理员版配置可用的上游 HTTP CONNECT / SOCKS5 代理。", "A、B 各自拥有 Codex 或 Cursor 模型账号；接入码不包含模型账号，也不授予项目权限。"],
+      "steps": [
+        {"label": "区分两位成员的模型通路", "detail": "A 本机可直连模型，保持“通过管理端访问 Codex 和 Cursor”关闭；B 无法直连，但团队项目正常可用，才需要可选出口。"},
+        {"label": "管理员开通出口", "detail": "总管理员打开管理员版“网络出口”，启用并保存；核对成员可达的主机名或内网 IP 与端口，测试 B 将使用的产品，复制接入码。管理员版保持运行。"},
+        {"label": "B 在用户版接入", "detail": "B 在登录窗口勾选“通过管理端访问 Codex 和 Cursor”，粘贴接入码，同时继续填写自己的团队 SSH 账号密码。管理员更新接入码后，B 需要重新粘贴。"},
+        {"label": "分别验证端到端请求", "detail": "A、B 分别检查自己的模型 CLI 登录并发送一次实际请求。A 直接访问厂商；B 的 CLI 只通过用户版本机代理、管理员电脑和可选上游代理访问厂商。"},
+        {"label": "核对团队资料边界", "detail": "A、B 的项目与文件仍分别通过 SSH/SFTP 到 Linux 团队服务器；开启出口不会改变组权限，也不会自动上传代码或完整会话。"}
+      ],
+      "done": ["A 和 B 分别用自己的模型账号收到回复；管理端只转发连接，不共享账号或额度。", "B 登录后仍只看到原团队账号获授权的项目与文件；团队通路与模型通路可分别核对。"],
+      "boundaries": ["管理端出口只作用于工作台启动的 Codex/Cursor CLI，不改变浏览器、系统代理或工作台之外启动的 CLI。", "如果项目能打开而模型无回复，按“成员到出口 → 出口到厂商 → 个人模型账号”分段排查；如果项目本身打不开，先查 SSH 与组权限。", "管理员可以选择本机直连或上游 HTTP CONNECT/SOCKS5；这是出口设置选项，不要求再建立独立使用场景。"],
+      "diagram": {
+        "caption": "A/B 的模型连接不同，团队资料连接相同",
+        "lanes": [
+          {"label": "成员 A · 模型", "nodes": ["A 的 Codex / Cursor CLI", "厂商模型服务"]},
+          {"label": "成员 B · 模型", "nodes": ["B 的 Codex / Cursor CLI", "用户版本机代理", "管理员电脑出口", "可选上游代理", "厂商模型服务"]},
+          {"label": "A/B · 团队资料", "nodes": ["各自的用户版", "SSH/SFTP", "Linux 团队服务器"]}
+        ]
+      },
+      "targets": ["section-14-1", "section-14-2", "section-14-3", "egress-reference"]
+    }
+  ],
+  "egress_case_ids": ["case-egress-mixed"]
+}

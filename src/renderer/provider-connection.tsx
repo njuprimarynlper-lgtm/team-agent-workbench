@@ -35,9 +35,9 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
   }, [provider, cwd]);
   return <section className="provider-connection-settings" aria-label="网络与登录设置">
     <div className="row"><Network size={17}/><strong>网络连接</strong><span className="spacer"/><span className="muted small">{egress?.enabled ? '管理端出口' : '本机网络'}</span></div>
-    <p className="muted small">应用于当前账号窗口的 Codex 和 Cursor 会话，仍使用你的个人 CLI 账号。</p>
+    <p className="muted small">应用于当前账号窗口的 Codex、Cursor 和 Claude Code 会话，仍使用你的个人 CLI 账号。</p>
     <fieldset disabled={busy}>
-      <label className="check-row"><input type="checkbox" checked={enabled} onChange={event => { setEnabled(event.target.checked); setResult(undefined); setError(''); }}/><span>通过管理端访问 Codex 和 Cursor</span></label>
+      <label className="check-row"><input type="checkbox" checked={enabled} onChange={event => { setEnabled(event.target.checked); setResult(undefined); setError(''); }}/><span>通过管理端访问模型服务</span></label>
       {enabled && <label className="field">管理端接入码<textarea aria-label="管理端网络出口接入码" rows={3} value={invite} onChange={event => { setInvite(event.target.value); setResult(undefined); }} placeholder={egress?.hasAccessCode ? '已保存接入码；更换出口时粘贴新的接入码' : '粘贴管理端“网络出口”页面复制的接入码'}/></label>}
     </fieldset>
     {egress?.enabled && <p className="muted small" role="status">{egress.detail}</p>}

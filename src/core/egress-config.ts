@@ -16,9 +16,10 @@ export const adminEgressConfigSchema: z.ZodType<AdminEgressConfig> = z.object({
   upstreamUsername: z.string().max(512).default(''),
   codex: z.boolean().default(true),
   cursor: z.boolean().default(true),
+  claude: z.boolean().default(false),
 }).superRefine((value, context) => {
   if (value.upstreamMode !== 'direct' && (!value.upstreamHost || !value.upstreamPort)) context.addIssue({ code: 'custom', path: ['upstreamHost'], message: '请输入上游代理地址和端口' });
-  if (!value.codex && !value.cursor) context.addIssue({ code: 'custom', path: ['codex'], message: '至少启用一种 CLI' });
+  if (!value.codex && !value.cursor && !value.claude) context.addIssue({ code: 'custom', path: ['codex'], message: '至少启用一种 CLI' });
 });
 
 export const userEgressSettingsSchema: z.ZodType<UserEgressSettings> = z.object({
@@ -37,4 +38,3 @@ export function decodeEgressInvite(value: string): EgressInvite {
   try { return inviteSchema.parse(JSON.parse(Buffer.from(clean.slice(5), 'base64url').toString('utf8'))); }
   catch { throw new Error('接入码无效或内容不完整，请从管理端重新复制'); }
 }
-

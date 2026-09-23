@@ -3,7 +3,7 @@ import { MessageSquare, ShieldCheck } from 'lucide-react';
 import type { Approval } from '../shared/types';
 
 export type RequestAnswers = Record<string, string | string[]>;
-export const isQuestionRequest = (request: Approval) => request.method === 'item/tool/requestUserInput' || request.method === 'cursor/ask_question';
+export const isQuestionRequest = (request: Approval) => request.method === 'item/tool/requestUserInput' || request.method === 'cursor/ask_question' || (request.method === 'claude/can_use_tool' && !!request.questions?.length);
 
 export function RequestCard({ request, onAnswer }: { request: Approval; onAnswer: (option: string, answers: RequestAnswers) => void }) {
   const [answers, setAnswers] = useState<RequestAnswers>({});
@@ -16,7 +16,7 @@ export function RequestCard({ request, onAnswer }: { request: Approval; onAnswer
     <strong>{question ? <MessageSquare size={17}/> : <ShieldCheck size={17}/>} {request.title}</strong>
     {request.summary && <pre className="approval-summary">{request.summary}</pre>}
     {!question && <details><summary>查看请求详情</summary><pre>{request.details}</pre></details>}
-    {request.questions?.map(q => request.method === 'cursor/ask_question' && q.allowMultiple ?
+    {request.questions?.map(q => q.allowMultiple ?
       <fieldset className="question-field" key={q.id}><legend>{q.text}（可多选）</legend>{q.options.map(o => {
         const selected = Array.isArray(answers[q.id]) ? answers[q.id] as string[] : [];
         return <label className="question-choice" key={o.id}><input type="checkbox" checked={selected.includes(o.id)} onChange={event => setAnswers(current => ({ ...current, [q.id]: event.target.checked ? [...selected, o.id] : selected.filter(id => id !== o.id) }))}/>{o.label}</label>;

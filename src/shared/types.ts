@@ -1,7 +1,7 @@
 import type { ContentMetadata, ContributionCategory, GitRevision } from './content';
 import type { ProjectBrief } from './project-brief';
 import type { UserEgressSettings, UserEgressStatus } from './egress';
-export type Provider = 'codex' | 'cursor';
+export type Provider = 'codex' | 'cursor' | 'claude';
 export type PermissionMode = 'inherit' | 'review' | 'auto' | 'full';
 export interface PermissionReport { provider: Provider; checkedAt: string; source: 'config' | 'runtime'; sandbox: string; approval: string; reviewer?: string; warnings: string[]; allowedModes?: PermissionMode[]; execution?: 'passed' | 'blocked' | 'unknown'; executionDetail?: string; cursorConfig?: { files: string[]; allow: string[]; deny: string[] }; }
 export interface PermissionIssue { kind: 'sandbox' | 'policy' | 'filesystem'; message: string; at: string; }

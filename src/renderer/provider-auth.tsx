@@ -11,7 +11,7 @@ export function ProviderAuthPanel({ provider, auth, cwd, autoCheck = true, stale
   provider: Provider; auth: ProviderAuth; cwd?: string; autoCheck?: boolean; stale?: boolean; beforeAction?: () => Promise<unknown>; disabled?: boolean;
 }) {
   const [error, setError] = useState(''), [pending, setPending] = useState(false);
-  const name = provider === 'codex' ? 'Codex' : 'Cursor';
+  const name = provider === 'codex' ? 'Codex' : provider === 'claude' ? 'Claude Code' : 'Cursor';
   const current: ProviderAuth = stale || (auth.status !== 'logging-in' && cwd && auth.cwd !== cwd) ? { status: 'unknown', detail: '请检测当前 CLI 和工作目录的登录状态。' } : auth;
   const busy = disabled || pending || ['checking', 'logging-in'].includes(current.status);
   const action = async (kind: 'provider.auth' | 'provider.login' | 'provider.login.cancel') => {

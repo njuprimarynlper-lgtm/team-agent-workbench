@@ -6,7 +6,7 @@ import path from 'node:path';
 import net from 'node:net';
 import { ensureEgressCertificate } from '../src/admin/egress-certificate';
 import { EgressClientProxy, EgressRelay, providerForHost } from '../src/core/egress';
-import { decodeEgressInvite, encodeEgressInvite } from '../src/core/egress-config';
+import { adminEgressConfigSchema, decodeEgressInvite, encodeEgressInvite } from '../src/core/egress-config';
 import type { AdminEgressConfig } from '../src/shared/egress';
 
 function listen(server: net.Server) { return new Promise<number>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve((server.address() as net.AddressInfo).port)); }); }
@@ -25,6 +25,8 @@ test('network exit invite parsing and provider allowlist are strict', () => {
   assert.deepEqual(decodeEgressInvite(encodeEgressInvite(invite)), invite);
   assert.equal(providerForHost('chatgpt.com'), 'codex'); assert.equal(providerForHost('api.openai.com'), 'codex');
   assert.equal(providerForHost('api2.cursor.sh'), 'cursor'); assert.equal(providerForHost('cursor.sh.evil.test'), undefined); assert.equal(providerForHost('example.com'), undefined);
+  assert.equal(providerForHost('api.anthropic.com'), 'claude'); assert.equal(providerForHost('claude.ai'), 'claude'); assert.equal(providerForHost('anthropic.com.evil.test'), undefined);
+  assert.equal(adminEgressConfigSchema.parse({ enabled: false, publicHost: 'admin.internal', codex: true, cursor: true }).claude, false);
   assert.throws(() => decodeEgressInvite('bad'), /接入码/);
 });
 
@@ -44,7 +46,7 @@ test('optional user proxy tunnels allowlisted CLI traffic, rejects other hosts a
   });
   const blocker = net.createServer(), upstreamPort = await listen(upstream), relayPort = await listen(blocker); await close(blocker);
   const certificate = await ensureEgressCertificate(path.join(root, 'tls'));
-  const config: AdminEgressConfig = { enabled: true, listenHost: '127.0.0.1', listenPort: relayPort, publicHost: '127.0.0.1', upstreamMode: 'http', upstreamHost: '127.0.0.1', upstreamPort, upstreamUsername: 'upstream-proxy', codex: true, cursor: true };
+  const config: AdminEgressConfig = { enabled: true, listenHost: '127.0.0.1', listenPort: relayPort, publicHost: '127.0.0.1', upstreamMode: 'http', upstreamHost: '127.0.0.1', upstreamPort, upstreamUsername: 'upstream-proxy', codex: true, cursor: true, claude: false };
   const relay = new EgressRelay(config, { accessCode: 'test-access-code-that-is-long', upstreamPassword: 'secret' }, certificate);
   const client = new EgressClientProxy({ enabled: true, host: '127.0.0.1', port: relayPort, certificateFingerprint: certificate.fingerprint, accessCode: 'test-access-code-that-is-long', username: 'alice' });
   try {
@@ -89,7 +91,7 @@ test('SOCKS5 upstream authentication carries an allowlisted tunnel', async () =>
   });
   const blocker = net.createServer(), socksPort = await listen(socks), relayPort = await listen(blocker); await close(blocker);
   const certificate = await ensureEgressCertificate(path.join(root, 'tls'));
-  const config: AdminEgressConfig = { enabled: true, listenHost: '127.0.0.1', listenPort: relayPort, publicHost: '127.0.0.1', upstreamMode: 'socks5', upstreamHost: '127.0.0.1', upstreamPort: socksPort, upstreamUsername: 'proxy-user', codex: true, cursor: true };
+  const config: AdminEgressConfig = { enabled: true, listenHost: '127.0.0.1', listenPort: relayPort, publicHost: '127.0.0.1', upstreamMode: 'socks5', upstreamHost: '127.0.0.1', upstreamPort: socksPort, upstreamUsername: 'proxy-user', codex: true, cursor: true, claude: false };
   const relay = new EgressRelay(config, { accessCode: 'test-access-code-that-is-long', upstreamPassword: 'proxy-password' }, certificate);
   const client = new EgressClientProxy({ enabled: true, host: '127.0.0.1', port: relayPort, certificateFingerprint: certificate.fingerprint, accessCode: 'test-access-code-that-is-long', username: 'bob' });
   try {

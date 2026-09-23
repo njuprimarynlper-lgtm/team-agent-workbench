@@ -11,13 +11,14 @@ export interface AdminEgressConfig {
   upstreamUsername: string;
   codex: boolean;
   cursor: boolean;
+  claude: boolean;
 }
 
 export interface EgressConnectionEvent {
   id: string;
   at: string;
   username: string;
-  provider: 'codex' | 'cursor' | 'control';
+  provider: 'codex' | 'cursor' | 'claude' | 'control';
   target: string;
   status: 'connected' | 'closed' | 'rejected' | 'error';
   bytesUp: number;
@@ -61,4 +62,3 @@ export interface EgressInvite {
   fingerprint: string;
   accessCode: string;
 }
-
