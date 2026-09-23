@@ -7,13 +7,13 @@ export const authLabels: Record<ProviderAuth['status'], string> = {
   unauthenticated: '未登录', error: '检测失败', 'not-required': '无需 OpenAI 登录', 'logging-in': '等待登录',
 };
 export const canUseProvider = (auth?: ProviderAuth) => auth && ['authenticated', 'configured', 'not-required'].includes(auth.status);
-export function ProviderAuthPanel({ provider, auth, cwd, autoCheck = true, stale = false, beforeAction }: {
-  provider: Provider; auth: ProviderAuth; cwd?: string; autoCheck?: boolean; stale?: boolean; beforeAction?: () => Promise<unknown>;
+export function ProviderAuthPanel({ provider, auth, cwd, autoCheck = true, stale = false, beforeAction, disabled = false }: {
+  provider: Provider; auth: ProviderAuth; cwd?: string; autoCheck?: boolean; stale?: boolean; beforeAction?: () => Promise<unknown>; disabled?: boolean;
 }) {
   const [error, setError] = useState(''), [pending, setPending] = useState(false);
   const name = provider === 'codex' ? 'Codex' : provider === 'claude' ? 'Claude Code' : 'Cursor';
   const current: ProviderAuth = stale || (auth.status !== 'logging-in' && cwd && auth.cwd !== cwd) ? { status: 'unknown', detail: '请检测当前 CLI 和工作目录的登录状态。' } : auth;
-  const busy = pending || ['checking', 'logging-in'].includes(current.status);
+  const busy = disabled || pending || ['checking', 'logging-in'].includes(current.status);
   const action = async (kind: 'provider.auth' | 'provider.login' | 'provider.login.cancel') => {
     setError(''); setPending(true);
     try { await beforeAction?.(); await window.workbench.call(kind, { provider, cwd }); }

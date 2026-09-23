@@ -5,7 +5,7 @@ import { permissionEffects, permissionLabels, sessionPermissionDescription, sess
 
 type Choice = { kind: 'model' | 'permission'; value: string; label: string };
 
-export function ComposerSettings({ session }: { session: AgentSession }) {
+export function ComposerSettings({ session, networkEnabled, openConnection, authCheckedAt }: { session: AgentSession; networkEnabled?: boolean; openConnection?: () => void; authCheckedAt?: string }) {
   const [open, setOpen] = useState<Choice['kind']>(), [catalog, setCatalog] = useState<ProviderCatalog>(), [report, setReport] = useState<PermissionReport>();
   const [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState<Choice>();
   const root = useRef<HTMLDivElement>(null), modelButton = useRef<HTMLButtonElement>(null), permissionButton = useRef<HTMLButtonElement>(null), sequence = useRef(0);
@@ -19,7 +19,8 @@ export function ComposerSettings({ session }: { session: AgentSession }) {
     } catch { if (n === sequence.current) setError(kind === 'model' ? '模型与额度读取失败，请检查登录或网络后重试。' : '权限读取失败，请重试。'); }
     finally { if (n === sequence.current) setLoading(false); }
   };
-  useEffect(() => { if (open) void refresh(open); return () => { sequence.current++; }; }, [open, session.provider, session.cwd]);
+  useEffect(() => { if (open) void refresh(open); return () => { sequence.current++; }; }, [open, session.provider, session.cwd, authCheckedAt]);
+  useEffect(() => { setCatalog(undefined); }, [authCheckedAt]);
   useEffect(() => {
     if (!open) return;
     const outside = (e: PointerEvent) => { if (!saving && !root.current?.contains(e.target as Node)) close(); };
@@ -43,6 +44,7 @@ export function ComposerSettings({ session }: { session: AgentSession }) {
   const models = catalog?.models || [];
   const selectedModel = session.model || models.find(m => m.isDefault)?.id;
   return <div className="composer-settings" ref={root}>
+    {openConnection && <button className="composer-setting" aria-label="网络与登录设置" disabled={saving} onClick={() => { close(); openConnection(); }}>{networkEnabled ? '管理端出口' : '本机网络'} · 登录<ChevronDown size={12}/></button>}
     <button ref={modelButton} className="composer-setting" aria-label="选择模型" aria-expanded={open === 'model'} aria-haspopup="dialog" title={modelName} disabled={saving} onClick={() => toggle('model')}><span>{modelName}</span><ChevronDown size={12}/></button>
     <button ref={permissionButton} className="composer-setting" aria-label="当前执行权限" aria-expanded={open === 'permission'} aria-haspopup="dialog" title={sessionPermissionDescription(session)} disabled={saving} onClick={() => toggle('permission')}><ShieldCheck size={13}/><span>{sessionPermissionLabel(session)}</span><ChevronDown size={12}/>{session.permissions?.execution === 'blocked' && <span className="permission-restricted" title="部分命令无法执行">!</span>}</button>
     {open && <section className="composer-popover" role="dialog" aria-label={open === 'model' ? '模型与额度' : '执行权限'}>

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import type { Provider, ProviderCatalog } from '../shared/types';
 
-export function ModelPicker({ provider, cwd, ready, model, changed }: { provider: Provider; cwd: string; ready: boolean; model: string; changed: (model: string) => void }) {
+export function ModelPicker({ provider, cwd, ready, model, changed, initialCatalog }: { provider: Provider; cwd: string; ready: boolean; model: string; changed: (model: string) => void; initialCatalog?: ProviderCatalog }) {
   const [catalog, setCatalog] = useState<ProviderCatalog>(), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const sequence = useRef(0);
   const refresh = async () => {
@@ -11,7 +11,7 @@ export function ModelPicker({ provider, cwd, ready, model, changed }: { provider
     catch { if (n === sequence.current) setError('模型与额度读取失败，请检查 CLI 和网络后重试。'); }
     finally { if (n === sequence.current) setBusy(false); }
   };
-  useEffect(() => { setCatalog(undefined); setError(''); if (ready) void refresh(); else setBusy(false); return () => { sequence.current++; }; }, [provider, cwd, ready]);
+  useEffect(() => { setCatalog(ready ? initialCatalog : undefined); setError(''); if (ready && !initialCatalog) void refresh(); else setBusy(false); return () => { sequence.current++; }; }, [provider, cwd, ready, initialCatalog]);
   const url = provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : provider === 'claude' ? 'https://claude.ai/settings/usage' : 'https://cursor.com/dashboard/spending';
   return <section className="model-picker" aria-label="模型与额度">
     <div className="row"><b>模型与额度</b><span className="spacer"/><button className="text-button" disabled={!ready || busy} onClick={() => void refresh()}><RefreshCw size={13} className={busy ? 'spin' : ''}/>{busy ? '读取中…' : '刷新模型与额度'}</button></div>

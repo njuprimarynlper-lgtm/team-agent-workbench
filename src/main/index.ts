@@ -1,4 +1,5 @@
 import { ownDataDirectory } from '../shared/single-instance';
+import { draftDeleteIdsSchema } from '../shared/draft-delete';
 import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, safeStorage } from 'electron';
@@ -214,6 +215,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);
     case 'draft.delete': return workbench.deleteDraft(sessionInput.parse(raw).id);
+    case 'draft.deleteMany': return workbench.deleteDrafts(z.object({ ids: draftDeleteIdsSchema }).parse(raw).ids);
     case 'draft.supplement': { const p = z.object({ id, supplement: text, repoUrlOverride: z.string().max(2048) }).parse(raw); return workbench.saveDraftSupplement(p.id, p.supplement, p.repoUrlOverride); }
     case 'result.rules': return workbench.resultRules(z.object({ projectId: z.string() }).parse(raw).projectId);
     case 'result.rules.save': { const p = z.object({ projectId: z.string(), owner: z.string(), version: z.string(), preferences: z.unknown() }).parse(raw); return workbench.saveResultRules(p.projectId, p.owner, p.version, p.preferences); }

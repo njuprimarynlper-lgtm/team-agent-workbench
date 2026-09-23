@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ContentMergeAnalysis, Draft } from '../shared/types';
 import { contributionTitle, resultTitle } from '../shared/content';
 import { reviewPreparedResults } from './preparation-policy';
+import { assertReadableResultText } from '../shared/result-reading';
 
 const positionSchema = z.object({
   sourceIds: z.array(z.string().uuid()).min(1).max(20),
@@ -53,6 +54,8 @@ export function applyContentMerge(draft: Draft, answer: string) {
   if (referenced.some(id => !allowed.has(id))) throw new Error('AI 引用了未选择的来源，已拒绝该结果，请重试。');
 
   const analysis: ContentMergeAnalysis = parsed.data;
+  assertReadableResultText(parsed.data.title, '标题');
+  [analysis.overview, ...analysis.consensus, ...analysis.conflicts.flatMap(item => [item.topic, ...item.positions.map(position => position.statement), item.resolution || '']), ...analysis.evidence.map(item => item.claim), analysis.scope || '', ...analysis.unresolved].forEach(text => assertReadableResultText(text));
   const names = new Map((draft.mergeSources || []).map(item => [item.id, `${item.title}（${item.author} · v${item.revision}）`]));
   const refs = (ids: string[]) => [...new Set(ids)].map(id => names.get(id)).filter(Boolean).join('；');
   const sections = [
@@ -61,11 +64,11 @@ export function applyContentMerge(draft: Draft, answer: string) {
     analysis.conflicts.length ? `## 差异与冲突\n\n${analysis.conflicts.map(item => `### ${item.topic}\n\n${item.positions.map(position => `- ${position.statement}\n  - 来源：${refs(position.sourceIds)}`).join('\n')}${item.resolution ? `\n\n建议处理：${item.resolution}` : ''}\n\n${item.requiresDecision ? draft.conclusionMergeProjectId ? '> 此项仍需你确认，AI 未擅自裁决。' : '> 此项仍需组管理员确认，AI 未擅自裁决。' : '> 已有材料支持上述处理。'}`).join('\n\n')}` : '',
     analysis.evidence.length ? `## 证据与来源\n\n${analysis.evidence.map(item => `- ${item.claim}\n  - 来源：${refs(item.sourceIds)}`).join('\n')}` : '',
     analysis.scope ? `## 适用范围\n\n${analysis.scope}` : '',
-    analysis.unresolved.length ? `## 未解决问题\n\n${analysis.unresolved.map(item => `- ${item}`).join('\n')}` : '',
-    `## 来源记录\n\n${(draft.mergeSources || []).map(item => `- ${names.get(item.id)} · ${item.updatedAt} · ID ${item.id}`).join('\n')}`
+    analysis.unresolved.length ? `## 未解决问题\n\n${analysis.unresolved.map(item => `- ${item}`).join('\n')}` : ''
   ].filter(Boolean);
   draft.title = draft.conclusionMergeProjectId ? parsed.data.title : resultTitle('综合整理', parsed.data.title, 200);
   draft.body = sections.join('\n\n');
   draft.generatedBody = draft.body;
+  draft.resultSourceDetails = `## 来源记录\n\n${(draft.mergeSources || []).map(item => `- ${names.get(item.id)} · ${item.updatedAt} · ID ${item.id}`).join('\n')}`;
   draft.mergeAnalysis = analysis;
 }

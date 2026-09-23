@@ -29,7 +29,7 @@ try {
   await expect(page.getByRole('button', { name: '手动设置 SSH 连接' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '添加其他服务器', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('服务器地址', { exact: true })).toBeVisible();
-  await expect(page.getByText('通过管理端访问 Codex 和 Cursor', { exact: true })).toBeVisible();
+  await expect(page.getByText('通过管理端访问模型服务', { exact: true })).toBeVisible();
   const egressToggle = page.locator('.member-egress-option input[type="checkbox"]');
   await expect(egressToggle).not.toBeChecked();
   await expect(page.getByLabel('管理端网络出口接入码')).toHaveCount(0);

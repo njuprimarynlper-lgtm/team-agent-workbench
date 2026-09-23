@@ -59,14 +59,14 @@ async function main() {
     await page.screenshot({ path: path.join(data, 'single-result.png') });
     await page.getByRole('button', { name: '返回动态', exact: true }).click();
     await expect(page.locator('.update-entry')).toHaveCount(2);
-    await page.getByTitle('团队项目成果库', { exact: true }).click(); await expect(page.locator('.content-card')).toHaveCount(2);
+    await page.getByTitle('项目成果库', { exact: true }).click(); await page.getByRole('tab', { name: '团队', exact: true }).click(); await expect(page.locator('.content-card')).toHaveCount(2);
 
     // Import exactly one result and give the local conclusion an independent, readable name.
     await page.getByTitle('团队动态', { exact: true }).click();
     await entry.getByRole('button', { name: '查看结果', exact: true }).click();
-    await page.getByRole('button', { name: '存入本地成果库', exact: true }).click();
+    await page.getByRole('button', { name: '存入个人成果库', exact: true }).click();
     await expect(page.getByLabel('处理这条动态')).toContainText('已处理');
-    await expect(page.getByRole('button', { name: '存入本地成果库', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: '存入个人成果库', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '返回动态', exact: true }).click();
     await expect(entry).toHaveCount(0);
     const local = (await call(page, 'conclusion.list', { projectId: project.id }))[0];
@@ -74,12 +74,12 @@ async function main() {
     await page.getByRole('tab', { name: /已处理/ }).click();
     await expect(page.locator('.update-entry')).toHaveCount(1);
     await entry.locator('.update-history > summary').click();
-    await expect(entry.getByLabel('我的处理记录')).toContainText('已存入本地成果库：“接口超时结论”');
+    await expect(entry.getByLabel('我的处理记录')).toContainText('已存入个人成果库：“接口超时结论”');
     await expect(entry).toContainText('已处理');
     await entry.getByRole('button', { name: '查看结果', exact: true }).click();
-    await page.getByRole('button', { name: '存入本地成果库', exact: true }).click();
+    await page.getByRole('button', { name: '存入个人成果库', exact: true }).click();
     await expect(page.getByLabel('处理这条动态')).toContainText('已处理');
-    await expect(page.getByRole('button', { name: '存入本地成果库', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: '存入个人成果库', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '返回动态', exact: true }).click();
     await entry.locator('.update-history > summary').click();
     await expect(entry.getByLabel('我的处理记录').locator('li')).toHaveCount(1);
@@ -89,7 +89,7 @@ async function main() {
     await entry.getByRole('button', { name: '标记已处理', exact: true }).click();
     await expect(entry).toHaveCount(0);
 
-    await page.getByTitle('本地项目成果库', { exact: true }).click(); await page.locator('.content-card-summary').click();
+    await page.getByTitle('项目成果库', { exact: true }).click(); await page.getByRole('tab', { name: '个人', exact: true }).click(); await page.locator('.content-card-summary').click();
     const setAlias = async (name: string) => {
       await page!.getByRole('button', { name: '设置本地别名', exact: true }).click();
       await page!.getByLabel('成果本地别名').fill(name); await page!.getByRole('button', { name: '保存本地别名', exact: true }).click();
@@ -133,7 +133,7 @@ async function main() {
     assert.equal((await call(page, 'conclusion.list', { projectId: project.id }))[0].titleAlias, '接口超时验收约束');
     await first.app.close();
     const reopened = await launch(); page = reopened.page; await connect(page);
-    await page.getByTitle('本地项目成果库', { exact: true }).click(); await expect(page.locator('.conclusion-library')).toContainText('接口超时验收约束');
+    await page.getByTitle('项目成果库', { exact: true }).click(); await page.getByRole('tab', { name: '个人', exact: true }).click(); await expect(page.locator('.conclusion-library')).toContainText('接口超时验收约束');
     await page.getByTitle('团队动态', { exact: true }).click(); await page.getByRole('tab', { name: /^全部/ }).click();
     const processed = page.locator('.update-entry').filter({ has: page.getByRole('heading', { name: '接口超时结论', exact: true }) }).filter({ has: page.getByText('原成果已从共享区移除；个人副本、会话引用和处理记录保留。', { exact: true }) });
     await processed.locator('.update-history > summary').click();
@@ -185,7 +185,7 @@ async function main() {
     await call(page, 'conclusion.create', { projectId: project.id, title: '批量结论 B', content: '用户手工记录 B' });
     const history = await call(page, 'conclusion.create', { projectId: project.id, title: '保留的历史结论', content: '隐藏条目不得误删' });
     await call(page, 'conclusion.archive', { id: history.id, archived: true });
-    await page.getByTitle('本地项目成果库', { exact: true }).click();
+    await page.getByTitle('项目成果库', { exact: true }).click(); await page.getByRole('tab', { name: '个人', exact: true }).click();
     await expect(page.locator('.content-card')).toHaveCount(2);
     await page.getByRole('button', { name: '批量删除成果', exact: true }).click();
     await expect(page.getByRole('button', { name: '删除选中的 0 条成果', exact: true })).toBeDisabled();

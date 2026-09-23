@@ -1,3 +1,11 @@
+# 2026-09-23 成果入口、整理可读性与会话网络设置
+
+- 项目成果库合并为一个导航入口，页内区分团队和个人；成果整理支持批量删除，已确认无新增内容的任务不再计入待整理。
+- 新建及已有会话均可配置当前账号窗口共用的管理端出口，并重新检测连接、CLI 登录和模型信息；运行中的任务阻止切换出口，迟到检测结果不会覆盖新上下文。
+- 整理、合并及交接记录共用可读性要求；整理结果默认排版展示，技术追溯信息收进来源详情，列表摘要保留完整语句。
+- TypeScript 检查及 `git diff --check` 通过。`node scripts/test-background.mjs tests/provider-connection.test.ts tests/result-reading.test.ts tests/materials-rendering.test.ts` 的 13 项后台回归通过，覆盖模拟连接检测、结果可读性与静态组件渲染。
+- 批量删除及待整理计数的生命周期回归已补充，但本轮未运行相关完整测试。未构建、重启客户端、运行桌面界面测试或验证真实 Codex/Cursor 连接；上述检查不代表桌面端或真实服务验收。
+
 # 2026-09-21 双击启动时 Electron 运行文件缺失
 
 - 实际启动日志显示 `npm ci` 成功安装 445 个包，但 Electron 44.3.0 不再通过 npm 安装后脚本准备运行文件。旧启动器直接检查 `electron.exe` 并报错，绕过了 Electron 的首次使用下载；本机 `ignore-scripts=false`，并非弹窗所推测的禁用脚本。[Electron 官方安装说明](https://www.electronjs.org/docs/latest/tutorial/installation#binary-download-step)明确区分 npm 包安装与运行文件下载。

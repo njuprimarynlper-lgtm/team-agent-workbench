@@ -116,6 +116,48 @@ test('delete record preserves shared frozen inputs, all transfer states, and rol
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });
 
+test('batch record deletion stops selected tasks, retains failed selections for retry, and preserves independent data', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-preparation-batch-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const session = await wb.createSession('codex', root, offlineProjectId); session.messages.push(message('one'));
+    const ready = await readyDraft(wb, session), blocked = await readyDraft(wb, session), running = await readyDraft(wb, session), untouched = await readyDraft(wb, session);
+    const helper = await wb.createSession('codex', path.dirname(running.inputDir), undefined, 'prepare', session.id);
+    running.prepareSessionId = helper.id; running.generation = 'running';
+    let stops = 0; (wb as any).runtimes.set(helper.id, { close: async () => { stops++; } });
+    const conclusion = wb.conclusions(offlineProjectId)[0], attached = await wb.attachConclusion(session.id, conclusion.id);
+    const content = await fs.readFile(attached.localPath, 'utf8'), progress = structuredClone(session.preparationCheckpoint), conclusions = structuredClone(wb.conclusions(offlineProjectId));
+    const uploadPath = path.join(root, 'frozen-upload'); await fs.writeFile(uploadPath, 'upload');
+    wb.store.transfers.push({ id: randomUUID(), status: 'error', kind: 'upload', name: 'upload', bytes: 0, total: 6, target: '/upload', projectName: 'test', createdAt: '', binding: session.binding!, localPath: uploadPath });
+    const transfers = structuredClone(wb.store.transfers);
+    (wb as any).submittingDrafts.add(blocked.id);
+    const result = await wb.deleteDrafts([ready.id, blocked.id, running.id, ready.id]);
+    assert.deepEqual(result.deletedIds, [ready.id, running.id]);
+    assert.deepEqual(result.failures.map(item => item.id), [blocked.id]); assert.match(result.failures[0].message, /正在保存或上传/);
+    assert.equal(stops, 1); assert.equal(running.generation, 'canceled'); assert(!wb.store.sessions.some(item => item.id === helper.id));
+    assert(wb.store.sessions.includes(session)); assert.deepEqual(wb.store.drafts.map(item => item.id), [blocked.id, untouched.id]);
+    assert.deepEqual(session.preparationCheckpoint, progress); assert.deepEqual(wb.conclusions(offlineProjectId), conclusions); assert.deepEqual(wb.store.transfers, transfers);
+    assert.equal(await fs.readFile(attached.localPath, 'utf8'), content); await fs.access(uploadPath); await fs.access(blocked.inputDir);
+    (wb as any).submittingDrafts.delete(blocked.id);
+    const retry = await wb.deleteDrafts([ready.id, blocked.id, running.id]);
+    assert.deepEqual(retry, { deletedIds: [ready.id, blocked.id, running.id], failures: [] }, 'retry also succeeds for records deleted before a response was interrupted');
+    const restored = new Store(wb.store.root); await restored.init(); assert.deepEqual(restored.drafts.map(item => item.id), [untouched.id]);
+    assert.deepEqual(session.preparationCheckpoint, progress); assert.deepEqual(wb.conclusions(offlineProjectId), conclusions); assert.deepEqual(wb.store.transfers, transfers);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
+test('batch record deletion validates the complete selection before deleting any record', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-preparation-batch-invalid-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const session = await wb.createSession('codex', root, offlineProjectId); session.messages.push(message('one'));
+    const draft = await readyDraft(wb, session);
+    for (const ids of [[], [draft.id, '../invalid'], Array.from({ length: 101 }, () => draft.id)]) {
+      await assert.rejects(wb.deleteDrafts(ids)); assert(wb.store.drafts.includes(draft)); await fs.access(draft.inputDir);
+    }
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
 test('delete confirmation names the independent data it preserves without invoking deletion during render', () => {
   let calls = 0;
   const draft = { id: 'd', title: '整理记录', generation: 'running' } as Draft;
