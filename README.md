@@ -12,6 +12,8 @@
 
 适用于 Windows x64，目前在 Windows 11 x64 验证。普通成员运行用户端；负责 Linux 账号、工作组和网络出口的总管理员运行管理端。项目组管理员也使用用户端。
 
+**已安装 Node.js、npm、Python，也仍需准备本项目依赖。** 这些工具不包含工作台使用的 React、SSH 库、构建工具和 Electron 桌面运行文件。源码首次启动会自动下载它们；请先确认本机能联网下载。只想解压后直接运行、避免在使用电脑下载依赖，需要部署人员提供已打包的完整程序，不能使用 GitHub 的源码 ZIP 代替。
+
 ### 1. 安装 Node.js
 
 从 [Node.js 官网](https://nodejs.org/en/download) 选择 **24 LTS → Windows → x64 → Windows Installer (.msi)**，保留 npm 和加入 PATH 的默认选项，完成安装。
@@ -38,7 +40,19 @@ Set-Location .\team-agent-workbench
 
 GitHub 的 **Download ZIP 是源码包**，仍需 Node 和首次依赖下载；它不是免安装程序。不要只下载单个 `.cmd` 文件，也不要在压缩包内直接运行。
 
-### 3. 启动客户端
+<a id="project-dependencies"></a>
+
+### 3. 安装项目依赖并启动客户端（首次需联网）
+
+安装 Node/npm 只是准备好了运行与安装工具。以下内容由启动器继续准备，无需逐个手动安装：
+
+| 内容 | 用途 | 如何准备、保存在哪里 |
+| --- | --- | --- |
+| 项目 npm 依赖 | React 界面、SSH/SFTP、Markdown、配套 Codex CLI，以及源码构建工具等 | 启动器按 `package-lock.json` 执行 `npm ci`，安装到本仓库 `node_modules/` |
+| Electron 桌面运行文件 | 工作台窗口及其内置 Chromium / Node 运行环境；系统 Node 不能代替它 | 启动器单独运行 Electron 安装脚本，下载到 `node_modules/electron/dist/` |
+| 当前版本的应用文件 | 将源码编译成可以运行的用户端和管理端 | 启动器在本机构建到 `dist/`，此步骤本身不下载依赖 |
+
+`node_modules/`、`dist/` 等生成内容没有提交到 Git，所以克隆仓库或下载源码 ZIP 不会得到它们。**安装 Python 也不会提供这些 npm 依赖**；普通客户端使用不要求额外安装 Python，开发测试和 Linux 服务端另有 Python 要求。已经全局安装的 CLI 或其他项目的依赖，也不代替本仓库锁定的依赖。
 
 在源码文件夹中双击对应入口，或在该文件夹的 PowerShell 中执行：
 
@@ -47,9 +61,13 @@ GitHub 的 **Download ZIP 是源码包**，仍需 Node 和首次依赖下载；�
 | 普通成员、项目组管理员 | `.\start-user-dev.cmd` |
 | 总管理员 | `.\start-admin-dev.cmd` |
 
-首次启动会自动安装依赖、下载 Electron 并构建应用，需要本机具备相应[下载网络](#download-network)。进度窗口会显示当前阶段，可查看日志或取消；**出现用户端登录窗口，或管理端主界面，即表示客户端启动成功**。团队连接和模型登录还需完成下一步。
+首次运行会依次执行上面的准备步骤，需要本机具备相应[下载网络](#download-network)。安装耗时取决于网络和缓存；进度窗口会显示当前阶段，可查看日志或取消。**出现用户端登录窗口，或管理端主界面，即表示客户端启动成功**。团队连接和模型登录还需完成下一步。
 
-以后仍使用同一入口。启动器会复用已准备好的依赖，并构建当前源码；两个客户端可同时运行。失败时按[启动排障](#troubleshooting)处理，日志位于 `.test-data/launcher/`。
+以后仍使用同一入口。**正常重复启动复用已有依赖，不会每次全量下载，但每次都会构建当前源码。** 同一源码目录的两个客户端共用这些依赖。失败时按[启动排障](#troubleshooting)处理，日志位于 `.test-data/launcher/`。
+
+这些情况会重新执行依赖安装：`package.json` 或 `package-lock.json` 改变、Node 主版本改变、关键依赖缺失，或启动器的安装记录 `.test-data/launcher/dependencies.txt` 丢失。更换到新解压的源码目录也要重新准备。npm/Electron 可能复用本机下载缓存，但不保证在离线环境中完成；Electron 文件缺失或版本不符时会单独补齐。
+
+**没有依赖下载网络：**请部署人员在联网环境构建并交付对应版本的完整安装包或免安装程序。程序包已包含工作台所需的库和桌面运行环境；模型服务、团队连接仍需各自的网络和账号，Cursor / Claude Code 的准备范围见[模型环境](#model-setup)。
 
 ### 4. 完成首次连接
 
