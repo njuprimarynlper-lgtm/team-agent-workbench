@@ -4,7 +4,7 @@ import type { UserEgressStatus } from '../shared/egress';
 export interface ProviderConnectionCheck { auth: ProviderAuth; catalog?: ProviderCatalog; issues: string[] }
 type Call = <T = unknown>(action: string, payload?: unknown) => Promise<T>;
 
-export async function checkProviderConnection(call: Call, provider: Provider, cwd: string, configuration?: { enabled: boolean; inviteCode?: string }, isCurrent = () => true): Promise<ProviderConnectionCheck> {
+export async function checkProviderConnection(call: Call, provider: Provider, cwd: string, configuration?: { enabled: boolean; viaSharedServer?: boolean; inviteCode?: string }, isCurrent = () => true): Promise<ProviderConnectionCheck> {
   const current = () => { if (!isCurrent()) throw new Error('检测范围已改变，请查看当前会话的最新状态'); };
   // A rejected configuration must not be reported as a successful switch.
   if (configuration) await call('egress.configure', configuration);

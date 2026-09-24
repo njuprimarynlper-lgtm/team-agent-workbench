@@ -32,6 +32,7 @@ export class LocalAdminConnection {
     this.changed(); return saved;
   }
   async operation(raw: AdminOperation) {
+    if (raw.op === 'egress_jump' || raw.op === 'egress_jump_probe') throw new Error('本地共享目录不支持中转，请连接 Linux 共享服务器');
     if (raw.op === "environment_prepare") throw new Error("本地模拟共享区无需安装服务器组件");
     const request = adminOperationSchema.parse(raw);
     if (!this.snapshot.connected) throw new Error('请先连接本地共享区');

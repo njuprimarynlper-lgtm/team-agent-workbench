@@ -27,6 +27,7 @@ export async function teamServer(accounts = { alice: 'alice', bob: 'bob', carol:
     })) }));
   };
   const server = new Server({ hostKeys: [key] }, client => {
+    client.on('tcpip', (accept, reject, info) => state.forward ? state.forward(accept, reject, info) : reject());
     let username = '', uid = 0; clients.push(client); client.on('error', error => { state.errors ||= []; state.errors.push(error.message); });
     client.on('authentication', ctx => { const alias = Object.keys(accounts).find(name => accounts[name] === ctx.username); if (ctx.method === 'password' && ctx.password === password && alias) { username = alias; uid = 1001 + Object.keys(accounts).indexOf(alias); ctx.accept(); } else ctx.reject(); });
     client.on('ready', () => client.on('session', accept => accept().on('sftp', accept => {

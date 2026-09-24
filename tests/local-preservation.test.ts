@@ -67,6 +67,6 @@ test('restart preserves sessions, inputs, all unread/history events, dismissed a
     assert.deepEqual(wb.store.settings.dismissedContentUpdateIds, snapshot.dismissed);
     assert.deepEqual(wb.store.settings.contentSeen, snapshot.seen); assert.deepEqual(wb.store.settings.contentAliases, snapshot.aliases);
     assert.equal(wb.workspaceReady, true);
-    assert.deepEqual(wb.store.settings.egress, { enabled: true, host: 'admin.internal', port: 18443, certificateFingerprint: 'AB'.repeat(32) });
+    assert.deepEqual(wb.store.settings.egress, { enabled: true, viaSharedServer: false, host: 'admin.internal', port: 18443, certificateFingerprint: 'AB'.repeat(32) });
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });

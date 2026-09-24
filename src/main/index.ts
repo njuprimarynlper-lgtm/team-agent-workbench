@@ -25,7 +25,7 @@ import { assignmentAllFiles, assignmentCreateSchema, assignmentStatusSchema } fr
 import { checkedSessionFile, listSessionFiles, previewSessionFile } from '../core/session-files';
 import { ServerIdentityStore } from '../core/server-identities';
 import { EgressClientProxy } from '../core/egress';
-import { decodeEgressInvite } from '../core/egress-config';
+import { decodeEgressInvite, userEgressInputSchema } from '../core/egress-config';
 type DataContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; broadcast: () => void; notice: (message: string) => void };
 type WindowContext = DataContext & { slot: number; sidebarProjectHeight?: number; release: () => Promise<void> };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
@@ -68,18 +68,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     }
     case 'window.new': openAdditionalWindow(false); return true;
     case 'egress.configure': {
-      const p = z.object({ enabled: z.boolean(), inviteCode: z.string().max(4096).optional(), username: z.string().max(64).optional() }).parse(raw);
-      let settings = workbench.store.settings.egress, accessCode = await readProtected(context.egressSecretFile);
-      if (p.inviteCode?.trim()) {
-        const invite = decodeEgressInvite(p.inviteCode); settings = { enabled: p.enabled, host: invite.host, port: invite.port, certificateFingerprint: invite.fingerprint }; accessCode = invite.accessCode;
-      } else if (settings) settings = { ...settings, enabled: p.enabled };
-      else if (p.enabled) throw new Error('请粘贴管理端生成的接入码');
-      if (p.enabled && !accessCode) throw new Error('已保存的接入信息不完整，请重新粘贴接入码');
-      await workbench.networkChanged();
-      workbench.store.settings.egress = settings; await workbench.store.save();
-      if (accessCode) await writeProtected(context.egressSecretFile, accessCode);
-      const username = p.username || workbench.remote.profile?.username || workbench.store.settings.connections.at(-1)?.username || '';
-      await egress.configure(settings ? { ...settings, accessCode, username } : undefined); if (settings?.enabled) void egress.probe().catch(() => {}); broadcast(); return egress.status();
+      await applyClientEgress(context, await prepareClientEgress(context, userEgressInputSchema.parse(raw)));
+      if (workbench.store.settings.egress?.enabled) void egress.probe().catch(() => {}); broadcast(); return egress.status();
     }
     case 'egress.test': await egress.probe(); broadcast(); return egress.status();
     case 'settings.save': {
@@ -109,7 +99,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'choose.directory': return (await dialog.showOpenDialog(owner, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(owner, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
     case 'remote.connect': {
-      const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().default('') }).parse(raw);
+      const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().default(''), egress: userEgressInputSchema.optional() }).parse(raw);
       const key = serverIdentityKey(p.profile.host, p.profile.port);
       const profile = { ...p.profile, fingerprint: p.profile.mode === 'local' ? p.profile.fingerprint : serverIdentities.get(key) };
       return loginWindow(owner, profile, p.password, p.localPath, async fingerprint => {
@@ -122,7 +112,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
           await serverIdentities.remember(key, fingerprint); await syncServerIdentities();
         }
         return accepted;
-      });
+      }, p.egress);
     }
     case 'server.identity.forget': {
       const p = z.object({ host: z.string().min(1), port: z.number().int().min(1).max(65535) }).parse(raw), key = serverIdentityKey(p.host, p.port);
@@ -302,7 +292,7 @@ async function storedWindowState(slot: number): Promise<{ profile?: import('../s
   try { const settings = JSON.parse(await fs.readFile(path.join(instanceRoot(slot), 'settings.json'), 'utf8')); const snapshot = settings.workspaceSnapshot || settings.offlineAuthorization; return { profile: snapshot?.profile ? profileSchema.parse(snapshot.profile) : undefined, sidebarProjectHeight: settings.sidebarProjectHeight }; }
   catch (error: any) { if (error.code !== 'ENOENT') throw error; return {}; }
 }
-async function loginWindow(window: BrowserWindow, profile: import('../shared/types').ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
+async function loginWindow(window: BrowserWindow, profile: import('../shared/types').ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>, egressInput?: z.infer<typeof userEgressInputSchema>) {
   if (switchingWindows.has(window)) throw new Error('正在登录，请等待结果');
   const previous = contexts.get(window)!;
   const currentProfile = previous.workbench.store.settings.workspaceSnapshot?.profile;
@@ -311,6 +301,8 @@ async function loginWindow(window: BrowserWindow, profile: import('../shared/typ
   const verified = new SharedFiles(() => {});
   let acquired: Awaited<ReturnType<typeof accountWorkspaces.acquire>> | undefined;
   try {
+    const requestedEgress = egressInput ? await prepareClientEgress(previous, egressInput) : undefined;
+    if (requestedEgress?.settings?.enabled && requestedEgress.settings.viaSharedServer && profile.mode === 'local') throw new Error('本地共享目录不支持中转，请登录共享服务器');
     // Authenticate before selecting any other account's local records. Failure leaves
     // the old context, its live tasks and the window's persisted selection untouched.
     const result = await verified.connect({ ...profile, projects: [], manifestPath: '', workPath: '' }, password, trust);
@@ -319,10 +311,14 @@ async function loginWindow(window: BrowserWindow, profile: import('../shared/typ
       if (window.isDestroyed() || closingWindows.has(window) || closing) throw new Error('窗口正在关闭，请重新登录');
       acquired = await accountWorkspaces.acquire(result, previous.workbench.store.root);
       const target = acquired.value;
+      // Apply login choices to the authenticated account, never to the account
+      // whose window happened to open the login dialog.
+      if (requestedEgress) await applyClientEgress(target, requestedEgress);
       if (!target.workbench.remote.connected) await target.workbench.configureWorkspace(result, '', localPath, trust, verified);
       // An already open account keeps its live SSH transfers and CLI runtimes. The
       // temporary connection above still verifies this login's password and server.
       target.egress.setUsername(result.username);
+      if (target.workbench.store.settings.egress?.enabled) void target.egress.probe().catch(() => {});
       if (window.isDestroyed() || closingWindows.has(window) || closing) throw new Error('窗口正在关闭，请重新登录');
       await atomicJson(windowStateFile(previous.slot), { profile: target.workbench.remote.profile || result, sidebarProjectHeight: previous.sidebarProjectHeight });
       try { await previous.release(); }
@@ -343,6 +339,28 @@ async function readProtected(file: string) {
 }
 async function writeProtected(file: string, value: string) {
   await fs.mkdir(path.dirname(file), { recursive: true }); const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(value) : Buffer.from(value, 'utf8'); await fs.writeFile(file, data, { mode: 0o600 });
+}
+async function prepareClientEgress(context: DataContext, input: z.infer<typeof userEgressInputSchema>) {
+  let settings = context.workbench.store.settings.egress, accessCode = await readProtected(context.egressSecretFile);
+  const viaSharedServer = input.viaSharedServer ?? settings?.viaSharedServer ?? false;
+  if (input.inviteCode?.trim()) {
+    const invite = decodeEgressInvite(input.inviteCode);
+    settings = { enabled: input.enabled, viaSharedServer: invite.version === 2 || viaSharedServer, host: invite.host, port: invite.port, certificateFingerprint: invite.fingerprint, ...(invite.version === 2 ? { sharedServer: invite.sharedServer } : {}) }; accessCode = invite.accessCode;
+  } else if (settings) settings = { ...settings, enabled: input.enabled, viaSharedServer };
+  else if (input.enabled) throw new Error('请粘贴管理端生成的接入码');
+  if (input.enabled && !accessCode) throw new Error('已保存的接入信息不完整，请重新粘贴接入码');
+  return { settings, accessCode };
+}
+async function applyClientEgress(context: DataContext, next: Awaited<ReturnType<typeof prepareClientEgress>>) {
+  const { workbench, egress } = context, { settings, accessCode } = next, previous = workbench.store.settings.egress;
+  const normalize = (value: typeof settings) => value ? { enabled: value.enabled, host: value.host, port: value.port, certificateFingerprint: value.certificateFingerprint, viaSharedServer: !!value.viaSharedServer, sharedServer: value.sharedServer } : undefined;
+  if (JSON.stringify(normalize(previous)) === JSON.stringify(normalize(settings)) && accessCode === await readProtected(context.egressSecretFile)) return;
+  await workbench.networkChanged();
+  if (accessCode) await writeProtected(context.egressSecretFile, accessCode);
+  workbench.store.settings.egress = settings; await workbench.store.save();
+  const username = workbench.remote.profile?.username || workbench.store.settings.workspaceSnapshot?.profile.username || '';
+  await egress.configure(settings ? { ...settings, accessCode, username } : undefined);
+  context.broadcast();
 }
 async function datasetMetadata(slot: number) {
   const root = instanceRoot(slot);
@@ -375,7 +393,7 @@ async function createDataContext(root: string): Promise<DataContext> {
   let workbench: Workbench;
   const emit = (event: WorkbenchEvent) => { for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed()) window.webContents.send('workbench:event', event); };
   let emitTimer: NodeJS.Timeout | undefined;
-  const broadcast = () => { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
+  const broadcast = () => { egress?.sharedServerConnectionChanged(!!workbench?.remote.connected); if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：')) for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
   let egress: EgressClientProxy | undefined;
   workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, () => egress?.environment() || {},
@@ -385,8 +403,8 @@ async function createDataContext(root: string): Promise<DataContext> {
     workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot();
     const egressSecretFile = path.join(root, 'egress-access.bin'), settings = workbench.store.settings.egress, accessCode = await readProtected(egressSecretFile);
     const username = workbench.store.settings.connections.at(-1)?.username || workbench.store.settings.workspaceSnapshot?.profile.username || '';
-    egress = new EgressClientProxy(settings ? { ...settings, accessCode, username } : undefined); egress.on('changed', broadcast);
-    if (settings?.enabled && accessCode) { await egress.start().catch(() => {}); void egress.probe().catch(() => {}); }
+    egress = new EgressClientProxy(settings ? { ...settings, accessCode, username } : undefined, (host, port, signal, expectedServer) => workbench.remote.openEgressTunnel(host, port, signal, expectedServer)); egress.on('changed', broadcast);
+    if (settings?.enabled && accessCode) { await egress.start().catch(() => {}); if (!settings.viaSharedServer || workbench.remote.connected) void egress.probe().catch(() => {}); }
     return { workbench, egress, egressSecretFile, broadcast, notice };
   } catch (error) { await workbench.close().catch(() => {}); await egress?.stop().catch(() => {}); throw error; }
 }

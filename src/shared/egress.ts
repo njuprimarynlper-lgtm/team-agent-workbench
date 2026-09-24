@@ -63,10 +63,32 @@ export interface AdminEgressSnapshot {
   lastError?: string;
   events: EgressConnectionEvent[];
   monitor?: EgressMonitor;
+  reverse?: ReverseEgressSnapshot;
+}
+
+export interface SharedServerRoute {
+  host: string;
+  port: number;
+  fingerprint: string;
+  relayPort: number;
+}
+export interface ReverseEgressSnapshot {
+  enabled: boolean;
+  state: 'disabled' | 'waiting-login' | 'paused' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+  detail: string;
+  server?: string;
+  remotePort?: number;
+  activeConnections: number;
+  reconnects: number;
+  bytesUp: number;
+  bytesDown: number;
+  memberAccessConfigured?: boolean;
 }
 
 export interface UserEgressSettings {
   enabled: boolean;
+  viaSharedServer?: boolean;
+  sharedServer?: SharedServerRoute;
   host: string;
   port: number;
   certificateFingerprint: string;
@@ -74,6 +96,7 @@ export interface UserEgressSettings {
 
 export interface UserEgressStatus {
   enabled: boolean;
+  viaSharedServer?: boolean;
   configured: boolean;
   running: boolean;
   available?: boolean;
@@ -83,10 +106,9 @@ export interface UserEgressStatus {
   hasAccessCode: boolean;
 }
 
-export interface EgressInvite {
-  version: 1;
+export type EgressInvite = {
   host: string;
   port: number;
   fingerprint: string;
   accessCode: string;
-}
+} & ({ version: 1 } | { version: 2; sharedServer: SharedServerRoute });

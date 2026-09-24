@@ -1,4 +1,5 @@
 import type { ContentEdit, ContentMetadata } from '../shared/content';
+import type { SharedServerRoute } from '../shared/egress';
 import type { AccountSnapshot } from '../shared/account-data';
 import { SftpConnection } from './sftp';
 import { LocalFileConnection } from './local-files';
@@ -26,6 +27,11 @@ export class SharedFiles {
     return profile;
   }
   disconnect() { this.backend.disconnect(); }
+  openEgressTunnel(host: string, port: number, signal: AbortSignal, expectedServer?: SharedServerRoute) {
+    if (!(this.backend instanceof SftpConnection)) throw new Error('本地共享目录不支持中转，请登录共享服务器');
+    if (expectedServer && this.profile && (this.profile.host.toLowerCase() !== expectedServer.host.toLowerCase() || this.profile.port !== expectedServer.port || this.profile.fingerprint !== expectedServer.fingerprint)) throw new Error('当前共享服务器与中转接入码不匹配，请登录接入码对应的服务器');
+    return this.backend.openEgressTunnel(host, port, signal);
+  }
   accountData(write?: AccountSnapshot) { return this.backend.accountData(write); }
   accountFile(hash: string, local: string, upload: boolean) { return this.backend.accountFile(hash, local, upload); }
   channel(binding?: RemoteBinding) { return this.backend.channel(binding); }

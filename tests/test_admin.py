@@ -10,6 +10,38 @@ admin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(admin)
 
 class AdminSafetyTests(unittest.TestCase):
+    def test_jump_rule_is_sftp_only_and_limits_exact_destinations(self):
+        state = {'loginGroup': 'wb_test_members'}
+        self.assertIn('DisableForwarding yes', admin.member_access_config('/srv/teamspace', state))
+        state['egressJumpTargets'] = [{'host': 'admin.internal', 'port': 443}, {'host': '::1', 'port': 18443}]
+        rule = admin.member_access_config('/srv/teamspace', state)
+        for directive in ['ForceCommand internal-sftp', 'ChrootDirectory "/srv/teamspace"', 'PermitTTY no', 'AllowTcpForwarding local', 'AllowStreamLocalForwarding no', 'AllowAgentForwarding no', 'X11Forwarding no', 'PermitTunnel no', 'PermitOpen admin.internal:443 [::1]:18443']:
+            self.assertIn(directive, rule)
+        for host in ['*', 'x\nMatch all', 'x y', 'https://admin', '[::1]', 'a..b', '::1%zone']:
+            with self.assertRaises(ValueError): admin.egress_target({'host': host, 'port': 443})
+        for port in [0, 65536, True, '443']:
+            with self.assertRaises(ValueError): admin.egress_target({'host': 'admin', 'port': port})
+
+    def test_jump_rule_rolls_back_if_sshd_validation_or_reload_fails(self):
+        import tempfile
+        for failing_step in [0, 1]:
+            with tempfile.TemporaryDirectory() as folder:
+                file = pathlib.Path(folder) / 'member.conf'
+                file.write_text('previous rule', encoding='utf-8')
+                with patch.object(admin, 'service_backend', return_value='systemd'), patch.object(admin, 'ssh_reload_command', return_value=['reload']), patch.object(admin, 'member_access_file', return_value=file), patch.object(admin, 'enable_member_access_include', return_value=None), patch.object(admin, 'run', side_effect=[RuntimeError('failed')] if failing_step == 0 else [None, RuntimeError('failed')]):
+                    with self.assertRaisesRegex(RuntimeError, 'failed'):
+                        admin.apply_member_access_rule('/srv/teamspace', {'loginGroup': 'wb_test_members'})
+                self.assertEqual(file.read_text(encoding='utf-8'), 'previous rule')
+
+    def test_jump_probe_only_opens_one_tcp_connection_and_hides_raw_errors(self):
+        with patch.object(admin.socket, 'create_connection') as connect:
+            self.assertEqual(admin.probe_egress_jump({'host': 'admin', 'port': 443}), {'reachable': True})
+            connect.assert_called_once_with(('admin', 443), timeout=5)
+        with patch.object(admin.socket, 'create_connection', side_effect=OSError('raw diagnostic')):
+            with self.assertRaisesRegex(ValueError, '共享服务器无法连接') as failure:
+                admin.probe_egress_jump({'host': 'admin', 'port': 443})
+            self.assertNotIn('raw diagnostic', str(failure.exception))
+
     def test_operation_and_path_validation(self):
         for root in ['/','/etc','/srv/../etc','/srv/x\nMatch All','/srv/x*','/srv/x/']:
             with self.assertRaises(ValueError): admin.validate_request({'op':'status','root':root})
@@ -124,6 +156,34 @@ class AdminSafetyTests(unittest.TestCase):
                 shutil.rmtree(outside, ignore_errors=True)
 
 class AdminRecoveryTests(unittest.TestCase):
+    def test_jump_changes_preserve_other_admins_and_revocation_disconnects_old_permissions(self):
+        self.execute('user_create', username='alice', name='Alice', password='test-password')
+        with patch.object(admin, 'apply_member_access_rule') as apply:
+            self.execute('egress_jump', host='admin-a', port=443, enabled=True)
+            self.execute('egress_jump', host='admin-b', port=18443, enabled=True)
+            self.assertEqual(len(admin.load(self.root)['egressJumpTargets']), 2)
+            self.execute('egress_jump', host='admin-a', port=443, enabled=True)
+            self.assertEqual(len(admin.load(self.root)['egressJumpTargets']), 2)
+            self.fail = lambda args: args[0] == 'pkill'
+            with self.assertRaises(RuntimeError): self.execute('egress_jump', host='admin-a', port=443, enabled=False)
+            failed = admin.load(self.root)
+            self.assertEqual(failed['egressJumpTargets'], [{'host': 'admin-b', 'port': 18443}])
+            self.assertEqual(failed['operations']['egress_jump:admin-a:443']['request']['host'], 'admin-a')
+            self.fail = None
+            self.execute('recover', operationId='egress_jump:admin-a:443')
+            self.assertEqual(admin.load(self.root)['operations']['egress_jump:admin-a:443']['status'], 'done')
+            self.assertIn(['pkill', '-KILL', '-u', 'alice'], self.calls)
+            self.assertEqual(apply.call_args.args[1]['egressJumpTargets'], [{'host': 'admin-b', 'port': 18443}])
+
+    def test_failed_jump_update_retains_previous_targets_and_probe_does_not_write_state(self):
+        before = (self.root / '.workbench/admin/state.json').read_bytes()
+        with patch.object(admin.socket, 'create_connection'):
+            self.execute('egress_jump_probe', host='admin-a', port=443)
+        self.assertEqual((self.root / '.workbench/admin/state.json').read_bytes(), before)
+        with patch.object(admin, 'apply_member_access_rule', side_effect=RuntimeError('invalid ssh config')):
+            with self.assertRaises(RuntimeError): self.execute('egress_jump', host='admin-a', port=443, enabled=True)
+        self.assertEqual(admin.load(self.root).get('egressJumpTargets', []), [])
+
     def test_saving_legacy_state_preserves_ordinary_membership_from_system(self):
         import json
         self.execute('group_create', label='ocr')

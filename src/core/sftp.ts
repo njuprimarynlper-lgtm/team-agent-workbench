@@ -1,4 +1,5 @@
 import { storageRequest } from './storage-requests';
+import { forwardEgress } from './ssh-egress';
 import type { AssignmentCreate, AssignmentMember, AssignmentStatusChange, ProjectAssignment, AssignmentUpload, AssignmentFile } from '../shared/assignments';
 import { hashFile } from './artifacts';
 import type { ContentEdit, ContentMetadata, SharedContent } from '../shared/content';
@@ -68,6 +69,10 @@ export class SftpConnection {
     return this.profile!;
   }
   disconnect() { this.workspace = undefined; this.workspaces = []; this.sftp = undefined; this.sessionPassword = ''; this.client?.end(); this.client = undefined; this.changed(); }
+  openEgressTunnel(host: string, port: number, signal: AbortSignal) {
+    if (!this.connected || !this.client) throw new Error('请先登录共享服务器，再使用中转访问管理端');
+    return forwardEgress(this.client, host, port, signal);
+  }
   channel(binding?: RemoteBinding) {
     if (!this.sftp || !this.profile) throw new Error('连接已断开，请重新登录后再试');
     if (binding && !sameEndpoint(binding, this.profile)) throw new Error('当前服务器或账号与任务绑定的身份不一致，请切回原连接后重试');

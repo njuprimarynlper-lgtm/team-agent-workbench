@@ -23,11 +23,13 @@ import unicodedata
 import zlib
 import configparser
 import tempfile
+import socket
+import ipaddress
 
 if "acl_apply" not in globals():
     exec(compile(pathlib.Path(__file__).with_name("acl_support.py").read_text(encoding="utf-8"), "acl_support.py", "exec"))
 
-OPS = {"probe", "environment_prepare", "initialize", "status", "storage_usage", "storage_upgrade", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover"}
+OPS = {"probe", "environment_prepare", "initialize", "status", "storage_usage", "storage_upgrade", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover", "egress_jump", "egress_jump_probe"}
 REQUIRED_COMMANDS = ["useradd", "usermod", "groupadd", "gpasswd", "chpasswd", "pkill", "sshd", "setfacl"]
 MANAGED_SUPERVISOR = pathlib.Path('/etc/team-agent-workbench')
 SUPERVISOR_CONFIGS = [pathlib.Path('/etc/supervisor/supervisord.conf'), pathlib.Path('/etc/supervisord.conf'), MANAGED_SUPERVISOR / 'supervisord.conf']
@@ -280,7 +282,27 @@ def validate_request(request):
         raise ValueError("请选择专用的共享子目录，例如 /srv/teamspace")
     if str(pathlib.PurePosixPath(value)) != value or any(c in value for c in "\t*"):
         raise ValueError("根路径格式不规范")
+    if request['op'] in ['egress_jump', 'egress_jump_probe']:
+        egress_target(request)
+        if request['op'] == 'egress_jump' and not isinstance(request.get('enabled'), bool):
+            raise ValueError('请选择是否允许中转')
     return request
+
+
+def egress_target(value):
+    host, port = value.get('host'), value.get('port')
+    if not isinstance(host, str) or not 1 <= len(host) <= 253 or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise ValueError('请输入有效的管理端地址和端口')
+    if ':' in host:
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            raise ValueError('请输入不带方括号的 IPv6 地址')
+        if '%' in host:
+            raise ValueError('中转地址不支持 IPv6 区域标识')
+    elif not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', host) or '..' in host:
+        raise ValueError('管理端地址只能是主机名或 IP，不能包含通配符、协议或路径')
+    return {'host': host, 'port': port}
 
 def identifier(value, maximum=24):
     if not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0," + str(maximum-1) + r"}", value):
@@ -605,6 +627,8 @@ def initialize(root, request):
     return state
 
 def operation_key(request):
+    if request['op'] == 'egress_jump':
+        return 'egress_jump:' + str(request.get('host')) + ':' + str(request.get('port'))
     if request['op'] == 'group_member':
         return 'group_member:' + str(request.get('username')) + ':' + str(request.get('group'))
     return request["op"] + (":" + str(request.get("username") or request.get("label") or request.get("group")) if any(request.get(k) for k in ["username", "label", "group"]) else "")
@@ -614,7 +638,7 @@ def start_operation(root, state, request):
     previous = state.setdefault("operations", {}).get(key)
     if previous and previous.get("status") == "done" and request["op"] in ["user_create", "group_create"]:
         raise ValueError("创建已经完成，请刷新查看已有资源")
-    sanitized = {k: request[k] for k in ["op", "username", "name", "groups", "contentAdminGroups", "label", "group", "enabled", "role"] if k in request}
+    sanitized = {k: request[k] for k in ["op", "username", "name", "groups", "contentAdminGroups", "label", "group", "enabled", "role", "host", "port"] if k in request}
     state["operations"][key] = {"id": key, "op": request["op"], "request": sanitized, "status": "running", "completed": previous.get("completed", []) if previous and previous.get("status") != "done" else []}
     state["activeOperation"] = key
     save(root, state)
@@ -731,7 +755,13 @@ def member_access_file(state):
 
 
 def member_access_config(root, state):
-    return ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n    DisableForwarding yes\n    PermitTTY no\nMatch all\n')
+    targets = [egress_target(value) for value in state.get('egressJumpTargets', [])]
+    forwarding = '    DisableForwarding yes\n'
+    if targets:
+        destinations = ' '.join(('[' + item['host'] + ']' if ':' in item['host'] else item['host']) + ':' + str(item['port']) for item in targets)
+        forwarding = ('    DisableForwarding no\n    AllowTcpForwarding local\n    PermitOpen ' + destinations + '\n'
+                      '    AllowStreamLocalForwarding no\n    AllowAgentForwarding no\n    X11Forwarding no\n    PermitTunnel no\n')
+    return ('Match Group ' + state["loginGroup"] + '\n    ChrootDirectory "' + str(root) + '"\n    ForceCommand internal-sftp\n    PasswordAuthentication yes\n    AuthenticationMethods password\n    PubkeyAuthentication no\n' + forwarding + '    PermitTTY no\nMatch all\n')
 
 
 def sshd_includes_member_access(file, config_file=pathlib.Path("/etc/ssh/sshd_config")):
@@ -793,9 +823,9 @@ def member_access_ready(root, state):
         return False
 
 
-def configure_member_access(root, state):
-    """Install member login and storage plumbing as part of user creation."""
-    backend = service_backend()
+def apply_member_access_rule(root, state, backend=None):
+    """Validate before reload; restore the old configuration if applying fails."""
+    backend = backend or service_backend()
     reload_command = ssh_reload_command(backend)
     file = member_access_file(state)
     config_dir = file.parent
@@ -817,8 +847,47 @@ def configure_member_access(root, state):
         if previous_main is not None:
             main_config.write_text(previous_main, encoding="utf-8")
         raise
+
+
+def configure_member_access(root, state):
+    """Install member login and storage plumbing as part of user creation."""
+    backend = service_backend()
+    apply_member_access_rule(root, state, backend)
     install_content_worker(root, state, backend=backend)
     state["sftpConfigured"] = True
+
+
+def configure_egress_jump(root, state, request):
+    if not state.get('sftpConfigured') or state.get('storageVersion') != 1:
+        raise ValueError('请先完成团队成员的 SFTP 登录配置')
+    target = egress_target(request)
+    targets = list(state.get('egressJumpTargets', []))
+    if request['enabled']:
+        if target not in targets:
+            if len(targets) >= 16:
+                raise ValueError('最多允许 16 个管理端出口，请先移除不用的地址')
+            targets.append(target)
+    else:
+        targets = [item for item in targets if item != target]
+    apply_member_access_rule(root, {**state, 'egressJumpTargets': targets})
+    state['egressJumpTargets'] = targets
+    checkpoint(root, state, '共享服务器中转规则已应用')
+    # Existing SSH connections retain their original PermitOpen policy. Revoking
+    # an endpoint must close them; adding one only requires affected users to log in again.
+    if not request['enabled']:
+        for username in state.get('users', {}):
+            terminate_connections(user_login(state, username))
+        checkpoint(root, state, '旧成员连接已失效')
+
+
+def probe_egress_jump(request):
+    target = egress_target(request)
+    try:
+        with socket.create_connection((target['host'], target['port']), timeout=5):
+            pass
+    except OSError:
+        raise ValueError('共享服务器无法连接管理端，请检查出口是否运行、地址、端口及双方防火墙；若出站仅放行 80/443/2202，可将管理端出口配置为允许的空闲端口') from None
+    return {'reachable': True}
 
 
 def prepare_workspace(root, state, group_name):
@@ -935,6 +1004,8 @@ def _execute(request):
     missing = [name for name in REQUIRED_COMMANDS if not (acl_backend() if name == 'setfacl' else shutil.which(name))]
     if request["op"] == "probe":
         return {"administrator": True, "actor": actor, "root": str(root), **environment_probe(), "initialized": (root / ".workbench/admin/state.json").is_file()}
+    if request['op'] == 'egress_jump_probe':
+        return {'state': actual_state(load(root)), 'value': probe_egress_jump(request)}
     if request["op"] == "status" and not (root / ".workbench/admin/state.json").is_file():
         journal = bootstrap_file(root)
         return {"initialized": False, "users": {}, "groups": {}, "bootstrapPending": journal.exists()}
@@ -1058,6 +1129,8 @@ def _execute(request):
     elif op == "workspace_prepare":
         prepare_workspace(root, state, request.get("group"))
         checkpoint(root, state, "工作目录与 ACL 已配置")
+    elif op == 'egress_jump':
+        configure_egress_jump(root, state, request)
     elif op == "storage_upgrade":
         if not member_access_ready(root, state):
             raise ValueError('请先完成成员 SFTP 登录配置')
@@ -1096,7 +1169,7 @@ def _execute(request):
             job.pop("error", None)
         save(root, state)
         with child(root, ".workbench/admin/audit.jsonl").open("a", encoding="utf-8") as audit:
-            json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label"), "group": request.get("group"), "role": request.get("role")}, audit, ensure_ascii=False)
+            json.dump({"at": datetime.datetime.now(datetime.timezone.utc).isoformat(), "actor": actor, "operation": op, "username": request.get("username"), "groups": request.get("groups"), "label": request.get("label"), "group": request.get("group"), "role": request.get("role"), **({"host": request['host'], "port": request['port'], "enabled": request['enabled']} if op == 'egress_jump' else {})}, audit, ensure_ascii=False)
             audit.write("\n")
     return {"state": actual_state(state), "value": result}
 
@@ -1114,7 +1187,7 @@ def execute(request):
     try:
         return _execute(request)
     except Exception as error:
-        if request["op"] not in ["status", "probe", "storage_usage", "environment_prepare"]:
+        if request["op"] not in ["status", "probe", "storage_usage", "environment_prepare", "egress_jump_probe"]:
             try:
                 state = load(root)
                 key = operation_key(request)

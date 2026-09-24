@@ -4,7 +4,7 @@ import tls from 'node:tls';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { Duplex } from 'node:stream';
-import type { AdminEgressConfig, EgressConnectionEvent, UserEgressSettings, UserEgressStatus } from '../shared/egress';
+import type { AdminEgressConfig, EgressConnectionEvent, SharedServerRoute, UserEgressSettings, UserEgressStatus } from '../shared/egress';
 import { EgressMonitor } from './egress-monitor';
 import { cliConnectionSchema, cliReportSchema, type CliConnection } from '../shared/cli-connection';
 
@@ -12,6 +12,9 @@ type DuplexSocket = net.Socket | tls.TLSSocket;
 type RelaySecret = { accessCode: string; upstreamPassword?: string };
 type RelayOptions = { pfx: Buffer; passphrase: string; fingerprint: string };
 type ClientOptions = UserEgressSettings & { accessCode: string; username: string };
+type SharedServerDialer = (host: string, port: number, signal: AbortSignal, expectedServer?: SharedServerRoute) => Promise<Duplex>;
+class EgressRouteError extends Error {}
+const clientDetail = (error: unknown) => error instanceof EgressRouteError ? error.message : safeDetail(error);
 
 const cleanFingerprint = (value: string) => value.toUpperCase().replace(/^SHA256:/, '').replace(/:/g, '');
 const safeDetail = (error: unknown) => {
@@ -212,10 +215,22 @@ export class EgressClientProxy extends EventEmitter {
   private probeId = 0;
   private server?: http.Server;
   private connections = new Set<Duplex>();
+  private pending = new Set<AbortController>();
+  private sharedServerConnected?: boolean;
   private localPort = 0;
   private statusValue: UserEgressStatus = { enabled: false, configured: false, running: false, detail: '使用本机网络直连', hasAccessCode: false };
-  constructor(private config?: ClientOptions) { super(); this.refreshStatus(); }
+  constructor(private config?: ClientOptions, private sharedServerDialer?: SharedServerDialer) { super(); this.refreshStatus(); }
   status() { return structuredClone(this.statusValue); }
+  sharedServerConnectionChanged(connected: boolean) {
+    if (this.sharedServerConnected === connected) return;
+    this.sharedServerConnected = connected;
+    if (!this.config?.enabled || !this.config.viaSharedServer) return;
+    if (connected) void this.probe().catch(() => {});
+    else {
+      this.probeId++; this.closeConnections();
+      this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: '共享服务器未连接，请登录后使用中转' });
+    }
+  }
   setUsername(username: string) {
     if (!this.config || this.config.username === username) return;
     this.config = { ...this.config, username }; this.reports.clear(); this.reportQueue.clear(); this.clientId = randomUUID();
@@ -252,13 +267,14 @@ export class EgressClientProxy extends EventEmitter {
   }
   async configure(config?: ClientOptions) {
     this.reports.clear(); this.reportQueue.clear();
+    this.closeConnections();
     this.revision++; this.config = config; this.refreshStatus({ available: undefined, checkedAt: undefined });
     if (config?.enabled) await this.start(); else await this.stop(); this.refreshStatus();
   }
   private refreshStatus(patch: Partial<UserEgressStatus> = {}) {
     const enabled = !!this.config?.enabled, configured = !!(this.config?.host && this.config.port && this.config.certificateFingerprint && this.config.accessCode);
     const available = Object.hasOwn(patch, 'available') ? patch.available : this.statusValue.available;
-    this.statusValue = { enabled, configured, running: !!this.server?.listening, available, checkedAt: this.statusValue.checkedAt, endpoint: configured ? `${this.config!.host}:${this.config!.port}` : undefined, detail: enabled ? (this.server?.listening ? available ? '管理端网络出口可用' : '已配置管理端网络出口，等待连接检测' : '管理端网络出口未启动') : '使用本机网络直连', hasAccessCode: !!this.config?.accessCode, ...patch };
+    this.statusValue = { enabled, viaSharedServer: !!this.config?.viaSharedServer, configured, running: !!this.server?.listening, available, checkedAt: this.statusValue.checkedAt, endpoint: configured ? `${this.config!.host}:${this.config!.port}` : undefined, detail: enabled ? (this.server?.listening ? available ? this.availableDetail() : '已配置管理端网络出口，等待连接检测' : '管理端网络出口未启动') : '使用本机网络直连', hasAccessCode: !!this.config?.accessCode, ...patch };
     this.emit('changed');
   }
   async start() {
@@ -274,8 +290,7 @@ export class EgressClientProxy extends EventEmitter {
     this.revision++;
     clearInterval(this.heartbeat); clearTimeout(this.reportTimer); this.reportTimer = undefined; this.reports.clear(); this.reportQueue.clear();
     const server = this.server; this.server = undefined; this.localPort = 0;
-    for (const socket of this.connections) socket.destroy();
-    this.connections.clear();
+    this.closeConnections();
     if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.refreshStatus({ available: undefined, checkedAt: undefined });
   }
   async probe() {
@@ -284,11 +299,18 @@ export class EgressClientProxy extends EventEmitter {
     try {
       const socket = await this.connectRelay({ kind: 'ping' }); socket.end();
       if (revision !== this.revision || probe !== this.probeId) throw new Error('出口配置或检测已改变，请查看最新状态');
-      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: '管理端网络出口可用' }); return true;
+      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: this.availableDetail() }); return true;
     } catch (error) {
-      if (revision === this.revision && probe === this.probeId) this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: safeDetail(error) });
+      if (revision === this.revision && probe === this.probeId) this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: clientDetail(error) });
       throw error;
     }
+  }
+  private availableDetail() { return this.config?.viaSharedServer ? '经共享服务器中转，管理端网络出口可用' : '管理端网络出口可用'; }
+  private closeConnections() {
+    for (const controller of this.pending) controller.abort();
+    this.pending.clear();
+    for (const socket of this.connections) socket.destroy();
+    this.connections.clear();
   }
   private track<T extends Duplex>(socket: T): T {
     if (!this.connections.has(socket)) {
@@ -299,28 +321,44 @@ export class EgressClientProxy extends EventEmitter {
     }
     return socket;
   }
-  private connectRelay(request: Record<string, unknown>, signal?: AbortSignal): Promise<tls.TLSSocket> {
-    const config = this.config; if (!config?.enabled || !config.accessCode) return Promise.reject(new Error('管理端网络出口尚未配置'));
-    if (signal?.aborted) return Promise.reject(new Error('连接已取消'));
-    return new Promise((resolve, reject) => {
+  private async connectRelay(request: Record<string, unknown>, signal?: AbortSignal): Promise<tls.TLSSocket> {
+    const config = this.config; if (!config?.enabled || !config.accessCode) throw new EgressRouteError('管理端网络出口尚未配置');
+    if (signal?.aborted) throw new EgressRouteError('连接已取消');
+    const controller = new AbortController(), cancelRequest = () => controller.abort();
+    this.pending.add(controller); signal?.addEventListener('abort', cancelRequest, { once: true });
+    let transport: Duplex | undefined;
+    try {
+      if (config.viaSharedServer) {
+        if (!this.sharedServerDialer) throw new EgressRouteError('共享服务器中转尚未连接，请重新登录');
+        const route = config.sharedServer;
+        try { transport = this.track(await this.sharedServerDialer(route ? '127.0.0.1' : config.host, route?.relayPort || config.port, controller.signal, route)); }
+        catch (error) { throw new EgressRouteError(error instanceof Error ? error.message : '共享服务器中转失败'); }
+      }
+      if (controller.signal.aborted) throw new EgressRouteError('连接已取消');
+      return await new Promise<tls.TLSSocket>((resolve, reject) => {
       let settled = false;
-      const socket = this.track(tls.connect({ host: config.host, port: config.port, rejectUnauthorized: false, servername: undefined }));
-      const cancel = () => finish(new Error('连接已取消'));
-      const finish = (error?: Error, value?: tls.TLSSocket) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', cancel); error ? (socket.destroy(), reject(error)) : resolve(value!); };
-      const timer = setTimeout(() => finish(new Error('连接管理端超时')), 15000);
-      signal?.addEventListener('abort', cancel, { once: true });
-      socket.once('close', () => finish(new Error('管理端连接已关闭')));
+      const socket = this.track(tls.connect({ ...(transport ? { socket: transport } : { host: config.host, port: config.port }), rejectUnauthorized: false, servername: undefined, minVersion: 'TLSv1.2' }));
+      // Let TLS drain the SSH stream's final records before it closes; destroying
+      // TLS on the underlying close event can discard a successful ping reply.
+      if (transport) { const underlying = transport; socket.once('close', () => underlying.destroy()); }
+      const cancel = () => finish(new EgressRouteError('连接已取消'));
+      const finish = (error?: Error, value?: tls.TLSSocket) => { if (settled) return; settled = true; clearTimeout(timer); controller.signal.removeEventListener('abort', cancel); error ? (socket.destroy(), reject(error)) : resolve(value!); };
+      const timer = setTimeout(() => finish(new EgressRouteError('连接管理端超时')), 15000);
+      controller.signal.addEventListener('abort', cancel, { once: true });
+      socket.once('close', () => finish(new EgressRouteError('管理端连接已关闭')));
       socket.once('error', error => finish(new Error(safeDetail(error))));
       socket.once('secureConnect', async () => {
         const certificate = socket.getPeerCertificate();
-        if (!certificate?.fingerprint256 || cleanFingerprint(certificate.fingerprint256) !== cleanFingerprint(config.certificateFingerprint)) return finish(new Error('管理端出口身份不匹配，请重新粘贴接入码'));
+        if (!certificate?.fingerprint256 || cleanFingerprint(certificate.fingerprint256) !== cleanFingerprint(config.certificateFingerprint)) return finish(new EgressRouteError('管理端出口身份不匹配，请重新粘贴接入码'));
         socket.write(JSON.stringify({ version: 1, accessCode: config.accessCode, username: config.username, ...request }) + '\n');
         try {
-          const response = await readLine(socket); const result = JSON.parse(response.line); if (!result?.ok) return finish(new Error(typeof result?.error === 'string' ? result.error : '管理端拒绝连接'));
+          const response = await readLine(socket); const result = JSON.parse(response.line); if (!result?.ok) return finish(new EgressRouteError(typeof result?.error === 'string' ? result.error.slice(0, 160) : '管理端拒绝连接'));
           if (response.rest.length) socket.unshift(response.rest); finish(undefined, socket);
         } catch (error: any) { finish(error); }
       });
-    });
+      });
+    } catch (error) { transport?.destroy(); throw error; }
+    finally { this.pending.delete(controller); signal?.removeEventListener('abort', cancelRequest); }
   }
   private async connectRequest(request: http.IncomingMessage, client: Duplex, head: Buffer) {
     const controller = new AbortController();
@@ -343,7 +381,7 @@ export class EgressClientProxy extends EventEmitter {
       relay.once('error', failed); relay.once('close', cleanup);
       client.write('HTTP/1.1 200 Connection Established\r\n\r\n'); established = true;
       if (head.length) relay.write(head); client.pipe(relay).pipe(client);
-      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: '管理端网络出口可用' });
+      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: this.availableDetail() });
     } catch (error) {
       if (closed || client.destroyed) { cleanup(); return; }
       this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: error instanceof Error ? error.message : '管理端网络出口不可用' });

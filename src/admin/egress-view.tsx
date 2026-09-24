@@ -5,12 +5,14 @@ import { EgressMonitorPanel } from './egress-monitor';
 import { EgressNetworkTests, egressServices, type EgressService, type EgressTestResult } from './egress-tests';
 import './egress-monitor.css';
 import './egress-tests.css';
+import { EgressJumpSettings } from './egress-jump';
+import type { AdminSnapshot } from './types';
 
 const api = window.admin;
 const stamp = (value: string) => { try { return new Date(value).toLocaleString(); } catch { return value; } };
 const traffic = (value: number) => value < 1024 ? value + ' B' : value < 1024 ** 2 ? (value / 1024).toFixed(1) + ' KB' : (value / 1024 ** 2).toFixed(1) + ' MB';
 
-export function EgressView({ snapshot, refresh }: { snapshot: AdminEgressSnapshot; refresh: () => Promise<void> }) {
+export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgressSnapshot; remote: AdminSnapshot; refresh: () => Promise<void> }) {
   const [config, setConfig] = useState(snapshot.config), [password, setPassword] = useState(''), [clearPassword, setClearPassword] = useState(false);
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(''), [error, setError] = useState('');
   const [testing, setTesting] = useState<EgressService>(), [testResults, setTestResults] = useState<Partial<Record<EgressService, EgressTestResult>>>({});
@@ -38,6 +40,7 @@ export function EgressView({ snapshot, refresh }: { snapshot: AdminEgressSnapsho
       {config.upstreamMode !== 'direct' && <><div className="form-grid"><label className="field">代理地址<input aria-label="上游代理地址" placeholder="例如 127.0.0.1" value={config.upstreamHost} onChange={e => update('upstreamHost', e.target.value)}/></label><label className="field">代理端口<input aria-label="上游代理端口" type="number" value={config.upstreamPort || ''} onChange={e => update('upstreamPort', Number(e.target.value))}/></label></div><div className="form-grid"><label className="field">代理账号（没有则留空）<input value={config.upstreamUsername} onChange={e => update('upstreamUsername', e.target.value)}/></label><label className="field">代理密码<input type="password" autoComplete="new-password" placeholder={snapshot.hasUpstreamPassword ? '已安全保存，留空保持不变' : '没有则留空'} value={password} onChange={e => { setPassword(e.target.value); setClearPassword(false); }}/></label></div>{snapshot.hasUpstreamPassword && <label className="check-row"><input type="checkbox" checked={clearPassword} onChange={e => setClearPassword(e.target.checked)}/>清除已保存的代理密码</label>}</>}
     </div><footer><span className="spacer"/><button className="primary" disabled={busy} onClick={() => void save()}>{busy ? '正在应用…' : '保存并应用'}</button></footer></section>
     <EgressNetworkTests snapshot={snapshot} busy={busy} testing={testing} results={testResults} pendingChanges={JSON.stringify(config) !== JSON.stringify(snapshot.config) || !!password || clearPassword} onTest={provider => void probe(provider)}/>
+    <EgressJumpSettings remote={remote} config={snapshot.config} reverse={snapshot.reverse} refresh={refresh}/>
     <section className="egress-card"><header><div><h3>用户端接入码</h3><small>复制给确实需要使用管理端出口的成员；其他成员继续直连。</small></div><button className="primary compact" disabled={busy} onClick={() => void run(async () => { await api.call('egress.copy'); setMessage('接入码已复制'); })}><Clipboard size={15}/>复制接入码</button></header><div className="egress-invite"><code>{snapshot.inviteCode.slice(0, 28)}…</code><div><small>证书指纹</small><code>{snapshot.fingerprint.match(/.{1,4}/g)?.join(' ')}</code></div></div><footer><span className="spacer"/><button className="text-button danger" disabled={busy} onClick={() => void run(async () => { await api.call('egress.rotate'); await refresh(); setMessage('接入码已更新，已接入成员需要重新配置'); })}><RefreshCw size={14}/>更新接入码</button></footer></section>
     <section className="egress-card"><header><div><h3>最近连接</h3><small>仅记录用户端上报的账号标识、产品、目标域名和流量，不保存提问、回答或个人账号凭据；账号标识不用于权限认证。</small></div></header><div className="storage-table-scroll"><table><thead><tr><th>时间</th><th>账号标识</th><th>产品</th><th>目标</th><th>状态</th><th>流量</th></tr></thead><tbody>{snapshot.events.length ? snapshot.events.map(event => <tr key={event.id}><td>{stamp(event.at)}</td><td>{event.username || '未标识'}</td><td>{event.provider === 'codex' ? 'Codex' : event.provider === 'cursor' ? 'Cursor' : event.provider === 'claude' ? 'Claude Code' : '连接检测'}</td><td><code>{event.target || '管理端'}</code></td><td>{event.status === 'connected' ? '连接中' : event.status === 'closed' ? '已结束' : event.status === 'rejected' ? '已拒绝' : '失败'}{event.detail && <small>{event.detail}</small>}</td><td>↑ {traffic(event.bytesUp)} · ↓ {traffic(event.bytesDown)}</td></tr>) : <tr><td className="storage-no-rows" colSpan={6}>还没有成员通过管理端出口连接</td></tr>}</tbody></table></div></section>
   </div>;

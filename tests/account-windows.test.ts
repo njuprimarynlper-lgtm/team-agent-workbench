@@ -10,6 +10,7 @@ import { Workbench } from '../src/core/workbench';
 import { SharedFiles } from '../src/core/shared-files';
 import { accountDirectory } from '../src/core/account-workspaces';
 import type { Snapshot } from '../src/shared/types';
+import { encodeEgressInvite } from '../src/core/egress-config';
 // @ts-expect-error Background-only SSH protocol fixture.
 import { teamServer } from './fixtures/team-server.mjs';
 
@@ -77,6 +78,10 @@ test('production window routing restores the account in any window, isolates fai
   await call(second, 'session.rename', { id: session.id, title: '任意窗口都能看到' });
   assert.equal((await snapshot(first)).sessions[0].title, '任意窗口都能看到');
   await assert.rejects(login(second, 'bob', 'wrong-password'));
+  const selectedServer = { host: profile.host, port: profile.port, fingerprint: profile.fingerprint, relayPort: 30123 };
+  const selectedEgress = { enabled: true, viaSharedServer: false, inviteCode: encodeEgressInvite({ version: 2, host: 'admin.invalid', port: 443, fingerprint: 'AA'.repeat(32), accessCode: 'fixture-access-code-for-jump-test', sharedServer: selectedServer }) };
+  await assert.rejects(call(second, 'remote.connect', { profile: server.profile('bob'), password: 'wrong-password', egress: selectedEgress }));
+  assert.equal((await snapshot(first)).settings.egress, undefined, 'failed login must not change the old account route');
   assert.equal((await snapshot(second)).connection?.profile.username, 'alice');
   assert.equal((await snapshot(first)).connection?.connected, true);
   const readHandoff = Workbench.prototype.readHandoff;
@@ -84,7 +89,11 @@ test('production window routing restores the account in any window, isolates fai
   Workbench.prototype.readHandoff = async () => new Promise<string>(resolve => { finishRead = resolve; });
   const oldRead = assert.rejects(call(second, 'handoff.read', { id: session.id }), /账号已改变/);
   await until(() => !!finishRead);
-  await login(second, 'bob'); finishRead('private prior account text'); await oldRead; Workbench.prototype.readHandoff = readHandoff;
+  await call(second, 'remote.connect', { profile: server.profile('bob'), password: 'test-password', egress: selectedEgress }); finishRead('private prior account text'); await oldRead; Workbench.prototype.readHandoff = readHandoff;
+  assert.equal((await snapshot(second)).settings.egress?.viaSharedServer, true);
+  assert.deepEqual((await snapshot(second)).settings.egress?.sharedServer, selectedServer);
+  assert.equal((await snapshot(second)).egress?.viaSharedServer, true);
+  assert.equal((await snapshot(first)).settings.egress, undefined, 'new login choices belong only to the authenticated account');
   assert.equal((await snapshot(second)).sessions.length, 0);
   assert.equal((await snapshot(first)).sessions[0].id, session.id); assert.equal((await snapshot(first)).connection?.connected, true);
   await assert.rejects(call(second, 'session.rename', { id: session.id, title: '不能修改' }), /不属于当前账号/);

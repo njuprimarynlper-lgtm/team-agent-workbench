@@ -3,6 +3,7 @@ import { Network, RefreshCw } from 'lucide-react';
 import type { Provider, ProviderAuth } from '../shared/types';
 import type { UserEgressStatus } from '../shared/egress';
 import { ProviderAuthPanel } from './provider-auth';
+import { EgressRouteChoice } from './egress-route';
 import { checkProviderConnection, type ProviderConnectionCheck } from './provider-connection-check';
 
 export function ProviderConnectionSettings({ provider, cwd, auth, egress, activeTaskCount, busyChanged, pendingChanged, checked, showCatalog = true }: {
@@ -10,19 +11,21 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
   checked?: (result: ProviderConnectionCheck) => void; pendingChanged?: (pending: boolean) => void; showCatalog?: boolean;
 }) {
   const [enabled, setEnabled] = useState(!!egress?.enabled), [invite, setInvite] = useState('');
+  const [viaSharedServer, setViaSharedServer] = useState(!!egress?.viaSharedServer);
   const routeDescription = useId();
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [result, setResult] = useState<ProviderConnectionCheck>();
   const sequence = useRef(0), checking = useRef(false);
   const callbacks = useRef({ busyChanged, checked }); callbacks.current = { busyChanged, checked };
-  const dirty = enabled !== !!egress?.enabled || !!invite.trim();
+  const dirty = enabled !== !!egress?.enabled || viaSharedServer !== !!egress?.viaSharedServer || !!invite.trim();
   useEffect(() => { pendingChanged?.(dirty); return () => pendingChanged?.(false); }, [dirty]);
   useEffect(() => setEnabled(!!egress?.enabled), [egress?.enabled]);
+  useEffect(() => setViaSharedServer(!!egress?.viaSharedServer), [egress?.viaSharedServer]);
   const check = async (apply: boolean) => {
     if (!cwd || checking.current) return;
     if (apply && dirty && activeTaskCount) { setError('当前窗口有任务正在运行，请结束或停止任务后再切换网络出口。'); return; }
     checking.current = true; const n = ++sequence.current; setBusy(true); setError(''); setResult(undefined); callbacks.current.busyChanged?.(true);
     try {
-      const result = await checkProviderConnection(window.workbench.call, provider, cwd, apply && dirty ? { enabled, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current);
+      const result = await checkProviderConnection(window.workbench.call, provider, cwd, apply && dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current);
       if (n !== sequence.current) return;
       if (apply) setInvite(''); setResult(result); setError(result.issues.join('；')); callbacks.current.checked?.(result);
     } catch (reason: any) { if (n === sequence.current) setError(reason.message); }
@@ -43,7 +46,7 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
         <span className="provider-route-copy"><strong>通过管理端访问模型服务</strong><span id={routeDescription}>使用管理员提供的网络连接，仍使用你的个人 AI 账号。</span></span>
         <input type="checkbox" aria-label="通过管理端访问模型服务" aria-describedby={routeDescription} checked={enabled} onChange={event => { setEnabled(event.target.checked); setResult(undefined); setError(''); }}/>
       </label>
-      {enabled && <label className="field">管理端接入码<textarea aria-label="管理端网络出口接入码" rows={3} value={invite} onChange={event => { setInvite(event.target.value); setResult(undefined); }} placeholder={egress?.hasAccessCode ? '已保存接入码；更换出口时粘贴新的接入码' : '粘贴管理端“网络出口”页面复制的接入码'}/></label>}
+      {enabled && <><EgressRouteChoice value={viaSharedServer} onChange={value => { setViaSharedServer(value); setResult(undefined); setError(''); }}/><label className="field">管理端接入码<textarea aria-label="管理端网络出口接入码" rows={3} value={invite} onChange={event => { setInvite(event.target.value); if (event.target.value.trim().startsWith('TAE2.')) setViaSharedServer(true); setResult(undefined); }} placeholder={egress?.hasAccessCode ? '已保存接入码；更换出口时粘贴新的接入码' : '粘贴管理端“网络出口”页面复制的接入码'}/></label></>}
     </fieldset>
     {egress?.enabled && <p className="muted small" role="status">{egress.detail}</p>}
     {activeTaskCount > 0 && <p className="muted small">当前有 {activeTaskCount} 个任务运行中，可重新检测；结束或停止后可切换出口。</p>}
