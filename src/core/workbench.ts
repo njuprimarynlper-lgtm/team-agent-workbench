@@ -91,7 +91,7 @@ export class Workbench {
   private closing = false;
   accounts: ProviderAccounts;
   accountSync: AccountSync;
-  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000, private providerEnvironment: () => NodeJS.ProcessEnv = () => ({})) {
+  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000, private providerEnvironment: () => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void) {
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.accountSync = new AccountSync(this.store, this.remote, this.broadcast);
@@ -552,6 +552,7 @@ export class Workbench {
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
     const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd), needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => { if (!this.configuring && this.ownsLocal(s.binding)) this.connectionReport?.(s, value); } });
     runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment()) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment());
     this.runtimes.set(s.id, runtime);
     if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
@@ -587,11 +588,20 @@ export class Workbench {
       this.broadcast(); return canonical;
     }, false);
   }
-  async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
+  assertCanLeaveAccount() {
+    this.assertAccountReady();
+    if (this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
+  }
+  async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>, verified?: SharedFiles) {
     if (this.configuring) throw new Error('正在登录，请等待结果');
     const previous = this.store.settings.workspaceSnapshot?.profile;
+    // Window login record IDs are not account identities. Retain this account's
+    // canonical ID so existing bindings, activity prefixes and queued uploads agree.
+    if (verified?.profile && previous && accountIdentity(previous) === accountIdentity(verified.profile)) {
+      Object.assign(verified.profile, { id: previous.id, host: previous.host }); profile = verified.profile;
+    }
     const switching = previous && (previous.username !== profile.username || previous.host.toLowerCase() !== profile.host.toLowerCase() || previous.port !== profile.port || previous.localRoot !== profile.localRoot || !!profile.fingerprint && previous.fingerprint !== profile.fingerprint);
-    if (switching && (this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size)) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
+    if (switching) this.assertCanLeaveAccount();
     this.configuring = true; this.accountRevision++; this.broadcast();
     try {
       await this.edits;
@@ -603,7 +613,7 @@ export class Workbench {
       const remembered = { ...profile, projects: [], workPath: '', manifestPath: '' };
       this.store.settings.connections = [structuredClone(remembered)];
       await this.store.save(); this.broadcast();
-      const result = await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
+      const result = verified ? this.remote.adoptConnection(verified) : await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       await this.accountSync.activate(result, previous);
       if (switching) {

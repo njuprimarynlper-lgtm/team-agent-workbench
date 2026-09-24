@@ -6,7 +6,9 @@ import { validateCodexStorage, type CodexStorage } from './codex-storage';
 import { CodexAuthBridge } from './codex-auth-bridge';
 import { permissionLabels } from '../shared/permission-presentation';
 import { codexCapabilities, cursorCommandCapabilities, cursorPluginCapabilities, emptyCapabilityCatalog } from './provider-capabilities';
-export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; }
+import { CliConnectionTracker } from './cli-connection';
+import type { CliConnection } from '../shared/cli-connection';
+export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
 const now = () => new Date().toISOString();
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
 export class AgentRuntime {
@@ -23,12 +25,15 @@ export class AgentRuntime {
   private cursorCommands: any[] = [];
   private cursorCommandWaiters = new Set<() => void>();
   private codexCapabilityCatalog?: AgentCapabilityCatalog;
+  private connection: CliConnectionTracker;
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}) {
     // Preparation has its own execution policy, including helpers saved by older builds.
     if (session.purpose === 'prepare') session.permissionMode = 'full';
+    this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged);
     this.rpc = new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', { ...networkEnv, ...storage?.env });
     if (session.provider === 'codex' && storage) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
+    this.rpc.on('diagnostic', (value: string) => { if (!this.closing) this.connection.diagnostic(value); });
     this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) this.finish(e.message); });
   }
   private message(id: string, role: Message['role'], text: string, append = false, metadata: Pick<Message, 'userText' | 'context'> = {}) {
@@ -40,6 +45,7 @@ export class AgentRuntime {
   async start() {
     if (this.initialized) return;
     const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
+    this.connection.begin();
     if (s.provider === 'codex') {
       await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.7.0' }, capabilities: { experimentalApi: true } });
       this.rpc.notify('initialized');
@@ -49,7 +55,7 @@ export class AgentRuntime {
       const params = { cwd: s.cwd, ...(s.model ? { model: s.model } : {}), ...codexPermissionParams(s) };
       const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId, ...(this.storage?.resumePath ? { path: this.storage.resumePath } : {}) }) : await this.rpc.request('thread/start', params);
       s.nativeId = result.thread.id; s.nativePath = result.thread.path || this.storage?.resumePath || s.nativePath;
-      if (this.storage) s.codexStorage = 'workbench';
+      if (this.storage) { s.codexStorage = 'workbench'; delete s.codexNeedsRegistration; }
       s.permissions = codexPermissions(result, 'runtime');
       await probeCodexCommand(this.rpc, s.permissions, s.cwd, result.sandbox);
       if (s.permissions.execution === 'blocked') s.permissionIssue = permissionIssue(s.permissions.executionDetail) || { kind: 'sandbox', message: s.permissions.executionDetail || 'CLI 命令自检未通过', at: now() };
@@ -74,7 +80,7 @@ export class AgentRuntime {
     this.initialized = true; s.status = 'idle'; this.hooks.changed();
   }
   async ensureStarted() {
-    try { await this.start(); } catch (error) { const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else this.hooks.authFailed?.(error); throw error; }
+    try { await this.start(); } catch (error) { this.connection.error(error, false); const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else this.hooks.authFailed?.(error); throw error; }
   }
   async capabilities(forceRefresh = false): Promise<AgentCapabilityCatalog> {
     await this.ensureStarted();
@@ -119,6 +125,7 @@ export class AgentRuntime {
     this.message(randomUUID(), 'user', nativeText, false, options ? { userText: options.userText, context } : {});
     this.hooks.event({ direction: 'user', text: nativeText, ...(options ? { userText: options.userText, capabilities: context?.capabilities } : {}) });
     this.turnId = undefined; this.turnActive = true; this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
+    this.connection.begin();
     try {
       if (this.session.provider === 'codex') {
         const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
@@ -130,7 +137,7 @@ export class AgentRuntime {
       }
       if (context) { context.accepted = true; this.hooks.changed(); }
       return true;
-    } catch (e: any) { if (!this.closing) this.finish(e.message); return false; }
+    } catch (e: any) { if (!this.closing) { this.connection.error(e, false); this.finish(e.message); } return false; }
   }
   get activeTurnId(): string | undefined {
     return this.session.provider === 'codex' && this.turnActive && !this.closing && ['running', 'approval'].includes(this.session.status) ? this.turnId : undefined;
@@ -162,6 +169,7 @@ export class AgentRuntime {
     } finally { this.steering = false; }
   }
   private finish(error?: string) {
+    this.connection.finish(error);
     const completedTurn = this.turnActive; this.turnActive = false;
     if (error) { const issue = permissionIssue(error); if (issue) this.session.permissionIssue = issue; else this.hooks.authFailed?.(error); }
     this.session.status = error ? 'error' : 'idle'; this.session.error = error; this.session.approvals = [];
@@ -176,6 +184,8 @@ export class AgentRuntime {
     if (m.id !== undefined) { this.onRequest(m); return; }
     if (s.provider === 'codex') {
       if (p.threadId && s.nativeId && p.threadId !== s.nativeId) return;
+      if (p.turnId && this.turnId && p.turnId !== this.turnId) return;
+      if (method === 'item/agentMessage/delta' || method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/completed' && p.item?.type === 'agentMessage') this.connection.responded();
       if (method === 'item/agentMessage/delta') this.message(p.itemId, 'assistant', p.delta || '', true);
       if (method === 'item/commandExecution/outputDelta') this.message(p.itemId, 'tool', p.delta || '', true);
       if (method === 'item/started' && p.item?.type === 'commandExecution') this.message(p.item.id, 'tool', '$ ' + p.item.command + '\n');
@@ -189,13 +199,13 @@ export class AgentRuntime {
         else if (i.type !== 'userMessage' && i.type !== 'reasoning') this.message(i.id || randomUUID(), 'tool', pretty(i));
       }
       if (method === 'turn/started') { this.turnId = p.turn?.id; s.status = 'running'; this.hooks.changed(); }
-      if (method === 'turn/completed' && (!this.turnId || !p.turn?.id || p.turn.id === this.turnId)) this.finish(p.turn?.error?.message);
-      if (method === 'error') { this.message(randomUUID(), 'system', p.error?.message || pretty(p)); if (!p.willRetry) this.finish(p.error?.message || '运行失败'); }
+      if (method === 'turn/completed' && (!this.turnId || !p.turn?.id || p.turn.id === this.turnId)) { if (p.turn?.error) this.connection.error(p.turn.error, false); this.finish(p.turn?.error ? p.turn.error.message || 'CLI 请求失败' : undefined); }
+      if (method === 'error') { this.connection.error(p.error || p, p.willRetry === true); this.message(randomUUID(), 'system', p.error?.message || pretty(p)); if (!p.willRetry) this.finish(p.error?.message || '运行失败'); }
     } else if (method === 'session/update') {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
       const u = p.update || {};
       if (u.sessionUpdate === 'available_commands_update') { this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
-      if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') this.message(this.cursorMessageId, 'assistant', u.content.text, true);
+      if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') { this.connection.responded(); this.message(this.cursorMessageId, 'assistant', u.content.text, true); }
       if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
         if (u.status !== 'failed' && Array.isArray(u.locations)) s.outputFiles = [...new Set([...(s.outputFiles || []), ...u.locations.map((location: any) => location.path).filter((value: unknown): value is string => typeof value === 'string')])];
         const text = [u.title, u.status, ...(u.content || []).map((x: any) => x.content?.text || pretty(x))].filter(Boolean).join('\n');
@@ -279,5 +289,5 @@ export class AgentRuntime {
     else if (this.session.provider === 'cursor' && this.session.nativeId) this.rpc.notify('session/cancel', { sessionId: this.session.nativeId });
     else this.close();
   }
-  async close() { this.closing = true; this.turnActive = false; for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); await Promise.all([this.rpc.close(), this.authBridge?.close()]); }
+  async close() { this.closing = true; this.turnActive = false; this.connection.stop(); for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); await Promise.all([this.rpc.close(), this.authBridge?.close()]); }
 }

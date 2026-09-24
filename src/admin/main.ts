@@ -1,6 +1,6 @@
 import { ownDataDirectory } from '../shared/single-instance';
 import { runtimeAssets } from '../shared/runtime-assets';
-import { app, BrowserWindow, ipcMain, dialog, clipboard, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, clipboard, safeStorage, utilityProcess } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -11,12 +11,12 @@ import { AdminConnection } from './connection';
 import { LocalAdminConnection } from './local-connection';
 import { adminProfileSchema, adminConnectSchema, adminOperationSchema } from './types';
 import { adminEgressConfigSchema, encodeEgressInvite } from '../core/egress-config';
-import { EgressRelay } from '../core/egress';
+import { EgressHost } from './egress-host';
 import { ensureEgressCertificate } from './egress-certificate';
 import type { AdminEgressConfig } from '../shared/egress';
 app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
-let window: BrowserWindow; let remote: AdminConnection | LocalAdminConnection; let egress: EgressRelay; let egressConfig: AdminEgressConfig; let egressSecret: { accessCode: string; upstreamPassword?: string };
+let window: BrowserWindow; let remote: AdminConnection | LocalAdminConnection; let egress: EgressHost; let egressConfig: AdminEgressConfig; let egressSecret: { accessCode: string; upstreamPassword?: string };
 let storageAbort: AbortController | undefined;
 const entry = path.join(__dirname, runtimeAssets, 'index.html');
 if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
@@ -29,7 +29,8 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
   try { egressConfig = adminEgressConfigSchema.parse(JSON.parse(await fs.readFile(egressConfigFile, 'utf8'))); } catch {}
   try { egressSecret = JSON.parse(unprotect(await fs.readFile(egressSecretFile))); } catch { egressSecret = { accessCode: randomBytes(24).toString('base64url') }; }
   const certificate = await ensureEgressCertificate(path.join(app.getPath('userData'), 'egress-tls'));
-  egress = new EgressRelay(egressConfig, egressSecret, certificate); egress.on('changed', changed);
+  egress = new EgressHost(path.join(__dirname, runtimeAssets, 'egress-worker.cjs'), egressConfig, egressSecret, certificate,
+    entry => utilityProcess.fork(entry, [], { serviceName: 'Team Agent Network Relay', stdio: 'ignore' })); egress.on('changed', changed);
   const saveEgress = async () => { await fs.mkdir(app.getPath('userData'), { recursive: true }); await fs.writeFile(egressConfigFile, JSON.stringify(egressConfig, null, 2)); await fs.writeFile(egressSecretFile, protect(JSON.stringify(egressSecret)), { mode: 0o600 }); };
   await saveEgress(); if (egressConfig.enabled) await egress.start().catch(() => {});
   remote = new AdminConnection(path.join(__dirname, 'admin.py'), changed);
@@ -88,4 +89,11 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
   });
   await window.loadFile(entry);
 }).catch(e => { dialog.showErrorBox('管理员版启动失败', e.message); app.quit(); });
-app.on('window-all-closed', () => app.quit()); app.on('before-quit', () => { storageAbort?.abort(); remote?.disconnect(); void egress?.stop(); });
+let stopping = false, stopped = false;
+app.on('window-all-closed', () => app.quit());
+app.on('before-quit', event => {
+  if (stopped) return;
+  event.preventDefault(); if (stopping) return; stopping = true;
+  storageAbort?.abort(); remote?.disconnect();
+  void Promise.resolve(egress?.stop()).finally(() => { stopped = true; app.quit(); });
+});

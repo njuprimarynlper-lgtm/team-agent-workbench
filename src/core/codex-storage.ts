@@ -68,6 +68,12 @@ export async function prepareCodexStorage(root: string, session: AgentSession, s
   const job = previous.catch(() => {}).then(() => initialize(home, sourceHome)); jobs.set(home, job);
   try { await job; } finally { if (jobs.get(home) === job) jobs.delete(home); }
   let resumePath: string | undefined;
+  // Account migration copies each owned rollout, not another account's SQLite index.
+  // Resume by its explicit file so the CLI can register it in the new private index.
+  if (session.nativeId && session.codexNeedsRegistration) {
+    resumePath = await locateRollout(path.join(home, 'sessions'), session.nativeId) || await locateRollout(path.join(home, 'archived_sessions'), session.nativeId);
+    if (!resumePath) throw new Error('迁移后的原会话记录未找到；请从保留的旧窗口目录恢复对应 Codex 历史后重试');
+  }
   // Existing workbench sessions keep the full native history; only copy their own rollout.
   // Leave the original intact: removing entries from the desktop is a separate user action.
   if (session.nativeId && session.codexStorage !== 'workbench') {

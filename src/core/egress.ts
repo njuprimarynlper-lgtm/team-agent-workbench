@@ -5,6 +5,8 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import type { Duplex } from 'node:stream';
 import type { AdminEgressConfig, EgressConnectionEvent, UserEgressSettings, UserEgressStatus } from '../shared/egress';
+import { EgressMonitor } from './egress-monitor';
+import { cliConnectionSchema, cliReportSchema, type CliConnection } from '../shared/cli-connection';
 
 type DuplexSocket = net.Socket | tls.TLSSocket;
 type RelaySecret = { accessCode: string; upstreamPassword?: string };
@@ -37,17 +39,23 @@ function readLine(socket: DuplexSocket, limit = 8192, timeout = 15000): Promise<
     };
     const onError = (error: Error) => finish(error), onClose = () => finish(new Error('连接已关闭'));
     const onData = (data: Buffer) => {
-      buffer = Buffer.concat([buffer, data]); if (buffer.length > limit) return finish(new Error('握手数据过大'));
-      const index = buffer.indexOf(10); if (index >= 0) finish(undefined, { line: buffer.subarray(0, index).toString('utf8').replace(/\r$/, ''), rest: buffer.subarray(index + 1) });
+      buffer = Buffer.concat([buffer, data]); const index = buffer.indexOf(10);
+      if (index > limit || index < 0 && buffer.length > limit) return finish(new Error('握手数据过大'));
+      if (index >= 0) finish(undefined, { line: buffer.subarray(0, index).toString('utf8').replace(/\r$/, ''), rest: buffer.subarray(index + 1) });
     };
     const timer = setTimeout(() => finish(new Error('连接握手超时')), timeout);
     socket.on('data', onData); socket.on('error', onError); socket.on('close', onClose);
   });
 }
 
-function connectSocket(host: string, port: number, secure = false): Promise<DuplexSocket> {
+function connectSocket(host: string, port: number, secure = false, signal?: AbortSignal): Promise<DuplexSocket> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('连接已关闭'));
     const socket = secure ? tls.connect({ host, port, servername: host }) : net.connect({ host, port });
+    const cancel = () => socket.destroy(new Error('连接已关闭'));
+    signal?.addEventListener('abort', cancel, { once: true });
+    socket.once('close', () => signal?.removeEventListener('abort', cancel));
+    socket.on('error', () => {}); // Keep errors handled between asynchronous handshake stages.
     const event = secure ? 'secureConnect' : 'connect';
     const timer = setTimeout(() => socket.destroy(new Error('连接超时')), 15000);
     socket.once(event, () => { clearTimeout(timer); socket.off('error', reject); resolve(socket); });
@@ -55,28 +63,32 @@ function connectSocket(host: string, port: number, secure = false): Promise<Dupl
   });
 }
 
-async function connectHttpProxy(config: AdminEgressConfig, secret: RelaySecret, targetHost: string, targetPort: number) {
-  const socket = await connectSocket(config.upstreamHost, config.upstreamPort);
+async function connectHttpProxy(config: AdminEgressConfig, secret: RelaySecret, targetHost: string, targetPort: number, signal?: AbortSignal) {
+  const socket = await connectSocket(config.upstreamHost, config.upstreamPort, false, signal);
+  try {
   const credentials = config.upstreamUsername ? Buffer.from(config.upstreamUsername + ':' + (secret.upstreamPassword || '')).toString('base64') : '';
   socket.write(`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${credentials ? `Proxy-Authorization: Basic ${credentials}\r\n` : ''}Proxy-Connection: Keep-Alive\r\n\r\n`);
   const response = await new Promise<{ rest: Buffer }>((resolve, reject) => {
     let buffer = Buffer.alloc(0);
     const timer = setTimeout(() => { cleanup(); reject(new Error('上游代理连接超时')); }, 15000);
-    const cleanup = () => { clearTimeout(timer); socket.off('data', data); socket.off('error', reject); socket.off('close', closed); };
+    const failed = (error: Error) => { cleanup(); reject(error); };
+    const cleanup = () => { clearTimeout(timer); socket.off('data', data); socket.off('error', failed); socket.off('close', closed); };
     const closed = () => { cleanup(); reject(new Error('上游代理已关闭连接')); };
     const data = (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]); if (buffer.length > 32768) { cleanup(); reject(new Error('上游代理响应过大')); return; }
       const end = buffer.indexOf('\r\n\r\n'); if (end < 0) return;
       const status = buffer.subarray(0, end).toString('latin1').split('\r\n')[0] || '';
-      cleanup(); /^HTTP\/\d(?:\.\d)? 2\d\d\b/.test(status) ? resolve({ rest: buffer.subarray(end + 4) }) : reject(new Error('上游代理拒绝连接'));
+      socket.pause(); cleanup(); /^HTTP\/\d(?:\.\d)? 2\d\d\b/.test(status) ? resolve({ rest: buffer.subarray(end + 4) }) : reject(new Error('上游代理拒绝连接' + (status.match(/^HTTP\/\S+ (\d{3})\b/) ? `（HTTP ${status.match(/^HTTP\/\S+ (\d{3})\b/)![1]}）` : '')));
     };
-    socket.on('data', data); socket.once('error', reject); socket.once('close', closed);
+    socket.on('data', data); socket.once('error', failed); socket.once('close', closed);
   });
   return { socket, rest: response.rest };
+  } catch (error) { socket.destroy(); throw error; }
 }
 
-async function connectSocks5(config: AdminEgressConfig, secret: RelaySecret, targetHost: string, targetPort: number) {
-  const socket = await connectSocket(config.upstreamHost, config.upstreamPort), username = Buffer.from(config.upstreamUsername), password = Buffer.from(secret.upstreamPassword || '');
+async function connectSocks5(config: AdminEgressConfig, secret: RelaySecret, targetHost: string, targetPort: number, signal?: AbortSignal) {
+  const socket = await connectSocket(config.upstreamHost, config.upstreamPort, false, signal), username = Buffer.from(config.upstreamUsername), password = Buffer.from(secret.upstreamPassword || '');
+  try {
   socket.write(config.upstreamUsername ? Buffer.from([5, 2, 0, 2]) : Buffer.from([5, 1, 0]));
   let reply = await onceBytes(socket, 2); if (reply[0] !== 5 || reply[1] === 255) throw new Error('SOCKS5 认证方式不受支持');
   if (reply[1] === 2) {
@@ -89,6 +101,7 @@ async function connectSocks5(config: AdminEgressConfig, secret: RelaySecret, tar
   reply = await onceBytes(socket, 4); if (reply[1] !== 0) throw new Error('SOCKS5 代理拒绝连接');
   const length = reply[3] === 1 ? 4 : reply[3] === 4 ? 16 : (await onceBytes(socket, 1))[0];
   await onceBytes(socket, length + 2); return { socket, rest: Buffer.alloc(0) };
+  } catch (error) { socket.destroy(); throw error; }
 }
 
 function onceBytes(socket: DuplexSocket, size: number, timeout = 15000): Promise<Buffer> {
@@ -102,25 +115,26 @@ function onceBytes(socket: DuplexSocket, size: number, timeout = 15000): Promise
   });
 }
 
-async function connectTarget(config: AdminEgressConfig, secret: RelaySecret, host: string, port: number) {
-  if (config.upstreamMode === 'http') return connectHttpProxy(config, secret, host, port);
-  if (config.upstreamMode === 'socks5') return connectSocks5(config, secret, host, port);
-  return { socket: await connectSocket(host, port), rest: Buffer.alloc(0) };
+async function connectTarget(config: AdminEgressConfig, secret: RelaySecret, host: string, port: number, signal?: AbortSignal) {
+  if (config.upstreamMode === 'http') return connectHttpProxy(config, secret, host, port, signal);
+  if (config.upstreamMode === 'socks5') return connectSocks5(config, secret, host, port, signal);
+  return { socket: await connectSocket(host, port, false, signal), rest: Buffer.alloc(0) };
 }
 
 export class EgressRelay extends EventEmitter {
   private server?: tls.Server;
   private connections = new Set<DuplexSocket>();
-  private events: EgressConnectionEvent[] = [];
+  private inbound = new Set<net.Socket>();
+  readonly monitor = new EgressMonitor();
   private error?: string;
   constructor(private config: AdminEgressConfig, private secret: RelaySecret, private certificate: RelayOptions) { super(); }
   update(config: AdminEgressConfig, secret: RelaySecret) { this.config = config; this.secret = secret; }
-  snapshot() { return { running: !!this.server?.listening, activeConnections: this.connections.size, lastError: this.error, events: structuredClone(this.events.slice(0, 100)), fingerprint: this.certificate.fingerprint }; }
+  snapshot() { return { running: !!this.server?.listening, activeConnections: this.connections.size, lastError: this.error, events: this.monitor.events(), fingerprint: this.certificate.fingerprint, monitor: this.monitor.snapshot() }; }
   private changed() { this.emit('changed'); }
-  private record(event: EgressConnectionEvent) { this.events.unshift(event); this.events = this.events.slice(0, 100); this.changed(); }
   async start() {
     await this.stop(); if (!this.config.enabled) { this.changed(); return; }
-    const server = tls.createServer({ pfx: this.certificate.pfx, passphrase: this.certificate.passphrase, minVersion: 'TLSv1.2' }, socket => void this.accept(socket));
+    const server = tls.createServer({ pfx: this.certificate.pfx, passphrase: this.certificate.passphrase, minVersion: 'TLSv1.2', handshakeTimeout: 15000 }, socket => void this.accept(socket));
+    server.on('connection', socket => { this.inbound.add(socket); socket.once('close', () => this.inbound.delete(socket)); });
     server.on('error', error => { this.error = safeDetail(error); this.changed(); }); this.server = server;
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(this.config.listenPort, this.config.listenHost, () => { server.off('error', reject); this.error = undefined; resolve(); }); });
     this.changed();
@@ -128,6 +142,7 @@ export class EgressRelay extends EventEmitter {
   async restart(config: AdminEgressConfig, secret: RelaySecret) { this.update(config, secret); await this.start(); }
   async stop() {
     for (const socket of this.connections) socket.destroy(); this.connections.clear();
+    for (const socket of this.inbound) socket.destroy(); this.inbound.clear();
     const server = this.server; this.server = undefined; if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.changed();
   }
   async probe(provider: 'codex' | 'cursor' | 'claude') {
@@ -138,33 +153,60 @@ export class EgressRelay extends EventEmitter {
   }
   private async accept(socket: tls.TLSSocket) {
     this.connections.add(socket); this.changed(); socket.setKeepAlive(true, 15000); socket.setTimeout(30 * 60 * 1000, () => socket.destroy());
-    const id = randomUUID(), base = { id, at: new Date().toISOString(), username: '', provider: 'control' as const, target: '', bytesUp: 0, bytesDown: 0 };
+    const controller = new AbortController();
+    socket.once('close', () => controller.abort());
+    socket.on('error', () => {});
+    let targetSocket: DuplexSocket | undefined, ping = false, allowed = false;
+    const id = randomUUID(), base = { id, at: new Date().toISOString(), username: '', clientAddress: socket.remoteAddress?.replace(/^::ffff:/, ''), provider: 'control' as const, target: '', bytesUp: 0, bytesDown: 0 };
     let event: EgressConnectionEvent = { ...base, status: 'error' };
     try {
-      const { line, rest } = await readLine(socket); const request = JSON.parse(line);
+      const { line, rest } = await readLine(socket); socket.pause(); const request = JSON.parse(line);
       if (request?.version !== 1 || typeof request.accessCode !== 'string' || !sameSecret(request.accessCode, this.secret.accessCode)) throw new Error('出口接入码无效');
       event.username = typeof request.username === 'string' ? request.username.slice(0, 64) : '';
-      if (request.kind === 'ping') { socket.end(JSON.stringify({ ok: true }) + '\n'); event = { ...event, status: 'closed' }; return; }
+      if (request.kind === 'ping') { ping = true; socket.end(JSON.stringify({ ok: true }) + '\n'); event = { ...event, status: 'closed' }; return; }
+      if (request.kind === 'status') {
+        ping = true;
+        if (!Array.isArray(request.reports) || request.reports.length > 20) throw new Error('无效状态报告');
+        const reports: ReturnType<typeof cliReportSchema.parse>[] = request.reports.map((value: unknown) => cliReportSchema.parse(value));
+        for (const report of reports) {
+          if (!this.config[report.provider]) continue;
+          this.monitor.report({ ...report, username: event.username, address: event.clientAddress || '', updatedAt: new Date().toISOString() });
+        }
+        this.changed(); socket.end(JSON.stringify({ ok: true }) + '\n'); return;
+      }
       const host = typeof request.host === 'string' ? request.host.toLowerCase().replace(/\.$/, '') : '', port = Number(request.port), provider = providerForHost(host);
       event.target = `${host}:${port}`; event.provider = provider || 'control';
       if (!provider || !this.config[provider] || port !== 443) throw new Error('目标不在已启用的 CLI 出口白名单内');
-      const target = await connectTarget(this.config, this.secret, host, port); event.status = 'connected'; this.record(event);
-      socket.write(JSON.stringify({ ok: true }) + '\n'); if (target.rest.length) socket.write(target.rest); if (rest.length) target.socket.write(rest);
-      socket.on('data', chunk => { event.bytesUp += chunk.length; }); target.socket.on('data', chunk => { event.bytesDown += chunk.length; });
+      allowed = true;
+      const target = await connectTarget(this.config, this.secret, host, port, controller.signal); targetSocket = target.socket;
+      if (socket.destroyed || controller.signal.aborted) { targetSocket.destroy(); throw new Error('连接已关闭'); }
+      event.status = 'connected'; this.monitor.connected(event); this.changed();
+      socket.write(JSON.stringify({ ok: true }) + '\n');
+      this.monitor.transfer(event, rest.length, target.rest.length);
+      if (target.rest.length) socket.write(target.rest); if (rest.length) target.socket.write(rest);
+      socket.on('data', chunk => this.monitor.transfer(event, chunk.length, 0)); target.socket.on('data', chunk => this.monitor.transfer(event, 0, chunk.length));
+      const finished = new Promise<void>((resolve, reject) => { target.socket.once('close', resolve); target.socket.once('error', reject); socket.once('close', resolve); socket.once('error', reject); });
       socket.pipe(target.socket).pipe(socket);
-      await new Promise<void>((resolve, reject) => { target.socket.once('close', resolve); target.socket.once('error', reject); socket.once('error', reject); });
+      await finished;
       event.status = 'closed';
     } catch (error) {
-      event.status = event.status === 'connected' ? 'error' : 'rejected'; event.detail = error instanceof SyntaxError ? '握手格式无效' : error instanceof Error ? error.message.slice(0, 160) : '连接失败';
+      event.status = controller.signal.aborted ? 'closed' : allowed ? 'error' : 'rejected'; event.detail = error instanceof SyntaxError ? '握手格式无效' : error instanceof Error ? error.message.slice(0, 160) : '连接失败';
       if (!socket.destroyed) socket.end(JSON.stringify({ ok: false, error: event.detail }) + '\n');
     } finally {
-      this.connections.delete(socket); if (!this.events.some(item => item.id === id)) this.record(event); else { const prior = this.events.find(item => item.id === id); if (prior) Object.assign(prior, event); this.changed(); }
+      this.connections.delete(socket); targetSocket?.destroy();
+      if (!ping) this.monitor.finished(event); this.changed();
       if (!socket.destroyed) socket.destroy();
     }
   }
 }
 
 export class EgressClientProxy extends EventEmitter {
+  private clientId = randomUUID();
+  private reports = new Map<string, { provider: 'codex' | 'cursor' | 'claude'; sessionId: string; connection: ReturnType<typeof cliConnectionSchema.parse>; username: string }>();
+  private reportQueue = new Set<string>();
+  private reporting = false;
+  private reportTimer?: NodeJS.Timeout;
+  private heartbeat?: NodeJS.Timeout;
   private revision = 0;
   private probeId = 0;
   private server?: http.Server;
@@ -173,12 +215,42 @@ export class EgressClientProxy extends EventEmitter {
   private statusValue: UserEgressStatus = { enabled: false, configured: false, running: false, detail: '使用本机网络直连', hasAccessCode: false };
   constructor(private config?: ClientOptions) { super(); this.refreshStatus(); }
   status() { return structuredClone(this.statusValue); }
+  setUsername(username: string) {
+    if (!this.config || this.config.username === username) return;
+    this.config = { ...this.config, username }; this.reports.clear(); this.reportQueue.clear(); this.clientId = randomUUID();
+  }
+  reportCliStatus(provider: 'codex' | 'cursor' | 'claude', sessionId: string, connection: CliConnection, username: string) {
+    if (!this.config?.enabled || !this.server?.listening) return;
+    this.reports.delete(sessionId);
+    this.reports.set(sessionId, { provider, sessionId, connection: cliConnectionSchema.parse(connection), username });
+    while (this.reports.size > 100) { const id = this.reports.keys().next().value!; this.reports.delete(id); this.reportQueue.delete(id); }
+    this.reportQueue.add(sessionId); this.scheduleReports();
+  }
+  private scheduleReports() {
+    if (!this.reportTimer) this.reportTimer = setTimeout(() => { this.reportTimer = undefined; void this.flushReports(); }, 250).unref();
+  }
+  private async flushReports() {
+    if (this.reporting || !this.config?.enabled) return;
+    this.reporting = true; const revision = this.revision;
+    try {
+      while (this.reportQueue.size && revision === this.revision) {
+        const ids = [...this.reportQueue].slice(0, 20), rows = ids.map(id => this.reports.get(id)).filter(value => !!value);
+        for (const id of ids) this.reportQueue.delete(id);
+        // A single report batch belongs to one verified team identity.
+        for (const username of new Set(rows.map(row => row.username))) {
+          const socket = await this.connectRelay({ kind: 'status', username, reports: rows.filter(row => row.username === username).map(({ username: _, ...row }) => ({ ...row, clientId: this.clientId })) }); socket.end();
+        }
+      }
+    } catch { /* A broken relay cannot receive reports; the next heartbeat retries. */ }
+    finally { this.reporting = false; }
+  }
   environment(): NodeJS.ProcessEnv {
     if (!this.config?.enabled || !this.localPort) return {};
     const proxy = `http://127.0.0.1:${this.localPort}`, noProxy = ['localhost', '127.0.0.1', '::1', process.env.NO_PROXY || process.env.no_proxy || ''].filter(Boolean).join(',');
     return { HTTP_PROXY: proxy, HTTPS_PROXY: proxy, http_proxy: proxy, https_proxy: proxy, NO_PROXY: noProxy, no_proxy: noProxy, NODE_USE_ENV_PROXY: '1' };
   }
   async configure(config?: ClientOptions) {
+    this.reports.clear(); this.reportQueue.clear();
     this.revision++; this.config = config; this.refreshStatus({ available: undefined, checkedAt: undefined });
     if (config?.enabled) await this.start(); else await this.stop(); this.refreshStatus();
   }
@@ -194,10 +266,12 @@ export class EgressClientProxy extends EventEmitter {
     server.on('connect', (request, client, head) => void this.connectRequest(request, client, head));
     server.on('error', error => this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: safeDetail(error) })); this.server = server;
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => { server.off('error', reject); this.localPort = (server.address() as net.AddressInfo).port; resolve(); }); });
+    this.heartbeat = setInterval(() => { for (const id of this.reports.keys()) this.reportQueue.add(id); this.scheduleReports(); }, 30000).unref();
     this.refreshStatus();
   }
   async stop() {
     this.revision++;
+    clearInterval(this.heartbeat); clearTimeout(this.reportTimer); this.reportTimer = undefined; this.reports.clear(); this.reportQueue.clear();
     const server = this.server; this.server = undefined; this.localPort = 0;
     for (const socket of this.connections) socket.destroy();
     this.connections.clear();

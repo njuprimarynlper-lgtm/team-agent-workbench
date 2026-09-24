@@ -1,0 +1,22 @@
+.egress-monitor { margin: 22px 0 18px; border: 1px solid #dce7e3; border-radius: 12px; overflow: hidden; background: #fff; }
+.egress-monitor > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; background: #f7faf8; }
+.egress-monitor h2 { margin: 0 0 5px; font-size: 17px; color: #315947; }
+.egress-monitor header div > span { font-size: 11px; color: #83938a; }
+.relay-live { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #83918a; }
+.relay-live i { width: 7px; height: 7px; border-radius: 50%; background: #a0aaa5; }
+.relay-live.online { color: #287b56; }.relay-live.online i { background: #41936c; }
+.relay-metrics { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); padding: 22px 10px; }
+.relay-metrics > div { display: grid; grid-template-columns: 18px 1fr; align-items: center; gap: 8px; padding: 0 15px; border-right: 1px solid #edf1ee; }
+.relay-metrics > div:last-child { border: 0; }.relay-metrics svg { color: #638371; }
+.relay-metrics span { font-size: 11px; color: #758b7e; }.relay-metrics strong { grid-column: 1/-1; font-size: 23px; font-weight: 600; color: #2f5140; font-variant-numeric: tabular-nums; }
+.relay-metrics small { grid-column: 1/-1; font-size: 10px; color: #88988e; }
+.relay-trend { padding: 10px 24px 16px; }.relay-trend-label { display: flex; justify-content: space-between; color: #8a9990; font-size: 10px; }
+.relay-trend-label i { display: inline-block; width: 10px; height: 3px; margin: 0 5px 2px 10px; }.relay-trend-label i.up { background: #387f62; }.relay-trend-label i.down { background: #75a1c3; }
+.relay-trend svg { display: block; width: 100%; height: 90px; margin: 12px 0; }.relay-trend .grid { stroke: #edf2ef; stroke-width: 1; fill: none; }
+.relay-trend polyline { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }.relay-trend polyline.up { stroke: #387f62; }.relay-trend polyline.down { stroke: #75a1c3; }
+.relay-summary { display: flex; align-items: center; gap: 18px; color: #718679; font-size: 11px; }.relay-summary small { margin-left: auto; color: #96a198; }.relay-summary .problem { color: #ad594c; }
+.relay-members { border-top: 1px solid #edf1ee; }.egress-monitor td { font-size: 11px; }.egress-monitor td small { display: block; color: #8a988f; margin-top: 4px; font-size: 10px; }
+.relay-cli { border-top: 1px solid #edf1ee; padding: 16px 0 0; }.relay-cli h3 { margin: 0 22px 12px; display: flex; gap: 7px; align-items: center; font-size: 13px; color: #4a6557; }
+.relay-cli > p { margin: 0 22px 18px; font-size: 11px; color: #88988f; }.relay-cli-state.failed { color: #af4e42; }.relay-cli-state.reconnecting { color: #a77726; }.relay-cli-state.connected { color: #32815b; }.relay-cli-state.stale { color: #969c97; }
+.egress-monitor > footer { padding: 12px 22px; border-top: 1px solid #edf1ee; background: #fafcfb; font-size: 10px; color: #8b9a90; line-height: 1.6; }
+@media(max-width:1100px) { .relay-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); row-gap: 24px; }.relay-metrics > div:nth-child(3) { border-right: 0; }.relay-summary { flex-wrap: wrap; gap: 10px; }.relay-summary small { flex-basis: 100%; margin: 0; } }

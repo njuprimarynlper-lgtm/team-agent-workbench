@@ -16,6 +16,7 @@ import { PreparationOptionsModal } from './preparation-options';
 import { EmptyPreparationReview } from './preparation-empty';
 import { DraftDeleteDialog } from './draft-delete';
 import { RequestCard, isQuestionRequest } from './request-card';
+import { CliConnectionNotice } from './cli-connection-notice';
 export function DraftEditor({ draft, session, sourceTitle, sourceSession, transfers, run, notice, close, reorganized, returnToList = false, viewShared, viewConclusion }: { draft: Draft; session?: AgentSession; sourceTitle?: string; sourceSession?: AgentSession; transfers: Transfer[]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notice: (s: string) => void; close: () => void; reorganized: (draft: Draft) => void; returnToList?: boolean; viewShared: (projectId: string, path: string) => void; viewConclusion: (projectId: string, id: string) => void }) {
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [expanded, setExpanded] = useState(false);
   const [editingMerge, setEditingMerge] = useState(false);
@@ -72,6 +73,7 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
       <div className="preparation-status" aria-live="polite" aria-label="整理状态">{generating && <LoaderCircle size={17} className="spin"/>}<strong>{draft.mergeCompletedAt ? status : draft.submitted ? batchStatus : status}</strong>{generating && <span className="muted small" aria-label="整理已用时间">{elapsed < 60 ? `${elapsed} 秒` : `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</span>}{!draft.restored && sourceSession && !generating && !isMerge && ready && <button className="secondary compact" disabled={busy || leaving} onClick={chooseScope}>再次整理</button>}{!draft.restored && !locked && !generating && !draft.submitted && !draft.mergeCompletedAt && (isMerge || !ready) && <button className="text-button" onClick={() => void run(() => { notice(''); return api.call('draft.retry', { id: draft.id }); })}>{draft.generation === 'error' ? '重试' : isLocalMerge ? '重新处理' : isMerge ? '重新进行语义融合' : '重新整理'}</button>}</div>
       <p className="muted small preparation-source">{isMerge ? `${isLocalMerge ? '处理' : '融合'} ${draft.mergeSources!.length} 条${isLocalMerge ? '项目成果' : '团队成果'}；使用“${sourceTitle || '工作会话'}”完成整理，不会写入原对话` : <>来自“{sourceTitle || '原工作会话'}”{draft.snapshot ? `，${draft.preparationScope === 'incremental' ? `增量整理了 ${draft.snapshot.messageCount} 条新增或续写消息` : '全量整理'}，采用截至 ${new Date(draft.snapshot.capturedAt).toLocaleString()} 的内容` : ''}</>}</p>
       {draft.generationError && <div className="inline-error" role="alert">{preparationErrorMessage(draft.generationError)}</div>}
+      <CliConnectionNotice value={session?.cliConnection}/>
       {generating && session?.approvals.map(a => <RequestCard key={a.id} request={a} onAnswer={(option, answers) => void run(() => api.call('session.answer', { id: session.id, requestId: a.id, option, answers }))}/>)}
     </section>
 

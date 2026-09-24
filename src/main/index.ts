@@ -11,6 +11,11 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { serverIdentityKey } from '../shared/server-identity';
 import { Workbench } from '../core/workbench';
+import { SharedFiles } from '../core/shared-files';
+import { atomicJson } from '../core/store';
+import { AccountWorkspacePool, migrateAccountWorkspace } from '../core/account-workspaces';
+import { accountIdentity } from '../shared/account-data';
+import { scopeAccountSnapshot } from '../shared/account-scope';
 import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import { safeFilename } from '../core/paths';
@@ -21,16 +26,21 @@ import { checkedSessionFile, listSessionFiles, previewSessionFile } from '../cor
 import { ServerIdentityStore } from '../core/server-identities';
 import { EgressClientProxy } from '../core/egress';
 import { decodeEgressInvite } from '../core/egress-config';
-type WindowContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; slot: number; broadcast: () => void; notice: (message: string) => void };
+type DataContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; broadcast: () => void; notice: (message: string) => void };
+type WindowContext = DataContext & { slot: number; sidebarProjectHeight?: number; release: () => Promise<void> };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
+const switchingWindows = new Set<BrowserWindow>();
+let accountRouting: Promise<unknown> = Promise.resolve();
+function routeAccount<T>(operation: () => Promise<T>): Promise<T> { const next = accountRouting.catch(() => {}).then(operation); accountRouting = next; return next; }
 let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false; let pendingStoredWindow = false;
 const entry = path.join(__dirname, runtimeAssets, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
 const serverIdentities = new ServerIdentityStore(path.join(app.getPath('userData'), 'server-identities.json'));
+const accountWorkspaces = new AccountWorkspacePool<DataContext>(async (profile, seedRoot) => createDataContext(await migrateAccountWorkspace(app.getPath('userData'), profile, seedRoot)), async context => { await context.workbench.close(); await context.egress.stop(); });
 async function syncServerIdentities(clearKey?: string) {
   const identities = serverIdentities.snapshot();
-  await Promise.all([...contexts.values()].map(async context => {
+  await Promise.all([...new Map([...contexts.values()].map(context => [context.workbench, context])).values()].map(async context => {
     const settings = context.workbench.store.settings;
     settings.trustedServerIdentities = { ...identities };
     if (clearKey) {
@@ -52,7 +62,10 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
   const setupActions = new Set(['snapshot', 'window.new', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
-    case 'snapshot': return { ...workbench.snapshot(), egress: egress.status() };
+    case 'snapshot': {
+      const snapshot = switchingWindows.has(owner) ? scopeAccountSnapshot({ ...workbench.snapshot(), accountChanging: true }) : workbench.snapshot();
+      return { ...snapshot, settings: { ...snapshot.settings, sidebarProjectHeight: context.sidebarProjectHeight }, egress: egress.status() };
+    }
     case 'window.new': openAdditionalWindow(false); return true;
     case 'egress.configure': {
       const p = z.object({ enabled: z.boolean(), inviteCode: z.string().max(4096).optional(), username: z.string().max(64).optional() }).parse(raw);
@@ -76,7 +89,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       for (const p of ['codex', 'cursor', 'claude'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
-    case 'layout.sidebar': { const p = z.object({ height: z.number().int().min(180).max(4000) }).parse(raw); workbench.store.settings.sidebarProjectHeight = p.height; await workbench.store.save(); return true; }
+    case 'layout.sidebar': { const p = z.object({ height: z.number().int().min(180).max(4000) }).parse(raw); await atomicJson(windowStateFile(context.slot), { profile: workbench.store.settings.workspaceSnapshot?.profile, sidebarProjectHeight: p.height }); context.sidebarProjectHeight = p.height; return true; }
     case 'providers.detect': return workbench.detect();
     case 'account.sync': await workbench.accountSync.sync(); return workbench.accountSync.state;
     case 'account.sync.resolve': { const p = z.object({ key: z.string(), choice: z.enum(['local', 'remote']) }).parse(raw); await workbench.accountSync.resolve(p.key, p.choice); return workbench.accountSync.state; }
@@ -99,7 +112,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       const p = z.object({ profile: profileSchema, password: z.string().min(1).max(4096), localPath: z.string().default('') }).parse(raw);
       const key = serverIdentityKey(p.profile.host, p.profile.port);
       const profile = { ...p.profile, fingerprint: p.profile.mode === 'local' ? p.profile.fingerprint : serverIdentities.get(key) };
-      return workbench.configureWorkspace(profile, p.password, p.localPath, async fingerprint => {
+      return loginWindow(owner, profile, p.password, p.localPath, async fingerprint => {
         const accepted = (await dialog.showMessageBox(owner, {
         type: 'question', title: '首次连接团队服务器', message: p.profile.name || '团队共享服务器',
         detail: `这是本机第一次连接 ${p.profile.host}:${p.profile.port}，请确认服务器地址填写正确。`,
@@ -282,6 +295,48 @@ function latestWindow() {
 }
 function claimSlot(preferred?: number) { let slot = preferred && !activeSlots.has(preferred) ? preferred : 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
 function instanceRoot(slot: number) { return slot === 1 ? app.getPath('userData') : path.join(app.getPath('userData'), 'instances', String(slot)); }
+function windowStateFile(slot: number) { return path.join(app.getPath('userData'), 'window-state', slot + '.json'); }
+async function storedWindowState(slot: number): Promise<{ profile?: import('../shared/types').ConnectionProfile; sidebarProjectHeight?: number }> {
+  try { const state = JSON.parse(await fs.readFile(windowStateFile(slot), 'utf8')); return { profile: state.profile ? profileSchema.parse(state.profile) : undefined, sidebarProjectHeight: state.sidebarProjectHeight }; }
+  catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+  try { const settings = JSON.parse(await fs.readFile(path.join(instanceRoot(slot), 'settings.json'), 'utf8')); const snapshot = settings.workspaceSnapshot || settings.offlineAuthorization; return { profile: snapshot?.profile ? profileSchema.parse(snapshot.profile) : undefined, sidebarProjectHeight: settings.sidebarProjectHeight }; }
+  catch (error: any) { if (error.code !== 'ENOENT') throw error; return {}; }
+}
+async function loginWindow(window: BrowserWindow, profile: import('../shared/types').ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
+  if (switchingWindows.has(window)) throw new Error('正在登录，请等待结果');
+  const previous = contexts.get(window)!;
+  const currentProfile = previous.workbench.store.settings.workspaceSnapshot?.profile;
+  if (!currentProfile || accountIdentity(currentProfile) !== accountIdentity(profile)) previous.workbench.assertCanLeaveAccount();
+  switchingWindows.add(window); previous.broadcast();
+  const verified = new SharedFiles(() => {});
+  let acquired: Awaited<ReturnType<typeof accountWorkspaces.acquire>> | undefined;
+  try {
+    // Authenticate before selecting any other account's local records. Failure leaves
+    // the old context, its live tasks and the window's persisted selection untouched.
+    const result = await verified.connect({ ...profile, projects: [], manifestPath: '', workPath: '' }, password, trust);
+    await verified.loadManifest();
+    return await routeAccount(async () => {
+      if (window.isDestroyed() || closingWindows.has(window) || closing) throw new Error('窗口正在关闭，请重新登录');
+      acquired = await accountWorkspaces.acquire(result, previous.workbench.store.root);
+      const target = acquired.value;
+      if (!target.workbench.remote.connected) await target.workbench.configureWorkspace(result, '', localPath, trust, verified);
+      // An already open account keeps its live SSH transfers and CLI runtimes. The
+      // temporary connection above still verifies this login's password and server.
+      target.egress.setUsername(result.username);
+      if (window.isDestroyed() || closingWindows.has(window) || closing) throw new Error('窗口正在关闭，请重新登录');
+      await atomicJson(windowStateFile(previous.slot), { profile: target.workbench.remote.profile || result, sidebarProjectHeight: previous.sidebarProjectHeight });
+      try { await previous.release(); }
+      catch (error) { await atomicJson(windowStateFile(previous.slot), { profile: currentProfile, sidebarProjectHeight: previous.sidebarProjectHeight }); throw error; }
+      contexts.set(window, { ...target, slot: previous.slot, sidebarProjectHeight: previous.sidebarProjectHeight, release: acquired.release }); acquired = undefined;
+      target.broadcast();
+      return target.workbench.remote.profile || result;
+    });
+  } finally {
+    verified.disconnect();
+    try { if (acquired) await acquired.release(); }
+    finally { switchingWindows.delete(window); contexts.get(window)?.broadcast(); }
+  }
+}
 async function readProtected(file: string) {
   try { const data = await fs.readFile(file); return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(data) : data.toString('utf8'); }
   catch { return ''; }
@@ -292,8 +347,8 @@ async function writeProtected(file: string, value: string) {
 async function datasetMetadata(slot: number) {
   const root = instanceRoot(slot);
   try {
-    const settings = JSON.parse(await fs.readFile(path.join(root, 'settings.json'), 'utf8'));
-    const username = settings?.workspaceSnapshot?.profile?.username || settings?.connections?.[0]?.username || '';
+    const { profile } = await storedWindowState(slot);
+    const username = profile ? accountIdentity(profile) : '';
     const counts = await Promise.all(['sessions.json', 'drafts.json', 'transfers.json', 'conclusions.json'].map(async name => {
       try { const value = JSON.parse(await fs.readFile(path.join(root, name), 'utf8')); return Array.isArray(value) ? value.length : 0; } catch { return 0; }
     }));
@@ -306,6 +361,7 @@ async function storedDatasetSlots() {
     const entries = await fs.readdir(path.join(app.getPath('userData'), 'instances'), { withFileTypes: true });
     slots.push(...entries.filter(entry => entry.isDirectory() && /^\d+$/.test(entry.name)).map(entry => Number(entry.name)).filter(slot => slot > 1));
   } catch { /* No additional account data yet. */ }
+  try { slots.push(...(await fs.readdir(path.join(app.getPath('userData'), 'window-state'))).filter(name => /^[1-9]\d*\.json$/.test(name)).map(name => Number(name.slice(0, -5)))); } catch { /* No migrated window preferences yet. */ }
   const datasets = await Promise.all([...new Set(slots)].sort((a, b) => a - b).map(datasetMetadata));
   const preferredByAccount = new Map<string, { slot: number; records: number }>();
   for (const dataset of datasets) {
@@ -315,26 +371,40 @@ async function storedDatasetSlots() {
   }
   return datasets.filter(dataset => (dataset.username || dataset.records) && (!dataset.username || preferredByAccount.get(dataset.username)?.slot === dataset.slot)).map(dataset => dataset.slot);
 }
-async function createWindow(preferredSlot?: number) {
-  const slot = claimSlot(preferredSlot);
-  const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, runtimeAssets, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
-  windows.add(window);
-  const emit = (event: WorkbenchEvent) => { if (!window.isDestroyed()) window.webContents.send('workbench:event', event); };
+async function createDataContext(root: string): Promise<DataContext> {
+  let workbench: Workbench;
+  const emit = (event: WorkbenchEvent) => { for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed()) window.webContents.send('workbench:event', event); };
   let emitTimer: NodeJS.Timeout | undefined;
   const broadcast = () => { if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
-  const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：') && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
-  const root = instanceRoot(slot); let egress: EgressClientProxy;
-  const workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, () => egress?.environment() || {});
+  const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：')) for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
+  let egress: EgressClientProxy | undefined;
+  workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, () => egress?.environment() || {},
+    (session, value) => egress?.reportCliStatus(session.provider, session.id, value, session.binding?.username || ''));
   try {
-    await workbench.init(); await serverIdentities.init(slot === 1 ? workbench.store.settings.trustedServerIdentities || {} : {});
+    await workbench.init();
     workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot();
     const egressSecretFile = path.join(root, 'egress-access.bin'), settings = workbench.store.settings.egress, accessCode = await readProtected(egressSecretFile);
     const username = workbench.store.settings.connections.at(-1)?.username || workbench.store.settings.workspaceSnapshot?.profile.username || '';
     egress = new EgressClientProxy(settings ? { ...settings, accessCode, username } : undefined); egress.on('changed', broadcast);
     if (settings?.enabled && accessCode) { await egress.start().catch(() => {}); void egress.probe().catch(() => {}); }
-    contexts.set(window, { workbench, egress, egressSecretFile, slot, broadcast, notice });
-  }
-  catch (error) { windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }
+    return { workbench, egress, egressSecretFile, broadcast, notice };
+  } catch (error) { await workbench.close().catch(() => {}); await egress?.stop().catch(() => {}); throw error; }
+}
+async function createWindow(preferredSlot?: number, fresh = false) {
+  const slot = claimSlot(preferredSlot);
+  const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, runtimeAssets, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
+  windows.add(window);
+  try {
+    const { profile, sidebarProjectHeight } = fresh ? {} : await storedWindowState(slot);
+    if (profile) {
+      const acquired = await accountWorkspaces.acquire(profile, instanceRoot(slot));
+      contexts.set(window, { ...acquired.value, slot, sidebarProjectHeight, release: acquired.release });
+    } else {
+      const context = await createDataContext(path.join(app.getPath('userData'), 'window-state', String(slot)));
+      contexts.set(window, { ...context, slot, sidebarProjectHeight, release: async () => { await context.workbench.close(); await context.egress.stop(); } });
+      await atomicJson(windowStateFile(slot), {});
+    }
+  } catch (error) { await contexts.get(window)?.release().catch(() => {}); contexts.delete(window); windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }
   window.setMenuBarVisibility(false);
   window.on('focus', () => window.flashFrame(false));
   window.on('close', event => {
@@ -345,7 +415,7 @@ async function createWindow(preferredSlot?: number) {
   });
   window.on('closed', () => {
     windows.delete(window); const context = contexts.get(window); contexts.delete(window);
-    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void Promise.all([context.workbench.close(), context.egress.stop()]); }
+    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void context.release().catch(error => console.error('账号窗口关闭失败', errorMessage(error))); }
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -362,7 +432,7 @@ function openAdditionalWindow(reuseStored: boolean) {
     try {
       const storedSlot = reuseStored ? (await storedDatasetSlots()).find(slot => !activeSlots.has(slot)) : undefined;
       if (reuseStored && !storedSlot && windows.size > 1) { focusLatestWindow(); return; }
-      await createWindow(storedSlot);
+      await routeAccount(() => createWindow(storedSlot, !reuseStored));
     } catch (error: any) { dialog.showErrorBox('工作台窗口启动失败', error.message); }
     finally { openingWindow = false; }
   })();
@@ -372,12 +442,16 @@ if (ownDataDirectory(latestWindow, () => openAdditionalWindow(true))) app.whenRe
     const owner = BrowserWindow.fromWebContents(event.sender);
     if (!owner || !windows.has(owner) || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
     try {
-      const operation = z.string().parse(action), workbench = contexts.get(owner)!.workbench;
-      const value = await workbench.runAccountOperation(operation, () => dispatch(operation, payload, owner));
+      const operation = z.string().parse(action), context = contexts.get(owner)!;
+      if ((switchingWindows.has(owner) || closingWindows.has(owner) || closing) && operation !== 'snapshot') throw new Error('正在登录或关闭窗口，请等待完成');
+      const value = await context.workbench.runAccountOperation(operation, () => dispatch(operation, payload, owner));
+      if (!['snapshot', 'remote.connect', 'window.new'].includes(operation) && contexts.get(owner) !== context) throw new Error('账号已改变，未返回上一个账号的操作结果，请刷新后重试');
       return { ok: true, value };
     } catch (e: any) { return { ok: false, error: errorMessage(e) }; }
   });
-  await createWindow();
+  const legacySettings = await fs.readFile(path.join(app.getPath('userData'), 'settings.json'), 'utf8').then(value => JSON.parse(value)).catch((error: any) => { if (error.code === 'ENOENT') return {}; throw error; });
+  await serverIdentities.init(legacySettings.trustedServerIdentities || {});
+  await routeAccount(() => createWindow());
   windowsReady = true;
   if (pendingStoredWindow) { pendingStoredWindow = false; openAdditionalWindow(true); }
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
@@ -387,14 +461,14 @@ async function closeWindow(window: BrowserWindow) {
   const context = contexts.get(window); if (!context) { window.destroy(); return; }
   closingWindows.add(window);
   try {
-    await Promise.all([context.workbench.close(), context.egress.stop()]); contexts.delete(window); activeSlots.delete(context.slot); windows.delete(window); window.destroy();
+    await routeAccount(async () => { await contexts.get(window)?.release(); contexts.delete(window); activeSlots.delete(context.slot); windows.delete(window); window.destroy(); });
   } catch (e: any) {
     if (!window.isDestroyed()) await dialog.showMessageBox(window, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留此账号窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试关闭。', buttons: ['返回工作台'] });
   } finally { closingWindows.delete(window); }
 }
 async function finishQuit(owner = latestWindow()) {
   if (closing) return; closing = true;
-  try { await Promise.all([...contexts.values()].flatMap(context => [context.workbench.close(), context.egress.stop()])); quitting = true; app.quit(); }
+  try { await routeAccount(async () => { for (const context of contexts.values()) await context.release(); }); quitting = true; app.quit(); }
   catch (e: any) { if (owner && !owner.isDestroyed()) await dialog.showMessageBox(owner, { type: 'error', title: '未保存的编辑', message: '保存失败，已保留窗口和待保存内容。', detail: e.message + '\n请恢复目录或磁盘空间后重试保存或退出。', buttons: ['返回工作台'] }); }
   finally { closing = false; }
 }

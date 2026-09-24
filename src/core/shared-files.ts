@@ -8,14 +8,22 @@ import type { AssignmentCreate, AssignmentStatusChange, AssignmentUpload } from 
 
 export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
-  constructor(private changed: () => void) { this.backend = new SftpConnection(changed); }
+  constructor(private changed: () => void) { this.backend = new SftpConnection(() => this.changed()); }
   get profile() { return this.backend.profile; }
   get workspaces() { return this.backend.workspaces; }
   get workspace() { return this.backend.workspace; }
   get connected() { return this.backend.connected; }
   async connect(profile: ConnectionProfile, password: string, trust: (s: string) => Promise<boolean>) {
-    this.disconnect(); this.backend = profile.mode === 'local' ? new LocalFileConnection(this.changed) : new SftpConnection(this.changed);
+    this.disconnect(); this.backend = profile.mode === 'local' ? new LocalFileConnection(() => this.changed()) : new SftpConnection(() => this.changed());
     return this.backend.connect(profile, password, trust);
+  }
+  adoptConnection(source: SharedFiles) {
+    if (source === this || !source.connected || !source.profile) throw new Error('已验证的账号连接不可用，请重新登录');
+    const profile = source.profile;
+    this.disconnect(); this.backend = source.backend;
+    source.changed = () => this.changed();
+    source.backend = new SftpConnection(() => source.changed());
+    return profile;
   }
   disconnect() { this.backend.disconnect(); }
   accountData(write?: AccountSnapshot) { return this.backend.accountData(write); }

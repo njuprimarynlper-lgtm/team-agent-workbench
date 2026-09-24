@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import readline from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
-export type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { code: number; message: string } };
+export type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { code: number; message: string; data?: unknown } };
 const stopping = new WeakMap<ChildProcessWithoutNullStreams, Promise<void>>();
 export function stopCLI(child: ChildProcessWithoutNullStreams): Promise<void> {
   const pending = stopping.get(child); if (pending) return pending;
@@ -58,7 +58,7 @@ export class JsonRpc extends EventEmitter {
       else if (typeof message.id === 'number') {
         const call = this.pending.get(message.id); if (!call) return;
         this.pending.delete(message.id); clearTimeout(call.timer);
-        message.error ? call.reject(new Error(message.error.message)) : call.resolve(message.result);
+        message.error ? call.reject(Object.assign(new Error(message.error.message), { data: message.error.data })) : call.resolve(message.result);
       }
     });
     this.process.stderr.on('data', data => this.emit('diagnostic', data.toString()));

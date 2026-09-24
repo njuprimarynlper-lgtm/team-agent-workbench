@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, CircleCheck, Clipboard, KeyRound, Network, RefreshCw, ShieldCheck, WifiOff } from 'lucide-react';
 import type { AdminEgressConfig, AdminEgressSnapshot } from '../shared/egress';
+import { EgressMonitorPanel } from './egress-monitor';
+import './egress-monitor.css';
 
 const api = window.admin;
 const stamp = (value: string) => { try { return new Date(value).toLocaleString(); } catch { return value; } };
@@ -16,6 +18,7 @@ export function EgressView({ snapshot, refresh }: { snapshot: AdminEgressSnapsho
   return <div className="egress-view">
     <div className="page-title egress-title"><div><span className="eyebrow">NETWORK EGRESS</span><h1>网络出口</h1><p>为无法直接访问外网的成员转发 Codex、Cursor 和 Claude Code 连接；成员仍使用自己的账号。</p></div><span className={'egress-state ' + (snapshot.running ? 'online' : '')}>{snapshot.running ? <CircleCheck size={17}/> : <WifiOff size={17}/>} {snapshot.running ? '出口运行中' : config.enabled ? '出口未运行' : '未启用'}</span></div>
     {error && <div className="inline-error" role="alert">{error}</div>}{message && <div className="admin-success"><CircleCheck size={17}/>{message}</div>}
+    <EgressMonitorPanel snapshot={snapshot}/>
     <div className="egress-stat-grid"><div><Network size={19}/><span>监听地址</span><strong>{config.publicHost}:{config.listenPort}</strong></div><div><Activity size={19}/><span>当前连接</span><strong>{snapshot.activeConnections}</strong></div><div><ShieldCheck size={19}/><span>传输保护</span><strong>加密隧道</strong></div><div><KeyRound size={19}/><span>上游方式</span><strong>{config.upstreamMode === 'direct' ? '直接访问' : config.upstreamMode === 'http' ? 'HTTP 代理' : 'SOCKS5'}</strong></div></div>
     {snapshot.lastError && <div className="inline-error">出口启动失败：{snapshot.lastError}</div>}
     <section className="egress-card"><header><div><h3>出口设置</h3><small>关闭后不会影响用户端本地工作和共享空间。</small></div><label className="switch-row"><input type="checkbox" checked={config.enabled} onChange={e => update('enabled', e.target.checked)}/>启用管理端出口</label></header><div className="egress-form">

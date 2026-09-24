@@ -27,11 +27,12 @@ export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'de
 export interface Approval { id: string; method: string; title: string; summary?: string; details: string; options: ApprovalOption[]; questions?: { id: string; text: string; options: { id: string; label: string }[]; allowMultiple?: boolean }[] }
 export interface RemoteBinding { connectionId: string; host: string; port: number; username: string; fingerprint: string; project: Project }
 export interface AgentSession {
-  id: string; title: string; provider: Provider; model?: string; closedAt?: string; nativeId?: string; nativePath?: string; codexStorage?: 'workbench';
+  id: string; title: string; provider: Provider; model?: string; closedAt?: string; nativeId?: string; nativePath?: string; codexStorage?: 'workbench'; codexNeedsRegistration?: boolean;
   cwd: string; purpose: 'work' | 'prepare'; parentId?: string; createdAt: string;
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string; stoppedAt?: string;
   messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
   permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue;
+  cliConnection?: import('./cli-connection').CliConnection;
   projectBrief?: { revision: number; sourceId: string; capturedAt: string }; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;
   assignment?: { id: string; revision: number; title: string; sourceIds: string[] };
   outputFiles?: string[];

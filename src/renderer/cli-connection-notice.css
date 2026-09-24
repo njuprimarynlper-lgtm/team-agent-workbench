@@ -1,0 +1,5 @@
+.cli-connection-notice { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid #eadabb; background: #fff8e9; color: #81591f; }
+.cli-connection-notice.failed { border-color: #efd3cf; background: #fff3f1; color: #a3473a; }
+.cli-connection-notice > div { flex: 1; display: grid; gap: 4px; }
+.cli-connection-notice strong { font-size: 13px; }
+.cli-connection-notice span, .cli-connection-notice time { font-size: 11px; }

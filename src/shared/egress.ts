@@ -24,7 +24,34 @@ export interface EgressConnectionEvent {
   bytesUp: number;
   bytesDown: number;
   detail?: string;
+  clientAddress?: string;
+  endedAt?: string;
 }
+
+export interface EgressTrafficSample {
+  at: string;
+  upPerSecond: number;
+  downPerSecond: number;
+}
+
+export interface EgressMonitor {
+  startedAt: string;
+  sampledAt: string;
+  bytesUp: number;
+  bytesDown: number;
+  upPerSecond: number;
+  downPerSecond: number;
+  connections: number;
+  failures: number;
+  rejections: number;
+  activeTunnels: number;
+  members: { username: string; address: string; connections: number; bytesUp: number; bytesDown: number; targets: string[] }[];
+  history: EgressTrafficSample[];
+  cliReports: import('./cli-connection').CliConnectionReport[];
+  process?: { pid: number; cpuPercent: number; memoryBytes: number; heapBytes: number };
+}
+
+export type EgressRelaySnapshot = { running: boolean; activeConnections: number; lastError?: string; events: EgressConnectionEvent[]; fingerprint: string; monitor?: EgressMonitor };
 
 export interface AdminEgressSnapshot {
   config: AdminEgressConfig;
@@ -35,6 +62,7 @@ export interface AdminEgressSnapshot {
   activeConnections: number;
   lastError?: string;
   events: EgressConnectionEvent[];
+  monitor?: EgressMonitor;
 }
 
 export interface UserEgressSettings {

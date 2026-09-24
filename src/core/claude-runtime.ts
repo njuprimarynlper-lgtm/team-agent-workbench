@@ -6,6 +6,7 @@ import type { AgentCapabilityCatalog, AgentCapabilityOption, AgentSession, Appro
 import type { AgentHooks } from './agents';
 import { claudeCapabilities } from './provider-capabilities';
 import { spawnCLI, stopCLI } from './rpc';
+import { CliConnectionTracker } from './cli-connection';
 
 const now = () => new Date().toISOString();
 export const claudeNativeMode = (mode: PermissionMode | undefined, purpose: AgentSession['purpose']) => purpose === 'prepare' || mode === 'full' ? 'bypassPermissions' : mode === 'auto' ? 'auto' : mode === 'review' ? 'manual' : undefined;
@@ -23,7 +24,8 @@ export class ClaudeRuntime {
   private stderr = '';
   private currentContext?: MessageContext;
   onClosed?: () => void;
-  constructor(readonly session: AgentSession, private executable: string, private hooks: AgentHooks, private networkEnv: NodeJS.ProcessEnv = {}) {}
+  private connection: CliConnectionTracker;
+  constructor(readonly session: AgentSession, private executable: string, private hooks: AgentHooks, private networkEnv: NodeJS.ProcessEnv = {}) { this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged); }
   get activeTurnId() { return undefined; }
   async start() {
     if (this.closed) throw new Error('CLI 连接已关闭');
@@ -68,12 +70,13 @@ export class ClaudeRuntime {
     this.message(randomUUID(), 'user', nativeText, false, options ? { userText: options.userText, context } : {});
     this.hooks.event({ direction: 'user', text: nativeText, ...(options ? { userText: options.userText, capabilities: context?.capabilities } : {}) });
     this.session.status = 'running'; this.session.error = undefined; this.running = true; this.finished = false; this.streamed = false; this.stderr = ''; this.replyId = randomUUID(); this.hooks.changed();
+    this.connection.begin();
     try {
       const child = spawnCLI(this.executable, args, this.session.cwd, this.networkEnv);
       this.child = child;
       const lines = readline.createInterface({ input: child.stdout });
       lines.on('line', line => { try { this.onEvent(JSON.parse(line), plannedId); } catch { /* Raw diagnostics may contain credentials. */ } });
-      child.stderr.on('data', data => { this.stderr = (this.stderr + String(data)).slice(-4000); });
+      child.stderr.on('data', data => { this.stderr = (this.stderr + String(data)).slice(-4000); if (!this.closed) this.connection.diagnostic(String(data)); });
       const completed = new Promise<boolean>((resolve, reject) => {
         child.once('error', reject);
         child.once('close', code => {
@@ -95,6 +98,9 @@ export class ClaudeRuntime {
   }
   private onEvent(event: any, plannedId: string) {
     if (this.closed || !event || typeof event !== 'object') return;
+    if (event.type === 'error' || event.type === 'result' && event.is_error) this.connection.error(event.error || { message: (event.errors || []).join('\n') }, false);
+    if (event.type === 'system' && event.subtype === 'api_retry') this.connection.error({ message: `Retrying ${event.attempt || 1}`, statusCode: event.error_status }, true);
+    if (event.type === 'assistant' && !event.error || event.type === 'stream_event' && event.event?.type === 'content_block_delta') this.connection.responded();
     if (['control_request', 'assistant', 'stream_event'].includes(event.type) || (event.type === 'result' && !event.is_error)) {
       if (this.currentContext && !this.currentContext.accepted) { this.currentContext.accepted = true; this.hooks.changed(); }
     }
@@ -180,9 +186,10 @@ export class ClaudeRuntime {
     const wasRunning = this.running; this.running = false; this.pending.clear(); this.session.approvals = [];
     this.currentContext = undefined;
     this.session.status = error || this.session.error ? 'error' : 'idle'; this.session.error = error || this.session.error;
+    this.connection.finish(this.session.error);
     if (error) this.hooks.authFailed?.(error);
     this.hooks.changed(); if (wasRunning) this.hooks.done();
   }
   async cancel() { if (this.child) await stopCLI(this.child); }
-  async close() { this.closed = true; this.running = false; if (this.child) await stopCLI(this.child); this.session.approvals = []; this.session.status = 'idle'; this.hooks.changed(); this.onClosed?.(); }
+  async close() { this.closed = true; this.running = false; this.connection.stop(); if (this.child) await stopCLI(this.child); this.session.approvals = []; this.session.status = 'idle'; this.hooks.changed(); this.onClosed?.(); }
 }
