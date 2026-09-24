@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { Network, RefreshCw } from 'lucide-react';
 import type { Provider, ProviderAuth } from '../shared/types';
 import type { UserEgressStatus } from '../shared/egress';
@@ -10,6 +10,7 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
   checked?: (result: ProviderConnectionCheck) => void; pendingChanged?: (pending: boolean) => void; showCatalog?: boolean;
 }) {
   const [enabled, setEnabled] = useState(!!egress?.enabled), [invite, setInvite] = useState('');
+  const routeDescription = useId();
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [result, setResult] = useState<ProviderConnectionCheck>();
   const sequence = useRef(0), checking = useRef(false);
   const callbacks = useRef({ busyChanged, checked }); callbacks.current = { busyChanged, checked };
@@ -35,9 +36,13 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
   }, [provider, cwd]);
   return <section className="provider-connection-settings" aria-label="网络与登录设置">
     <div className="row"><Network size={17}/><strong>网络连接</strong><span className="spacer"/><span className="muted small">{egress?.enabled ? '管理端出口' : '本机网络'}</span></div>
-    <p className="muted small">应用于当前账号窗口的 Codex、Cursor 和 Claude Code 会话，仍使用你的个人 CLI 账号。</p>
+    <p className="muted small">连接方式应用于当前账号窗口的 Codex、Cursor 和 Claude Code 会话。</p>
     <fieldset disabled={busy}>
-      <label className="check-row"><input type="checkbox" checked={enabled} onChange={event => { setEnabled(event.target.checked); setResult(undefined); setError(''); }}/><span>通过管理端访问模型服务</span></label>
+      <label className={'provider-route-option' + (enabled ? ' selected' : '')}>
+        <span className="provider-route-icon" aria-hidden="true"><Network size={22}/></span>
+        <span className="provider-route-copy"><strong>通过管理端访问模型服务</strong><span id={routeDescription}>使用管理员提供的网络连接，仍使用你的个人 AI 账号。</span></span>
+        <input type="checkbox" aria-label="通过管理端访问模型服务" aria-describedby={routeDescription} checked={enabled} onChange={event => { setEnabled(event.target.checked); setResult(undefined); setError(''); }}/>
+      </label>
       {enabled && <label className="field">管理端接入码<textarea aria-label="管理端网络出口接入码" rows={3} value={invite} onChange={event => { setInvite(event.target.value); setResult(undefined); }} placeholder={egress?.hasAccessCode ? '已保存接入码；更换出口时粘贴新的接入码' : '粘贴管理端“网络出口”页面复制的接入码'}/></label>}
     </fieldset>
     {egress?.enabled && <p className="muted small" role="status">{egress.detail}</p>}
