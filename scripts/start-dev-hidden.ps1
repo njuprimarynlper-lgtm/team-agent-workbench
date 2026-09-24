@@ -20,42 +20,122 @@ $stage = '准备启动'
 $stageHint = ''
 $stageStarted = Get-Date
 $lastHeartbeat = Get-Date
+$startupStarted = Get-Date
+$startupPhase = 1
+$displayedPhase = 0
+
+function New-StartupLabel([string]$Text, [int]$X, [int]$Y, [int]$Width, [int]$Height, [float]$Size = 9, [bool]$Bold = $false) {
+  $label = New-Object System.Windows.Forms.Label
+  $label.SetBounds($X, $Y, $Width, $Height)
+  $label.Text = $Text
+  $label.UseMnemonic = $false
+  $label.BackColor = [System.Drawing.Color]::Transparent
+  $label.ForeColor = $script:startupColors.Ink
+  $style = if ($Bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }
+  $label.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', $Size, $style)
+  return $label
+}
 
 function Show-StartupProgress {
   if ($NoDialogs) { return }
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
   [System.Windows.Forms.Application]::EnableVisualStyles()
+  $script:startupColors = @{
+    Background = [System.Drawing.ColorTranslator]::FromHtml('#F5F7F5')
+    Ink = [System.Drawing.ColorTranslator]::FromHtml('#243C30')
+    Muted = [System.Drawing.ColorTranslator]::FromHtml('#5B6F61')
+    Accent = [System.Drawing.ColorTranslator]::FromHtml('#287554')
+    Active = [System.Drawing.ColorTranslator]::FromHtml('#E4F0E8')
+    Border = [System.Drawing.ColorTranslator]::FromHtml('#DCE5DE')
+    Pending = [System.Drawing.ColorTranslator]::FromHtml('#EBEFEC')
+  }
   $script:progressWindow = New-Object System.Windows.Forms.Form
+  $progressWindow.SuspendLayout()
   $progressWindow.Text = $(if ($Edition -eq 'user') { '启动团队工作台 · 用户端' } else { '启动团队工作台 · 管理端' })
-  $progressWindow.ClientSize = New-Object System.Drawing.Size(470, 215)
+  $progressWindow.AutoScaleDimensions = New-Object System.Drawing.SizeF(96, 96)
+  $progressWindow.AutoScaleMode = 'Dpi'
+  $progressWindow.ClientSize = New-Object System.Drawing.Size(612, 390)
   $progressWindow.FormBorderStyle = 'FixedDialog'
   $progressWindow.StartPosition = 'CenterScreen'
   $progressWindow.MaximizeBox = $false
   $progressWindow.MinimizeBox = $false
+  $progressWindow.ShowIcon = $false
+  $progressWindow.BackColor = $startupColors.Background
   $progressWindow.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 9)
-  $script:stageLabel = New-Object System.Windows.Forms.Label
-  $stageLabel.SetBounds(24, 20, 422, 28)
-  $stageLabel.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 11, [System.Drawing.FontStyle]::Bold)
-  $script:hintLabel = New-Object System.Windows.Forms.Label
-  $hintLabel.SetBounds(24, 57, 422, 42)
+  $heading = New-StartupLabel '正在启动工作台' 32 26 408 34 18 $true
+  $subtitle = New-StartupLabel '准备好后，将自动进入工作空间。' 34 67 420 24 9
+  $subtitle.ForeColor = $startupColors.Muted
+  $editionBadge = New-StartupLabel $(if ($Edition -eq 'user') { '用户端' } else { '管理端' }) 490 34 90 28 9 $true
+  $editionBadge.TextAlign = 'MiddleCenter'
+  $editionBadge.BackColor = $startupColors.Active
+  $editionBadge.ForeColor = $startupColors.Accent
+
+  # Three real phases, not an estimated percentage. Optional installs stay in phase 1.
+  $script:phaseLabels = @()
+  $phaseNames = @('检查环境', '构建工作台', '打开应用')
+  for ($index = 0; $index -lt $phaseNames.Count; $index++) {
+    $label = New-StartupLabel '' (32 + 188 * $index) 110 172 40 10 $true
+    $label.Tag = $phaseNames[$index]
+    $label.TextAlign = 'MiddleCenter'
+    $script:phaseLabels += $label
+    $progressWindow.Controls.Add($label)
+  }
+
+  $card = New-Object System.Windows.Forms.Panel
+  $card.SetBounds(32, 172, 548, 132)
+  $card.BackColor = [System.Drawing.Color]::White
+  $accent = New-Object System.Windows.Forms.Panel
+  $accent.SetBounds(0, 0, 3, 132)
+  $accent.BackColor = $startupColors.Accent
+  $script:stageLabel = New-StartupLabel '' 22 18 390 30 13 $true
+  $stageLabel.AutoEllipsis = $true
+  $script:elapsedLabel = New-StartupLabel '' 412 22 112 22 9
+  $elapsedLabel.TextAlign = 'TopRight'
+  $elapsedLabel.ForeColor = $startupColors.Muted
+  $script:hintLabel = New-StartupLabel '' 22 57 502 47 9
+  $hintLabel.ForeColor = $startupColors.Muted
+  $hintLabel.AutoEllipsis = $true
   $bar = New-Object System.Windows.Forms.ProgressBar
-  $bar.SetBounds(24, 112, 422, 8)
+  $bar.SetBounds(22, 112, 502, 4)
   $bar.Style = 'Marquee'
-  $bar.MarqueeAnimationSpeed = 30
-  $script:elapsedLabel = New-Object System.Windows.Forms.Label
-  $elapsedLabel.SetBounds(24, 136, 422, 22)
-  $elapsedLabel.ForeColor = [System.Drawing.Color]::DimGray
+  $bar.MarqueeAnimationSpeed = 25
+  $bar.AccessibleName = '当前步骤正在进行'
+  $card.Controls.AddRange(@($accent, $stageLabel, $elapsedLabel, $hintLabel, $bar))
+
+  $script:totalElapsedLabel = New-StartupLabel '' 34 334 235 24 9
+  $totalElapsedLabel.ForeColor = $startupColors.Muted
   $logsButton = New-Object System.Windows.Forms.Button
   $logsButton.Text = '查看日志'
-  $logsButton.SetBounds(250, 172, 94, 28)
-  $logsButton.Add_Click({ Start-Process -FilePath "$env:SystemRoot\explorer.exe" -ArgumentList @('"' + $logRoot + '"') })
+  $logsButton.SetBounds(366, 327, 98, 36)
+  $logsButton.FlatStyle = 'Flat'
+  $logsButton.UseVisualStyleBackColor = $false
+  $logsButton.FlatAppearance.BorderSize = 0
+  $logsButton.FlatAppearance.MouseOverBackColor = $startupColors.Active
+  $logsButton.FlatAppearance.MouseDownBackColor = $startupColors.Border
+  $logsButton.BackColor = $startupColors.Background
+  $logsButton.ForeColor = $startupColors.Accent
+  $logsButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $logsButton.TabIndex = 0
+  $logsButton.Add_Click({ Start-Process -FilePath "$env:SystemRoot\System32\notepad.exe" -ArgumentList @('"' + $launchLog + '"') })
   $cancelButton = New-Object System.Windows.Forms.Button
   $cancelButton.Text = '取消启动'
-  $cancelButton.SetBounds(352, 172, 94, 28)
+  $cancelButton.SetBounds(476, 327, 104, 36)
+  $cancelButton.FlatStyle = 'Flat'
+  $cancelButton.UseVisualStyleBackColor = $false
+  $cancelButton.FlatAppearance.BorderColor = $startupColors.Border
+  $cancelButton.FlatAppearance.MouseOverBackColor = $startupColors.Pending
+  $cancelButton.FlatAppearance.MouseDownBackColor = $startupColors.Border
+  $cancelButton.BackColor = [System.Drawing.Color]::White
+  $cancelButton.ForeColor = $startupColors.Ink
+  $cancelButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+  $cancelButton.TabIndex = 1
   $cancelButton.Add_Click({ $script:cancelStartup = $true })
+  $progressWindow.CancelButton = $cancelButton
   $progressWindow.Add_FormClosing({ param($sender, $eventArgs) if (-not $script:closingProgress) { $script:cancelStartup = $true; $eventArgs.Cancel = $true } })
-  $progressWindow.Controls.AddRange(@($stageLabel, $hintLabel, $bar, $elapsedLabel, $logsButton, $cancelButton))
+  $progressWindow.Controls.AddRange(@($heading, $subtitle, $editionBadge, $card, $totalElapsedLabel, $logsButton, $cancelButton))
+  $progressWindow.ResumeLayout($true)
+  Update-StartupProgress
   $progressWindow.Show()
 }
 
@@ -67,7 +147,31 @@ function Update-StartupProgress {
   if ($progressWindow) {
     $stageLabel.Text = $stage
     $hintLabel.Text = $stageHint
-    $elapsedLabel.Text = '本步骤已用时 ' + [int]((Get-Date) - $stageStarted).TotalSeconds + ' 秒'
+    $elapsedLabel.Text = '本步 ' + [int]((Get-Date) - $stageStarted).TotalSeconds + ' 秒'
+    $elapsed = (Get-Date) - $startupStarted
+    $totalElapsedLabel.Text = '启动用时  {0:00}:{1:00}' -f [int][Math]::Floor($elapsed.TotalMinutes), $elapsed.Seconds
+    if ($displayedPhase -ne $startupPhase) {
+      for ($index = 0; $index -lt $phaseLabels.Count; $index++) {
+        $label = $phaseLabels[$index]
+        if (($index + 1) -lt $startupPhase) {
+          $label.Text = [char]0x2713 + '  ' + $label.Tag
+          $label.BackColor = $startupColors.Background
+          $label.ForeColor = $startupColors.Accent
+          $label.AccessibleName = $label.Tag + '：已完成'
+        } elseif (($index + 1) -eq $startupPhase) {
+          $label.Text = ($index + 1).ToString('00') + '  ' + $label.Tag
+          $label.BackColor = $startupColors.Active
+          $label.ForeColor = $startupColors.Accent
+          $label.AccessibleName = $label.Tag + '：进行中'
+        } else {
+          $label.Text = ($index + 1).ToString('00') + '  ' + $label.Tag
+          $label.BackColor = $startupColors.Pending
+          $label.ForeColor = $startupColors.Muted
+          $label.AccessibleName = $label.Tag + '：待进行'
+        }
+      }
+      $script:displayedPhase = $startupPhase
+    }
     [System.Windows.Forms.Application]::DoEvents()
   }
   if ($cancelStartup) { throw [System.OperationCanceledException]::new('已取消启动') }
@@ -77,29 +181,23 @@ function Update-StartupProgress {
   }
 }
 
-function Set-StartupStage([string]$Name, [string]$Hint) {
+function Set-StartupStage([string]$Name, [string]$Hint, [int]$Phase = 1) {
   $script:stage = $Name; $script:stageHint = $Hint; $script:stageStarted = Get-Date; $script:lastHeartbeat = Get-Date
+  $script:startupPhase = $Phase
   Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Step: $Name / $Hint"
   if ($NoDialogs) { [Console]::Out.WriteLine($Name + '：' + $Hint) }
   Update-StartupProgress
 }
 
 
-function Get-DependencyHash([string]$Path) {
-  $stream = [System.IO.File]::OpenRead($Path)
-  $sha = [System.Security.Cryptography.SHA256]::Create()
-  try { return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '') }
-  finally { $stream.Dispose(); $sha.Dispose() }
-}
-
 function Invoke-NpmStep([string]$Step, [string[]]$Arguments) {
   $stdoutLog = Join-Path $logRoot "$Edition-$stamp-$Step.log"
   $script:stderrLog = Join-Path $logRoot "$Edition-$stamp-$Step-error.log"
   Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "npm $($Arguments -join ' ')"
   if ($Step -eq 'install') {
-    Set-StartupStage '正在安装依赖' '首次启动需要联网下载；最多等待 10 分钟，可随时取消。'
+    Set-StartupStage '正在安装依赖' ($script:dependencyReason + ' 优先使用 npm 缓存；最多等待 10 分钟，可随时取消。')
   } else {
-    Set-StartupStage '正在构建工作台' '准备当前版本，通常几十秒内完成；最多等待 3 分钟。'
+    Set-StartupStage '正在构建工作台' '正在准备当前版本，通常几十秒内完成。' 2
   }
   $limit = if ($Step -eq 'install') { 600 } else { 180 }
   $code = Invoke-StartupProcess -File $npm -Arguments $Arguments -Directory $repoRoot -Output $stdoutLog -Errors $script:stderrLog -TimeoutSeconds $limit -TimeoutMessage ($stage + '超时，请检查详细日志后重试。') -Pulse { Update-StartupProgress }
@@ -221,20 +319,21 @@ try {
   }
 
   $dependencyStamp = Join-Path $logRoot 'dependencies.txt'
-  $expectedStamp = @(
-    (Get-DependencyHash (Join-Path $repoRoot 'package-lock.json')),
-    (Get-DependencyHash (Join-Path $repoRoot 'package.json')),
-    $runtime.major
-  ) -join ':'
-  $installedStamp = if (Test-Path -LiteralPath $dependencyStamp) { (Get-Content -LiteralPath $dependencyStamp -Raw).Trim() } else { '' }
+  Set-StartupStage '正在检查项目依赖' '核对依赖版本和安装记录；已安装的依赖可以直接复用。'
+  $dependencyOutput = Join-Path $logRoot "$Edition-$stamp-dependencies.out"
+  $script:stderrLog = Join-Path $logRoot "$Edition-$stamp-dependencies-error.log"
+  $code = Invoke-StartupProcess -File $nodePath -Arguments @('"scripts\startup-dependencies.mjs"') -Directory $repoRoot -Output $dependencyOutput -Errors $script:stderrLog -TimeoutSeconds 30 -TimeoutMessage '依赖检查超时，请检查详细日志。' -Pulse { Update-StartupProgress }
+  if ($code -ne 0) { throw '依赖检查失败，请查看详细日志并确认源码文件完整。' }
+  $dependencyCheck = Get-Content -LiteralPath $dependencyOutput -Raw -Encoding UTF8 | ConvertFrom-Json
+  $script:dependencyReason = $dependencyCheck.reason
+  Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value ("Dependencies: " + $dependencyCheck.reason)
   $electron = Join-Path $repoRoot 'node_modules\electron\dist\electron.exe'
-  $dependenciesReady = (Test-Path -LiteralPath (Join-Path $repoRoot 'node_modules\electron\package.json')) -and
-    (Test-Path -LiteralPath (Join-Path $repoRoot 'node_modules\esbuild\package.json')) -and
-    (Test-Path -LiteralPath (Join-Path $repoRoot 'node_modules\ssh2\package.json'))
-  if ($installedStamp -ne $expectedStamp -or -not $dependenciesReady) {
+  if ($dependencyCheck.install) {
+    # Leave a retry marker if npm fails or startup is cancelled partway through.
+    Set-Content -LiteralPath $dependencyStamp -Encoding ASCII -Value '{"pending":true}'
     Invoke-NpmStep 'install' @('ci', '--include=dev', '--include=optional', '--no-audit', '--no-fund')
-    Set-Content -LiteralPath $dependencyStamp -Encoding ASCII -Value $expectedStamp
   }
+  Set-Content -LiteralPath $dependencyStamp -Encoding ASCII -Value $dependencyCheck.stamp
 
   Set-StartupStage '正在检查桌面运行环境' '已有完整运行文件时会直接复用。'
   Install-ElectronRuntime
@@ -245,11 +344,15 @@ try {
     throw '构建未生成所选版本的运行文件，请检查启动日志。'
   }
 
-  Set-StartupStage '正在打开工作台' '准备完成，正在打开应用窗口。'
+  Set-StartupStage '正在打开工作台' '一切就绪，马上进入工作空间。' 3
   Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
   Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Entry: $entry"
-  # Start-Process joins ArgumentList into one command line, so the path needs explicit quotes.
-  Start-Process -FilePath $electron -ArgumentList @('"' + $entry + '"') -WorkingDirectory $repoRoot
+  $desktopOutput = Join-Path $logRoot "$Edition-$stamp-open.log"
+  $script:stderrLog = Join-Path $logRoot "$Edition-$stamp-open-error.log"
+  # Detach Electron and disconnect inherited console handles before this launcher exits.
+  $code = Invoke-StartupProcess -File $nodePath -Arguments @('"scripts\launch-desktop.mjs"', $Edition) -Directory $repoRoot -Output $desktopOutput -Errors $script:stderrLog -TimeoutSeconds 15 -TimeoutMessage '打开工作台超时，请查看启动日志。' -Pulse { Update-StartupProgress }
+  if ($code -ne 0) { throw '无法打开工作台，请查看详细日志。' }
+  Get-Content -LiteralPath $desktopOutput -Encoding UTF8 | Add-Content -LiteralPath $launchLog -Encoding UTF8
 } catch {
   Close-StartupProgress
   if ($_.Exception -is [System.OperationCanceledException]) {

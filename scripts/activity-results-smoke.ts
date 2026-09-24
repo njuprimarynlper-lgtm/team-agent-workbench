@@ -96,11 +96,11 @@ async function main() {
       await expect(page!.getByRole('dialog', { name: '设置成果别名' })).toHaveCount(0);
     };
     await setAlias('接口超时验收约束');
-    await expect(page.locator('.conclusion-detail h2')).toHaveText('接口超时验收约束');
-    await expect(page.locator('.conclusion-detail')).toContainText('原名：接口超时结论');
+    await expect(page.locator('.result-card.is-expanded .result-card-heading b')).toHaveText('接口超时验收约束');
+    await expect(page.locator('.result-card-details')).toContainText('原名：接口超时结论');
     assert.equal((await call(page, 'conclusion.list', { projectId: project.id }))[0].version, local.version);
     await page.getByRole('button', { name: '设置本地别名', exact: true }).click(); await page.getByRole('button', { name: '清除别名', exact: true }).click();
-    await expect(page.locator('.conclusion-detail h2')).toHaveText('接口超时结论'); await setAlias('接口超时验收约束');
+    await expect(page.locator('.result-card.is-expanded .result-card-heading b')).toHaveText('接口超时结论'); await setAlias('接口超时验收约束');
     await page.getByRole('button', { name: '加入会话', exact: true }).click();
     await expect(page.getByRole('dialog', { name: '选择使用成果的会话' })).toContainText('接口超时验收约束');
     await page.getByLabel('使用成果的会话：新会话').check(); await page.getByRole('button', { name: '加入 1 个会话', exact: true }).click();

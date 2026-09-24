@@ -19,5 +19,6 @@ test('existing user and admin launchers use the same hidden helper', async () =>
   assert.match(helper, /Invoke-StartupProcess -File \$npm/);
   assert.match(helper, /-Errors \$script:stderrLog -TimeoutSeconds/);
   assert.match(helper, /System\.Windows\.Forms\.MessageBox/);
-  assert.doesNotMatch(helper, /Start-Process -FilePath \$electron[^\r\n]+-WindowStyle Hidden/);
+  assert.match(helper, /Invoke-StartupProcess -File \$nodePath -Arguments @\('"scripts\\launch-desktop\.mjs"', \$Edition\)/);
+  assert.doesNotMatch(helper, /Start-Process -FilePath \$electron/);
 });

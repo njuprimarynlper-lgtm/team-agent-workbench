@@ -58,7 +58,7 @@ export interface ProviderAuth { status: 'unknown' | 'checking' | 'authenticated'
 export interface ModelOption { id: string; name: string; isDefault?: boolean }
 export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
 export interface ProviderCatalog { models: ModelOption[]; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
-export interface Snapshot { activeTurns?: Record<string, string>; accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
+export interface Snapshot { accountChanging?: boolean; activeTurns?: Record<string, string>; accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
 export type WorkbenchEvent = { type: 'state' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

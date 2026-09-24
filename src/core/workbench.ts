@@ -31,6 +31,7 @@ import { freezeFile, packageDraftArtifact, packageHistory, hashFile, contributio
 import { editableArtifact, freezeDraftAttachments } from './draft-attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
+import { ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
 import { projectDirectoryKey } from '../shared/project-directory';
 import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
 import { linkConclusionPublications } from './conclusion-publications';
@@ -71,6 +72,21 @@ export class Workbench {
   }
   workspaceReady = false;
   private configuring = false;
+  private accountRevision = 0;
+  get accountEpoch() { return this.accountRevision; }
+  private accountMutations = new Set<symbol>();
+  async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
+    const independent = ['snapshot', 'remote.connect', 'window.new'].includes(action);
+    if (!independent) this.assertAccountReady();
+    const readOnly = ['remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'result.rules', 'session.history', 'session.files', 'session.file.preview', 'handoff.read', 'draft.attachment.preview', 'content.attachment.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
+    const epoch = this.accountRevision, token = Symbol(action);
+    if (!independent && !readOnly) this.accountMutations.add(token);
+    try {
+      const value = await operation();
+      if (!independent && epoch !== this.accountRevision) throw new Error('账号已改变，未返回上一个账号的操作结果，请刷新后重试');
+      return value;
+    } finally { this.accountMutations.delete(token); }
+  }
   private configuringCursorPermissions = false;
   private closing = false;
   accounts: ProviderAccounts;
@@ -99,12 +115,14 @@ export class Workbench {
     else { if (!binding) throw new Error('请先选择所属工作组下的项目'); assertKnownWorkspace(binding, this.store.settings.workspaceSnapshot); }
   }
   async refreshGroups() {
+    const profileBefore = this.remote.profile;
     let projects;
     try { projects = await this.remote.loadManifest(); }
     catch (error: any) {
       if (!this.remote.connected) throw new Error('无法刷新最新账号身份：' + error.message);
       throw error;
     }
+    if (this.remote.profile !== profileBefore || this.configuring) throw new Error('账号已改变，请重新刷新工作组');
     const profile = this.remote.profile!;
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
     this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? structuredClone(profile) : p);
@@ -152,11 +170,11 @@ export class Workbench {
     await this.store.save(); this.broadcast(); return this.store.settings.dismissedContentUpdateIds;
   }
   conclusions(projectId: string, includeArchived = false) {
-    const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile;
+    const profile = this.localProfile();
     return this.store.conclusions.filter(item => !item.deletedAt && (!item.accountOwner || profile && item.accountOwner === accountIdentity(profile)) && item.projectId === projectId && (includeArchived || !item.archived)).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
   resultRules(projectId: string): ResultRulesState {
-    const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile;
+    const profile = this.localProfile();
     if (!profile?.projects.some(project => project.id === projectId)) throw new Error('当前账号无法访问此项目');
     const owner = accountIdentity(profile), preferences = resultPreferencesSchema.parse(this.store.settings.resultPreferences?.[owner] || { combinations: [], projects: {} });
     const version = createHash('sha256').update(JSON.stringify(preferences)).digest('hex');
@@ -182,13 +200,14 @@ export class Workbench {
   matchConclusions(projectId: string, query: string) { return rankConclusions(this.conclusions(projectId), query); }
   async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory) {
     if (category) { if (!this.resultRules(projectId).combination.categories.includes(category as any)) throw new Error('请选择当前分类组合中启用的类别'); title = contributionTitle(category, title); }
-    const now = new Date().toISOString(), conclusion: ProjectConclusion = { id: randomUUID(), projectId, title: title.trim(), content: content.trim(), sources: [], updatedAt: now, version: 1, automatic: false };
+    const profile = this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile;
+    const now = new Date().toISOString(), conclusion: ProjectConclusion = { id: randomUUID(), projectId, ...(profile ? { accountOwner: accountIdentity(profile) } : {}), title: title.trim(), content: content.trim(), sources: [], updatedAt: now, version: 1, automatic: false };
     if (!conclusion.title || !conclusion.content) throw new Error('请填写结论标题和内容');
     if (category) conclusion.category = category;
     this.store.conclusions.unshift(conclusion); await this.store.save(); this.broadcast(); return conclusion;
   }
   async saveConclusion(id: string, title: string, content: string, category?: ContributionCategory) {
-    const conclusion = this.store.conclusions.find(item => item.id === id && !item.deletedAt); if (!conclusion) throw new Error('结论不存在');
+    const conclusion = this.conclusion(id);
     const priorCategory = conclusion.category || materialCategories.find(key => conclusion.title.startsWith(`【${contributionCategoryInfo[key].label}】`)) || 'finding';
     if (category) { if (category !== priorCategory && !this.resultRules(conclusion.projectId).combination.categories.includes(category as any)) throw new Error('请选择当前分类组合中启用的类别'); title = contributionTitle(category, title); }
     title = title.trim(); content = content.trim(); if (!title || !content) throw new Error('请填写结论标题和内容');
@@ -197,13 +216,13 @@ export class Workbench {
     await this.store.save(); this.broadcast(); return conclusion;
   }
   async saveConclusionAlias(id: string, alias: string) {
-    const conclusion = this.store.conclusions.find(item => item.id === id && !item.deletedAt); if (!conclusion) throw new Error('结论不存在');
+    const conclusion = this.conclusion(id);
     const value = alias.trim(); if (value.length > 200) throw new Error('结论别名不能超过 200 字');
     if (value) conclusion.titleAlias = value; else delete conclusion.titleAlias;
     await this.store.save(); this.broadcast(); return conclusion;
   }
   async archiveConclusion(id: string, archived: boolean) {
-    const conclusion = this.store.conclusions.find(item => item.id === id && !item.deletedAt); if (!conclusion) throw new Error('结论不存在');
+    const conclusion = this.conclusion(id);
     conclusion.archived = archived || undefined; conclusion.updatedAt = new Date().toISOString(); await this.store.save(); this.broadcast(); return conclusion;
   }
   async deleteConclusion(id: string, version: number) {
@@ -233,8 +252,16 @@ export class Workbench {
       this.broadcast();
     }, false);
   }
-  private organizeConclusion(projectId: string, title: string, content: string, source: ConclusionSource, category?: ContributionCategory): ConclusionOrganization {
-    const project = this.conclusions(projectId, true);
+  private conclusion(id: string) {
+    this.assertAccountReady();
+    const item = this.store.conclusions.find(item => item.id === id && !item.deletedAt);
+    if (!item || !this.conclusions(item.projectId, true).includes(item)) throw new Error('结论不存在或不属于当前账号');
+    return item;
+  }
+  private organizeConclusion(projectId: string, title: string, content: string, source: ConclusionSource, category?: ContributionCategory, owner?: string): ConclusionOrganization {
+    const profile = this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile;
+    owner ||= profile ? accountIdentity(profile) : undefined;
+    const project = this.store.conclusions.filter(item => !item.deletedAt && item.projectId === projectId && item.accountOwner === owner);
     // A shared source may also occur in an explicitly merged document. Prefer
     // its own material; lexical similarity is for retrieval, never for saving.
     const candidates = project.filter(item => item.sources.length === 1 && item.sources[0].kind === source.kind && item.sources[0].id === source.id);
@@ -255,11 +282,10 @@ export class Workbench {
       if (sourced.automatic && category) sourced.category = category;
       return { conclusion: sourced, action: changed ? 'updated' : 'duplicate' };
     }
-    const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile;
-    const conclusion: ProjectConclusion = { id: randomUUID(), projectId, ...(profile ? { accountOwner: accountIdentity(profile) } : {}), title: title.trim(), content: content.trim(), sources: [source], updatedAt: source.updatedAt, version: 1, automatic: true };
+    const conclusion: ProjectConclusion = { id: randomUUID(), projectId, ...(owner ? { accountOwner: owner } : {}), title: title.trim(), content: content.trim(), sources: [source], updatedAt: source.updatedAt, version: 1, automatic: true };
     if (category) conclusion.category = category;
     this.store.conclusions.unshift(conclusion);
-    const overflow = this.conclusions(projectId, true).filter(item => item.automatic && !item.archived).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(100);
+    const overflow = [conclusion, ...project].filter(item => item.automatic && !item.archived).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(100);
     for (const item of overflow) item.archived = true;
     return { conclusion, action: 'created' };
   }
@@ -319,11 +345,12 @@ export class Workbench {
   }
   private syncDraftConclusions(draft: Draft, preserveExisting = false) {
     if (!draft.binding || draft.mergeSources?.length || draft.generation !== 'ready') return [];
+    const owner = accountIdentity(draft.binding);
     const projectId = draft.binding.project.id, selectedIds = new Set((draft.artifacts || []).filter(item => item.selected).map(item => item.id));
     if (!draft.artifacts?.length && draft.body.trim()) selectedIds.add(draft.id);
     const owns = (source: ConclusionSource) => source.kind === 'session' && (source.id === draft.id || source.id.startsWith(draft.id + '-'));
     const now = draft.generationFinishedAt || new Date().toISOString();
-    for (const conclusion of this.store.conclusions.filter(item => !item.deletedAt && item.projectId === projectId && !preserveExisting)) {
+    for (const conclusion of this.store.conclusions.filter(item => !item.deletedAt && item.accountOwner === owner && item.projectId === projectId && !preserveExisting)) {
       const stale = conclusion.sources.filter(source => owns(source) && !selectedIds.has(source.id));
       if (!stale.length) continue;
       if (conclusion.automatic && conclusion.sources.every(source => stale.includes(source))) {
@@ -334,21 +361,21 @@ export class Workbench {
     }
     const sourceSessionTitle = this.store.sessions.find(session => session.id === draft.sessionId)?.title || draft.sourceSessionTitle || '本机会话';
     const results: ConclusionOrganization[] = [];
-    const alreadyStored = (id: string) => this.store.conclusions.some(item => (preserveExisting || !!item.deletedAt) && item.projectId === projectId && item.sources.some(source => source.kind === 'session' && source.id === id));
+    const alreadyStored = (id: string) => this.store.conclusions.some(item => (preserveExisting || !!item.deletedAt) && item.accountOwner === owner && item.projectId === projectId && item.sources.some(source => source.kind === 'session' && source.id === id));
     for (const artifact of (draft.artifacts || []).filter(item => item.selected)) {
       if (alreadyStored(artifact.id)) continue;
       const title = artifact.titleAlias ? contributionTitle(artifact.category, artifact.titleAlias) : artifact.title, content = artifactContributionBody(draft, artifact);
-      results.push(this.organizeConclusion(projectId, title, content, { id: artifact.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, ...(artifact.sourceDetails ? { details: artifact.sourceDetails } : {}), updatedAt: now }, artifact.category));
+      results.push(this.organizeConclusion(projectId, title, content, { id: artifact.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, ...(artifact.sourceDetails ? { details: artifact.sourceDetails } : {}), updatedAt: now }, artifact.category, owner));
     }
     if (!draft.artifacts?.length && draft.body.trim() && !alreadyStored(draft.id)) {
       const title = draft.titleAlias || titleSubject(draft.title) || draft.title, content = contributionBody(draft);
-      results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }));
+      results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }, undefined, owner));
     }
     linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     return results;
   }
   async importContentConclusion(projectId: string, contentId: string, expectedRevision?: number) {
-    const owner = () => { const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile; return profile ? accountIdentity(profile) : ''; };
+    const owner = () => { const profile = this.localProfile(); return profile ? accountIdentity(profile) : ''; };
     const expectedOwner = owner();
     return this.edit('content-import:' + projectId + ':' + contentId, async () => {
       if (owner() !== expectedOwner) throw new Error('账号已改变，请重新查看团队成果');
@@ -502,7 +529,11 @@ export class Workbench {
     session.title = next; await this.store.save(); this.broadcast(); return session;
   }
   async detect() { this.providers = await Promise.all((['codex', 'cursor', 'claude'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
-  snapshot(): Snapshot { return { activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: this.remote.profile ? { profile: this.remote.profile, connected: this.remote.connected, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }; }
+  snapshot(): Snapshot { return scopeAccountSnapshot({ accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }); }
+  private localProfile() { return !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; }
+  private ownsLocal(binding?: RemoteBinding) { return ownsBinding(this.localProfile(), binding); }
+  private sessionNotice(session: AgentSession, message: string) { if (!this.configuring && this.ownsLocal(session.binding)) this.notice(message); }
+  assertAccountReady() { if (this.configuring) throw new Error('正在登录，请等待账号切换完成'); }
   async requireAuth(provider: Provider, cwd: string) {
     const prior = this.accounts.states[provider];
     const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
@@ -520,7 +551,7 @@ export class Workbench {
     if (runtime) return runtime;
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
-    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.notice('运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd), needsApproval: (kind: 'question' | 'approval') => this.notice(kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd), needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment()) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment());
     this.runtimes.set(s.id, runtime);
     if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
@@ -533,7 +564,7 @@ export class Workbench {
     await this.requireAuth(s.provider, s.cwd);
     return (await this.runtime(s)).capabilities(forceRefresh);
   }
-  assertWorkspace() { if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号'); }
+  assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号'); }
   async saveProjectDirectory(projectId: string, directory: string, contextKey: string) {
     const checkContext = () => {
       const profile = this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile;
@@ -559,8 +590,11 @@ export class Workbench {
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>) {
     if (this.configuring) throw new Error('正在登录，请等待结果');
     const previous = this.store.settings.workspaceSnapshot?.profile;
-    this.configuring = true; this.broadcast();
+    const switching = previous && (previous.username !== profile.username || previous.host.toLowerCase() !== profile.host.toLowerCase() || previous.port !== profile.port || previous.localRoot !== profile.localRoot || !!profile.fingerprint && previous.fingerprint !== profile.fingerprint);
+    if (switching && (this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size)) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
+    this.configuring = true; this.accountRevision++; this.broadcast();
     try {
+      await this.edits;
       if (localPath.trim() && (!path.isAbsolute(localPath) || !(await fs.stat(localPath)).isDirectory())) throw new Error('请选择已存在的代码目录，或留空');
       const canonicalLocal = localPath.trim() ? await fs.realpath(localPath) : '';
       // Keep only the non-secret fields needed to refill the next login form.
@@ -572,6 +606,10 @@ export class Workbench {
       const result = await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       await this.accountSync.activate(result, previous);
+      if (switching) {
+        for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
+        const runtimes = [...this.runtimes.values()]; this.runtimes.clear(); await Promise.all(runtimes.map(runtime => runtime.close()));
+      }
       this.store.settings.verifiedLocalWorkspace = canonicalLocal; this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
       this.store.settings.connections = [result];
       this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(result, this.remote.workspaces);
@@ -593,8 +631,8 @@ export class Workbench {
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces); await this.store.save(); this.broadcast(); return project;
   }
   changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
-  session(id: string) { const s = this.store.sessions.find(x => x.id === id); if (!s) throw new Error('会话不存在'); return s; }
-  draft(id: string) { if (this.deletingDrafts.has(id)) throw new Error('整理任务正在删除，请等待完成'); const d = this.store.drafts.find(x => x.id === id); if (!d) throw new Error('草稿不存在'); return d; }
+  session(id: string) { this.assertAccountReady(); const s = this.store.sessions.find(x => x.id === id); if (!s || !this.ownsLocal(s.binding)) throw new Error('会话不存在或不属于当前账号，请切回原账号'); return s; }
+  draft(id: string) { this.assertAccountReady(); if (this.deletingDrafts.has(id)) throw new Error('整理任务正在删除，请等待完成'); const d = this.store.drafts.find(x => x.id === id); if (!d || !this.ownsLocal(d.binding || this.store.sessions.find(session => session.id === d.sessionId)?.binding)) throw new Error('草稿不存在或不属于当前账号，请切回原账号'); return d; }
   async inspectPermissions(provider: Provider, cwd: string) {
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
     return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, this.providerEnvironment());
@@ -816,7 +854,9 @@ export class Workbench {
     } finally { this.steering.delete(id); }
   }
   private async onDone(id: string) {
-    const s = this.session(id);
+    // Completion may arrive during a same-account reconnect. Preserve the result
+    // internally without using the user-facing accessor, which is locked at login.
+    const s = this.store.sessions.find(session => session.id === id); if (!s) return;
     if (s.purpose === 'prepare') {
       const draft = this.store.drafts.find(d => d.prepareSessionId === id);
       if (draft && draft.generation === 'running') {
@@ -834,11 +874,11 @@ export class Workbench {
           if (parent) rememberPreparationProgress(parent, [draft]);
         }
         await this.store.save(); this.broadcast();
-        this.notice(draft.generation === 'ready' ? isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”预处理结果已生成，请审阅后保存。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，待确认上传。` : `“${draft.title}”整理失败：${draft.generationError}`);
+        this.sessionNotice(s, draft.generation === 'ready' ? isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”预处理结果已生成，请审阅后保存。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，待确认上传。` : `“${draft.title}”整理失败：${draft.generationError}`);
         const runtime = this.runtimes.get(id); if (runtime) { this.runtimes.delete(id); await runtime.close(); }
       }
     }
-    if (s.autoUpload && s.binding && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.notice('会话自动上传未完成：' + e.message); } }
+    if (!this.configuring && this.ownsLocal(s.binding) && s.autoUpload && s.binding && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.sessionNotice(s, '会话自动上传未完成：' + e.message); } }
   }
   async stop(id: string) {
     const s = this.session(id);
@@ -865,7 +905,7 @@ export class Workbench {
     if (this.sending.has(id) || this.stoppingSessions.has(id)) throw new Error('正在停止此会话，请稍后重新打开');
     s.closedAt = undefined; await this.store.save(); this.broadcast(); return s;
   }
-  answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) { const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); runtime.answer(requestId, option, answers); }
+  answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) { this.session(id); const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); runtime.answer(requestId, option, answers); }
   async attachLocal(id: string, files: string[]) {
     const s = this.session(id); if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
     const directory = path.join(s.cwd, '.workbench', 'sources', id);
@@ -912,7 +952,7 @@ export class Workbench {
     return this.edit('conclusion-attach:' + id, async () => {
       const session = this.session(id); this.assertCanWork(session.binding);
       if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
-      const conclusion = this.store.conclusions.find(item => item.id === conclusionId && !item.deletedAt); if (!conclusion) throw new Error('结论不存在');
+      const conclusion = this.conclusion(conclusionId);
       if (!session.binding || session.binding.project.id !== conclusion.projectId) throw new Error('结论与当前会话不属于同一项目');
       const existing = attachedConclusion(session, conclusionId); if (existing) return existing;
       if (conclusion.archived) throw new Error('结论已归档，请恢复后再加入会话');
@@ -928,6 +968,7 @@ export class Workbench {
     }, false);
   }
   prepare(id: string, extraFiles: string[] = [], categories?: ContributionCategory[], scope?: PreparationScope, temporary = false): Promise<Draft> {
+    this.session(id);
     const pending = this.preparing.get(id); if (pending) return pending;
     const active = this.store.drafts.find(d => d.sessionId === id && !d.mergeSources?.length && (scope ? d.generation === 'running' : !d.submitted)); if (active) return Promise.resolve(active);
     const binding = this.session(id).binding; if (!binding) return Promise.reject(new Error('请先为会话绑定项目'));
@@ -937,6 +978,7 @@ export class Workbench {
     const operation = this.createPreparation(id, extraFiles, requestedCategories, scope, undefined, temporary).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
   }
   prepareContentMerge(projectId: string, sessionId: string, sourceIds: string[]): Promise<Draft> {
+    this.session(sessionId);
     const unique = [...new Set(sourceIds)];
     if (unique.length < 2 || unique.length > 20) return Promise.reject(new Error('请选择 2 至 20 条文字成果进行语义合并'));
     const key = [projectId, sessionId, ...unique.slice().sort()].join(':');
@@ -946,6 +988,7 @@ export class Workbench {
     const operation = this.createContentMerge(projectId, sessionId, unique).finally(() => this.preparingMerges.delete(key)); this.preparingMerges.set(key, operation); return operation;
   }
   prepareConclusionMerge(projectId: string, sessionId: string, sourceIds: string[], instruction: string): Promise<Draft> {
+    this.session(sessionId);
     const unique = [...new Set(sourceIds)];
     if (!unique.length || unique.length > 20) return Promise.reject(new Error('请选择 1 至 20 条本地结论进行处理'));
     const key = ['local-conclusion', projectId, sessionId, ...unique.slice().sort(), instruction.trim()].join(':');
@@ -973,7 +1016,7 @@ export class Workbench {
     const parent = this.session(sessionId); if (parent.purpose !== 'work') throw new Error('请选择工作会话作为 AI 模型环境');
     if (!parent.binding || parent.binding.project.id !== projectId) throw new Error('所选工作会话不属于当前项目');
     this.assertCanWork(parent.binding);
-    const sources = sourceIds.map(id => this.store.conclusions.find(item => item.id === id && item.projectId === projectId && !item.archived));
+    const sources = sourceIds.map(id => this.conclusions(projectId).find(item => item.id === id));
     if (sources.some(item => !item)) throw new Error('待处理结论已变化，请刷新后重新选择');
     const selected = sources as ProjectConclusion[], draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
     await fs.mkdir(inputDir, { recursive: true });
@@ -1255,10 +1298,11 @@ export class Workbench {
       if (!d.mergeSources?.length || !d.conclusionMergeProjectId) throw new Error('预处理结果缺少来源或项目');
       if (d.mergeCompletedAt) throw new Error('该处理结果已经保存');
       if (d.generation !== 'ready' || !d.title.trim() || !d.body.trim()) throw new Error('请等待处理完成并填写标题与正文');
-      const current = d.mergeSources.map(source => this.store.conclusions.find(item => item.id === source.id && item.projectId === d.conclusionMergeProjectId && !item.archived));
+      const current = d.mergeSources.map(source => this.conclusions(d.conclusionMergeProjectId!).find(item => item.id === source.id));
       for (let index = 0; index < d.mergeSources.length; index++) if (!current[index] || current[index]!.version !== d.mergeSources[index].revision) throw new Error(`来源“${d.mergeSources[index].title}”已被更新或归档；原结论保持不变，请重新发起处理`);
       const now = new Date().toISOString(), conclusion: ProjectConclusion = { id: randomUUID(), projectId: d.conclusionMergeProjectId, title: d.title, category: d.resultCategory, content: d.body, sources: current.map(item => ({ id: item!.id, kind: 'conclusion' as const, title: item!.title, content: item!.content, revision: item!.version, updatedAt: item!.updatedAt, details: item!.id === d.mergeSources![0].id ? d.resultSourceDetails : undefined })), updatedAt: now, version: 1, automatic: false };
       for (const source of current) { source!.archived = true; source!.updatedAt = now; }
+      if (d.binding) conclusion.accountOwner = accountIdentity(d.binding);
       this.store.conclusions.unshift(conclusion); d.mergeCompletedAt = now; d.mergeResultId = conclusion.id; d.submitted = 'conclusion:' + conclusion.id;
       await this.store.save(); this.broadcast(); return conclusion;
     } finally { this.submittingDrafts.delete(id); }
@@ -1340,7 +1384,7 @@ export class Workbench {
     if (automatic && remaining > 0) {
       if (!this.trajectoryTimers.has(id)) this.trajectoryTimers.set(id, setTimeout(() => {
         this.trajectoryTimers.delete(id);
-        if (!this.closing && s.autoUpload && !s.closedAt) void this.archive(id, true).catch(e => this.notice('会话自动上传未完成：' + e.message));
+        if (!this.closing && !this.configuring && this.ownsLocal(s.binding) && s.autoUpload && !s.closedAt) void this.archive(id, true).catch(e => this.notice('会话自动上传未完成：' + e.message));
       }, remaining));
       return;
     }
@@ -1367,6 +1411,7 @@ export class Workbench {
   async cleanUploadCache() {
     let count = 0, bytes = 0;
     for (const transfer of this.store.transfers) {
+      if (!this.ownsLocal(transfer.binding)) continue;
       if (transfer.status !== 'done' || transfer.cacheCleared) continue;
       if (!['packages', 'uploads'].some(folder => localWithin(path.join(this.store.root, folder), transfer.localPath))) continue;
       if (this.store.transfers.some(t => t !== transfer && t.localPath === transfer.localPath && t.status !== 'done')) continue;

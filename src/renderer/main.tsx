@@ -25,6 +25,7 @@ import remarkGfm from 'remark-gfm';
 import { Folder, FolderOpen, FileText, Plus, Settings as SettingsIcon, ArrowUp, ArrowUpDown, ArrowLeft, RefreshCw, Upload, Download, Link, X, Check, ChevronRight, MessageSquare, Layers, Server, Unplug, Search, Paperclip, Square, ShieldCheck, FileArchive, HardDrive, PanelRightClose, Sparkles, ExternalLink, Copy, Terminal, CircleHelp, BellRing, Pencil, Puzzle, Network, ClipboardList, Ellipsis } from 'lucide-react';
 import type { AgentCapabilitySelection, AgentSession, ConclusionMatch, ConnectionProfile, ContentUpdate, Draft, FilePreview, Project, Provider, RemoteEntry, Settings, Snapshot, WorkspaceAccess } from '../shared/types';
 import './styles.css';
+import './result-card.css';
 import { DraftEditor, draftStatus } from './draft-editor';
 import { DraftTaskList } from './draft-list';
 import { DraftDeleteDialog } from './draft-delete';
@@ -48,6 +49,7 @@ import { ProjectOnboarding } from './project-onboarding';
 import { RequestCard, isQuestionRequest } from './request-card';
 import { projectSetupIdentity } from '../shared/project-brief';
 import { serverIdentityKey } from '../shared/server-identity';
+import { snapshotAccountKey } from '../shared/account-scope';
 import { contentAliasKey, titleSubject } from '../shared/content';
 const api = window.workbench;
 const bytes = (n: number) => n < 1024 ? n + ' B' : n < 1024 ** 2 ? (n / 1024).toFixed(1) + ' KB' : (n / 1024 ** 2).toFixed(1) + ' MB';
@@ -67,12 +69,29 @@ function ConclusionMatchModal({ matches, close, confirm, skip }: { matches: Conc
   return <Modal title="选择这次会话要参考的项目成果" close={close} wide><div className="modal-body"><p className="muted">根据你刚才的问题，以下项目成果可能有帮助。只会把你勾选的内容带入本次会话。</p>{error && <div className="inline-error" role="alert">{error}</div>}<div className="conclusion-match-list">{matches.map(match => <label className="conclusion-match-option" key={match.conclusion.id}><input type="checkbox" aria-label={`带入成果：${conclusionTitle(match.conclusion)}`} checked={selected.includes(match.conclusion.id)} disabled={busy} onChange={event => setSelected(current => event.target.checked ? [...new Set([...current, match.conclusion.id])] : current.filter(id => id !== match.conclusion.id))}/><span><b>{conclusionTitle(match.conclusion)}</b>{match.conclusion.titleAlias && <small>原名：{match.conclusion.title}</small>}<small>{match.reasons.join('；')} · v{match.conclusion.version}</small><p>{resultPreview(match.conclusion.content)}</p></span></label>)}</div></div><footer><button className="secondary" disabled={busy} onClick={() => void run(skip)}>不带入成果，直接发送</button><button className="primary" disabled={busy || !selected.length} onClick={() => void run(() => confirm(selected))}>{busy ? '正在带入…' : `带入 ${selected.length} 条并发送`}</button></footer></Modal>;
 }
 function App() {
-  const [state, setState] = useState<Snapshot>(); const [notice, setNotice] = useState('');
+  const [state, setState] = useState<Snapshot>(), [error, setError] = useState('');
+  const sequence = useRef(0), viewAccount = useRef('');
+  const refresh = async () => {
+    const request = ++sequence.current;
+    try { const next = await api.call<Snapshot>('snapshot'); if (request === sequence.current) { setState(next); setError(''); } }
+    catch (error: any) { if (request === sequence.current) setError(error.message); }
+  };
+  useEffect(() => { void refresh(); return api.subscribe(event => { if (event.type === 'state') void refresh(); }); }, []);
+  if (!state) return <div className="boot"><Layers size={34}/><p>{error || '正在启动团队工作台…'}</p></div>;
+  // A saved profile can change before login finishes writing its local snapshot.
+  // Keep the login dialog mounted until that transition has committed.
+  if (!state.accountChanging) viewAccount.current = snapshotAccountKey(state);
+  // Remount the entire account view: selections, dialogs, previews and callbacks
+  // from the previous account must not become state in the next account's view.
+  return <AccountWorkspace key={viewAccount.current} state={state} refresh={refresh}/>;
+}
+function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => Promise<void> }) {
+  const [notice, setNotice] = useState('');
   const [view, setView] = useState<'updates' | 'sessions' | 'drafts' | 'transfers' | 'results' | 'assignments'>('sessions'); const activeView = useRef(view); const [sessionId, setSessionId] = useState('');
   const [resultsScope, setResultsScope] = useState<ResultScope>('team');
   const [projectId, setProjectId] = useState(''); const [remoteDir, setRemoteDir] = useState(''); const [entries, setEntries] = useState<RemoteEntry[]>([]); const [fileError, setFileError] = useState(''); const [loadingFiles, setLoadingFiles] = useState(false);
   const [preview, setPreview] = useState<FilePreview>(); const [previewOrigin, setPreviewOrigin] = useState(''); const [search, setSearch] = useState('');
-  const [settingsOpen, setSettingsOpen] = useState(false); const [connectOpen, setConnectOpen] = useState(false); const [newOpen, setNewOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false); const [connectOpen, setConnectOpen] = useState(!state.connection?.connected); const [newOpen, setNewOpen] = useState(false);
   const [busy, setBusy] = useState(false); const [inputVersion, updateInputs] = useState(0); const localInputs = useRef<Record<string, SessionInput>>({}); const [sendingIds, setSendingIds] = useState<string[]>([]); const submittingInputs = useRef(new Set<string>()); const [inputError, setInputError] = useState('');
   const [handoff, setHandoff] = useState<{ id: string; text: string }>(); const [history, setHistory] = useState<{ id: string; text: string }>();
   const [draftId, setDraftId] = useState(''), [draftReturnToList, setDraftReturnToList] = useState(false);
@@ -96,7 +115,7 @@ function App() {
   const [projectCreateOpen, setProjectCreateOpen] = useState(false), [createGroup, setCreateGroup] = useState('');
   const [onboarding, setOnboarding] = useState<{ groupName: string; contextKey: string }>(); const autoPrompted = useRef(false);
   const [groupsError, setGroupsError] = useState(''), [groupsBusy, setGroupsBusy] = useState(false); const groupsLoading = useRef(false);
-  const fileRequest = useRef(0), previewRequest = useRef(0), scroller = useRef<HTMLDivElement>(null); const snapshotSequence = useRef(0);
+  const fileRequest = useRef(0), previewRequest = useRef(0), scroller = useRef<HTMLDivElement>(null);
   const sidebar = useRef<HTMLElement>(null), sidebarLayoutLoaded = useRef(false); const [projectPaneHeight, setProjectPaneHeight] = useState(DEFAULT_SIDEBAR_PROJECT_HEIGHT);
   const resizeProjectPane = (height: number, persist = false) => {
     const available = sidebar.current?.clientHeight || window.innerHeight - 81;
@@ -109,10 +128,9 @@ function App() {
     const finish = (next: PointerEvent) => { resizeProjectPane(next.clientY - bounds.top, true); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish); };
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', finish); window.addEventListener('pointercancel', finish);
   };
-  const refresh = async () => { const n = ++snapshotSequence.current; const next = await api.call<Snapshot>('snapshot'); if (n === snapshotSequence.current) setState(next); };
   const run = async <T,>(fn: () => Promise<T>): Promise<T | undefined> => { try { return await fn(); } catch (e: any) { setNotice(e.message); return undefined; } };
   useEffect(() => { activeView.current = view; }, [view]);
-  useEffect(() => { void api.call<Snapshot>('snapshot').then(next => { setState(next); setConnectOpen(true); }); return api.subscribe(event => { if (event.type === 'state') void refresh(); else if (!(activeView.current === 'drafts' && /整理(?:完成|失败)/.test(event.message))) setNotice(event.message); }); }, []);
+  useEffect(() => api.subscribe(event => { if (event.type === 'notice' && !(activeView.current === 'drafts' && /整理(?:完成|失败)/.test(event.message))) setNotice(event.message); }), []);
   useEffect(() => { if (state) setContentUpdates([...(state.settings.contentUpdates || [])].sort((a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt))); }, [state?.settings.contentUpdates]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 8000); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => { if (view === 'drafts' && /整理(?:完成|失败)/.test(notice)) setNotice(''); }, [view, notice]);

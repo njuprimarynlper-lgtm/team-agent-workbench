@@ -5,6 +5,35 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs/promises';
 import type { AgentSession, Draft, DraftArtifact, Project } from '../src/shared/types';
 
+test('result rows keep summary and actions together above the inline details', async () => {
+  const { ResultCard } = await import('../src/renderer/result-card');
+  const props = {
+    id: 'result-1', title: '唯一成果标题', badges: '项目标准', metadata: '作者 · v2', preview: '折叠时的摘要', toggle: () => {},
+    selection: createElement('input', { type: 'checkbox', 'aria-label': '选择成果', checked: true, onChange: () => {} }),
+    actions: createElement('button', { onClick: () => {} }, '存入个人成果库'),
+    children: createElement('p', {}, '完整正文只出现一次'),
+  };
+  const collapsed = renderToStaticMarkup(createElement(ResultCard, { ...props, expanded: false }));
+  assert.match(collapsed, /aria-expanded="false"/);
+  assert.match(collapsed, /折叠时的摘要/);
+  assert.match(collapsed, />存入个人成果库<\/button>/);
+  assert.doesNotMatch(collapsed, /完整正文只出现一次|result-card-details|aria-controls/);
+  const expanded = renderToStaticMarkup(createElement(ResultCard, { ...props, expanded: true }));
+  assert.match(expanded, /aria-expanded="true"/);
+  assert.match(expanded, /role="region" aria-label="唯一成果标题详情"/);
+  const controls = expanded.match(/aria-controls="([^"]+)"/)![1];
+  assert(expanded.includes(`id="${controls}"`));
+  assert.equal(expanded.match(/完整正文只出现一次/g)?.length, 1);
+  assert.equal(expanded.match(/>唯一成果标题<\/b>/g)?.length, 1);
+  assert.equal(expanded.match(/>存入个人成果库<\/button>/g)?.length, 1);
+  assert.doesNotMatch(expanded, /折叠时的摘要/);
+  assert(expanded.indexOf('result-card-toggle') < expanded.indexOf('result-card-details'));
+  assert(expanded.indexOf('result-card-toggle') < expanded.indexOf('result-card-actions'));
+  assert(expanded.indexOf('result-card-actions') < expanded.indexOf('result-card-details'));
+  const toggleButton = expanded.match(/<button\b[^>]*class="[^"]*result-card-toggle[\s\S]*?<\/button>/)![0];
+  assert.doesNotMatch(toggleButton, /type="checkbox"|存入个人成果库/, 'selection and actions must be siblings of the expansion button');
+});
+
 test('attachment review renders explicit unchecked suggestions and no conclusion-download control without opening windows', async () => {
   (globalThis as any).window = { workbench: { call: async () => true } };
   const { DraftAttachments, SharedAttachments } = await import('../src/renderer/attachments');
@@ -31,6 +60,8 @@ test('local project results use consistent navigation and actions without renami
     assert.match(library, /aria-label="搜索个人成果"/);
     assert.doesNotMatch(library, /管理项目资料|我的资料|我的项目笔记|本地项目结论库|<h1>项目资料/);
     assert.match(library, /aria-label="个人成果类别"/);
+    assert.match(library, /class="content-library result-library conclusion-library"/);
+    assert.doesNotMatch(library, /class="content-detail/);
     assert.match(library, /全部类别（0）/);
     for (const category of ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(!library.includes(category), 'an empty library must not offer project preset categories');
     assert.match(library, />新建成果<\/button>/);
@@ -64,6 +95,8 @@ test('team project results have one name for both roles while administrative con
     assert.doesNotMatch(html, /整理项目文档|公共成果|个人成果库/);
     assert.equal(html.includes('多选语义合并'), admin);
     assert.match(html, /aria-label="团队成果类别"/);
+    assert.match(html, /class="content-library result-library"/);
+    assert.doesNotMatch(html, /class="content-detail/);
     assert.match(html, /全部类别（0）/);
     assert.equal(html.includes('包含个人库已有成果'), admin);
     assert.doesNotMatch(html, /维护全部成果|返回差异列表|全部类型|全部标签/);

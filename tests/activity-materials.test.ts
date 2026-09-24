@@ -25,7 +25,10 @@ function activity(item: SharedContent): ContentUpdate {
 async function fixture(items: SharedContent[]) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-activity-materials-')), wb = new Workbench(root, () => {}, () => {});
   await wb.store.init(); grantTestWorkspace(wb, root);
-  wb.remote.binding = () => ({ project: wb.store.settings.workspaceSnapshot!.profile.projects[0] }) as RemoteBinding;
+  wb.remote.binding = () => {
+    const profile = wb.store.settings.workspaceSnapshot!.profile;
+    return { connectionId: profile.id, host: profile.host, port: profile.port, username: profile.username, fingerprint: profile.fingerprint, project: profile.projects[0] } satisfies RemoteBinding;
+  };
   wb.remote.contentList = async () => structuredClone(items);
   wb.store.settings.contentUpdates = items.map(activity);
   return { wb, root, close: async () => { await wb.close(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-activity-materials-'))); await fs.rm(root, { recursive: true, force: true }); } };

@@ -99,7 +99,7 @@ try {
   await expect.poll(async () => (await alice.page.evaluate(() => window.workbench.call('snapshot'))).transfers.filter(t => t.metadata?.category).map(t => t.status), { timeout: 20000 }).toEqual(['done', 'done']);
   await expect(alice.page.getByRole('button', { name: '查看上传结果', exact: true })).toHaveCount(2);
   await alice.page.locator('.artifact-result').filter({ hasText: '方向性结论' }).getByRole('button', { name: '查看上传结果', exact: true }).click();
-  await expect(alice.page.locator('.content-detail')).toContainText('方向性结论'); await expect(alice.page.locator('.content-detail')).toContainText('来源会话：算法基线验证');
+  await expect(alice.page.locator('.result-card.is-expanded')).toContainText('方向性结论'); await expect(alice.page.locator('.result-card-details')).toContainText('来自：算法基线验证');
   const resultSnapshot = await alice.page.evaluate(() => window.workbench.call('snapshot')); const conclusion = resultSnapshot.transfers.find(t => t.name.includes('方向性结论')); const risk = resultSnapshot.transfers.find(t => t.name.includes('数据覆盖风险'));
   assert.equal(path.posix.dirname(conclusion.target).endsWith('/findings'), true); assert.equal(path.posix.dirname(risk.target).endsWith('/issues'), true);
   const conclusionFile = path.join(share, ...conclusion.target.split('/').filter(Boolean));

@@ -1,0 +1,34 @@
+import { accountIdentity } from './account-data';
+import { projectDirectoryKey } from './project-directory';
+import type { ConnectionProfile, RemoteBinding, Snapshot } from './types';
+
+export function ownsBinding(profile: ConnectionProfile | undefined, binding: RemoteBinding | undefined): boolean {
+  return !!profile && !!binding && accountIdentity(profile) === accountIdentity(binding);
+}
+
+export function snapshotAccountKey(snapshot: Snapshot): string {
+  const profile = snapshot.connection?.connected ? snapshot.connection.profile : snapshot.settings.workspaceSnapshot?.profile;
+  return profile ? accountIdentity(profile) : '';
+}
+
+// Keep every account on disk, but send only the active account's records to the renderer.
+export function scopeAccountSnapshot(snapshot: Snapshot): Snapshot {
+  const profile = snapshot.connection?.connected ? snapshot.connection.profile : snapshot.settings.workspaceSnapshot?.profile;
+  const owns = (binding?: RemoteBinding) => !snapshot.accountChanging && ownsBinding(profile, binding);
+  const sessions = snapshot.sessions.filter(session => owns(session.binding));
+  const ids = new Set(sessions.map(session => session.id));
+  const owner = profile ? accountIdentity(profile) : '';
+  const directoryKeys = new Set(profile?.projects.map(project => projectDirectoryKey(profile, project.id)));
+  const settings = { ...snapshot.settings,
+    resultPreferences: Object.fromEntries(Object.entries(snapshot.settings.resultPreferences || {}).filter(([key]) => !snapshot.accountChanging && key === owner)),
+    projectDirectories: Object.fromEntries(Object.entries(snapshot.settings.projectDirectories || {}).filter(([key]) => !snapshot.accountChanging && directoryKeys.has(key))),
+    ...(snapshot.accountChanging ? { contentAliases: {}, contentSeen: {}, contentUpdates: [], dismissedContentUpdateIds: [] } : {}),
+  };
+  return { ...snapshot, settings, sessions,
+    inputs: Object.fromEntries(Object.entries(snapshot.inputs).filter(([id]) => ids.has(id))),
+    activeTurns: Object.fromEntries(Object.entries(snapshot.activeTurns || {}).filter(([id]) => ids.has(id))),
+    drafts: snapshot.drafts.filter(draft => draft.binding ? owns(draft.binding) : ids.has(draft.sessionId)),
+    transfers: snapshot.transfers.filter(transfer => owns(transfer.binding)),
+    ...(snapshot.accountChanging ? { accountSync: { status: 'pending' as const } } : {}),
+  };
+}

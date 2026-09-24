@@ -130,7 +130,7 @@ npm.cmd run start:admin
 
 仓库也提供 `start-user-dev.cmd` 和 `start-admin-dev.cmd`。它们把依赖安装、Electron 检查、构建和打开应用合并到启动流程中，显示进度并提供日志与取消入口；失败或超时会报告具体阶段。要逐步看到命令输出、确认每一步结果，请使用上面的安装流程。
 
-双击入口使用独立的安装记录 `.test-data/launcher/dependencies.txt`。手动安装不会创建这份记录，因此首次改用双击入口仍会执行一次 `npm ci`；之后在记录有效、依赖完整时复用。`package.json` / `package-lock.json` 改变、Node 主版本改变、关键依赖或记录缺失时会重新安装；更换源码目录也需要重新准备。npm/Electron 可能复用缓存，但不能保证离线成功。
+双击入口会核对实际依赖和 npm 安装记录，手动安装或离线准备好的依赖符合当前锁文件时可以直接复用，并自动建立或升级 `.test-data/launcher/dependencies.txt`。只修改项目描述、版本号、测试命令、根目录的 Node 版本要求或文件格式，不会触发重装；实际依赖或安装脚本变化、已记录的 Node 主版本变化、依赖缺失或上次安装中断时才重新准备。进度和启动日志会写明原因。新源码目录没有依赖时仍需安装；npm/Electron 可能复用缓存，但不能保证离线成功。
 
 ### 更新已有源码
 
@@ -146,7 +146,7 @@ git status --short
 git pull --ff-only
 ```
 
-拉取失败时先处理，不要强制覆盖。若本次更新修改了 `package.json`、`package-lock.json`，或你更换了 Node 主版本，重新执行第 3、4 步。随后按第 5 步运行 `npm.cmd run start` 或 `npm.cmd run start:admin`。沿用双击入口的用户重新运行原入口即可，它会检查是否需要准备依赖。
+拉取失败时先处理，不要强制覆盖。若本次更新改变了实际依赖或安装脚本，或你更换了 Node 主版本，重新执行第 3、4 步；只改项目描述、测试命令等无需重装。随后按第 5 步运行 `npm.cmd run start` 或 `npm.cmd run start:admin`。沿用双击入口的用户重新运行原入口即可，它会检查是否需要准备依赖，并说明原因。
 
 使用源码 ZIP 的用户重新下载并解压到新文件夹，进入新目录后执行第 3～5 步。默认账号、会话和草稿保存在 `%APPDATA%\TeamAgentUser` / `%APPDATA%\TeamAgentAdmin`，更新源码不需要删除这些目录；若自行设置了数据目录，应继续使用原配置。源码入口与已安装的 EXE 分别更新。
 

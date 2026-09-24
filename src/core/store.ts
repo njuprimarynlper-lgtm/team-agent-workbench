@@ -73,6 +73,10 @@ export class Store {
     for (const session of this.sessions) rememberPreparationProgress(session, this.drafts);
     this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
     await this.repairConclusionImports();
+    // Preserve the exact pre-repair backup, then stamp legacy personal results
+    // before login can change the active account or drafts restore their results.
+    const owner = this.settings.workspaceSnapshot?.profile;
+    if (owner) for (const item of this.conclusions) item.accountOwner ||= accountIdentity(owner);
     linkConclusionPublications(this.conclusions, this.drafts, this.transfers);
   }
   async repairConclusionImports() {

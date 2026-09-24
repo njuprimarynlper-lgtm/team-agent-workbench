@@ -21,14 +21,20 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   });
   await fs.mkdir(path.join(dir, 'scripts'));
   await fs.mkdir(path.join(dir, 'bin'));
-  // Unlike real Electron, this fixture is a console Node executable. Hide the test double.
+  // This console Node test double needs hiding, unlike the real GUI application.
   const helper = await fs.readFile(path.join(root, 'scripts/start-dev-hidden.ps1'), 'utf8');
-  const silentFixture = helper.replace(/(Start-Process -FilePath \$electron[^\r\n]+)/g, '$1 -WindowStyle Hidden');
-  assert.notEqual(silentFixture, helper, 'the test double must have an explicit hidden launch');
-  await fs.writeFile(path.join(dir, 'scripts/start-dev-hidden.ps1'), silentFixture);
+  await fs.writeFile(path.join(dir, 'scripts/start-dev-hidden.ps1'), helper);
+  const desktopLauncher = await fs.readFile(path.join(root, 'scripts/launch-desktop.mjs'), 'utf8');
+  const silentFixture = desktopLauncher.replace('windowsHide: false', 'windowsHide: true');
+  assert.notEqual(silentFixture, desktopLauncher);
+  await fs.writeFile(path.join(dir, 'scripts/launch-desktop.mjs'), silentFixture);
   await fs.copyFile(path.join(root, 'scripts/startup-process.ps1'), path.join(dir, 'scripts/startup-process.ps1'));
-  await fs.writeFile(path.join(dir, 'package.json'), '{}');
-  await fs.writeFile(path.join(dir, 'package-lock.json'), '{}');
+  await fs.copyFile(path.join(root, 'scripts/startup-dependencies.mjs'), path.join(dir, 'scripts/startup-dependencies.mjs'));
+  const dependencies = { electron: '44.3.0', esbuild: '0.28.2', ssh2: '1.17.0' };
+  await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies }));
+  await fs.writeFile(path.join(dir, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: {
+    '': { dependencies }, ...Object.fromEntries(Object.entries(dependencies).map(([name, version]) => ['node_modules/' + name, { version }])),
+  } }));
   const eventsPath = path.join(dir, 'events.jsonl');
   const runner = path.join(dir, 'npm-fixture.cjs');
   const installerSource = String.raw`
@@ -53,7 +59,9 @@ event({ step, args: process.argv.slice(2), cwd: root });
 if (process.env.LAUNCHER_FAIL_STEP === step) process.exit(17);
 if (step === 'ci') {
   for (const name of ['electron/dist', 'esbuild', 'ssh2']) fs.mkdirSync(path.join(root, 'node_modules', name), { recursive: true });
-  for (const name of ['esbuild', 'ssh2']) fs.writeFileSync(path.join(root, 'node_modules', name, 'package.json'), '{}');
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json')));
+  for (const name of ['esbuild', 'ssh2']) fs.writeFileSync(path.join(root, 'node_modules', name, 'package.json'), JSON.stringify({ version: lock.packages['node_modules/' + name].version }));
+  fs.writeFileSync(path.join(root, 'node_modules/.package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: Object.fromEntries(Object.entries(lock.packages).filter(([key]) => key)) }));
   // Like Electron 44, npm installs only the package; a separate step installs its binary.
   fs.writeFileSync(path.join(root, 'node_modules/electron/package.json'), JSON.stringify({ version: '44.3.0' }));
   fs.writeFileSync(path.join(root, 'node_modules/electron/install.js'), ${JSON.stringify(installerSource)});
@@ -106,8 +114,18 @@ test('first launch installs locked dependencies; both editions start from paths 
   for (const e of events.filter(e => e.step === 'launch')) {
     assert.equal(e.cwd, f.dir); assert.equal(e.electronRunAsNode, '');
   }
-  await fs.writeFile(path.join(f.dir, 'package-lock.json'), '{"updated":true}');
+  const manifest = JSON.parse(await fs.readFile(path.join(f.dir, 'package.json'), 'utf8'));
+  manifest.description = 'metadata update must reuse installed dependencies';
+  await fs.writeFile(path.join(f.dir, 'package.json'), JSON.stringify(manifest));
   await f.run('user'); await f.launched(3);
+  assert.equal((await f.events()).filter(e => e.step === 'ci').length, 1);
+  const lock = JSON.parse(await fs.readFile(path.join(f.dir, 'package-lock.json'), 'utf8'));
+  manifest.dependencies.ssh2 = '1.17.1';
+  lock.packages[''].dependencies.ssh2 = '1.17.1';
+  lock.packages['node_modules/ssh2'].version = '1.17.1';
+  await fs.writeFile(path.join(f.dir, 'package.json'), JSON.stringify(manifest));
+  await fs.writeFile(path.join(f.dir, 'package-lock.json'), JSON.stringify(lock));
+  await f.run('user'); await f.launched(4);
   assert.equal((await f.events()).filter(e => e.step === 'ci').length, 2, 'lockfile update must prepare dependencies again');
 });
 

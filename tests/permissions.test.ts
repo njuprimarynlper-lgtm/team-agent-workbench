@@ -9,6 +9,7 @@ import { AgentRuntime } from '../src/core/agents';
 import { Workbench } from '../src/core/workbench';
 import { permissionReportDescription, sessionPermissionDescription, sessionPermissionLabel } from '../src/shared/permission-presentation';
 import type { AgentSession, Provider } from '../src/shared/types';
+import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 // @ts-expect-error Shared CLI fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
 const until = async (predicate: () => boolean) => { const end = Date.now() + 25000; while (!predicate()) { if (Date.now() > end) throw new Error('permission test timeout'); await new Promise(r => setTimeout(r, 20)); } };
@@ -122,7 +123,8 @@ test('Codex refuses to claim auto-review when native runtime keeps another revie
       await limitedRuntime.prompt('read-only work can continue'); await until(() => limited.status === 'idle');
       assert.match(sessionPermissionDescription(limited), /^当前：自定义设置（请求批准）。.*仅允许读取/);
     } finally { await limitedRuntime.close(); }
-    await wb.store.init(); const cursor = session('cursor', root); cursor.permissionMode = 'review'; cursor.nativeId = 'keep-native-id'; wb.store.sessions.push(cursor);
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const cursor = await wb.createSession('cursor', root, offlineProjectId); cursor.permissionMode = 'review'; cursor.nativeId = 'keep-native-id';
     await assert.rejects(wb.changePermissions(cursor.id, 'auto'), /暂不支持/);
     assert.equal(cursor.permissionMode, 'review'); assert.equal(cursor.nativeId, 'keep-native-id');
   } finally { await runtime.close(); await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
@@ -160,7 +162,10 @@ test('Codex live protocol: config restrictions, effective runtime, sandbox execu
     const calls = (await fs.readFile(path.join(root, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(x => JSON.parse(x));
     const start = calls.find(x => x.method === 'thread/start'); assert.equal(start.params.sandbox, undefined); assert.equal(start.params.approvalPolicy, undefined);
     assert.equal(calls.filter(x => x.method === 'turn/start').length, 1); assert.equal(calls.find(x => x.method === 'command/exec').params.sandboxPolicy.type, 'readOnly');
-    const wb = new Workbench(path.join(root, 'store'), () => {}, () => {}); await wb.store.init(); wb.store.sessions.push(s);
+    const wb = new Workbench(path.join(root, 'store'), () => {}, () => {}); await wb.store.init(); grantTestWorkspace(wb, root);
+    const profile = wb.store.settings.workspaceSnapshot!.profile;
+    s.binding = { connectionId: profile.id, host: profile.host, port: profile.port, username: profile.username, fingerprint: profile.fingerprint, project: profile.projects[0] };
+    wb.store.sessions.push(s);
     await wb.changePermissions(s.id, 'review'); assert.equal(s.permissionMode, 'review'); assert.equal(s.nativeId, 'fake-thread'); assert.equal(s.permissions, undefined); await wb.close();
   } finally { await runtime.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });

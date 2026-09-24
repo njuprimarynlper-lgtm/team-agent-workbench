@@ -48,6 +48,7 @@ async function chooseFiles(owner: BrowserWindow) { return (await dialog.showOpen
 async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Promise<unknown> {
   const context = contexts.get(owner); if (!context) throw new Error('当前窗口的独立工作台尚未就绪');
   const { workbench, egress, broadcast, notice } = context;
+  if (!['snapshot', 'remote.connect', 'window.new'].includes(action)) workbench.assertAccountReady();
   const setupActions = new Set(['snapshot', 'window.new', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
@@ -370,7 +371,11 @@ if (ownDataDirectory(latestWindow, () => openAdditionalWindow(true))) app.whenRe
   ipcMain.handle('workbench', async (event, action, payload) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     if (!owner || !windows.has(owner) || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
-    try { return { ok: true, value: await dispatch(z.string().parse(action), payload, owner) }; } catch (e: any) { return { ok: false, error: errorMessage(e) }; }
+    try {
+      const operation = z.string().parse(action), workbench = contexts.get(owner)!.workbench;
+      const value = await workbench.runAccountOperation(operation, () => dispatch(operation, payload, owner));
+      return { ok: true, value };
+    } catch (e: any) { return { ok: false, error: errorMessage(e) }; }
   });
   await createWindow();
   windowsReady = true;

@@ -9,6 +9,7 @@ import { packageDraft, packageHistory } from '../src/core/artifacts';
 import { memberProfile } from './fixtures/member-profile';
 import { memberReadiness } from '../src/admin/member-readiness';
 import type { AdminState } from '../src/admin/types';
+import { grantTestWorkspace } from './fixtures/offline-workspace';
 // @ts-expect-error Protocol fixture shared with Electron tests.
 import { teamServer } from './fixtures/team-server.mjs';
 const readZip = (file: string) => JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', file], { encoding: 'utf8' }));
@@ -121,8 +122,10 @@ test('#3/#6 an in-flight submission locks its draft and duplicate submit; reject
   let release!: () => void, entered!: () => void;
   const gate = new Promise<void>(r => release = r), started = new Promise<void>(r => entered = r);
   try {
-    await wb.store.init();
-    const d: any = { id: 'draft', sessionId: 'session', title: 'original', body: 'reviewed notes', repoUrl: 'https://github.com/a/b', files: [], inputDir: root, outputPath: path.join(root, 'draft.md'), binding: { project: { id: 'p', uploadPath: '/p/submissions/alice' } } };
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const profile = wb.store.settings.workspaceSnapshot!.profile;
+    const binding = { connectionId: profile.id, host: profile.host, port: profile.port, username: profile.username, fingerprint: profile.fingerprint, project: profile.projects[0] };
+    const d: any = { id: 'draft', sessionId: 'session', title: 'original', body: 'reviewed notes', repoUrl: 'https://github.com/a/b', files: [], inputDir: root, outputPath: path.join(root, 'draft.md'), binding };
     wb.store.drafts.push(d);
     t.mock.method(wb.remote, 'channel', () => ({} as any));
     t.mock.method(wb.queue, 'enqueue', async (file: string, _binding: any, _folder: string, _kind: string, _sessionId: string, metadata: any) => { assert.match(readZip(file)['README.md'], /reviewed notes/); assert.equal(metadata.sourceSessionTitle, undefined); entered(); await gate; return { id: 'transfer' } as any; });

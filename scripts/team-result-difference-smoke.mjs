@@ -80,6 +80,7 @@ await build({ stdin: { resolveDir: root, loader: 'tsx', contents: `
   import { ConclusionLibrary } from './src/renderer/conclusions';
   import { ProjectResults } from './src/renderer/project-results';
   import './src/renderer/styles.css';
+  import './src/renderer/result-card.css';
   function Harness() {
     const [scope, setScope] = useState('team'), [options, setOptions] = useState({admin:false, username:'alice'}), [notice, setNotice] = useState('');
     window.audit = { mount: setOptions };
@@ -101,6 +102,19 @@ try {
   const cards = page.locator('.content-card'), save = () => cards.getByRole('button', { name: /^存入个人成果库：/ });
   const refresh = async () => { await page.getByRole('button', { name: '刷新', exact: true }).click(); await expect(page.getByRole('button', { name: '刷新', exact: true })).toBeEnabled(); };
   await expect(cards).toHaveCount(1); await expect(cards).toContainText('尚未存入个人库');
+  await expect(cards.locator('.result-card-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(cards.locator('.result-card-details')).toHaveCount(0); await expect(save()).toBeVisible();
+  await expect(page.locator('.content-detail')).toHaveCount(0);
+  await cards.locator('.result-card-toggle').click();
+  await expect(cards.locator('.result-card-details')).toContainText('这是团队确认的第一版结论。');
+  await expect(save()).toHaveCount(1);
+  expect(await cards.evaluate(card => {
+    const summary = card.querySelector('.result-card-toggle').getBoundingClientRect();
+    const detail = card.querySelector('.result-card-details').getBoundingClientRect();
+    const actions = card.querySelector('.result-card-actions').getBoundingClientRect();
+    return summary.right <= actions.left && summary.bottom <= detail.top && actions.bottom <= detail.top;
+  })).toBe(true);
+  await cards.locator('.result-card-toggle').click(); await expect(cards.locator('.result-card-details')).toHaveCount(0);
   await expect(page.getByRole('checkbox', { name: '包含个人库已有成果' })).toHaveCount(0);
   await page.screenshot({ path: path.join(data, 'team-differences.png') });
   await call('test.failImport'); await save().click();
@@ -108,6 +122,10 @@ try {
   await save().click(); await expect(cards).toHaveCount(0); await expect(page.getByText('团队成果与个人库已一致，暂无需要存入的内容。')).toBeVisible();
   await page.getByRole('tab', { name: '个人', exact: true }).click();
   await expect(cards).toHaveCount(1);
+  await expect(cards.getByRole('button', { name: '删除成果', exact: true })).toBeVisible();
+  await expect(cards.locator('.result-card-details')).toHaveCount(0);
+  await cards.getByRole('checkbox').check(); await expect(cards.locator('.result-card-details')).toHaveCount(0);
+  await cards.getByRole('checkbox').uncheck();
   await cards.locator('.content-card-summary').click();
   await page.getByRole('button', { name: '删除成果', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: /删除/ }).click();
@@ -145,6 +163,10 @@ try {
   for (const admin of [false, true]) {
     await mount({admin, username:'alice'});
     await expect(cards).toHaveCount(6); await expect(page.getByLabel('团队成果数量')).toHaveText('共 6 条');
+    await cards.nth(0).locator('.result-card-toggle').click(); await expect(cards.locator('.result-card-details')).toHaveCount(1);
+    await cards.nth(1).locator('.result-card-toggle').click(); await expect(cards.locator('.result-card-details')).toHaveCount(1);
+    await expect(cards.nth(0).locator('.result-card-toggle')).toHaveAttribute('aria-expanded', 'false');
+    await cards.nth(1).locator('.result-card-toggle').click(); await expect(cards.locator('.result-card-details')).toHaveCount(0);
     await expect(page.getByLabel('团队成果操作状态')).toHaveCount(0);
     await expect(page.locator('.content-cards')).not.toContainText('待整理');
     await expect(page.locator('.content-cards')).not.toContainText('已整理');
