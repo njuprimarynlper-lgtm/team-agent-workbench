@@ -6,6 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { z } from 'zod';
 import { errorMessage } from '../shared/errors';
 import { AdminConnection } from './connection';
 import { LocalAdminConnection } from './local-connection';
@@ -61,7 +62,7 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
         egressSecret.accessCode = randomBytes(24).toString('base64url'); await saveEgress(); await egress.restart(egressConfig, egressSecret); changed(); value = true;
       } else if (action === 'egress.copy') {
         const invite = encodeEgressInvite({ version: 1, host: egressConfig.publicHost, port: egressConfig.listenPort, fingerprint: certificate.fingerprint, accessCode: egressSecret.accessCode }); clipboard.writeText(invite); value = true;
-      } else if (action === 'egress.test') { value = await egress.probe((payload as any)?.provider === 'claude' ? 'claude' : (payload as any)?.provider === 'cursor' ? 'cursor' : 'codex'); }
+      } else if (action === 'egress.test') { const input = z.object({ provider: z.enum(['codex', 'cursor', 'claude']) }).parse(payload); value = await egress.probe(input.provider); }
       else if (action === 'connect') {
         if (remote.snapshot.busy) throw new Error('请等待当前管理操作完成后更换连接');
         storageAbort?.abort(); storageAbort = undefined;

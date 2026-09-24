@@ -33,16 +33,16 @@ export class EgressHost extends EventEmitter {
       catch { clearTimeout(timer); this.pending.delete(id); reject(new Error('无法连接代理进程')); }
     });
   }
-  private async launchWorker() {
+  private async launchWorker(probeOnly = false) {
     if (this.child) return;
-    if (!this.config.enabled) { this.publish(this.empty()); return; }
+    if (!this.config.enabled && !probeOnly) { this.publish(this.empty()); return; }
     let child: RelayProcess;
     try { child = this.launch(this.entry); }
-    catch { const error = new Error('无法启动独立代理进程，请检查安装文件'); this.publish({ ...this.empty(), lastError: error.message }); throw error; }
+    catch { const error = new Error('无法启动独立代理进程，请检查安装文件'); if (!probeOnly) this.publish({ ...this.empty(), lastError: error.message }); throw error; }
     this.child = child;
     child.on('message', message => {
       if (this.child !== child) return;
-      if (message?.type === 'snapshot') this.publish(message.value);
+      if (message?.type === 'snapshot') { if (!probeOnly) this.publish(message.value); }
       else if (message?.type === 'response') {
         const pending = this.pending.get(message.id); if (!pending) return;
         this.pending.delete(message.id); clearTimeout(pending.timer);
@@ -52,12 +52,12 @@ export class EgressHost extends EventEmitter {
     child.once('exit', () => {
       if (this.child !== child) return;
       this.child = undefined; this.rejectPending('代理进程已退出');
-      this.publish({ ...this.empty(), lastError: '代理进程意外退出，请重新应用出口设置。' });
+      if (!probeOnly) this.publish({ ...this.empty(), lastError: '代理进程意外退出，请重新应用出口设置。' });
     });
-    try { await this.request('start', { config: this.config, secret: this.secret, certificate: this.certificate }); }
+    try { await this.request('start', { config: probeOnly ? { ...this.config, enabled: false } : this.config, secret: this.secret, certificate: this.certificate }); }
     catch (error) {
       if (this.child === child) { this.child = undefined; child.kill(); this.rejectPending('代理启动失败'); }
-      this.publish({ ...this.empty(), lastError: error instanceof Error ? error.message : '代理启动失败' }); throw error;
+      if (!probeOnly) this.publish({ ...this.empty(), lastError: error instanceof Error ? error.message : '代理启动失败' }); throw error;
     }
   }
   private serial(operation: () => Promise<void>) {
@@ -67,15 +67,21 @@ export class EgressHost extends EventEmitter {
   restart(config: AdminEgressConfig, secret: RelaySecret) {
     return this.serial(async () => { await this.stopWorker(); this.config = config; this.secret = secret; await this.launchWorker(); });
   }
-  private async stopWorker() {
+  private async stopWorker(preserveSnapshot = false) {
     const child = this.child;
     if (child) {
       try { await this.request('stop', undefined, 3000); } catch { /* terminate an unresponsive worker */ }
       if (this.child === child) { this.child = undefined; child.kill(); }
       this.rejectPending('代理进程已停止');
     }
-    this.publish(this.empty());
+    if (!preserveSnapshot) this.publish(this.empty());
   }
   stop() { return this.serial(() => this.stopWorker()); }
-  async probe(provider: 'codex' | 'cursor' | 'claude') { return this.request('probe', { provider }); }
+  probe(provider: 'codex' | 'cursor' | 'claude') {
+    return this.serial(async () => {
+      const temporary = !this.child;
+      try { if (temporary) await this.launchWorker(true); await this.request('probe', { provider }); }
+      finally { if (temporary) await this.stopWorker(true); }
+    });
+  }
 }

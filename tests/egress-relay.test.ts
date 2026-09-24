@@ -13,7 +13,7 @@ const read = (socket: net.Socket, expected: string) => new Promise<string>((reso
   socket.on('data', data); socket.once('error', error => { clearTimeout(timer); reject(error); });
 });
 async function fixture(mode: 'echo' | 'reject' | 'hang' = 'echo') {
-  const upstreamSockets = new Set<net.Socket>(), peers = new Set<net.Socket>();
+  const upstreamSockets = new Set<net.Socket>(), peers = new Set<net.Socket>(), requests: string[] = [];
   const upstream = net.createServer(socket => {
     upstreamSockets.add(socket); socket.once('close', () => upstreamSockets.delete(socket)); socket.on('error', () => {});
     let connected = false, head = '';
@@ -22,6 +22,7 @@ async function fixture(mode: 'echo' | 'reject' | 'hang' = 'echo') {
       if (connected) { socket.write(chunk); return; }
       head += chunk.toString(); if (!head.includes('\r\n\r\n')) return;
       connected = true;
+      requests.push(head.split('\r\n')[0]);
       if (mode === 'reject') socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
       else socket.write('HTTP/1.1 200 Connection Established\r\n\r\nWELCOME');
     });
@@ -34,7 +35,7 @@ async function fixture(mode: 'echo' | 'reject' | 'hang' = 'echo') {
   const port = await listen(server);
   const connect = async () => { const socket = net.connect(port, '127.0.0.1'); await new Promise<void>(resolve => socket.once('connect', resolve)); return socket; };
   const handshake = (payload: object = {}) => JSON.stringify({ version: 1, accessCode: 'fixture-secret', username: 'alice', kind: 'connect', host: 'chatgpt.com', port: 443, ...payload }) + '\n';
-  return { relay, connect, handshake, upstreamSockets, close: async () => { await relay.stop(); for (const socket of peers) socket.destroy(); for (const socket of upstreamSockets) socket.destroy(); await Promise.all([new Promise<void>(resolve => server.close(() => resolve())), new Promise<void>(resolve => upstream.close(() => resolve()))]); } };
+  return { relay, config, connect, handshake, upstreamSockets, requests, close: async () => { await relay.stop(); for (const socket of peers) socket.destroy(); for (const socket of upstreamSockets) socket.destroy(); await Promise.all([new Promise<void>(resolve => server.close(() => resolve())), new Promise<void>(resolve => upstream.close(() => resolve()))]); } };
 }
 
 test('relay counts first-packet payload and live traffic, then closes upstream and removes the member on client disconnect', async () => {
@@ -84,4 +85,28 @@ test('user status reporting uses the verified member, strips secrets and clears 
     proxy.setUsername('bob'); assert.equal((proxy as any).reports.size, 0);
     await proxy.stop(); proxy.reportCliStatus('codex', 'session', { state: 'connected', at: new Date().toISOString() }, 'bob'); assert.equal((proxy as any).reports.size, 0);
   } finally { await proxy.stop(); }
+});
+
+test('administrator can test every saved route without a running listener or service permission; members remain restricted', async () => {
+  const f = await fixture();
+  try {
+    f.relay.update({ ...f.config, enabled: false, cursor: false, claude: false }, { accessCode: 'fixture-secret' });
+    for (const provider of ['codex', 'cursor', 'claude'] as const) assert.equal(await f.relay.probe(provider), true);
+    await until(() => f.upstreamSockets.size === 0);
+    assert.deepEqual(f.requests, ['CONNECT chatgpt.com:443 HTTP/1.1', 'CONNECT api2.cursor.sh:443 HTTP/1.1', 'CONNECT api.anthropic.com:443 HTTP/1.1']);
+    assert.equal(f.relay.snapshot().running, false); assert.equal(f.relay.snapshot().monitor.connections, 0); assert.equal(f.relay.snapshot().events.length, 0);
+    f.relay.update({ ...f.config, cursor: false, claude: false }, { accessCode: 'fixture-secret' });
+    for (const host of ['api2.cursor.sh', 'api.anthropic.com']) {
+      const socket = await f.connect(), answer = read(socket, '\n'); socket.write(f.handshake({ host }));
+      assert.match(await answer, /白名单/); socket.destroy();
+    }
+    assert.equal(f.requests.length, 3, 'denied member requests never reach the upstream');
+    await assert.rejects(f.relay.probe('arbitrary-host' as any), /不支持/);
+  } finally { await f.close(); }
+});
+
+test('a disabled-service network test reports upstream rejection and releases its socket', async () => {
+  const f = await fixture('reject');
+  try { await assert.rejects(f.relay.probe('claude'), /HTTP 403/); await until(() => f.upstreamSockets.size === 0); assert.equal(f.relay.snapshot().monitor.failures, 0); }
+  finally { await f.close(); }
 });

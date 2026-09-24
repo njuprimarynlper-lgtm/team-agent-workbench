@@ -146,8 +146,9 @@ export class EgressRelay extends EventEmitter {
     const server = this.server; this.server = undefined; if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.changed();
   }
   async probe(provider: 'codex' | 'cursor' | 'claude') {
-    if (!this.config.enabled || !this.server?.listening) throw new Error('网络出口尚未启动');
-    if (!this.config[provider]) throw new Error(provider === 'codex' ? 'Codex 出口未启用' : provider === 'claude' ? 'Claude Code 出口未启用' : 'Cursor 出口未启用');
+    // An administrator tests the saved upstream route, independently of which
+    // services members may use or whether the public listener is enabled.
+    if (!['codex', 'cursor', 'claude'].includes(provider)) throw new Error('不支持的网络测试目标');
     const result = await connectTarget(this.config, this.secret, provider === 'codex' ? 'chatgpt.com' : provider === 'claude' ? 'api.anthropic.com' : 'api2.cursor.sh', 443); result.socket.destroy();
     return true;
   }

@@ -24,6 +24,8 @@ try {
   await expect(page.getByLabel('网络出口端口')).toHaveValue('18443');
   await expect(page.getByLabel('上游代理类型')).toHaveValue('direct');
   await expect(page.getByLabel('Claude Code', { exact: true })).not.toBeChecked();
+  for (const name of ['测试 Codex', '测试 Cursor', '测试 Claude Code']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled();
+  await expect(page.getByText('成员可通过出口访问', { exact: true })).toBeVisible();
   await expect(page.getByText('用户端接入码', { exact: true })).toBeVisible();
   await expect(page.getByText('仅记录用户端上报的账号标识、产品、目标域名和流量，不保存提问、回答或个人账号凭据；账号标识不用于权限认证。', { exact: true })).toBeVisible();
   const first = await page.evaluate(() => window.admin.call('snapshot'));
@@ -31,8 +33,8 @@ try {
   assert.match(first.egress.inviteCode, /^TAE1\./);
   assert.match(first.egress.fingerprint, /^[A-F0-9]{64}$/);
   await page.getByLabel('启用管理端出口').check();
-  await page.getByText('监听与产品范围', { exact: true }).click();
   await page.getByLabel('Claude Code', { exact: true }).check();
+  await expect(page.getByText('有未应用的修改，当前测试仍使用已保存的设置。', { exact: true })).toBeVisible();
   await page.getByLabel('提供给成员的地址').fill('127.0.0.1');
   await page.getByLabel('网络出口端口').fill('18444');
   await page.getByRole('button', { name: '保存并应用', exact: true }).click();
@@ -52,6 +54,7 @@ try {
   await expect(page.getByText('网络出口已关闭，用户端可继续使用本机直连', { exact: true })).toBeVisible();
   const stopped = await page.evaluate(() => window.admin.call('snapshot'));
   assert.equal(stopped.egress.running, false);
+  for (const name of ['测试 Codex', '测试 Cursor', '测试 Claude Code']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled();
   assert.deepEqual(errors, []);
   await page.screenshot({ path: path.join(data, 'network-egress.png') });
   console.log(JSON.stringify({ passed: true, data, cases: ['admin egress is independent of shared-space login', 'certificate and invitation are generated automatically', 'direct upstream is the default', 'relay starts and stops from the graphical page', 'rotating the invitation restarts the relay and invalidates the previous code', 'connection metadata privacy is explained'] }, null, 2));
