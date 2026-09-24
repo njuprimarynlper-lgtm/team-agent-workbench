@@ -121,7 +121,7 @@ def environment_probe():
     missing = [name for name in REQUIRED_COMMANDS if not (acl_backend() if name == 'setfacl' else shutil.which(name))]
     issues = []
     if 'setfacl' in missing:
-        issues.append('缺少 ACL 工具，暂时无法准备团队目录。请在服务器执行：' + acl_install_hint() + '；安装后点击“重新检查环境”。')
+        issues.append('缺少 ACL 工具，暂时无法准备团队目录。请在服务器执行：' + acl_install_hint() + '；安装后点击“重新检查服务器”。')
     other = [name for name in missing if name != 'setfacl']
     if other:
         issues.append('缺少系统命令：' + '、'.join(other) + '。请安装 OpenSSH、shadow/passwd、procps 软件包。')
