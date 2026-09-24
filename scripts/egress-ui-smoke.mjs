@@ -44,6 +44,11 @@ try {
   assert.equal(running.egress.running, true);
   assert.equal(running.egress.config.publicHost, '127.0.0.1');
   assert.equal(running.egress.config.claude, true);
+  const trend = page.locator('.relay-trend');
+  await expect(trend.locator('.relay-trend-y')).toContainText('0 B/s');
+  await expect(trend.locator('.relay-trend-x span')).toHaveCount(2);
+  await trend.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(data, 'network-monitor.png') });
   await page.getByRole('button', { name: '更新接入码', exact: true }).click();
   await expect(page.getByText('接入码已更新，已接入成员需要重新配置', { exact: true })).toBeVisible();
   const rotated = await page.evaluate(() => window.admin.call('snapshot'));
@@ -57,7 +62,7 @@ try {
   for (const name of ['测试 Codex', '测试 Cursor', '测试 Claude Code']) await expect(page.getByRole('button', { name, exact: true })).toBeEnabled();
   assert.deepEqual(errors, []);
   await page.screenshot({ path: path.join(data, 'network-egress.png') });
-  console.log(JSON.stringify({ passed: true, data, cases: ['admin egress is independent of shared-space login', 'certificate and invitation are generated automatically', 'direct upstream is the default', 'relay starts and stops from the graphical page', 'rotating the invitation restarts the relay and invalidates the previous code', 'connection metadata privacy is explained'] }, null, 2));
+  console.log(JSON.stringify({ passed: true, data, cases: ['admin egress is independent of shared-space login', 'certificate and invitation are generated automatically', 'direct upstream is the default', 'relay starts and stops from the graphical page', 'traffic chart has labelled vertical and time axes', 'rotating the invitation restarts the relay and invalidates the previous code', 'connection metadata privacy is explained'] }, null, 2));
 } catch (error) {
   await page?.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {});
   throw error;

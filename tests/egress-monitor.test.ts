@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { EgressMonitor } from '../src/core/egress-monitor';
-import { EgressMonitorPanel } from '../src/admin/egress-monitor';
+import { EgressMonitorPanel, trafficAxisCeiling } from '../src/admin/egress-monitor';
 import { CliConnectionNotice } from '../src/renderer/cli-connection-notice';
 import { cliReportSchema } from '../src/shared/cli-connection';
 import type { EgressConnectionEvent } from '../src/shared/egress';
@@ -21,6 +21,23 @@ test('live traffic rates, member totals and cumulative counts remain correct bey
   clock = 4000; monitor.sample(); clock = 6000; assert.equal(monitor.sample().upPerSecond, 0, 'idle periods must not retain a stale throughput');
   first.status = 'error'; monitor.finished(first); sample = monitor.snapshot(); assert.equal(sample.activeTunnels, 0); assert.equal(sample.failures, 1); assert.deepEqual(sample.members, []);
   for (let i = 0; i < 80; i++) { clock += 2000; monitor.sample(); } assert.equal(monitor.snapshot().history.length, 60);
+});
+
+test('traffic trend labels its vertical scale and time range at different rates', () => {
+  assert.equal(trafficAxisCeiling(0), 2);
+  assert.equal(trafficAxisCeiling(1536), 2 * 1024);
+  assert.equal(trafficAxisCeiling(9 * 1024 ** 2), 10 * 1024 ** 2);
+  const monitor = new EgressMonitor().snapshot();
+  const start = '2026-01-01T00:00:00Z', end = '2026-01-01T00:02:00Z';
+  const html = renderToStaticMarkup(React.createElement(EgressMonitorPanel, { snapshot: {
+    config: {} as any, running: true, activeConnections: 1, fingerprint: '', inviteCode: '', hasUpstreamPassword: false, events: [],
+    monitor: { ...monitor, sampledAt: new Date().toISOString(), history: [
+      { at: start, upPerSecond: 0, downPerSecond: 0 },
+      { at: end, upPerSecond: 1536, downPerSecond: 1024 },
+    ] },
+  } }));
+  for (const label of ['纵轴：每秒传输字节', '横轴：时间', '2.0 KB/s', '1.0 KB/s', '0 B/s', '峰值 1.5 KB/s']) assert(html.includes(label), label);
+  assert(html.includes('points="0,76 600,25"'), 'upstream trace should use the labelled scale');
 });
 
 test('CLI reports retain only allowlisted state, remain bounded and render errors independently of a healthy tunnel', () => {
