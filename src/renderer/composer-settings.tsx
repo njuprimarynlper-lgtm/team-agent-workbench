@@ -6,6 +6,7 @@ import { permissionEffects, permissionLabels, sessionPermissionDescription, sess
 type Choice = { kind: 'model' | 'permission'; value: string; label: string };
 
 export function ComposerSettings({ session, networkEnabled, openConnection, authCheckedAt }: { session: AgentSession; networkEnabled?: boolean; openConnection?: () => void; authCheckedAt?: string }) {
+  networkEnabled = session.networkRoute ? session.networkRoute === 'management' : networkEnabled;
   const [open, setOpen] = useState<Choice['kind']>(), [catalog, setCatalog] = useState<ProviderCatalog>(), [report, setReport] = useState<PermissionReport>();
   const [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState(''), [pending, setPending] = useState<Choice>();
   const root = useRef<HTMLDivElement>(null), modelButton = useRef<HTMLButtonElement>(null), permissionButton = useRef<HTMLButtonElement>(null), sequence = useRef(0);
@@ -14,7 +15,7 @@ export function ComposerSettings({ session, networkEnabled, openConnection, auth
   const refresh = async (kind: Choice['kind']) => {
     const n = ++sequence.current; setLoading(true); setError('');
     try {
-      const result = await window.workbench.call(kind === 'model' ? 'provider.catalog' : 'provider.permissions', { provider: session.provider, cwd: session.cwd });
+      const result = await window.workbench.call(kind === 'model' ? 'provider.catalog' : 'provider.permissions', { provider: session.provider, cwd: session.cwd, ...(kind === 'model' ? { networkRoute: session.networkRoute } : {}) });
       if (n === sequence.current) { if (kind === 'model') setCatalog(result as ProviderCatalog); else setReport(result as PermissionReport); }
     } catch { if (n === sequence.current) setError(kind === 'model' ? '模型与额度读取失败，请检查登录或网络后重试。' : '权限读取失败，请重试。'); }
     finally { if (n === sequence.current) setLoading(false); }

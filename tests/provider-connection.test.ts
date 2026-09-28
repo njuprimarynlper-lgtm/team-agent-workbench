@@ -41,3 +41,15 @@ test('switching context during a connection check cannot launch a late auth chec
   }, 'codex', 'D:/old-work', undefined, () => current), /检测范围已改变/);
   assert.deepEqual(calls, ['egress.test']);
 });
+
+test('a new direct session checks its own route without changing an active management connection', async () => {
+  const calls: { action: string; payload: unknown }[] = [];
+  const result = await checkProviderConnection(async <T,>(action: string, payload?: unknown): Promise<T> => {
+    calls.push({ action, payload });
+    return (action === 'egress.test' ? { enabled: false, available: true } : action === 'provider.auth' ? auth : action === 'provider.catalog' ? catalog : true) as T;
+  }, 'codex', 'D:/work', undefined, () => true, 'direct');
+  assert.deepEqual(calls.map(item => item.action), ['egress.test', 'providers.detect', 'provider.auth', 'provider.catalog']);
+  assert.deepEqual(calls[0].payload, { networkRoute: 'direct' });
+  assert.deepEqual(calls[2].payload, { provider: 'codex', cwd: 'D:/work', networkRoute: 'direct' });
+  assert.deepEqual(result, { auth, catalog, issues: [] });
+});

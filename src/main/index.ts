@@ -71,7 +71,12 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       await applyClientEgress(context, await prepareClientEgress(context, userEgressInputSchema.parse(raw)));
       if (workbench.store.settings.egress?.enabled) void egress.probe().catch(() => {}); broadcast(); return egress.status();
     }
-    case 'egress.test': await egress.probe(); broadcast(); return egress.status();
+    case 'egress.test': {
+      const route = z.object({ networkRoute: z.enum(['direct', 'management']).optional() }).optional().parse(raw)?.networkRoute;
+      if (route === 'direct') return { enabled: false, configured: true, running: true, available: true, detail: '使用本机网络直连', hasAccessCode: false };
+      if (route === 'management' && !egress.status().enabled) throw new Error('该会话的管理端出口尚未启用');
+      await egress.probe(); broadcast(); return egress.status();
+    }
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
@@ -87,11 +92,11 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'workspace.research': return workbench.researchWorkspace();
     case 'project.directory.save': { const p = z.object({ projectId: z.string().min(1), directory: z.string().max(32768), contextKey: z.string().max(4096) }).parse(raw); return workbench.saveProjectDirectory(p.projectId, p.directory, p.contextKey); }
     case 'provider.auth': {
-      const p = z.object({ provider, cwd: z.string().optional() }).parse(raw);
-      return workbench.accounts.check(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'));
+      const p = z.object({ provider, cwd: z.string().optional(), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw);
+      return workbench.accounts.check(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'), p.networkRoute);
     }
     case 'provider.login.cancel': workbench.accounts.cancel(z.object({ provider }).parse(raw).provider); return true;
-    case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.catalog(p.provider, p.cwd); }
+    case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); return workbench.catalog(p.provider, p.cwd, p.networkRoute); }
     case 'session.capabilities': { const p = z.object({ id, forceRefresh: z.boolean().optional() }).parse(raw); return workbench.capabilities(p.id, p.forceRefresh); }
     case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd); }
     case 'provider.cursorReview': return workbench.configureCursorReview(z.object({ cwd: text.min(1) }).parse(raw).cwd);
@@ -131,7 +136,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       await workbench.queue.enqueueDownload(binding, p.path, result.filePath); notice('文件已加入下载队列，可在传输记录查看结果'); return true;
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(owner); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
-    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode, p.includeBrief); }
+    case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); if ((p.networkRoute || (workbench.store.settings.egress?.enabled ? 'management' : 'direct')) === 'management') await workbench.requireAuth(p.provider, p.cwd.trim() || await workbench.researchWorkspace(), 'management'); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode, p.includeBrief, p.networkRoute); }
     case 'subsession.create': { const p = z.object({ parentId: id, focus: z.string().trim().min(1).max(120) }).parse(raw); return workbench.forkSubsession(p.parentId, p.focus); }
     case 'subsession.report.preview': return workbench.previewSubsessionReport(sessionInput.parse(raw).id);
     case 'subsession.report.publish': { const p = z.object({ id, sourceHash: z.string().regex(/^[a-f0-9]{64}$/), body: z.string().min(1).max(128 * 1024) }).parse(raw); return workbench.publishSubsessionReport(p.id, p.sourceHash, p.body); }
@@ -165,7 +170,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       return true;
     }
     case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.updateAssignment(p.projectId, p.change); }
-    case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief); }
+    case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); if ((p.networkRoute || (workbench.store.settings.egress?.enabled ? 'management' : 'direct')) === 'management') await workbench.requireAuth(p.provider, p.cwd.trim() || await workbench.researchWorkspace(), 'management'); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief, p.networkRoute); }
     case 'conclusion.match': { const p = z.object({ projectId: z.string(), query: text.min(1) }).parse(raw); return workbench.matchConclusions(p.projectId, p.query); }
     case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category); }
     case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional() }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content, p.category); }
@@ -203,7 +208,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'cache.clean': return workbench.cleanUploadCache();
     case 'session.send': {
       const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw); const s = workbench.session(p.id); workbench.assertCanWork(s.binding);
-      await workbench.requireAuth(s.provider, s.cwd);
+      await workbench.requireAuth(s.provider, s.cwd, s.networkRoute);
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
       return new Promise<boolean>((resolve, reject) => {
         let submitted = false;
@@ -272,8 +277,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     }
     case 'transfer.retry': return workbench.queue.retry(sessionInput.parse(raw).id);
     case 'provider.login': {
-      const p = z.object({ provider, cwd: z.string().optional() }).parse(raw);
-      await workbench.accounts.login(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'));
+      const p = z.object({ provider, cwd: z.string().optional(), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw);
+      await workbench.accounts.login(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'), p.networkRoute);
       return true;
     }
     case 'copy': clipboard.writeText(text.parse(raw)); return true;
@@ -410,8 +415,13 @@ async function createDataContext(root: string): Promise<DataContext> {
   const broadcast = () => { egress?.sharedServerConnectionChanged(!!workbench?.remote.connected); if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message }); if (message.startsWith('待授权：')) for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
   let egress: EgressClientProxy | undefined;
-  workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, () => egress?.environment() || {},
-    (session, value) => egress?.reportCliStatus(session.provider, session.id, value, session.binding?.username || ''));
+  workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, route => {
+    if (route === 'direct') return {};
+    const environment = egress?.environment() || {};
+    if (route === 'management' && !environment.HTTPS_PROXY) throw new Error('该会话的管理端出口未启动，请先恢复管理端连接');
+    return environment;
+  },
+    (session, value) => { if (session.networkRoute === 'management') egress?.reportCliStatus(session.provider, session.id, value, session.binding?.username || ''); });
   try {
     await workbench.init();
     workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot();

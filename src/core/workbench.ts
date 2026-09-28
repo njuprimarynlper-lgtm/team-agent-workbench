@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPermissions, setCursorManualReview } from './permissions';
 import type { PermissionMode } from '../shared/types';
 import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
-import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SubsessionReport, SubsessionReportPreview } from '../shared/types';
+import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SessionNetworkRoute, SubsessionReport, SubsessionReportPreview } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { preparationSnapshot, prepareReadableInputs } from './preparation-snapshot';
 import { preparationPrompt } from './preparation-prompt';
@@ -94,7 +94,7 @@ export class Workbench {
   private closing = false;
   accounts: ProviderAccounts;
   accountSync: AccountSync;
-  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000, private providerEnvironment: () => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void) {
+  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000, private providerEnvironment: (route?: SessionNetworkRoute) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void) {
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.accountSync = new AccountSync(this.store, this.remote, this.broadcast, () => {
@@ -113,6 +113,10 @@ export class Workbench {
   }
   async init() {
     await this.store.init();
+    // Pin pre-existing sessions to the account route they used before this feature.
+    for (const session of this.store.sessions) {
+      session.networkRoute ??= this.store.settings.egress?.enabled ? 'management' : 'direct';
+    }
     // Older versions saved prepared results automatically. Preserve those records
     // without creating new personal results from drafts during startup.
     for (const draft of this.store.drafts) {
@@ -616,15 +620,15 @@ export class Workbench {
   private ownsLocal(binding?: RemoteBinding) { return ownsBinding(this.localProfile(), binding); }
   private sessionNotice(session: AgentSession, message: string) { if (!this.configuring && this.ownsLocal(session.binding)) this.notice(message); }
   assertAccountReady() { if (this.configuring) throw new Error('正在登录，请等待账号切换完成'); }
-  async requireAuth(provider: Provider, cwd: string) {
+  async requireAuth(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
     const prior = this.accounts.states[provider];
-    const auth = authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd);
+    const auth = !route && authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd, route);
     if (!authReady(auth)) throw new Error(auth.detail);
   }
-  async catalog(provider: Provider, cwd: string) {
+  async catalog(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
     this.catalogJobs.get(provider)?.controller.abort();
     const controller = new AbortController();
-    const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, controller.signal, 20000, this.providerEnvironment()))();
+    const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, controller.signal, 20000, this.providerEnvironment(route)))();
     const job = { controller, promise }; this.catalogJobs.set(provider, job);
     try { return await promise; } finally { if (this.catalogJobs.get(provider) === job) this.catalogJobs.delete(provider); }
   }
@@ -633,9 +637,9 @@ export class Workbench {
     if (runtime) return runtime;
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
-    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd), needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd, s.networkRoute), needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => { if (!this.configuring && this.ownsLocal(s.binding)) this.connectionReport?.(s, value); } });
-    runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment()) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment());
+    runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute));
     this.runtimes.set(s.id, runtime);
     if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
     else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };
@@ -644,7 +648,7 @@ export class Workbench {
   async capabilities(id: string, forceRefresh = false) {
     const s = this.session(id); this.assertCanWork(s.binding);
     if (s.closedAt || s.purpose !== 'work') throw new Error('此会话不能选择 Skill 或插件');
-    await this.requireAuth(s.provider, s.cwd);
+    await this.requireAuth(s.provider, s.cwd, s.networkRoute);
     return (await this.runtime(s)).capabilities(forceRefresh);
   }
   assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号'); }
@@ -744,10 +748,9 @@ export class Workbench {
     } finally { this.configuringCursorPermissions = false; }
   }
   async networkChanged() {
-    if (this.store.sessions.some(s => ['starting', 'running', 'approval'].includes(s.status))) throw new Error('请等待正在运行的任务结束或先停止任务，再切换网络出口');
+    if (this.store.sessions.some(s => s.networkRoute === 'management' && ['starting', 'running', 'approval'].includes(s.status))) throw new Error('请等待使用管理端出口的任务结束或先停止任务，再更换管理端连接');
     for (const provider of ['codex', 'cursor', 'claude'] as Provider[]) this.accounts.invalidate(provider);
     for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
-    const runtimes = [...this.runtimes.values()]; this.runtimes.clear(); await Promise.all(runtimes.map(runtime => runtime.close()));
   }
   async changePermissions(id: string, mode: PermissionMode, stop = false) {
     const s = this.session(id);
@@ -781,8 +784,10 @@ export class Workbench {
     // Cursor applies session/set_model after session/load; Codex and Claude resume with the selected model.
     return this.updateSessionSettings(s, () => { s.model = model; });
   }
-  async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true) {
+  async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true, networkRoute?: SessionNetworkRoute) {
     this.assertWorkspace();
+    const route = purpose === 'prepare' && parentId ? this.session(parentId).networkRoute : networkRoute;
+    if (route === 'management' && !this.store.settings.egress?.enabled) throw new Error('请先应用并检测管理端网络出口');
     cwd = cwd.trim() || await this.researchWorkspace();
     if (purpose === 'prepare') permissionMode = 'full';
     if (provider === 'cursor' && purpose === 'work' && permissionMode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
@@ -794,7 +799,7 @@ export class Workbench {
     await fs.mkdir(dir, { recursive: true });
     const handoffPath = path.join(dir, 'handoff.md');
     await fs.writeFile(handoffPath, '# 阶段摘要\n\n## 当前工作焦点与范围\n待补充。\n\n## 当前进展\n尚未整理。\n\n## 已确认的决定与依据\n尚无。\n\n## 改动、影响范围与验证\n记录文件、版本、受影响的流程或文档、检查结果；尚无时写“尚未验证”。\n\n## 阻塞与待确认事项\n尚无。\n\n## 下一步\n待补充。\n', { flag: 'wx' });
-    const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath };
+    const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, networkRoute: route || (this.store.settings.egress?.enabled ? 'management' : 'direct'), parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath };
     this.store.sessions.unshift(session);
     const managed = cwd.startsWith(path.join(this.store.root, 'workspaces') + path.sep);
     if (purpose === 'work' && binding) {
@@ -837,7 +842,7 @@ export class Workbench {
     }
     return this.remote.assignmentStatus(binding, input);
   }
-  async startAssignment(projectId: string, taskId: string, revision: number, provider: Provider, cwd: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true) {
+  async startAssignment(projectId: string, taskId: string, revision: number, provider: Provider, cwd: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true, networkRoute?: SessionNetworkRoute) {
     return this.edit('assignment-start:' + projectId + ':' + taskId, async () => {
       const binding = this.remote.binding(projectId); this.assertCanWork(binding);
       const task = (await this.remote.assignmentList(binding)).find(item => item.id === taskId);
@@ -846,7 +851,7 @@ export class Workbench {
       const existing = this.store.sessions.find(session => !session.closedAt && session.assignment?.id === taskId && session.binding?.project.id === projectId && session.binding.username === binding.username && session.binding.connectionId === binding.connectionId && session.binding.host === binding.host && session.binding.fingerprint === binding.fingerprint);
       if (existing) return existing;
       if (task.revision !== revision) throw new Error('任务已更新，请刷新后重新查看');
-      const session = await this.createSession(provider, cwd, projectId, 'work', undefined, model, permissionMode, includeBrief);
+      const session = await this.createSession(provider, cwd, projectId, 'work', undefined, model, permissionMode, includeBrief, networkRoute);
       try {
         const sources: SourceFile[] = [];
         const freeze = async (title: string, body: string, sourcePath: string) => {
@@ -899,7 +904,7 @@ export class Workbench {
     this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; s.status = 'starting'; this.changed();
     const canceled = () => this.canceledSends.has(id) || this.closing;
     try {
-      await this.requireAuth(s.provider, s.cwd);
+      await this.requireAuth(s.provider, s.cwd, s.networkRoute);
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
       const runtime = await this.runtime(s);
@@ -1625,7 +1630,7 @@ export class Workbench {
     const workspace = await forkWorkspace(parent.cwd, this.store.root, randomUUID());
     let child: AgentSession | undefined;
     try {
-      child = await this.createSession(parent.provider, workspace.cwd, parent.binding.project.id, 'work', parent.id, parent.model, parent.permissionMode || 'inherit', false);
+      child = await this.createSession(parent.provider, workspace.cwd, parent.binding.project.id, 'work', parent.id, parent.model, parent.permissionMode || 'inherit', false, parent.networkRoute);
       if (!child.binding || accountIdentity(child.binding) !== accountIdentity(parent.binding)) throw new Error('创建期间团队账号已改变，请重试');
       const sourcesDir = path.join(this.store.sessionDir(child.id), 'sources'); await fs.mkdir(sourcesDir, { recursive: true });
       const sourceId = randomUUID(), localPath = path.join(sourcesDir, sourceId + '-parent-context.md');

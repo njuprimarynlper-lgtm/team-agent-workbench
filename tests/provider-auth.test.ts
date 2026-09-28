@@ -6,6 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { ProviderAccounts, inspectAuth, codexAuth, cursorAuth, authFailure, loginUrl } from '../src/core/provider-auth';
 import { Workbench } from '../src/core/workbench';
+import { Store } from '../src/core/store';
+import type { SessionNetworkRoute } from '../src/shared/types';
 // @ts-expect-error JavaScript launcher shared with Electron UI tests.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
 async function until(predicate: () => boolean) { const end = Date.now() + 15000; while (!predicate()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(r => setTimeout(r, 30)); } }
@@ -108,4 +110,35 @@ test('provider account checks and login inherit the optional workbench network r
     const launches = await fixture.environments(); assert(launches.length >= 2);
     for (const env of launches) { assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:18001'); assert.equal(env.NODE_USE_ENV_PROXY, '1'); }
   } finally { await accounts.close(); await cleanup(root); }
+});
+
+test('sessions keep independent direct and management CLI routes across restart', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-session-routes-'));
+  const fixture = await authLauncher(root, { status: 'ready' });
+  const environment = (route?: SessionNetworkRoute) => route === 'management'
+    ? { HTTPS_PROXY: 'http://127.0.0.1:18001', HTTP_PROXY: 'http://127.0.0.1:18001', NODE_USE_ENV_PROXY: '1' }
+    : { HTTPS_PROXY: '', HTTP_PROXY: '', NODE_USE_ENV_PROXY: '' };
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, undefined, environment);
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    wb.store.settings.providerPaths.codex = fixture.launcher;
+    wb.store.settings.egress = { enabled: true, host: '127.0.0.1', port: 443, certificateFingerprint: 'A'.repeat(64) };
+    const direct = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', true, 'direct');
+    const managed = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', true, 'management');
+    assert.equal(direct.networkRoute, 'direct'); assert.equal(managed.networkRoute, 'management');
+    const preparationRoot = path.join(root, 'preparation'); await fs.mkdir(preparationRoot);
+    const preparation = await wb.createSession('codex', preparationRoot, undefined, 'prepare', direct.id);
+    assert.equal(preparation.networkRoute, 'direct', 'background preparation inherits its source session route');
+    direct.status = 'running'; await wb.networkChanged(); direct.status = 'idle';
+    managed.status = 'running'; await assert.rejects(wb.networkChanged(), /管理端出口/); managed.status = 'idle';
+    await wb.send(direct.id, 'direct request');
+    await wb.send(managed.id, 'management request');
+    const launches = await fixture.environments();
+    assert(launches.some((env: any) => env.HTTPS_PROXY === ''), 'direct CLI uses no management proxy');
+    assert(launches.some((env: any) => env.HTTPS_PROXY === 'http://127.0.0.1:18001'), 'management CLI uses its selected proxy');
+    await wb.store.save();
+    const restored = new Store(wb.store.root); await restored.init();
+    assert.equal(restored.sessions.find(item => item.id === direct.id)?.networkRoute, 'direct');
+    assert.equal(restored.sessions.find(item => item.id === managed.id)?.networkRoute, 'management');
+  } finally { await wb.close(); await cleanup(root); }
 });

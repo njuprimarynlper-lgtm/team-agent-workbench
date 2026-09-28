@@ -1,4 +1,4 @@
-import type { Provider, ProviderAuth } from '../shared/types';
+import type { Provider, ProviderAuth, SessionNetworkRoute } from '../shared/types';
 import { JsonRpc, spawnCLI, stopCLI } from './rpc';
 import { resolveProvider } from './providers';
 
@@ -91,25 +91,25 @@ export class ProviderAccounts {
   private logins = new Map<Provider, () => void>();
   private stopping = new Set<Promise<void>>();
   private closed = false;
-  constructor(private configuredPath: (p: Provider) => string, private changed: () => void, private loggedIn: (p: Provider) => void = () => {}, private environment: () => NodeJS.ProcessEnv = () => ({})) {}
+  constructor(private configuredPath: (p: Provider) => string, private changed: () => void, private loggedIn: (p: Provider) => void = () => {}, private environment: (route?: SessionNetworkRoute) => NodeJS.ProcessEnv = () => ({})) {}
   private set(provider: Provider, auth: ProviderAuth) { this.states[provider] = auth; if (!this.closed) this.changed(); return auth; }
-  async check(provider: Provider, cwd: string): Promise<ProviderAuth> {
+  async check(provider: Provider, cwd: string, route?: SessionNetworkRoute): Promise<ProviderAuth> {
     if (this.closed) return state('error', '工作台正在关闭');
     if (this.logins.has(provider)) return this.states[provider];
-    const configured = this.configuredPath(provider), key = JSON.stringify([provider, configured, cwd]);
+    const configured = this.configuredPath(provider), key = JSON.stringify([provider, configured, cwd, route]);
     const previous = this.jobs.get(key); if (previous) return previous.promise;
     // A background preparation has a different cwd. Its check must not cancel a working session.
     this.latest.set(provider, key);
     const controller = new AbortController();
-    this.set(provider, { ...state('checking', '正在检测登录状态…'), cwd });
+    this.set(provider, { ...state('checking', '正在检测登录状态…'), cwd, networkRoute: route });
     const job = { provider, key, controller, promise: Promise.resolve(this.states[provider]) };
     this.jobs.set(key, job);
     job.promise = (async () => {
       let result: ProviderAuth;
-      try { result = await inspectAuth(provider, await resolveProvider(provider, configured), cwd, controller.signal, 20000, this.environment()); }
+      try { result = await inspectAuth(provider, await resolveProvider(provider, configured), cwd, controller.signal, 20000, this.environment(route)); }
       catch { result = state('error', '无法启动 CLI，请检查程序路径和安装状态。'); }
       if (controller.signal.aborted || this.configuredPath(provider) !== configured) return state('error', 'CLI 配置或工作目录已改变，请重新检测。');
-      result = { ...result, cwd, checkedAt: new Date().toISOString() };
+      result = { ...result, cwd, checkedAt: new Date().toISOString(), networkRoute: route };
       if (this.jobs.get(key) === job && this.latest.get(provider) === key && !this.closed && this.configuredPath(provider) === configured) this.set(provider, result);
       return result;
     })().finally(() => { if (this.jobs.get(key) === job) this.jobs.delete(key); });
@@ -121,29 +121,29 @@ export class ProviderAccounts {
     this.logins.get(provider)?.();
     this.set(provider, state('unknown', 'CLI 配置已改变，请重新检测登录状态。'));
   }
-  failed(provider: Provider, error: unknown, cwd: string) {
+  failed(provider: Provider, error: unknown, cwd: string, route?: SessionNetworkRoute) {
     const auth = authFailure(error);
-    if (auth.status === 'unauthenticated') { this.cancelChecks(provider); this.set(provider, { ...auth, cwd, checkedAt: new Date().toISOString() }); }
+    if (auth.status === 'unauthenticated') { this.cancelChecks(provider); this.set(provider, { ...auth, cwd, checkedAt: new Date().toISOString(), networkRoute: route }); }
   }
-  async login(provider: Provider, cwd: string) {
+  async login(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
     if (this.closed || this.logins.has(provider)) return;
     this.cancelChecks(provider);
     // Reserve synchronously so repeated clicks cannot start competing browser flows.
     let canceled = false;
-    const reservation = () => { canceled = true; this.logins.delete(provider); if (!this.closed) this.set(provider, state('unknown', '登录已取消，可重新登录或检测。')); };
+    const reservation = () => { canceled = true; this.logins.delete(provider); if (!this.closed) this.set(provider, { ...state('unknown', '登录已取消，可重新登录或检测。'), networkRoute: route }); };
     this.logins.set(provider, reservation);
-    this.set(provider, { ...state('logging-in', '请在 CLI 打开的浏览器中完成登录；完成后会自动重新检测。'), cwd });
+    this.set(provider, { ...state('logging-in', '请在 CLI 打开的浏览器中完成登录；完成后会自动重新检测。'), cwd, networkRoute: route });
     let executable: string;
     try { executable = await resolveProvider(provider, this.configuredPath(provider)); }
     catch { reservation(); this.set(provider, state('error', '无法启动 CLI，请检查程序路径。')); return; }
     if (canceled || this.closed) return;
-    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'login'] : ['login'], cwd, this.environment()); let output = '', settled = false;
+    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'login'] : ['login'], cwd, this.environment(route)); let output = '', settled = false;
     const finish = (kind: 'exit' | 'cancel' | 'timeout' | 'error', code?: number | null) => {
       if (settled) return; settled = true; clearTimeout(timer); this.logins.delete(provider);
       if (kind !== 'exit') { const stopped = stopCLI(child); this.stopping.add(stopped); void stopped.finally(() => this.stopping.delete(stopped)); }
       if (this.closed) return;
-      if (kind === 'exit' && code === 0) { this.loggedIn(provider); void this.check(provider, cwd); }
-      else this.set(provider, { ...state(kind === 'cancel' ? 'unknown' : 'error', kind === 'cancel' ? '登录已取消，可重新登录或检测。' : kind === 'timeout' ? '登录等待超时，可重新登录或检测。' : '登录未完成，请检查浏览器授权和网络后重试。'), cwd });
+      if (kind === 'exit' && code === 0) { this.loggedIn(provider); void this.check(provider, cwd, route); }
+      else this.set(provider, { ...state(kind === 'cancel' ? 'unknown' : 'error', kind === 'cancel' ? '登录已取消，可重新登录或检测。' : kind === 'timeout' ? '登录等待超时，可重新登录或检测。' : '登录未完成，请检查浏览器授权和网络后重试。'), cwd, networkRoute: route });
     };
     const timer = setTimeout(() => finish('timeout'), 5 * 60 * 1000);
     this.logins.set(provider, () => finish('cancel'));
