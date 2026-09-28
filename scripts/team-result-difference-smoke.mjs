@@ -144,7 +144,7 @@ try {
   await page.getByRole('checkbox', { name: '包含个人库已有成果', exact: true }).check(); await expect(cards).toHaveCount(1); await expect(save()).toBeDisabled();
   await page.screenshot({ path: path.join(data, 'admin-maintenance.png') });
   await page.getByRole('checkbox', { name: '包含个人库已有成果', exact: true }).uncheck(); await expect(cards).toHaveCount(0);
-  await mount({ admin: false, username: 'alice', resultId: 'shared-result' }); await expect(page.getByRole('heading', { name: '【项目结论】 验证过的团队结论' })).toBeVisible();
+  await mount({ admin: false, username: 'alice', resultId: 'shared-result' }); await expect(page.getByRole('heading', { name: '【项目经验】 验证过的团队结论' })).toBeVisible();
   await expect(page.getByRole('button', { name: '个人库已有此版本', exact: true })).toBeDisabled();
   await call('test.remoteDelete'); await refresh(); await expect(page.getByText('这条成果已删除或被合并', { exact: false })).toBeVisible();
   expect(await call('test.personal')).toHaveLength(2);

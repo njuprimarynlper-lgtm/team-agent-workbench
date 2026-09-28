@@ -59,8 +59,8 @@ export function applyContentMerge(draft: Draft, answer: string) {
   const names = new Map((draft.mergeSources || []).map(item => [item.id, `${item.title}（${item.author} · v${item.revision}）`]));
   const refs = (ids: string[]) => [...new Set(ids)].map(id => names.get(id)).filter(Boolean).join('；');
   const sections = [
-    `## ${draft.conclusionMergeProjectId ? '预处理结果' : '综合结论'}\n\n${analysis.overview}`,
-    analysis.consensus.length ? `## 已确认的共识\n\n${analysis.consensus.map(item => `- ${item}`).join('\n')}` : '',
+    `## ${draft.conclusionMergeProjectId ? '预处理结果' : '综合分析'}\n\n${analysis.overview}`,
+    analysis.consensus.length ? `## 共同认识\n\n${analysis.consensus.map(item => `- ${item}`).join('\n')}` : '',
     analysis.conflicts.length ? `## 差异与冲突\n\n${analysis.conflicts.map(item => `### ${item.topic}\n\n${item.positions.map(position => `- ${position.statement}\n  - 来源：${refs(position.sourceIds)}`).join('\n')}${item.resolution ? `\n\n建议处理：${item.resolution}` : ''}\n\n${item.requiresDecision ? draft.conclusionMergeProjectId ? '> 此项仍需你确认，AI 未擅自裁决。' : '> 此项仍需组管理员确认，AI 未擅自裁决。' : '> 已有材料支持上述处理。'}`).join('\n\n')}` : '',
     analysis.evidence.length ? `## 证据与来源\n\n${analysis.evidence.map(item => `- ${item.claim}\n  - 来源：${refs(item.sourceIds)}`).join('\n')}` : '',
     analysis.scope ? `## 适用范围\n\n${analysis.scope}` : '',

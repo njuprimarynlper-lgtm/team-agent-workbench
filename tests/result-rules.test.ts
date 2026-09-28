@@ -63,6 +63,11 @@ test('prompt specifies topic-first classification, human-confirmed standards and
   for (const rule of ['禁止按类别逐个生成', '同一主题换类别重复', '最多 5 条', '允许 0 条', '多个独立主题可以使用相同类别', '必须能引用人的明确确认', '单次测试中延迟降低 8%', '静态检查通过', '不强制小标题', '不要输出 fields', '来源详情', 'message:m1']) assert(prompt.includes(rule), rule);
   assert(!prompt.includes('只用给定的三个字段'));
   assert.match(preparationPrompt(value, [], true), /最多生成一条新成果/);
+  for (const merging of [false, true]) {
+    const experiencePrompt = preparationPrompt(value, [], merging);
+    for (const rule of ['finding 表示项目经验', '实际尝试', '不要求形成最终定论', '区分直接观察、原因推测和复用建议', '保留反例、未验证范围及证据冲突', '尚无实践或观察依据的设想用 method_exploration', '也不为显得谨慎而模糊已验证的数据']) assert(experiencePrompt.includes(rule), rule);
+    assert.doesNotMatch(experiencePrompt, /项目结论/);
+  }
 });
 
 test('strict extraction permits zero or five independent topics, enforces limits and preserves evidence boundaries', () => {
@@ -105,7 +110,7 @@ test('environment errors are excluded including source details, while real proje
 test('merge uses the same boundaries, at most one result, and supports an empty preview without changing sources', () => {
   const value = draft(); value.mergeSources = [{ id: 'source', revision: 1, title: '来源', author: 'alice', updatedAt: 'now' }]; value.preparationEvidenceIds = ['source'];
   const result = item({ category: 'finding', evidenceIds: ['source'], sourceDetails: '原成果的验证记录，尚不覆盖跨节点。' });
-  applyContentMerge(value, output(result)); assert.equal(value.resultCategory, 'finding'); assert.match(value.title, /^【项目结论】/); assert.equal(value.resultSourceDetails, '原成果的验证记录，尚不覆盖跨节点。');
+  applyContentMerge(value, output(result)); assert.equal(value.resultCategory, 'finding'); assert.match(value.title, /^【项目经验】/); assert.equal(value.resultSourceDetails, '原成果的验证记录，尚不覆盖跨节点。');
   assert.throws(() => applyContentMerge(value, output(result, item({ topic: '独立主题', title: '另一项', body: '其他内容', evidenceIds: ['source'] }))), /只生成一条/);
   applyContentMerge(value, output()); assert.equal(value.body, ''); assert.equal(value.mergeSources[0].revision, 1);
 });

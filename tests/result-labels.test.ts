@@ -34,7 +34,7 @@ test('both library filters offer only categories present in stored titles, ignor
     assert.match(html, /【部署约束】（1）/);
     assert.match(html, /【项目标准】（1）/);
     assert.match(html, /未分类（1）/);
-    assert.doesNotMatch(html, /项目结论|方法探索|全部类型|全部标签/);
+    assert.doesNotMatch(html, /项目结论|项目经验|方法探索|全部类型|全部标签/);
     assert.equal((html.match(/<option /g) || []).length, 5);
     const empty = renderToStaticMarkup(createElement(ResultCategoryFilter, { items: [], value: 'all', label, onChange: () => {} }));
     assert.match(empty, /全部类别（0）/);
@@ -46,4 +46,25 @@ test('display retains existing labels and local aliases do not invent or replace
   assert.equal(resultLabelTitle('【综合整理】原题'), '【综合整理】原题');
   assert.equal(resultLabelTitle('【综合整理】【验收约束】原题', '【别名标签】易读名称'), '【综合整理】【验收约束】 易读名称');
   assert.equal(resultLabelTitle('没有标签', '【别名标签】易读名称'), '易读名称');
+});
+
+test('legacy findings display and filter as project experience without rewriting stored titles', () => {
+  const items = [{ title: '【项目结论】旧经验' }, { title: '【项目经验】新经验' }, { title: '【项目结论】【项目经验】【性能】同条多标签' }];
+  const original = structuredClone(items);
+  assert.deepEqual(resultLabels(items[2].title), ['项目经验', '性能']);
+  for (const filter of ['label:项目结论', 'label:项目经验']) {
+    assert(items.every(item => matchesResultLabel(item.title, filter)));
+    assert.equal(matchesResultLabel('【性能】测试', filter), false);
+    const options = resultLabelOptions(items, filter);
+    assert.deepEqual(options.find(option => option.value === 'label:项目经验'), { value: 'label:项目经验', label: '【项目经验】', count: 3 });
+    assert.equal(options.some(option => option.value === 'label:项目结论'), false);
+    const html = renderToStaticMarkup(createElement(ResultCategoryFilter, { items, value: filter, label: '成果类别', onChange: () => {} }));
+    assert.match(html, /value="label:项目经验" selected="">【项目经验】（3）/);
+    assert.doesNotMatch(html, /项目结论/);
+  }
+  assert.deepEqual(resultLabelOptions([], 'label:项目结论'), [{ value: 'label:项目经验', label: '【项目经验】', count: 0 }]);
+  assert.equal(resultLabelTitle('【 项目结论 】【性能】 原标题'), '【项目经验】【性能】 原标题');
+  assert.equal(resultLabelTitle('【项目结论】【性能】 原标题', '【别名标签】我的名称'), '【项目经验】【性能】 我的名称');
+  assert.equal(resultLabelTitle('【性能】 标题引用【项目结论】'), '【性能】 标题引用【项目结论】');
+  assert.deepEqual(items, original);
 });

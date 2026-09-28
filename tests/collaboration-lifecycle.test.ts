@@ -49,6 +49,42 @@ test('retracting an unsent team result removes the session reference but retains
   } finally { await x.close(); }
 });
 
+test('team scans retire orphaned legacy choices only after complete reads, preserve private copies and delivered history', async () => {
+  const x = await fixture();
+  try {
+    const binding = x.alice.remote.binding(x.project.id), file = path.join(x.root, 'retire.md'); await fs.writeFile(file, '团队成果');
+    await x.alice.remote.upload(binding, file, binding.project.uploadPath + '/retire.md', () => {}, { kind: 'contribution', title: '共享结论', description: '已有验证依据' });
+    const item = (await x.alice.remote.contentList(binding))[0];
+    const ownerSession = await x.alice.createSession('codex', x.root, x.project.id), ownerRef = await x.alice.attachContent(ownerSession.id, item.id);
+    const s = await x.bob.createSession('codex', x.root, x.project.id), ref = await x.bob.attachContent(s.id, item.id);
+    const local = x.bob.conclusions(x.project.id)[0], personalRef = await x.bob.attachConclusion(s.id, local.id);
+    const legacy = { ...ref, id: randomUUID(), contentRef: undefined, sourcePath: binding.project.uploadPath + '/old-deleted.zip' }; s.sources.push(legacy);
+    await x.bob.saveInput(s.id, { text: '继续', sourceIds: [ref.id, legacy.id], answers: {} });
+    const delivered = await x.bob.createSession('codex', x.root, x.project.id), accepted = await x.bob.attachContent(delivered.id, item.id);
+    delivered.messages.push({ id: randomUUID(), role: 'user', text: '已带入成果', createdAt: '', context: { nativeId: 'old-native', accepted: true, sourceHashes: { [accepted.id]: accepted.sha256 }, workRecord: false } });
+    const messages = structuredClone(delivered.messages);
+    const history = x.bob.remote.contentHistory.bind(x.bob.remote);
+    const choices = () => x.bob.snapshot().sessions.find(value => value.id === s.id)!.sources.map(value => value.id);
+    x.bob.remote.contentHistory = async () => { throw new Error('network failure'); };
+    await x.bob.syncContentUpdates(); assert(choices().includes(legacy.id));
+    x.bob.remote.contentHistory = async () => { throw new Error('不支持的内容操作'); };
+    await x.bob.syncContentUpdates(); assert(choices().includes(legacy.id));
+    x.bob.remote.contentHistory = history;
+    await x.bob.syncContentUpdates(); assert(!choices().includes(legacy.id)); assert(choices().includes(ref.id));
+    await x.alice.editSharedContent(x.project.id, { id: item.id, revision: item.revision, action: 'delete', curate: false, merge: [] });
+    assert(!x.alice.snapshot().sessions.find(value => value.id === ownerSession.id)!.sources.some(value => value.id === ownerRef.id));
+    await x.bob.syncContentUpdates();
+    assert(!choices().includes(ref.id)); assert(choices().includes(personalRef.id), 'the independent personal copy remains available');
+    assert.deepEqual(x.bob.snapshot().inputs[s.id].sourceIds, []);
+    assert(x.bob.snapshot().sessions.find(value => value.id === delivered.id)!.sources.some(value => value.id === accepted.id));
+    assert.deepEqual(delivered.messages, messages); assert(await fs.stat(accepted.localPath));
+    await x.bob.deleteConclusion(local.id, local.version); assert(!choices().includes(personalRef.id));
+    const restarted = new Workbench(x.bob.store.root, () => {}, () => {}); await restarted.store.init();
+    assert(!restarted.snapshot().sessions.find(value => value.id === s.id)!.sources.some(value => [ref.id, legacy.id, personalRef.id].includes(value.id)));
+    await restarted.close();
+  } finally { await x.close(); }
+});
+
 test('personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart', async () => {
   const x = await fixture();
   try {

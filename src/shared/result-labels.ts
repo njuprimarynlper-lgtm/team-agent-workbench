@@ -1,15 +1,18 @@
+import { currentResultLabel } from './content';
+
 // Labels are the existing leading 【...】 blocks, including custom labels.
 // Text quoted later in a title is not a category, and aliases do not reclassify it.
 const labelPrefix = /^(?:\s*【[^【】\r\n]+】)+\s*/u;
 export function resultLabels(title: string): string[] {
   const prefix = title.match(labelPrefix)?.[0] || '';
-  return [...new Set([...prefix.matchAll(/【([^【】\r\n]+)】/gu)].map(match => match[1].trim()).filter(Boolean))];
+  return [...new Set([...prefix.matchAll(/【([^【】\r\n]+)】/gu)].map(match => currentResultLabel(match[1].trim())).filter(Boolean))];
 }
 export function matchesResultLabel(title: string, filter: string) {
   const labels = resultLabels(title);
-  return filter === 'all' || (filter === 'untagged' ? !labels.length : labels.includes(filter.slice('label:'.length)) && filter.startsWith('label:'));
+  return filter === 'all' || (filter === 'untagged' ? !labels.length : labels.includes(currentResultLabel(filter.slice('label:'.length))) && filter.startsWith('label:'));
 }
 export function resultLabelOptions(items: { title: string }[], selected = 'all') {
+  if (selected.startsWith('label:')) selected = 'label:' + currentResultLabel(selected.slice(6));
   const counts = new Map<string, number>(); let untagged = 0;
   for (const item of items) {
     const labels = resultLabels(item.title);
@@ -24,7 +27,7 @@ export function resultLabelOptions(items: { title: string }[], selected = 'all')
   return options;
 }
 export function resultLabelTitle(title: string, alias?: string) {
-  if (!alias?.trim()) return title.trim();
+  if (!alias?.trim()) return title.trim().replace(labelPrefix, prefix => prefix.replace(/【([^【】\r\n]+)】/gu, (block, label: string) => currentResultLabel(label.trim()) === label.trim() ? block : `【${currentResultLabel(label.trim())}】`));
   const prefix = resultLabels(title).map(label => `【${label}】`).join('');
   const subject = alias.trim().replace(labelPrefix, '').trim();
   return [prefix, subject].filter(Boolean).join(' ') || title.trim();

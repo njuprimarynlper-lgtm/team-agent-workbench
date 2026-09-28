@@ -69,21 +69,21 @@ test('conclusion aliases persist without revising content or frozen session refe
     item.automatic = true;
     const before = structuredClone(item);
     await wb.saveConclusionAlias(item.id, '  OCR验收约束  ');
-    assert.equal(conclusionTitle(item), '【项目结论】 OCR验收约束');
+    assert.equal(conclusionTitle(item), '【项目经验】 OCR验收约束');
     assert.deepEqual({ ...item, titleAlias: undefined }, { ...before, titleAlias: undefined });
     assert.equal(wb.matchConclusions(offlineProjectId, 'OCR验收约束')[0].conclusion.id, item.id);
     const session = await wb.createSession('codex', root, offlineProjectId);
     const source = await wb.attachConclusion(session.id, item.id), frozen = await fs.readFile(source.localPath, 'utf8');
-    assert.match(source.name, /^【项目结论】 OCR验收约束/);
+    assert.match(source.name, /^【项目经验】 OCR验收约束/);
     await wb.saveConclusionAlias(item.id, '扫描件验收');
     assert.equal((await wb.attachConclusion(session.id, item.id)).id, source.id);
-    assert.match(source.name, /^【项目结论】 OCR验收约束/); assert.equal(await fs.readFile(source.localPath, 'utf8'), frozen);
+    assert.match(source.name, /^【项目经验】 OCR验收约束/); assert.equal(await fs.readFile(source.localPath, 'utf8'), frozen);
     await assert.rejects(wb.saveConclusionAlias(item.id, 'x'.repeat(201)), /200/);
     await wb.close();
     const restored = new Workbench(wb.store.root, () => {}, () => {}); await restored.store.init();
-    assert.equal(conclusionTitle(restored.conclusions(offlineProjectId)[0]), '【项目结论】 扫描件验收');
+    assert.equal(conclusionTitle(restored.conclusions(offlineProjectId)[0]), '【项目经验】 扫描件验收');
     await restored.saveConclusionAlias(item.id, '  ');
-    assert.equal(conclusionTitle(restored.conclusions(offlineProjectId)[0]), '【项目结论】 内部编号 abc-314');
+    assert.equal(conclusionTitle(restored.conclusions(offlineProjectId)[0]), '【项目经验】 内部编号 abc-314');
     assert.equal(restored.conclusions(offlineProjectId)[0].version, before.version);
     await restored.close();
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
@@ -131,7 +131,7 @@ test('personal conclusion processing follows directions and archives sources onl
     await until(() => draft.generation === 'ready'); assert.match(draft.body, /统一结论/); assert.equal(draft.conclusionMergeInstruction, '保留 Windows 约束，不要补造测试结果。');
     assert.equal(wb.conclusions(offlineProjectId).length, 2, 'AI draft does not alter the source conclusions');
     await wb.saveContentMerge(draft.id, '统一部署结论', draft.body); const merged = await wb.commitConclusionMerge(draft.id, [first.id, second.id]);
-    assert.equal(wb.conclusions(offlineProjectId).length, 1); assert.equal(merged.title, '【项目结论】 统一部署结论'); assert(wb.conclusions(offlineProjectId, true).filter(item => item.archived).length === 2);
+    assert.equal(wb.conclusions(offlineProjectId).length, 1); assert.equal(merged.title, '【项目经验】 统一部署结论'); assert(wb.conclusions(offlineProjectId, true).filter(item => item.archived).length === 2);
     assert(![first.id, second.id].includes(merged.id));
     assert.deepEqual(merged.derivedFrom, [first, second].map(item => ({ scope: 'personal', projectId: offlineProjectId, id: item.id, version: 1 })));
     assert.deepEqual(merged.replaces, merged.derivedFrom);
@@ -149,7 +149,7 @@ test('personal conclusion processing follows directions and archives sources onl
     assert.equal(single.archived, undefined, 'a single-source preview also leaves originals intact');
     await wb.saveContentMerge(processed.id, '新人检查清单', '人工修订后的检查步骤');
     const saved = await wb.commitConclusionMerge(processed.id, [single.id]);
-    assert.equal(saved.title, '【项目结论】 新人检查清单'); assert.equal(saved.content, '人工修订后的检查步骤');
+    assert.equal(saved.title, '【项目经验】 新人检查清单'); assert.equal(saved.content, '人工修订后的检查步骤');
     assert.equal(single.archived, true); assert.equal(saved.sources[0].id, single.id);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

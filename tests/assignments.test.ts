@@ -34,7 +34,7 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, assignee: 'outside' }), /不属于/);
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, references: [{ id: content.id, revision: 2 }] }), /结论已更新/);
     const task = await alice.remote.assignmentCreate(binding, input);
-    assert.equal(task.references[0].category, 'finding'); assert.equal(projectResultTitle(task.references[0]), '【项目结论】 OCR 基线结论');
+    assert.equal(task.references[0].category, 'finding'); assert.equal(projectResultTitle(task.references[0]), '【项目经验】 OCR 基线结论');
     const bobOther = new Workbench(path.join(root, 'bob-other-computer'), () => {}, () => {}); clients.push(bobOther); await bobOther.store.init();
     const bobOtherProfile = memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'bob'); bobOtherProfile.id = 'bob-other-computer';
     await bobOther.configureWorkspace(bobOtherProfile, '1', '', async () => false);
@@ -103,6 +103,7 @@ test('sent tasks and own work are distinct views; self-assignment appears in bot
   for (const view of ['mine', 'sent', 'team'] as const) assert.deepEqual(assignmentViewItems(values, 'bob', false, view).map(item => item.id), ['sent', 'team']);
   assert.equal(projectResultTitle({ title: '旧标题' }), '【项目成果】 旧标题');
   assert.equal(projectResultTitle({ title: '【项目标准】 兼容标题' }), '【项目标准】 兼容标题');
+  assert.equal(projectResultTitle({ title: '【项目结论】 旧经验' }), '【项目经验】 旧经验');
   assert.equal(projectResultTitle({ title: '【项目结论】 原标题', category: 'verification' }, '我的别名'), '【验证结果】 我的别名');
   assert.equal(projectResultTitle({ title: '【项目结论】 旧前缀', category: 'design', provenance: [{}] }), '【设计方案】 旧前缀');
 });

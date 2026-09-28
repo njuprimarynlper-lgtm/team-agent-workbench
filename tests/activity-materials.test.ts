@@ -161,7 +161,7 @@ test('legacy misgrouping is repaired once with a backup, keeping merged text, al
     const saved = restored.conclusions.find(item => item.id === merged.id)!, recovered = restored.conclusions.find(item => item.id !== merged.id)!;
     assert.equal(saved.content, old.content); assert.equal(saved.title, old.title); assert.equal(saved.titleAlias, old.titleAlias);
     assert.deepEqual(saved.sources, [old.sources[0]]); assert.equal(saved.automatic, false);
-    assert.equal(recovered.content, source.description); assert.equal(recovered.title, source.title); assert.deepEqual(recovered.sources, [old.sources[1]]);
+    assert.equal(recovered.content, source.description); assert.equal(recovered.title, '【项目经验】 v28的V Hessian会跳过同长度后续样本且每个Q head仅采4个query'); assert.deepEqual(recovered.sources, [old.sources[1]]);
     const action = restored.settings.contentUpdates![0].actions![0];
     assert.equal(action.targetId, recovered.id); assert.equal(action.targetTitle, recovered.title); assert.equal(action.correctedFromTitle, conclusionTitle(old));
     assert.equal(await fs.readFile(frozen.localPath, 'utf8'), frozenText);

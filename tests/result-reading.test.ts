@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import { assertReadableResultText, humanReadableWritingGuide, resultPreview } from '../src/shared/result-reading';
 import { applyPreparation } from '../src/core/preparation';
 import { applyContentMerge } from '../src/core/content-merge';
@@ -47,5 +48,29 @@ test('adding the readability guide still recognizes older stage-summary instruct
     migrateSessionContext(session);
     assert.equal(session.messages[0].userText, '请继续核对结论。'); assert.equal(session.messages[0].text, text);
     assert.equal(session.messages[0].context?.workRecord, true);
+  }
+});
+
+test('renaming findings preserves migration of stored prompts with the previous writing guide', async () => {
+  const guide = (await fs.readFile('tests/fixtures/previous-result-writing-guide.txt', 'utf8')).replace(/\r\n/g, '\n');
+  for (const previousHeader of [false, true]) {
+    const session = { nativeId: 'native', handoffPath: 'D:/work/handoff.md', sources: [], messages: [] } as unknown as AgentSession;
+    const header = previousHeader
+      ? `\n\n[工作台阶段摘要约定]\n本会话的本地阶段摘要为：${session.handoffPath}\n在形成阶段性结果时更新该文件，记录目标、阶段性发现或结论、依据、待验证内容及后续建议；涉及代码时可附改动说明和 GitHub 仓库链接，链接不是必填项。请区分事实与推测，不上传任何内容。阶段摘要仅在本地保存，最终提交由用户决定。`
+      : workRecordInstructions(session).slice(0, -humanReadableWritingGuide.length - 1);
+    const text = '请继续核对经验。' + header + '\n' + guide;
+    session.messages = [{ id: 'u', role: 'user', text, createdAt: '' }, { id: 'a', role: 'assistant', text: '已核对。', createdAt: '' }];
+    migrateSessionContext(session);
+    assert.equal(session.messages[0].userText, '请继续核对经验。');
+    assert.equal(session.messages[0].text, text, 'historical prompt bytes remain frozen');
+    assert.equal(session.messages[0].context?.workRecord, true);
+    assert.equal(session.messages[0].context?.accepted, true);
+
+    for (const quoted of ['请参考：\n' + guide, text.replace('D:/work/handoff.md', 'D:/other/handoff.md'), text + '\n用户补充内容']) {
+      session.messages = [{ id: 'quoted', role: 'user', text: quoted, createdAt: '' }];
+      migrateSessionContext(session);
+      assert.equal(session.messages[0].userText, undefined);
+      assert.equal(session.messages[0].context, undefined);
+    }
   }
 });

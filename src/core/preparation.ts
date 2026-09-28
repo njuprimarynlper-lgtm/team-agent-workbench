@@ -58,7 +58,7 @@ const batchResultSchema = z.object({ artifacts: z.array(artifactSchema).max(8) }
 const legacyResultSchema = z.object({ title: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(200000), repoUrl: z.string().max(2048).nullable().optional(), destinationId: z.string().max(200).nullable().optional() });
 
 export function artifactMarkdown(category: ContributionCategory, fields: Record<string, string>) {
-  return contributionCategoryFields[category].filter(key => fields[key]?.trim()).map(key => `## ${fieldLabels[key] || key}\n\n${fields[key].trim()}`).join('\n\n');
+  return contributionCategoryFields[category].filter(key => fields[key]?.trim()).map(key => `## ${category === 'finding' && key === 'statement' ? '经验与观察' : fieldLabels[key] || key}\n\n${fields[key].trim()}`).join('\n\n');
 }
 
 export function preparationFieldContract(categories: readonly ContributionCategory[] = contributionCategories) {
@@ -130,5 +130,5 @@ export function applyPreparation(draft: Draft, answer: string) {
   const target = draft.binding ? contributionCategoryDirectory(draft.binding, 'finding') : undefined;
   const title = contributionTitle('finding', result.title);
   const artifact = target ? { id: `${draft.id}-1`, category: 'finding' as const, title, fields: { statement: body }, body, repoUrl, target, selected: true } : undefined;
-  Object.assign(draft, { artifacts: artifact ? [artifact] : [], title, body, generatedBody: body, repoUrl, target, destinationNote: '旧版整理结果已归入“结论与发现”。' });
+  Object.assign(draft, { artifacts: artifact ? [artifact] : [], title, body, generatedBody: body, repoUrl, target, destinationNote: '旧版整理结果已归入“项目经验”。' });
 }

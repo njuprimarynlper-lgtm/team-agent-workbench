@@ -6,9 +6,9 @@ export const contributionCategories = ['experiment_result', 'failed_direction', 
 export const contributionCategorySchema = z.enum(contributionCategories);
 export type ContributionCategory = z.infer<typeof contributionCategorySchema>;
 export const contributionCategoryInfo: Record<ContributionCategory, { label: string; folder: string; description: string }> = {
-  experiment_result: { label: '项目结论', folder: 'experiments', description: '有验证依据的实验结论（兼容已有成果）。' },
-  failed_direction: { label: '项目结论', folder: 'failed-directions', description: '有证据证明未奏效的方向（兼容已有成果）。' },
-  finding: { label: '项目结论', folder: 'findings', description: '有事实或验证支持的可复用结论，也包括有证据的失败经验。' },
+  experiment_result: { label: '项目经验', folder: 'experiments', description: '已有实验中的做法、观察和适用条件（兼容已有成果）。' },
+  failed_direction: { label: '项目经验', folder: 'failed-directions', description: '有事实依据的未奏效尝试及其条件（兼容已有成果）。' },
+  finding: { label: '项目经验', folder: 'findings', description: '从项目实践中提炼的可复用做法、取舍与教训，写清依据、适用条件和未验证范围。' },
   project_standard: { label: '项目标准', folder: 'project-standards', description: '人明确确认的要求、验收口径或规则；AI 建议不能成为标准。' },
   method_exploration: { label: '方法探索', folder: 'method-explorations', description: '值得继续验证的方法或思路，必须保留未验证状态。' },
   issue: { label: '问题与风险', folder: 'issues', description: '需要跟进的问题、风险与触发条件。' },
@@ -22,16 +22,17 @@ export const contributionCategoryInfo: Record<ContributionCategory, { label: str
   comparison: { label: '方案对比', folder: 'comparisons', description: '至少两个可选方案在同一目标、同一维度下的差异和取舍；不逐项抄资料。' }
 };
 const titlePrefix = /^【[^】]{1,24}】\s*/u;
+export function currentResultLabel(label: string) { return label === '项目结论' ? '项目经验' : label; }
 export function resultTitle(section: string, title: string, max = 120) {
-  const prefix = `【${section}】`, subject = title.trim().replace(titlePrefix, '').trim() || '未命名成果';
+  const prefix = `【${currentResultLabel(section)}】`, subject = title.trim().replace(titlePrefix, '').trim() || '未命名成果';
   return `${prefix} ${subject.slice(0, Math.max(1, max - prefix.length - 1))}`;
 }
 export function contributionTitle(category: ContributionCategory, title: string) { return resultTitle(contributionCategoryInfo[category].label, title); }
 export function titleSubject(title: string) { return title.replace(titlePrefix, '').trim(); }
 export function projectResultLabel(item: { title: string; category?: ContributionCategory; provenance?: unknown[] }) {
   if (item.category) return contributionCategoryInfo[item.category].label;
-  if (item.provenance?.length) return '项目结论';
-  const label = item.title.match(/^【([^】]+)】/u)?.[1];
+  if (item.provenance?.length) return '项目经验';
+  const label = currentResultLabel(item.title.match(/^【([^】]+)】/u)?.[1]?.trim() || '');
   return label && Object.values(contributionCategoryInfo).some(info => info.label === label) ? label : '项目成果';
 }
 export function projectResultTitle(item: { title: string; category?: ContributionCategory; provenance?: unknown[] }, alias?: string) { return resultTitle(projectResultLabel(item), alias || item.title, 200); }

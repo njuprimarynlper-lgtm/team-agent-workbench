@@ -63,7 +63,7 @@ test('local project results use consistent navigation and actions without renami
     assert.match(library, /class="content-library result-library conclusion-library"/);
     assert.doesNotMatch(library, /class="content-detail/);
     assert.match(library, /全部类别（0）/);
-    for (const category of ['项目结论', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(!library.includes(category), 'an empty library must not offer project preset categories');
+    for (const category of ['项目结论', '项目经验', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(!library.includes(category), 'an empty library must not offer project preset categories');
     assert.match(library, />新建成果<\/button>/);
     const unified = renderToStaticMarkup(createElement(ProjectResults, { projectName: project.name, scope: 'personal', changeScope: () => {}, children: createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {}, embedded: true }) }));
     assert.equal(unified.match(/<h1>/g)?.length, 1); assert.match(unified, /项目成果库 · 测试项目/);

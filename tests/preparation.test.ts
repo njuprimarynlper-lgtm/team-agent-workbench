@@ -54,7 +54,7 @@ test('result names stay in the draft until personal save and never rewrite submi
     assert.equal(artifact.body, body); assert.equal(artifact.selected, selected);
     assert.equal(wb.conclusions(offlineProjectId).length, 0);
     await wb.saveDraftPersonal(draft.id, [artifact.id]);
-    assert(wb.conclusions(offlineProjectId).some(item => item.title === '【项目结论】 人工修改的短名称'));
+    assert(wb.conclusions(offlineProjectId).some(item => item.title === '【项目经验】 人工修改的短名称'));
     assert.throws(() => wb.renameDraftResult(draft.id, '  ', artifact.id), /名称/);
     await assert.rejects(wb.renameDraftResult(draft.id, '名字', 'missing'), /不存在/);
     const originalTitle = artifact.title; draft.submitted = artifact.submitted = 'frozen-transfer';
@@ -78,7 +78,7 @@ test('semantic content merge preserves consensus, conflicts, evidence and source
     evidence: [{ claim: '覆盖率仍需补齐。', sourceIds: [second] }], scope: '当前数据集', unresolved: ['确认灰度比例。']
   }));
   assert.equal(draft.title, '【综合整理】 项目统一结论');
-  assert.match(draft.body, /综合结论/); assert.match(draft.body, /差异与冲突/); assert.match(draft.body, /仍需组管理员确认/);
+  assert.match(draft.body, /综合分析/); assert.match(draft.body, /共同认识/); assert.match(draft.body, /差异与冲突/); assert.match(draft.body, /仍需组管理员确认/);
   assert.match(draft.body, /风险复核（bob · v1）/); assert.match(draft.resultSourceDetails!, /来源记录/); assert.doesNotMatch(draft.body, /11111111-1111|22222222-2222/);
   assert.throws(() => applyContentMerge(draft, JSON.stringify({ title: '错误引用', overview: '无效', consensus: [], conflicts: [], evidence: [{ claim: '伪造', sourceIds: ['33333333-3333-4333-8333-333333333333'] }], unresolved: [] })), /未选择的来源/);
 });
@@ -90,7 +90,7 @@ test('structured results classify independent artifacts, keep only category fiel
     { category: 'baseline_change_proposal', title: '调整验收阈值', fields: { baselineItem: 'F1 下限', proposedValue: '0.91', rationale: '新数据分布' } }
   ] }) + '\n```');
   assert.equal(d.artifacts?.length, 2); assert.equal(d.artifacts?.[0].target, '/p/submissions/alice/experiments'); assert.equal(d.artifacts?.[1].target, '/p/submissions/alice/baseline-change-proposals');
-  assert.equal(d.artifacts?.[0].title, '【项目结论】 阈值实验'); assert.equal(d.artifacts?.[1].title, '【改进建议】 调整验收阈值');
+  assert.equal(d.artifacts?.[0].title, '【项目经验】 阈值实验'); assert.equal(d.artifacts?.[1].title, '【改进建议】 调整验收阈值');
   assert.equal(d.artifacts?.[0].fields.unknown, undefined); assert.match(d.artifacts?.[0].body || '', /F1 提升/); assert.equal(d.supplement, '人补充的说明'); assert.equal(d.repoUrlOverride, 'https://github.com/human/repo');
   applyPreparation(d, JSON.stringify({ ...result, repoUrl: 'https://github.com/owner/repo/pull/123' })); assert.equal(d.repoUrl, ''); assert.equal(d.target, '/p/submissions/alice/findings');
   assert.throws(() => applyPreparation(d, 'A partial or malformed answer'), /格式不完整/);
@@ -209,7 +209,7 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     assert.deepEqual(privateMerge.derivedFrom, shared.map(item => ({ scope: 'team', projectId: p.id, id: item.id, version: item.revision })));
     assert.equal((await wb.saveContentMergePersonal(mergeDraft.id)).id, privateMerge.id, 'saving the same merge draft is idempotent');
     assert.deepEqual((await wb.remote.contentList(wb.remote.binding(p.id))).map(item => item.id), teamBeforePersonalSave.map(item => item.id), 'personal save leaves team results alone');
-    const merged = await wb.commitContentMerge(mergeDraft.id, shared.map(item => item.id)); assert.equal(merged.title, '【项目结论】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
+    const merged = await wb.commitContentMerge(mergeDraft.id, shared.map(item => item.id)); assert.equal(merged.title, '【项目经验】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
     assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).filter(item => shared.some(source => source.id === item.id)).length, 0);
     assert(!shared.some(source => source.id === merged.id));
     const frozenSources = await wb.remote.contentHistory(wb.remote.binding(p.id));
