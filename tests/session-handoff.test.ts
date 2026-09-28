@@ -17,16 +17,34 @@ test('Beta selection is off by default and isolated by team account', async () =
     await wb.store.init(); grantTestWorkspace(wb, root);
     const alice = wb.store.settings.workspaceSnapshot!.profile;
     assert.equal(wb.betaFeatureEnabled('sessionHandoff'), false);
+    assert.equal(wb.betaFeatureEnabled('subsessions'), false);
     await wb.setBetaFeature('sessionHandoff', true);
     assert.equal(wb.betaFeatureEnabled('sessionHandoff'), true);
+    assert.equal(wb.betaFeatureEnabled('subsessions'), false);
     const bob = { ...alice, username: 'bob' };
     wb.store.settings.workspaceSnapshot!.profile = bob;
     assert.equal(wb.betaFeatureEnabled('sessionHandoff'), false);
+    assert.equal(wb.betaFeatureEnabled('subsessions'), false);
     assert.deepEqual(Object.keys(wb.snapshot().settings.betaFeatures || {}), []);
     await wb.setBetaFeature('sessionHandoff', true);
     assert.deepEqual(Object.keys(wb.snapshot().settings.betaFeatures || {}), [accountIdentity(bob)]);
     wb.store.settings.workspaceSnapshot!.profile = alice;
     assert.deepEqual(Object.keys(wb.snapshot().settings.betaFeatures || {}), [accountIdentity(alice)]);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('an older combined Beta choice migrates to two enabled switches', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-beta-migration-'));
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const account = accountIdentity(wb.store.settings.workspaceSnapshot!.profile);
+    wb.store.settings.betaFeatures = { [account]: { sessionHandoff: true } };
+    await wb.store.save();
+    await wb.init();
+    assert.deepEqual(wb.store.settings.betaFeatures?.[account], { sessionHandoff: true, subsessions: true });
+    await wb.setBetaFeature('sessionHandoff', false);
+    assert.equal(wb.betaFeatureEnabled('subsessions'), true, 'the migrated Subsession switch remains independent');
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 

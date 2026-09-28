@@ -10,7 +10,7 @@ import { sessionContext } from '../src/core/session-context';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 import { forkWorkspace, removeForkWorkspace } from '../src/core/subsession-workspace';
 
-test('the existing Beta switch gates independent Subsessions and freezes the parent boundary', async () => {
+test('the Subsession Beta switch gates independent children and freezes the parent boundary', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-subsession-'));
   const cwd = path.join(root, 'work'); await fs.mkdir(cwd);
   await fs.writeFile(path.join(cwd, 'model.py'), 'BASE = 1\n');
@@ -28,6 +28,12 @@ test('the existing Beta switch gates independent Subsessions and freezes the par
     await wb.saveHandoff(parent.id, '# 阶段摘要\n\n精度问题待验证。');
     await assert.rejects(wb.forkSubsession(parent.id, '方案 A'), /Beta 功能/);
     await wb.setBetaFeature('sessionHandoff', true);
+    assert.equal(wb.betaFeatureEnabled('subsessions'), false, 'cross-session references do not turn on Subsessions');
+    await assert.rejects(wb.forkSubsession(parent.id, '方案 A'), /Beta 功能/);
+    await wb.setBetaFeature('sessionHandoff', false);
+    await wb.setBetaFeature('subsessions', true);
+    assert.equal(wb.betaFeatureEnabled('sessionHandoff'), false, 'Subsessions do not turn on cross-session references');
+    await assert.rejects(wb.listSessionHandoffs(parent.id), /Beta 功能/);
     const child = await wb.forkSubsession(parent.id, '方案 A');
     assert.equal(child.parentId, parent.id); assert.equal(child.fork?.parentMessageCount, 3);
     assert.equal(child.nativeId, undefined); assert.equal(child.provider, parent.provider);
@@ -44,8 +50,11 @@ test('the existing Beta switch gates independent Subsessions and freezes the par
     assert.equal(child.fork?.inheritedSourceIds.length, 1);
     assert.equal(await fs.readFile(child.sources.find(source => source.id === child.fork?.inheritedSourceIds[0])!.localPath, 'utf8'), '已验证的测试条件');
     assert.equal(parent.sources.length, 1, 'creating a child does not inject new content into the parent');
-    await wb.setBetaFeature('sessionHandoff', false);
+    await wb.setBetaFeature('sessionHandoff', true);
+    await wb.setBetaFeature('subsessions', false);
     await assert.rejects(wb.forkSubsession(parent.id, '方案 B'), /Beta 功能/);
+    assert.equal(wb.betaFeatureEnabled('sessionHandoff'), true, 'turning off Subsessions leaves references enabled');
+    assert((await wb.listSessionHandoffs(child.id)).some(item => item.id === parent.id));
     assert.equal(wb.session(child.id).id, child.id, 'turning Beta off retains the child');
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
@@ -55,7 +64,7 @@ test('reports are frozen versions; parent must explicitly select them before the
   const cwd = path.join(root, 'work'); await fs.mkdir(cwd);
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, cwd); await wb.setBetaFeature('sessionHandoff', true);
+    await wb.store.init(); grantTestWorkspace(wb, cwd); await wb.setBetaFeature('subsessions', true);
     const parent = await wb.createSession('codex', cwd, offlineProjectId);
     const child = await wb.forkSubsession(parent.id, '量化方案');
     child.messages.push({ id: randomUUID(), role: 'assistant', text: '初测精度下降 0.2。', createdAt: new Date().toISOString() });
@@ -71,10 +80,10 @@ test('reports are frozen versions; parent must explicitly select them before the
     assert.deepEqual(sessionContext(parent, '继续', [source.id]).sources.map(item => item.id), [source.id]);
     assert.equal((await wb.attachSubsessionReport(parent.id, child.id, first.id)).id, source.id);
     parent.autoUpload = true;
-    await wb.setBetaFeature('sessionHandoff', false);
+    await wb.setBetaFeature('subsessions', false);
     await assert.rejects(wb.attachSubsessionReport(parent.id, child.id, first.id), /Beta 功能/);
     assert.equal(parent.sources.length, 1);
-    await wb.setBetaFeature('sessionHandoff', true);
+    await wb.setBetaFeature('subsessions', true);
     await wb.saveHandoff(child.id, '# 阶段摘要\n\n方案 A 已复核。');
     child.messages.push({ id: randomUUID(), role: 'assistant', text: '复核通过。', createdAt: new Date().toISOString() });
     const next = await wb.previewSubsessionReport(child.id);
@@ -96,7 +105,7 @@ test('cross-project, wrong parent and running-turn report operations are rejecte
   const cwd = path.join(root, 'work'); await fs.mkdir(cwd);
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, cwd); await wb.setBetaFeature('sessionHandoff', true);
+    await wb.store.init(); grantTestWorkspace(wb, cwd); await wb.setBetaFeature('subsessions', true);
     const parent = await wb.createSession('codex', cwd, offlineProjectId);
     parent.status = 'running'; await assert.rejects(wb.forkSubsession(parent.id, '不能复制半轮结果'), /当前回复结束/); parent.status = 'idle';
     const child = await wb.forkSubsession(parent.id, '精度探索');

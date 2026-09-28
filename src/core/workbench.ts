@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPermissions, setCursorManualReview } from './permissions';
 import type { PermissionMode } from '../shared/types';
 import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
-import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SessionNetworkRoute, SubsessionReport, SubsessionReportPreview } from '../shared/types';
+import type { AgentCapabilitySelection, AgentSession, BetaFeature, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SessionNetworkRoute, SubsessionReport, SubsessionReportPreview } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { preparationSnapshot, prepareReadableInputs } from './preparation-snapshot';
 import { preparationPrompt } from './preparation-prompt';
@@ -113,6 +113,8 @@ export class Workbench {
   }
   async init() {
     await this.store.init();
+    // The former single switch enabled both abilities; preserve that choice on upgrade.
+    for (const features of Object.values(this.store.settings.betaFeatures || {})) features.subsessions ??= !!features.sessionHandoff;
     // Pin pre-existing sessions to the account route they used before this feature.
     for (const session of this.store.sessions) {
       session.networkRoute ??= this.store.settings.egress?.enabled ? 'management' : 'direct';
@@ -605,16 +607,18 @@ export class Workbench {
   async detect() { this.providers = await Promise.all((['codex', 'cursor', 'claude'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
   snapshot(): Snapshot { return scopeAccountSnapshot({ accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }); }
   private localProfile() { return !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; }
-  betaFeatureEnabled(feature: 'sessionHandoff') {
+  betaFeatureEnabled(feature: BetaFeature) {
     const profile = this.localProfile();
-    return !!profile && !!this.store.settings.betaFeatures?.[accountIdentity(profile)]?.[feature];
+    const features = profile && this.store.settings.betaFeatures?.[accountIdentity(profile)];
+    return feature === 'subsessions' ? !!(features?.subsessions ?? features?.sessionHandoff) : !!features?.sessionHandoff;
   }
-  async setBetaFeature(feature: 'sessionHandoff', enabled: boolean) {
+  async setBetaFeature(feature: BetaFeature, enabled: boolean) {
     const profile = this.localProfile();
     if (!profile) throw new Error('请先连接团队账号');
     const key = accountIdentity(profile);
     this.store.settings.betaFeatures ||= {};
-    this.store.settings.betaFeatures[key] = { ...this.store.settings.betaFeatures[key], [feature]: enabled };
+    const previous = this.store.settings.betaFeatures[key];
+    this.store.settings.betaFeatures[key] = { sessionHandoff: !!previous?.sessionHandoff, subsessions: previous?.subsessions ?? !!previous?.sessionHandoff, [feature]: enabled };
     await this.store.save(); this.broadcast(); return enabled;
   }
   private ownsLocal(binding?: RemoteBinding) { return ownsBinding(this.localProfile(), binding); }
@@ -1620,7 +1624,7 @@ export class Workbench {
     for (const file of files) { const frozen = await freezeFile(file, path.join(this.store.root, 'uploads', randomUUID())); await this.queue.enqueue(frozen.localPath, binding, folder, 'upload'); }
   }
   async forkSubsession(parentId: string, focus: string) {
-    if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话协作');
+    if (!this.betaFeatureEnabled('subsessions')) throw new Error('请先在 Beta 功能中开启 Subsession');
     const parent = this.session(parentId), title = focus.trim();
     if (!title || title.length > 120) throw new Error('请填写不超过 120 字的探索方向');
     if (parent.purpose !== 'work' || !parent.binding) throw new Error('只能从项目工作会话创建 Subsession');
@@ -1662,7 +1666,7 @@ export class Workbench {
     }
   }
   async previewSubsessionReport(childId: string): Promise<SubsessionReportPreview> {
-    if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话协作');
+    if (!this.betaFeatureEnabled('subsessions')) throw new Error('请先在 Beta 功能中开启 Subsession');
     const child = this.session(childId);
     if (!child.fork || child.purpose !== 'work' || !child.binding) throw new Error('请选择 Subsession');
     const parent = this.session(child.fork.parentId);
@@ -1697,7 +1701,7 @@ export class Workbench {
   }
   async attachSubsessionReport(parentId: string, childId: string, reportId: string) {
     return this.edit('subsession-report-attach:' + parentId, async () => {
-      if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话协作');
+      if (!this.betaFeatureEnabled('subsessions')) throw new Error('请先在 Beta 功能中开启 Subsession');
       const parent = this.session(parentId), child = this.session(childId);
       if (parent.closedAt || parent.purpose !== 'work' || !parent.binding) throw new Error('请先重新打开父会话');
       if (child.fork?.parentId !== parent.id || !child.binding || child.binding.project.id !== parent.binding.project.id || accountIdentity(parent.binding) !== accountIdentity(child.binding)) throw new Error('只能引用当前账号与项目下的直接子会话回报');
