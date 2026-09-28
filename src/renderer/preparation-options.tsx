@@ -1,19 +1,39 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Layers, SlidersHorizontal, X } from 'lucide-react';
 import type { AgentSession, PreparationCheckpoint, PreparationScope } from '../shared/types';
 import { preparationDelta } from '../shared/preparation-progress';
 import { contributionCategoryInfo, type ContributionCategory } from '../shared/content';
 import type { MaterialCategory, ResultCombination, ResultRulesState } from '../shared/result-rules';
+import { preparationDirectionLimit, selectedPreparationDirections, type PreparationDirections } from '../shared/preparation-directions';
 import { ResultRulesEditor } from './result-rules';
 
-export function PreparationOptionsModal({ session, baseline, combination, close, started, again = false }: {
-  session: AgentSession; baseline?: PreparationCheckpoint; combination?: ResultCombination; again?: boolean;
-  close: () => void; started: (scope: PreparationScope, categories: ContributionCategory[], temporary: boolean) => Promise<void>;
+export function PreparationCategoryChoices({ categories, selected, directions, disabled, select, changeDirection }: {
+  categories: MaterialCategory[]; selected: MaterialCategory[]; directions: PreparationDirections; disabled: boolean;
+  select: (category: MaterialCategory, checked: boolean) => void;
+  changeDirection: (category: MaterialCategory, value: string) => void;
+}) {
+  const prefix = useId();
+  return <div className="preparation-category-choices">{categories.map(category => {
+    const checked = selected.includes(category), label = contributionCategoryInfo[category].label, fieldId = `${prefix}-${category}`;
+    return <div key={category} className={'preparation-category-choice' + (checked ? ' selected' : '')}>
+      <label className="preparation-category-toggle"><input type="checkbox" checked={checked} disabled={disabled} onChange={event => select(category, event.target.checked)}/><span>{label}</span></label>
+      {checked && <div className="preparation-direction">
+        <label htmlFor={fieldId}>整理方向<span>选填 · 留空使用默认提示词</span></label>
+        <textarea id={fieldId} aria-label={`${label}的整理方向`} rows={3} maxLength={preparationDirectionLimit} disabled={disabled} value={directions[category] || ''} placeholder={`针对“${label}”，写下关注重点、希望保留或略过的内容。`} onChange={event => changeDirection(category, event.target.value)}/>
+      </div>}
+    </div>;
+  })}</div>;
+}
+
+export function PreparationOptionsModal({ session, baseline, combination, initialDirections, close, started, again = false }: {
+  session: AgentSession; baseline?: PreparationCheckpoint; combination?: ResultCombination; initialDirections?: PreparationDirections; again?: boolean;
+  close: () => void; started: (scope: PreparationScope, categories: ContributionCategory[], temporary: boolean, directions: PreparationDirections) => Promise<void>;
 }) {
   const delta = preparationDelta(session, baseline?.snapshot), canIncremental = !!baseline && delta.count > 0;
   const [scope, setScope] = useState<PreparationScope>(canIncremental ? 'incremental' : 'full');
   const [rules, setRules] = useState<ResultRulesState>(), [selected, setSelected] = useState<MaterialCategory[]>(combination?.categories || []);
   const [temporary, setTemporary] = useState<ResultCombination>();
+  const [directions, setDirections] = useState<PreparationDirections>(() => ({ ...initialDirections }));
   const [configuring, setConfiguring] = useState(false), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const active = temporary || rules?.combination || combination;
   useEffect(() => {
@@ -37,7 +57,7 @@ export function PreparationOptionsModal({ session, baseline, combination, close,
         <section className="preparation-classification" aria-label="本次成果分类">
           <header><div><span className="preparation-section-label"><Layers size={16}/>本次成果分类</span><h3>{active?.name || '正在读取分类…'}</h3></div><button className="secondary classification-adjust" disabled={disabled || !rules} onClick={() => setConfiguring(true)}><SlidersHorizontal size={16}/>调整分类组合</button></header>
           <p>{temporary ? '临时组合仅用于本次整理，不保存为个人组合，不修改项目默认设置。' : '选择本次需要的类别。在“调整分类组合”中可新建组合，或使用不保存的临时组合。'}</p>
-          <div className="preparation-category-choices">{active?.categories.map(category => <label key={category} className={'preparation-category-choice' + (selected.includes(category) ? ' selected' : '')}><input type="checkbox" checked={selected.includes(category)} disabled={disabled} onChange={event => setSelected(values => event.target.checked ? [...values, category] : values.filter(value => value !== category))}/>{contributionCategoryInfo[category].label}</label>)}</div>
+          <PreparationCategoryChoices categories={active?.categories || []} selected={selected} directions={directions} disabled={disabled} select={(category, checked) => setSelected(values => checked ? [...values, category] : values.filter(value => value !== category))} changeDirection={(category, value) => setDirections(values => ({ ...values, [category]: value }))}/>
           {!selected.length && !loading && <p className="inline-error" role="alert">请至少选择一个类别。</p>}
         </section>
         <p className="muted small">最多提炼 5 条，不按类别凑数。没有新成果时会说明原因，由你确认；读取失败会提示重试。</p>
@@ -45,7 +65,7 @@ export function PreparationOptionsModal({ session, baseline, combination, close,
       </div>
       <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={disabled || !rules || !selected.length || scope === 'incremental' && !canIncremental} onClick={async () => {
         setBusy(true); setError('');
-        try { await started(scope, selected, !!temporary); close(); } catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
+        try { await started(scope, selected, !!temporary, selectedPreparationDirections(selected, directions)); close(); } catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
       }}>{busy ? '正在创建…' : loading ? '正在读取分类…' : `开始${scope === 'incremental' ? '增量' : '全量'}整理`}</button></footer>
     </>}
   </section></div>;

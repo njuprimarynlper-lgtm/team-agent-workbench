@@ -1,6 +1,7 @@
 import { ownDataDirectory } from '../shared/single-instance';
 import { runtimeAssets } from '../shared/runtime-assets';
 import { draftDeleteIdsSchema } from '../shared/draft-delete';
+import { preparationDirectionsSchema } from '../shared/preparation-directions';
 import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema, resultReferenceSchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, safeStorage } from 'electron';
@@ -233,8 +234,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'handoff.list': return workbench.listSessionHandoffs(sessionInput.parse(raw).id);
     case 'handoff.attach': { const p = z.object({ id, sourceId: id, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw); return workbench.attachSessionHandoff(p.id, p.sourceId, p.sha256); }
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional(), temporary: z.boolean().optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.temporary); }
-    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']), temporary: z.boolean().optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.temporary); }
+    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional(), temporary: z.boolean().optional(), directions: preparationDirectionsSchema.optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.temporary, p.directions); }
+    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']), temporary: z.boolean().optional(), directions: preparationDirectionsSchema.optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.temporary, p.directions); }
     case 'draft.confirmEmpty': return workbench.confirmEmptyPreparation(sessionInput.parse(raw).id);
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);

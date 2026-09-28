@@ -20,6 +20,7 @@ import { preparationPrompt } from './preparation-prompt';
 import { emptyPreparationResult, isEmptyPreparation } from '../shared/preparation-review';
 import { preparationCheckpoint, rememberPreparationProgress } from '../shared/preparation-progress';
 import { activeResultCombination, resultPreferencesSchema, temporaryResultCombination, type ResultRulesState, type ResultRuleSnapshot } from '../shared/result-rules';
+import { selectedPreparationDirections, type PreparationDirections } from '../shared/preparation-directions';
 import { SharedFiles } from './shared-files';
 import { TransferQueue } from './transfers';
 import { AgentRuntime } from './agents';
@@ -1117,7 +1118,7 @@ export class Workbench {
       return { sourceIds: [...removed] };
     }, false);
   }
-  prepare(id: string, extraFiles: string[] = [], categories?: ContributionCategory[], scope?: PreparationScope, temporary = false): Promise<Draft> {
+  prepare(id: string, extraFiles: string[] = [], categories?: ContributionCategory[], scope?: PreparationScope, temporary = false, directions?: PreparationDirections): Promise<Draft> {
     this.session(id);
     const pending = this.preparing.get(id); if (pending) return pending;
     const active = this.store.drafts.find(d => d.sessionId === id && !d.mergeSources?.length && (scope ? d.generation === 'running' : !d.submitted)); if (active) return Promise.resolve(active);
@@ -1125,7 +1126,7 @@ export class Workbench {
     if (temporary && !categories?.length) return Promise.reject(new Error('请至少选择一种临时整理类别'));
     const requestedCategories = [...new Set(categories || this.resultRules(binding.project.id).combination.categories)];
     if (!requestedCategories.length) return Promise.reject(new Error('请至少选择一种整理结果'));
-    const operation = this.createPreparation(id, extraFiles, requestedCategories, scope, undefined, temporary).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
+    const operation = this.createPreparation(id, extraFiles, requestedCategories, scope, undefined, temporary, directions).finally(() => this.preparing.delete(id)); this.preparing.set(id, operation); return operation;
   }
   prepareContentMerge(projectId: string, sessionId: string, sourceIds: string[]): Promise<Draft> {
     this.session(sessionId);
@@ -1176,11 +1177,12 @@ export class Workbench {
     const draft: Draft = { binding: structuredClone(parent.binding), resultRules: this.preparationRules(projectId), id: draftId, sessionId, prepareSessionId: prepared.id, preparationVersion: 5, conclusionMergeProjectId: projectId, conclusionMergeInstruction: instruction, mergeSources, generation: 'running', title: `${selected.length} 条本地结论 · 预处理`, body: '', files: [], inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
   }
-  private async createPreparation(id: string, extraFiles: string[], requestedCategories: ContributionCategory[], scope: PreparationScope = 'full', source?: Draft, temporary = false) {
+  private async createPreparation(id: string, extraFiles: string[], requestedCategories: ContributionCategory[], scope: PreparationScope = 'full', source?: Draft, temporary = false, directions?: PreparationDirections) {
     const parent = this.session(id); if (parent.purpose !== 'work') throw new Error('请从工作会话创建整理结果');
     this.assertCanWork(parent.binding);
     if (!parent.binding) throw new Error('请先绑定项目');
     const resultRules = this.preparationRules(parent.binding.project.id, requestedCategories, temporary);
+    const preparationDirections = selectedPreparationDirections(resultRules.categories, directions);
     const checkpoint = preparationCheckpoint(parent, this.store.drafts);
     if (scope === 'incremental' && !checkpoint) throw new Error('没有已完成的整理进度，请先全量整理');
     const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
@@ -1190,23 +1192,24 @@ export class Workbench {
     prepared.binding = parent.binding ? structuredClone(parent.binding) : undefined;
     const draft: Draft = { id: draftId, sessionId: id, snapshot, preparationScope: scope, baseDraftId: checkpoint?.draftId, git, includeGit: source?.includeGit ?? !!git, prepareSessionId: prepared.id, preparationVersion: 3, concise: true, requestedCategories, supplement: source?.supplement || '', repoUrlOverride: source?.repoUrlOverride || '', title: parent.title + (scope === 'incremental' ? ' · 增量成果' : ' · 成果'), body: '', files, binding: parent.binding ? structuredClone(parent.binding) : undefined, inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
     draft.resultRules = resultRules;
+    draft.preparationDirections = preparationDirections;
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
   }
-  private async createReorganization(source: Draft, scope: PreparationScope, categories?: ContributionCategory[], temporary = false) {
+  private async createReorganization(source: Draft, scope: PreparationScope, categories?: ContributionCategory[], temporary = false, directions?: PreparationDirections) {
     if (source.mergeSources?.length) throw new Error('项目文档或本地结论合并不支持增量整理');
     if (source.generation !== 'ready') throw new Error('请等待本次整理完成后再选择新的整理范围');
     const parent = this.session(source.sessionId); if (parent.purpose !== 'work') throw new Error('原工作会话不存在，无法再次整理');
     if (temporary && !categories?.length) throw new Error('请至少选择一种临时整理类别');
     const requestedCategories = categories ? [...new Set(categories)] : [...this.resultRules(parent.binding!.project.id).combination.categories];
     if (!requestedCategories.length) throw new Error('请至少选择一种整理结果');
-    return this.createPreparation(parent.id, [], requestedCategories, scope, source, temporary);
+    return this.createPreparation(parent.id, [], requestedCategories, scope, source, temporary, directions ?? source.preparationDirections);
   }
-  reorganizePreparation(id: string, scope: PreparationScope, categories?: ContributionCategory[], temporary = false): Promise<Draft> {
+  reorganizePreparation(id: string, scope: PreparationScope, categories?: ContributionCategory[], temporary = false, directions?: PreparationDirections): Promise<Draft> {
     const source = this.draft(id), key = source.sessionId;
     const creating = this.preparing.get(key); if (creating) return creating;
     const active = this.store.drafts.find(draft => draft.sessionId === key && !draft.mergeSources?.length && draft.generation === 'running'); if (active) return Promise.resolve(active);
     const pending = this.reorganizing.get(key); if (pending) return pending;
-    const operation = this.createReorganization(source, scope, categories, temporary).finally(() => { this.reorganizing.delete(key); this.preparing.delete(key); }); this.reorganizing.set(key, operation); this.preparing.set(key, operation); return operation;
+    const operation = this.createReorganization(source, scope, categories, temporary, directions).finally(() => { this.reorganizing.delete(key); this.preparing.delete(key); }); this.reorganizing.set(key, operation); this.preparing.set(key, operation); return operation;
   }
   confirmEmptyPreparation(id: string) {
     return this.edit('draft:' + id, async () => {
