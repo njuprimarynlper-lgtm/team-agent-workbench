@@ -46,7 +46,7 @@ export class AccountSync {
   private stopped = false;
   private generation = 0;
   private choices: Record<string, { local: string; remote: string; choice: 'local' | 'remote' }> = {};
-  constructor(private store: Store, private remote: SharedFiles, private changed: () => void) { store.saved = () => this.schedule(); }
+  constructor(private store: Store, private remote: SharedFiles, private changed: () => void, private reconcile?: () => void) { store.saved = () => this.schedule(); }
   private file(profile: ConnectionProfile) { return path.join(this.store.root, 'accounts', createHash('sha256').update(accountIdentity(profile)).digest('hex') + '.json'); }
   private owns(draft: Draft, profile: ConnectionProfile) { return !!draft.binding && accountIdentity(draft.binding) === accountIdentity(profile); }
   private collect(profile = this.profile!): AccountRecords {
@@ -58,7 +58,7 @@ export class AccountSync {
     for (const draft of this.store.drafts) if (this.owns(draft, profile)) {
       const selectedFiles = new Set(draft.artifacts?.flatMap(item => (item.attachments || []).filter(entry => entry.selected).map(entry => entry.fileId)));
       // Account restoration contains reviewed results, never conversations, CLI state or local code paths.
-      records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: this.store.sessions.find(session => session.id === draft.sessionId)?.title || draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, evidenceIds: undefined, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, emptyResult: draft.emptyResult, resultRules: draft.resultRules, resultCategory: draft.resultCategory, resultSourceDetails: draft.resultSourceDetails, mergeProjectId: draft.mergeProjectId, conclusionMergeProjectId: draft.conclusionMergeProjectId, conclusionMergeInstruction: draft.conclusionMergeInstruction, mergeSources: draft.mergeSources, mergeCompletedAt: draft.mergeCompletedAt, mergeResultId: draft.mergeResultId, mergeResultPath: draft.mergeResultPath, submitted: draft.submitted ? 'restored' : undefined };
+      records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: this.store.sessions.find(session => session.id === draft.sessionId)?.title || draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, evidenceIds: undefined, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), personalSavedIds: draft.personalSavedIds, files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, emptyResult: draft.emptyResult, resultRules: draft.resultRules, resultCategory: draft.resultCategory, resultSourceDetails: draft.resultSourceDetails, mergeProjectId: draft.mergeProjectId, conclusionMergeProjectId: draft.conclusionMergeProjectId, conclusionMergeInstruction: draft.conclusionMergeInstruction, mergeSources: draft.mergeSources, mergeCompletedAt: draft.mergeCompletedAt, mergeResultId: draft.mergeResultId, mergeResultPath: draft.mergeResultPath, submitted: draft.submitted ? 'restored' : undefined };
     }
     for (const [id, alias] of Object.entries(this.store.settings.contentAliases || {})) records['alias:' + id] = alias;
     const prefix = `${profile.id}:${profile.username}:`;
@@ -84,7 +84,7 @@ export class AccountSync {
         if (!existing) this.store.drafts.push(restored);
         else if (!['running'].includes(existing.generation || '')) {
           const artifacts = restored.artifacts?.map(item => { const prior = existing.artifacts?.find(prior => prior.id === item.id); return { ...item, evidenceIds: prior?.evidenceIds || item.evidenceIds, submitted: prior?.submitted || item.submitted, attachments: [...(item.attachments || []), ...(prior?.attachments || []).filter(entry => !entry.selected && !item.attachments?.some(other => other.fileId === entry.fileId))] }; });
-          Object.assign(existing, { title: value.title, titleAlias: value.titleAlias, body: value.body, supplement: value.supplement, artifacts, emptyResult: value.emptyResult, resultRules: value.resultRules, resultCategory: value.resultCategory, resultSourceDetails: value.resultSourceDetails });
+          Object.assign(existing, { title: value.title, titleAlias: value.titleAlias, body: value.body, supplement: value.supplement, artifacts, personalSavedIds: [...new Set([...(existing.personalSavedIds || []), ...(value.personalSavedIds || [])])], emptyResult: value.emptyResult, resultRules: value.resultRules, resultCategory: value.resultCategory, resultSourceDetails: value.resultSourceDetails });
         }
       }
     }
@@ -158,7 +158,7 @@ export class AccountSync {
     this.running = (async () => {
       this.state = { ...this.state, status: 'syncing' }; this.changed();
       try {
-        for (let attempt = 0; attempt < 3; attempt++) {
+        for (let attempt = 0; attempt < 5; attempt++) {
           const snapshot = await this.remote.accountData(); valid();
           accountRecordsSchema.parse(snapshot.records);
           const before = this.collect(), merged = mergeAccountRecords(this.base, before, snapshot.records, this.choices);
@@ -170,8 +170,19 @@ export class AccountSync {
           const after = mergeAccountRecords(before, this.collect(), result.records);
           if (after.conflicts.length) { this.state = { status: 'pending', detail: '同步期间有新修改，稍后继续' }; return; }
           this.applying = true;
-          try { this.apply(after.records, profile); await this.store.repairConclusionImports(); this.base = result.records; await this.store.save(); await atomicJson(this.file(profile), result); }
+          try {
+            this.apply(after.records, profile);
+            // Older or interrupted clients may have uploaded a reviewed preparation
+            // record without its derived personal result. Rebuild that local view
+            // after restoration, then keep syncing until the repaired record is also
+            // present in the account-private snapshot.
+            this.reconcile?.();
+            await this.store.repairConclusionImports(); this.base = result.records; await this.store.save(); await atomicJson(this.file(profile), result);
+          }
           finally { this.applying = false; }
+          if (canonical(this.collect(profile)) !== canonical(Object.fromEntries(Object.entries(this.base).filter(([, value]) => value != null)))) {
+            this.state = { status: 'pending', detail: '已恢复缺失的个人成果，正在回写账号资料' }; this.changed(); continue;
+          }
           this.state = { status: 'synced', syncedAt: new Date().toISOString() }; this.choices = {}; return;
         }
         throw new Error('另一台电脑正在保存，稍后重试');

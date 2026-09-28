@@ -35,6 +35,10 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, references: [{ id: content.id, revision: 2 }] }), /结论已更新/);
     const task = await alice.remote.assignmentCreate(binding, input);
     assert.equal(task.references[0].category, 'finding'); assert.equal(projectResultTitle(task.references[0]), '【项目结论】 OCR 基线结论');
+    const bobOther = new Workbench(path.join(root, 'bob-other-computer'), () => {}, () => {}); clients.push(bobOther); await bobOther.store.init();
+    const bobOtherProfile = memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'bob'); bobOtherProfile.id = 'bob-other-computer';
+    await bobOther.configureWorkspace(bobOtherProfile, '1', '', async () => false);
+    assert.equal((await bobOther.remote.assignmentList(bobOther.remote.binding(project.id))).find(item => item.id === task.id)?.status, 'assigned', 'the same account sees its task on another computer');
     await assert.rejects(bob.startAssignment(project.id, task.id, task.revision, 'codex', path.join(root, 'missing-directory')));
     assert.equal((await bob.remote.assignmentList(bobBinding))[0].status, 'assigned', 'local setup failure must not mark remote work as started');
     assert.equal((await alice.remote.assignmentCreate(binding, input)).id, task.id, 'retry is idempotent');
@@ -55,6 +59,7 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     for (const id of session.assignment!.sourceIds) assert(context.sources.some(item => item.id === id), 'task sources automatically enter context');
     const source = session.sources.find(item => item.sourcePath.includes(':content:'))!; assert.match(await fs.readFile(source.localPath, 'utf8'), /低清晰度/);
     const active = (await bob.remote.assignmentList(bobBinding))[0]; assert.equal(active.status, 'in_progress');
+    assert.equal((await bobOther.remote.assignmentList(bobOther.remote.binding(project.id))).find(item => item.id === task.id)?.status, 'in_progress', 'task progress is server-backed across computers');
     await assert.rejects(bob.remote.assignmentStatus(bobBinding, { id: task.id, revision: 1, status: 'completed' }), /已更新/);
     const review = await bob.updateAssignment(project.id, { id: task.id, revision: active.revision, status: 'pending_review', submission: { summary: '已补充回归样本，符合任务目标。', references: [], uploadIds: [] } });
     assert.equal(review.status, 'pending_review');

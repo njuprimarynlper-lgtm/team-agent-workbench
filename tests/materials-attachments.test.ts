@@ -106,6 +106,26 @@ test('research folders persist; account restores personal materials and selected
   } finally { await env.close(); }
 });
 
+test('a second computer repairs a reviewed preparation whose personal result is missing from older account data', async () => {
+  const env = await setup();
+  try {
+    const a = env.first, projectId = env.project.id, session = await a.createSession('codex', '', projectId);
+    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'legacy-input'), outputPath: path.join(a.store.root, 'legacy-result.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, combinationId: 'research', name: '调研分析', categories: ['finding'] }, preparationEvidenceIds: ['handoff'] };
+    applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', topic: '换机恢复', title: '已确认成果应跟随账号', body: '新电脑应同时恢复整理记录和已确认的个人成果。', origin: 'project', evidenceIds: ['handoff'] }] }));
+    a.store.drafts.push(draft); await a.renameDraftResult(draft.id, '已确认成果应跟随账号', draft.artifacts![0].id); await a.accountSync.sync();
+    const complete = await a.remote.accountData();
+    const incomplete = Object.fromEntries(Object.entries(complete.records).filter(([key]) => !key.startsWith('material:')));
+    const legacy = await a.remote.accountData({ revision: complete.revision, records: incomplete }); assert(!legacy.conflict);
+
+    const b = await env.client('legacy-second');
+    assert.equal(b.store.sessions.length, 0);
+    assert.equal(b.store.drafts.filter(item => item.id === draft.id).length, 1);
+    assert.equal(b.conclusions(projectId).filter(item => item.sources.some(source => source.id === draft.artifacts![0].id)).length, 1);
+    const repaired = await b.remote.accountData();
+    assert(Object.keys(repaired.records).some(key => key.startsWith('material:')), 'the repaired result must be persisted for later computers');
+  } finally { await env.close(); }
+});
+
 test('account synchronization while an activity scan awaits its response cannot detach the inbox and lose merge notifications', async () => {
   const env = await setup(); let release: (() => void) | undefined;
   try {

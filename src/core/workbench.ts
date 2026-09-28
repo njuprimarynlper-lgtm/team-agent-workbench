@@ -95,7 +95,13 @@ export class Workbench {
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, private preparationTimeoutMs = 10 * 60 * 1000, private providerEnvironment: () => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void) {
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
-    this.accountSync = new AccountSync(this.store, this.remote, this.broadcast);
+    this.accountSync = new AccountSync(this.store, this.remote, this.broadcast, () => {
+      for (const draft of this.store.drafts) {
+        const explicitlySaved = new Set(draft.personalSavedIds || []);
+        if (!explicitlySaved.size) continue;
+        this.syncDraftConclusions(draft, true, explicitlySaved);
+      }
+    });
     this.accounts = new ProviderAccounts(p => this.store.settings.providerPaths[p], broadcast, provider => {
       for (const [id, runtime] of this.runtimes) if (runtime.session.provider === provider && !['running', 'approval', 'starting'].includes(runtime.session.status)) { runtime.close(); this.runtimes.delete(id); }
     }, this.providerEnvironment);
@@ -346,11 +352,11 @@ export class Workbench {
     }
     return changed;
   }
-  private syncDraftConclusions(draft: Draft, preserveExisting = false) {
+  private syncDraftConclusions(draft: Draft, preserveExisting = false, requestedIds?: Set<string>) {
     if (!draft.binding || draft.mergeSources?.length || draft.generation !== 'ready') return [];
     const owner = accountIdentity(draft.binding);
-    const projectId = draft.binding.project.id, selectedIds = new Set((draft.artifacts || []).filter(item => item.selected).map(item => item.id));
-    if (!draft.artifacts?.length && draft.body.trim()) selectedIds.add(draft.id);
+    const projectId = draft.binding.project.id, selectedIds = new Set((draft.artifacts || []).filter(item => item.selected && (!requestedIds || requestedIds.has(item.id))).map(item => item.id));
+    if (!draft.artifacts?.length && draft.body.trim() && (!requestedIds || requestedIds.has(draft.id))) selectedIds.add(draft.id);
     const owns = (source: ConclusionSource) => source.kind === 'session' && (source.id === draft.id || source.id.startsWith(draft.id + '-'));
     const now = draft.generationFinishedAt || new Date().toISOString();
     for (const conclusion of this.store.conclusions.filter(item => !item.deletedAt && item.accountOwner === owner && item.projectId === projectId && !preserveExisting)) {
@@ -365,15 +371,16 @@ export class Workbench {
     const sourceSessionTitle = this.store.sessions.find(session => session.id === draft.sessionId)?.title || draft.sourceSessionTitle || '本机会话';
     const results: ConclusionOrganization[] = [];
     const alreadyStored = (id: string) => this.store.conclusions.some(item => (preserveExisting || !!item.deletedAt) && item.accountOwner === owner && item.projectId === projectId && item.sources.some(source => source.kind === 'session' && source.id === id));
-    for (const artifact of (draft.artifacts || []).filter(item => item.selected)) {
+    for (const artifact of (draft.artifacts || []).filter(item => selectedIds.has(item.id))) {
       if (alreadyStored(artifact.id)) continue;
       const title = artifact.titleAlias ? contributionTitle(artifact.category, artifact.titleAlias) : artifact.title, content = artifactContributionBody(draft, artifact);
       results.push(this.organizeConclusion(projectId, title, content, { id: artifact.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, ...(artifact.sourceDetails ? { details: artifact.sourceDetails } : {}), updatedAt: now }, artifact.category, owner));
     }
-    if (!draft.artifacts?.length && draft.body.trim() && !alreadyStored(draft.id)) {
+    if (!draft.artifacts?.length && selectedIds.has(draft.id) && !alreadyStored(draft.id)) {
       const title = draft.titleAlias || titleSubject(draft.title) || draft.title, content = contributionBody(draft);
       results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }, undefined, owner));
     }
+    if (selectedIds.size) draft.personalSavedIds = [...new Set([...(draft.personalSavedIds || []), ...selectedIds])];
     linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     return results;
   }
