@@ -6,6 +6,9 @@ import type { AdminProfile, AdminSnapshot, ManagedUser, ManagedGroup } from './t
 import { PeopleManagement, MembershipDialog } from './people';
 import '../renderer/styles.css';
 import './styles.css';
+import './egress-monitor.css';
+import './egress-tests.css';
+import './egress-layout.css';
 import { memberReadiness } from './member-readiness';
 import type { AdminJob } from './types';
 import { firstMemberIsAdmin } from './member-defaults';
