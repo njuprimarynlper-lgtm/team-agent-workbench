@@ -37,7 +37,7 @@ export interface AgentSession {
   cwd: string; purpose: 'work' | 'prepare'; networkRoute?: SessionNetworkRoute; parentId?: string; fork?: SubsessionFork; reports?: SubsessionReport[]; createdAt: string;
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string; stoppedAt?: string;
   messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
-  permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue;
+  permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue; settingsPending?: boolean;
   cliConnection?: import('./cli-connection').CliConnection;
   projectBrief?: { revision: number; sourceId: string; capturedAt: string }; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;
   assignment?: { id: string; revision: number; title: string; sourceIds: string[] };

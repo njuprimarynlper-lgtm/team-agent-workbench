@@ -19,6 +19,7 @@ const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recu
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
   await dismissStartupLogin(page);
+  if (await page.getByRole('heading', { name: '设置项目代码目录' }).isVisible()) await page.getByRole('button', { name: '暂不设置' }).click();
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const snap = () => call('snapshot');
   const calls = async () => (await fs.readFile(path.join(data, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(x => JSON.parse(x));
@@ -78,16 +79,26 @@ try {
   const oldRequest = (await snap()).sessions.find(s => s.id === first.id).approvals[0];
   await page.getByLabel('当前执行权限').click();
   await page.getByRole('button', { name: '请求批准', exact: true }).click();
-  await page.getByRole('button', { name: '停止当前任务并切换', exact: true }).click();
   await expect(page.getByRole('dialog', { name: '执行权限', exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('待授权提醒')).toHaveCount(0);
-  await assert.rejects(call('session.answer', { id: first.id, requestId: oldRequest.id, option: 'accept' }));
-  assert.equal((await snap()).sessions.find(s => s.id === first.id).status, 'idle');
+  assert.equal((await snap()).sessions.find(s => s.id === first.id).status, 'approval');
+  assert.equal((await snap()).sessions.find(s => s.id === first.id).settingsPending, true);
+  await expect(page.getByLabel('待授权提醒')).toContainText('1');
+  await call('session.answer', { id: first.id, requestId: oldRequest.id, option: 'accept' });
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('idle');
+  await fixture.write({ status: 'ready', permissionRuntime: true, turn: 'success' });
+  const turnsBeforeReview = (await calls()).filter(m => m.method === 'turn/start').length;
+  await send('请求批准模式继续');
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).settingsPending).toBeUndefined();
+  await expect.poll(async () => (await calls()).some(m => m.method === 'thread/resume' && m.params.approvalPolicy === 'on-request' && m.params.approvalsReviewer === 'user')).toBe(true);
+  await expect.poll(async () => (await calls()).filter(m => m.method === 'turn/start').length).toBeGreaterThan(turnsBeforeReview);
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('idle');
   // Auto-review is a native reviewer choice, not the client auto-answering requests.
   await page.getByLabel('当前执行权限').click();
   await page.getByRole('button', { name: '帮我批准', exact: true }).click();
   await expect(page.getByLabel('当前执行权限')).toContainText('帮我批准');
+  await fixture.write({ status: 'ready', permissionRuntime: true, toolApproval: true });
   await send('自动审查仍需人工确认的请求');
+  await expect.poll(async () => (await snap()).sessions.find(s => s.id === first.id).status).toBe('approval');
   await expect(page.locator('.approval')).toBeVisible();
   await expect(page.getByLabel('当前执行权限')).toContainText('帮我批准');
   assert((await calls()).some(m => m.method === 'thread/resume' && m.params.approvalPolicy === 'on-request' && m.params.approvalsReviewer === 'auto_review'));

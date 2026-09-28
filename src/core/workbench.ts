@@ -53,6 +53,7 @@ export class Workbench {
   private runtimes = new Map<string, AgentRuntime | ClaudeRuntime>(); private sending = new Set<string>();
   private steering = new Set<string>();
   private changingSettings = new Set<string>();
+  private deferredSettings = new Set<string>();
   private canceledSends = new Set<string>();
   private stoppingSessions = new Set<string>();
   private deletingDrafts = new Set<string>();
@@ -118,6 +119,8 @@ export class Workbench {
     // Pin pre-existing sessions to the account route they used before this feature.
     for (const session of this.store.sessions) {
       session.networkRoute ??= this.store.settings.egress?.enabled ? 'management' : 'direct';
+      // CLI processes do not survive an app restart; the saved choice is already effective.
+      session.settingsPending = undefined;
     }
     // Older versions saved prepared results automatically. Preserve those records
     // without creating new personal results from drafts during startup.
@@ -756,34 +759,48 @@ export class Workbench {
     for (const provider of ['codex', 'cursor', 'claude'] as Provider[]) this.accounts.invalidate(provider);
     for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
   }
-  async changePermissions(id: string, mode: PermissionMode, stop = false) {
+  async changePermissions(id: string, mode: PermissionMode, _stop = false) {
     const s = this.session(id);
     if (s.purpose !== 'work') throw new Error('成果整理固定使用完全访问权限');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (!['inherit', 'review', 'auto', 'full'].includes(mode)) throw new Error('无效权限模式');
     if (s.provider === 'cursor' && mode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
-    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
-    if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再修改权限');
+    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     return this.updateSessionSettings(s, () => { s.permissionMode = mode; s.permissionIssue = undefined; });
+  }
+  private async applyDeferredSettings(s: AgentSession) {
+    if (!this.deferredSettings.has(s.id) || ['starting', 'running', 'approval'].includes(s.status) || this.changingSettings.has(s.id)) return;
+    this.changingSettings.add(s.id);
+    try {
+      const runtime = this.runtimes.get(s.id);
+      this.runtimes.delete(s.id);
+      if (runtime) await runtime.close();
+      this.deferredSettings.delete(s.id);
+      s.settingsPending = undefined;
+      s.permissions = undefined;
+      await this.store.save(); this.broadcast();
+    } finally { this.changingSettings.delete(s.id); }
   }
   private async updateSessionSettings(s: AgentSession, update: () => void) {
     if (this.stoppingSessions.has(s.id)) throw new Error('此会话正在停止，请稍后重试');
     if (this.changingSettings.has(s.id)) throw new Error('正在切换会话设置，请稍后重试');
     this.changingSettings.add(s.id);
     try {
-      const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close();
-      update(); s.permissions = undefined; s.status = 'idle'; s.approvals = [];
+      const active = ['running', 'approval'].includes(s.status);
+      if (!active) { const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
+      update();
+      if (active) { this.deferredSettings.add(s.id); s.settingsPending = true; }
+      else { this.deferredSettings.delete(s.id); s.settingsPending = undefined; s.permissions = undefined; s.status = 'idle'; s.approvals = []; }
       await this.store.save(); this.broadcast(); return s;
     } finally { this.changingSettings.delete(s.id); }
   }
-  async changeModel(id: string, model: string, stop = false) {
+  async changeModel(id: string, model: string, _stop = false) {
     const s = this.session(id);
     if (s.purpose !== 'work') throw new Error('成果整理使用来源会话的模型');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     model = model.trim();
     if (!model || model.length > 256 || /[\x00-\x1f\x7f]/.test(model)) throw new Error('请选择有效的模型');
-    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成或停止后重试');
-    if (['running', 'approval'].includes(s.status) && !stop) throw new Error('请先停止当前任务再切换模型');
+    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     // Reconnect on the next send and resume the original native conversation.
     // Cursor applies session/set_model after session/load; Codex and Claude resume with the selected model.
     return this.updateSessionSettings(s, () => { s.model = model; });
@@ -905,6 +922,8 @@ export class Workbench {
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (this.sending.has(id) || this.steering.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
+    await this.applyDeferredSettings(s);
+    if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
     this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; s.status = 'starting'; this.changed();
     const canceled = () => this.canceledSends.has(id) || this.closing;
     try {
@@ -990,6 +1009,7 @@ export class Workbench {
     try {
       const runtime = this.runtimes.get(id); this.runtimes.delete(id);
       if (runtime) { void runtime.cancel().catch(() => {}); await runtime.close(); }
+      this.deferredSettings.delete(id); s.settingsPending = undefined; s.permissions = undefined;
       s.status = 'idle'; s.error = undefined; s.approvals = []; await this.store.save(); this.broadcast();
     } finally { this.stoppingSessions.delete(id); }
   }
@@ -998,6 +1018,7 @@ export class Workbench {
     s.closedAt = new Date().toISOString();
     const runtime = this.runtimes.get(id); this.runtimes.delete(id);
     if (runtime) await runtime.close();
+    this.deferredSettings.delete(id); s.settingsPending = undefined; s.permissions = undefined;
     s.status = 'idle'; s.approvals = []; await this.store.save(); this.broadcast();
   }
   async reopenSession(id: string) {

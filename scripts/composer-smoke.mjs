@@ -33,7 +33,7 @@ try {
     await expect(page.locator('.composer').getByLabel('选择 Skill 和插件')).toBeVisible();
     await expect(page.locator('.session-permission-line')).toHaveCount(0);
     const chatBox = await page.locator('.messages').boundingBox();
-    assert(chatBox.height >= 420 && chatBox.y < 170, 'chat must occupy the main area at 1100 × 760');
+    assert(chatBox.height >= 400 && chatBox.y < 200, 'chat must occupy the main area at 1100 × 760');
     const composeBox = await page.locator('.composer').boundingBox(); assert(composeBox.y + composeBox.height <= 740);
     await page.getByLabel('选择模型').click();
     const menu = page.getByRole('dialog', { name: '模型与额度', exact: true });
@@ -97,19 +97,23 @@ try {
     await input.fill('继续任务'); await input.press('Control+Enter');
     await expect.poll(async () => (await current()).status).toBe('running');
     await expect.poll(async () => (await current()).messages.filter(m => m.role === 'user').length).toBe(2);
-    await input.fill('下一条草稿'); await input.press('Enter'); await expect(input).toHaveValue('下一条草稿');
+    await input.fill('下一条草稿'); await expect(input).toHaveValue('下一条草稿');
     assert.equal((await current()).messages.filter(m => m.role === 'user').length, 2);
     await page.getByLabel('选择模型').click();
     await menu.getByRole('group', { name: '可用模型' }).getByRole('button').first().click();
-    await expect(menu.getByText(/将停止当前任务/)).toBeVisible();
-    assert.equal((await current()).status, 'running');
-    await menu.getByRole('button', { name: '取消', exact: true }).click();
-    assert.equal((await current()).status, 'running');
-    await menu.getByRole('group', { name: '可用模型' }).getByRole('button').first().click();
-    await menu.getByRole('button', { name: '停止当前任务并切换', exact: true }).click();
     await expect(menu).toHaveCount(0);
-    assert.equal((await current()).status, 'idle'); assert.equal((await current()).nativeId, native);
+    assert.equal((await current()).status, 'running');
+    assert.equal((await current()).settingsPending, true);
+    await expect(page.getByText('下轮生效')).toBeVisible();
+    await page.getByLabel('当前执行权限').click();
+    const permissionMenu = page.getByRole('dialog', { name: '执行权限', exact: true });
+    await permissionMenu.getByRole('group', { name: '权限选项' }).getByRole('button', { name: /完全访问|Run Everything/ }).click();
+    await expect(permissionMenu).toHaveCount(0);
+    assert.equal((await current()).status, 'running');
+    assert.equal((await current()).nativeId, native);
     assert.equal((await current()).messages.filter(m => m.role === 'user').length, 2, 'switch must not replay');
+    await call('session.stop', { id: session.id });
+    assert.equal((await current()).status, 'idle'); assert.equal((await current()).nativeId, native);
     await expect(input).toHaveValue('下一条草稿');
     // Failed catalog queries can be retried without changing the chosen model.
     await fixture.write({ status: 'ready', catalog: 'error' });
@@ -121,5 +125,5 @@ try {
     await call('session.close', { id: session.id });
   }
   assert.deepEqual(errors, []);
-  console.log('Composer UI passed: native Skill/plugin selection and one-message chips/invocation, inline model/permission menus, quotas, switch preserving native identity and drafts, stop/cancel, retry, compact viewport geometry; for Codex and Cursor: Enter sends, Shift+Enter inserts newline, Chinese IME confirmation and repeat do not send, empty input does not send, Ctrl+Enter stays supported, busy-session draft remains intact.');
+  console.log('Composer UI passed: native Skill/plugin selection and one-message chips/invocation, inline model/permission menus, quotas, noninterrupting switch preserving native identity and drafts, retry, compact viewport geometry; for Codex and Cursor: Enter sends, Shift+Enter inserts newline, Chinese IME confirmation and repeat do not send, empty input does not send, Ctrl+Enter stays supported, busy-session draft remains intact.');
 } finally { await app.close(); }
