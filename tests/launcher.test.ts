@@ -30,6 +30,7 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   await fs.writeFile(path.join(dir, 'scripts/launch-desktop.mjs'), silentFixture);
   await fs.copyFile(path.join(root, 'scripts/startup-process.ps1'), path.join(dir, 'scripts/startup-process.ps1'));
   await fs.copyFile(path.join(root, 'scripts/startup-dependencies.mjs'), path.join(dir, 'scripts/startup-dependencies.mjs'));
+  await fs.copyFile(path.join(root, 'scripts/electron-runtime-cache.mjs'), path.join(dir, 'scripts/electron-runtime-cache.mjs'));
   const dependencies = { electron: '44.3.0', esbuild: '0.28.2', ssh2: '1.17.0' };
   await fs.writeFile(path.join(dir, 'package.json'), JSON.stringify({ dependencies }));
   await fs.writeFile(path.join(dir, 'package-lock.json'), JSON.stringify({ lockfileVersion: 3, packages: {
@@ -58,6 +59,7 @@ const event = value => fs.appendFileSync(path.join(root, 'events.jsonl'), JSON.s
 event({ step, args: process.argv.slice(2), cwd: root });
 if (process.env.LAUNCHER_FAIL_STEP === step) process.exit(17);
 if (step === 'ci') {
+  fs.rmSync(path.join(root, 'node_modules'), { recursive: true, force: true });
   for (const name of ['electron/dist', 'esbuild', 'ssh2']) fs.mkdirSync(path.join(root, 'node_modules', name), { recursive: true });
   const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json')));
   for (const name of ['esbuild', 'ssh2']) fs.writeFileSync(path.join(root, 'node_modules', name, 'package.json'), JSON.stringify({ version: lock.packages['node_modules/' + name].version }));
@@ -74,7 +76,7 @@ if (step === 'ci') {
 }
 `);
   await fs.writeFile(path.join(dir, 'bin/npm.cmd'), '@echo off\r\n"%LAUNCHER_TEST_NODE%" "%LAUNCHER_TEST_RUNNER%" %*\r\nexit /b %errorlevel%\r\n');
-  const env: NodeJS.ProcessEnv = { ...process.env, LAUNCHER_TEST_NODE: process.execPath, LAUNCHER_TEST_RUNNER: runner, ELECTRON_RUN_AS_NODE: '1' };
+  const env: NodeJS.ProcessEnv = { ...process.env, LAUNCHER_TEST_NODE: process.execPath, LAUNCHER_TEST_RUNNER: runner, ELECTRON_RUN_AS_NODE: '1', WORKBENCH_ELECTRON_CACHE: path.join(dir, '.electron-cache') };
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'path') delete env[key];
   env.Path = path.join(dir, 'bin') + path.delimiter + (process.env.Path || process.env.PATH);
   const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
@@ -127,6 +129,7 @@ test('first launch installs locked dependencies; both editions start from paths 
   await fs.writeFile(path.join(f.dir, 'package-lock.json'), JSON.stringify(lock));
   await f.run('user'); await f.launched(4);
   assert.equal((await f.events()).filter(e => e.step === 'ci').length, 2, 'lockfile update must prepare dependencies again');
+  assert.equal((await f.events()).filter(e => e.step === 'electron-install').length, 1, 'the previous Electron runtime survives npm ci in a separate cache');
 });
 
 test('failed install is retried and failed build never launches an older app', windows, async t => {
@@ -163,7 +166,7 @@ test('Electron download failure retries only the binary and never launches an in
   assert.equal(events.filter(event => event.step === 'run').length, 1);
 });
 
-test('missing Electron executable, metadata and stale version are repaired without npm reinstall', windows, async t => {
+test('missing Electron executable, metadata and stale version restore from cache without downloading', windows, async t => {
   const f = await launcherFixture(t);
   await f.run('user'); await f.launched(1);
   // Windows scanners can retain the executable briefly even after the child has exited.
@@ -181,7 +184,18 @@ test('missing Electron executable, metadata and stale version are repaired witho
   await f.run('admin'); await f.launched(4);
   const events = await f.events();
   assert.equal(events.filter(event => event.step === 'ci').length, 1);
-  assert.equal(events.filter(event => event.step === 'electron-install').length, 4);
+  assert.equal(events.filter(event => event.step === 'electron-install').length, 1);
+});
+
+test('an incomplete Electron cache falls back to the pinned installer', windows, async t => {
+  const f = await launcherFixture(t);
+  await f.run('user'); await f.launched(1);
+  await fs.unlink(path.join(f.dir, '.electron-cache', `v44.3.0-${process.platform}-${process.arch}`, 'dist/electron.exe'));
+  await fs.unlink(path.join(f.dir, 'node_modules/electron/dist/electron.exe'));
+  await f.run('admin'); await f.launched(2);
+  const events = await f.events();
+  assert.equal(events.filter(event => event.step === 'ci').length, 1);
+  assert.equal(events.filter(event => event.step === 'electron-install').length, 2);
 });
 
 test('a successful Electron installer exit without runtime files still blocks build and launch', windows, async t => {

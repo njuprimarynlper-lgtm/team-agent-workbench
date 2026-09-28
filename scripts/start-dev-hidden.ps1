@@ -227,8 +227,29 @@ function Test-ElectronRuntime {
   } catch { return $false }
 }
 
+function Invoke-ElectronCacheStep([string]$Action) {
+  $output = Join-Path $logRoot "$Edition-$stamp-electron-cache-$Action.out"
+  $errors = Join-Path $logRoot "$Edition-$stamp-electron-cache-$Action.err"
+  try {
+    $code = Invoke-StartupProcess -File $nodePath -Arguments @('"scripts\electron-runtime-cache.mjs"', $Action) -Directory $repoRoot -Output $output -Errors $errors -TimeoutSeconds 180 -TimeoutMessage 'Electron 本地缓存处理超时' -Pulse { Update-StartupProgress }
+    if ($code -ne 0) { throw '缓存处理未完成' }
+    $result = Get-Content -LiteralPath $output -Raw -Encoding UTF8 | ConvertFrom-Json
+    Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Electron cache $Action`: $($result.status) / $($result.version)"
+    return $result.status -eq 'restored'
+  } catch {
+    Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Electron cache $Action failed: $($_.Exception.Message)"
+    return $false
+  }
+}
+
 function Install-ElectronRuntime {
-  if (Test-ElectronRuntime) { return }
+  if (Test-ElectronRuntime) {
+    Set-StartupStage '正在保留桌面运行环境' '首次建立本地缓存后，重新安装依赖也可复用。'
+    [void](Invoke-ElectronCacheStep 'save')
+    return
+  }
+  Set-StartupStage '正在复用桌面运行环境' '先查找本机已保存的 Electron 运行文件。'
+  if ((Invoke-ElectronCacheStep 'restore') -and (Test-ElectronRuntime)) { return }
   $stdoutLog = Join-Path $logRoot "$Edition-$stamp-electron.log"
   $script:stderrLog = Join-Path $logRoot "$Edition-$stamp-electron-error.log"
   Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value 'Preparing Electron binary: node node_modules/electron/install.js'
@@ -238,10 +259,23 @@ function Install-ElectronRuntime {
   if ($runtime.systemCa) { $installArguments += '--use-system-ca' }
   $installArguments += '"node_modules\electron\install.js"'
   Set-StartupStage '正在下载桌面运行环境' '需要访问 Electron 下载源；最多等待 10 分钟，可随时取消。'
-  $code = Invoke-StartupProcess -File $nodePath -Arguments $installArguments -Directory $repoRoot -Output $stdoutLog -Errors $script:stderrLog -TimeoutSeconds 600 -TimeoutMessage 'Electron 下载超时，请检查本机下载网络或代理配置。' -Pulse { Update-StartupProgress }
+  $originalMirror = $env:ELECTRON_MIRROR
+  if (-not $originalMirror) {
+    # Electron's documented China mirror serves the official versioned ZIP;
+    # install.js still verifies it against the checksums bundled with Electron.
+    $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+    Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value "Electron mirror: $env:ELECTRON_MIRROR"
+  }
+  try {
+    $code = Invoke-StartupProcess -File $nodePath -Arguments $installArguments -Directory $repoRoot -Output $stdoutLog -Errors $script:stderrLog -TimeoutSeconds 600 -TimeoutMessage 'Electron 下载超时，请检查本机下载网络或代理配置。' -Pulse { Update-StartupProgress }
+  } finally {
+    if (-not $originalMirror) { Remove-Item Env:ELECTRON_MIRROR -ErrorAction SilentlyContinue }
+  }
   if ($code -ne 0 -or -not (Test-ElectronRuntime)) {
     throw 'Electron 运行文件准备失败。请查看详细日志，检查下载网络或文件权限后重新启动；已安装的 npm 依赖会保留。'
   }
+  Set-StartupStage '正在保留桌面运行环境' '缓存当前版本，供后续依赖重装时复用。'
+  [void](Invoke-ElectronCacheStep 'save')
 }
 
 try {
@@ -329,6 +363,10 @@ try {
   Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value ("Dependencies: " + $dependencyCheck.reason)
   $electron = Join-Path $repoRoot 'node_modules\electron\dist\electron.exe'
   if ($dependencyCheck.install) {
+    if (Test-ElectronRuntime) {
+      Set-StartupStage '正在保留桌面运行环境' '依赖重装前保存已安装的 Electron 运行文件。'
+      [void](Invoke-ElectronCacheStep 'save')
+    }
     # Leave a retry marker if npm fails or startup is cancelled partway through.
     Set-Content -LiteralPath $dependencyStamp -Encoding ASCII -Value '{"pending":true}'
     Invoke-NpmStep 'install' @('ci', '--include=dev', '--include=optional', '--no-audit', '--no-fund')
