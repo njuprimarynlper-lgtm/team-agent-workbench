@@ -49,7 +49,7 @@ test('ended, closed, missing or different turns cannot be confirmed; a failed st
   await assert.rejects(confirmSteeringReview(review, session, 'turn-1', () => submitComposerInput(api, session.id, review.input, review.turnId, () => input, () => { cleared = true; })), /未送达/);
   assert.equal(cleared, false); assert.deepEqual(input, draft());
   const source = await fs.readFile('src/renderer/main.tsx', 'utf8');
-  assert.match(source, /if \(steeringReview \|\| !session/, 'an open review blocks Enter in the underlying composer, even if its task finishes');
+  assert.match(source, /if \(steeringReview \|\|[^\n]*!session/, 'an open review blocks Enter in the underlying composer, even if its task finishes');
   const branch = source.slice(source.indexOf("if (mode === 'steer')"), source.indexOf('const sent = { ...currentInput };', source.indexOf("if (mode === 'steer')")));
   assert.match(branch, /setSteeringReview\(prepareSteeringReview/); assert.doesNotMatch(branch, /sendInput\(|session\.steer/);
 });

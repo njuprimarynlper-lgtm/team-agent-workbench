@@ -170,3 +170,27 @@ test('conclusion selection is permanent per session, concurrent-safe and automat
     await restored.close();
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
+
+test('an unsent personal result can be removed without deleting the result; a delivered result cannot be retracted', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-conclusion-retract-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const item = await wb.createConclusion(offlineProjectId, '尚未发送的发现', '需要补样本');
+    const session = await wb.createSession('codex', root, offlineProjectId);
+    const first = await wb.attachConclusion(session.id, item.id);
+    await wb.saveInput(session.id, { text: '继续研究', sourceIds: [first.id], answers: {} });
+    assert(sessionContext(session, '下一步', []).sources.some(source => source.id === first.id));
+    assert.deepEqual((await wb.detachPendingSource(session.id, first.id)).sourceIds, [first.id]);
+    assert.equal(session.sources.length, 0); assert.deepEqual(wb.store.inputs[session.id].sourceIds, []);
+    assert.equal(sessionContext(session, '下一步', []).sources.length, 0);
+    assert.equal(wb.conclusions(offlineProjectId).length, 1, 'the personal result is retained');
+    await assert.rejects(fs.stat(first.localPath), { code: 'ENOENT' });
+    const second = await wb.attachConclusion(session.id, item.id); assert.notEqual(second.id, first.id);
+    session.nativeId = 'native-1';
+    const sent = sessionContext(session, '发送', []);
+    session.messages.push({ id: 'sent', role: 'user', text: sent.text, createdAt: '', context: { ...sent.context, nativeId: session.nativeId, accepted: true } });
+    session.nativeId = 'native-2';
+    await assert.rejects(wb.detachPendingSource(session.id, second.id), /已发送给模型/);
+    assert.equal(session.sources[0].id, second.id); assert(await fs.stat(second.localPath));
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});

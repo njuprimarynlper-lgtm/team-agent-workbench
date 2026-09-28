@@ -17,7 +17,7 @@ function actionLabel(action: ContentUpdateAction, event: ContentUpdate) {
     if (action.kind === 'saved_conclusion') return '已加入更新后的成果' + name;
     if (action.kind === 'attached_session') return '已将更新后的成果加入会话' + name;
   }
-  return ({ saved_conclusion: '已存入个人成果库', attached_session: '已加入会话', kept_conclusion: '已保留项目成果', deleted_conclusion: '已删除项目成果', acknowledged: '已确认，没有对应项目成果', archived: '已标记为已处理' } as const)[action.kind] + name;
+  return ({ saved_conclusion: '已存入个人成果库', attached_session: '已加入会话', detached_session: '已撤销加入会话', kept_conclusion: '已保留项目成果', deleted_conclusion: '已删除项目成果', acknowledged: '已确认，没有对应项目成果', archived: '已标记为已处理' } as const)[action.kind] + name;
 }
 
 export function ContentActionRecord({ action, event }: { action: ContentUpdateAction; event: ContentUpdate }) {

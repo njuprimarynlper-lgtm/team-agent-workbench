@@ -35,6 +35,7 @@ const artifacts = path.join(root, 'artifacts'); await fs.mkdir(artifacts, { recu
 try {
   let page = await app.firstWindow(); const errors = []; page.on('pageerror', e => errors.push(e.message));
   await dismissStartupLogin(page);
+  if (await page.getByRole('dialog', { name: '设置项目代码目录' }).isVisible()) await page.getByRole('button', { name: '暂不设置' }).click();
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const get = async id => (await call('snapshot')).sessions.find(s => s.id === id);
   const send = async (id, text, count) => {
@@ -45,13 +46,20 @@ try {
     await expect(page.locator('.messages')).not.toContainText(/本地快照|SHA256|工作台工作记录约定|用户选择的参考文件/);
   };
   const conclusion = await call('conclusion.create', { projectId: profile.projects[0].id, title: 'OCR 识别约束', content: 'OCR 识别需要补齐低清晰度扫描件样本，下一步应该先核对验收目标。' });
+  await page.locator(`.session-row[data-session-id="${seeds[0].id}"]`).click();
+  const unsent = await call('session.attachConclusion', { id: seeds[0].id, conclusionId: conclusion.id });
+  await expect(page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ })).toBeVisible();
+  await page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ }).click();
+  await expect(page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ })).toHaveCount(0);
+  assert.equal((await get(seeds[0].id)).sources.some(source => source.id === unsent.id), false);
+  assert.equal((await call('conclusion.list', { projectId: profile.projects[0].id })).some(item => item.id === conclusion.id), true);
   for (const seed of seeds) {
     await page.locator(`.session-row[data-session-id="${seed.id}"]`).click();
     await call('provider.auth', { provider: seed.provider, cwd: data });
     await fixture.write({ status: 'ready', turn: 'success', rejectTurn: true });
     await page.getByLabel('任务输入', { exact: true }).fill('OCR 识别约束：下一步应该做什么？');
     await page.getByRole('button', { name: '发送任务', exact: true }).click();
-    await page.getByLabel('带入成果：OCR 识别约束', { exact: true }).check();
+    await page.getByLabel(/带入成果：.*OCR 识别约束/).check();
     await page.getByRole('button', { name: '带入 1 条并发送', exact: true }).click();
     await expect.poll(async () => (await get(seed.id)).status).toBe('error');
     assert.equal((await get(seed.id)).messages.find(m => m.role === 'user').context.accepted, false);
@@ -63,6 +71,7 @@ try {
     await send(seed.id, '重试：OCR 识别约束', 1);
     const first = (await get(seed.id)).messages.find(m => m.role === 'user' && m.context?.accepted); assert(first.text.includes(seed.sources[0].sha256)); assert.equal(first.userText, '重试：OCR 识别约束');
     await expect(page.locator('.source-chips')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ })).toHaveCount(0);
     await page.locator('.session-materials > summary').click();
     await expect(page.getByLabel('已带入的参考资料')).toContainText('OCR 识别约束');
     await expect(page.getByLabel('已带入的参考资料').locator('li')).toHaveCount(2);
@@ -95,7 +104,10 @@ try {
   await expect(page.locator('.message.user .markdown')).toHaveText('下一步应该做什么？');
   assert.equal((await get(legacy.id)).messages[0].text, raw, 'legacy raw trajectory must be preserved');
   await call('provider.auth', { provider: 'codex', cwd: data });
-  await send(legacy.id, '旧会话继续', 2); assert(!(await get(legacy.id)).messages.filter(m => m.role === 'user').at(-1).text.includes(f.sha256));
+  await page.getByLabel('任务输入', { exact: true }).fill('旧会话继续');
+  await page.getByRole('button', { name: '发送任务', exact: true }).click();
+  await expect(page.locator('.messages .inline-error')).toContainText('迁移后的原会话记录未找到');
+  assert.equal((await get(legacy.id)).messages.filter(m => m.role === 'user').length, 1, 'a missing native history must not fabricate a resumed turn');
   await page.screenshot({ path: path.join(artifacts, 'session-context-clean.png') });
   const processSource = await call('conclusion.create', { projectId: profile.projects[0].id, title: '单条启动约束', content: '启动时隐藏终端；验收范围未知。' });
   await page.getByTitle('项目成果库', { exact: true }).click(); await page.getByRole('tab', { name: '个人', exact: true }).click();
@@ -128,13 +140,14 @@ try {
   await page.getByLabel('预处理结果内容', { exact: true }).fill('人工核对后的检查步骤。');
   await page.screenshot({ path: path.join(data, 'conclusion-processing-preview.png') });
   await page.getByRole('button', { name: '保存新成果并将 1 条原成果移入历史', exact: true }).click();
-  await expect(page.locator('.result-card.is-expanded .result-card-heading b')).toHaveText('新人检查清单');
+  await expect(page.locator('.result-card.is-expanded .result-card-heading b')).toHaveText(/新人检查清单$/);
   const savedConclusions = await call('conclusion.list', { projectId: profile.projects[0].id, includeArchived: true });
   assert.equal(savedConclusions.find(item => item.id === processSource.id).archived, true);
-  assert.equal(savedConclusions.find(item => item.title === '新人检查清单').content, '人工核对后的检查步骤。');
+  assert.equal(savedConclusions.find(item => item.title.endsWith('新人检查清单')).content, '人工核对后的检查步骤。');
   await app.close();
   app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout: 60000 });
   page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message)); await dismissStartupLogin(page);
+  if (await page.getByRole('dialog', { name: '设置项目代码目录' }).isVisible()) await page.getByRole('button', { name: '暂不设置' }).click();
   await page.locator(`.session-row[data-session-id="${seeds[0].id}"]`).click();
   await expect(page.locator('.source-chips')).toHaveCount(0);
   await page.locator('.session-materials > summary').click();
@@ -146,7 +159,7 @@ try {
   await expect(page.getByLabel('已带入的参考资料').locator('li')).toHaveCount(1);
   assert.equal((await get(duplicateSession.id)).sources.length, 2);
   assert.equal((await get(legacy.id)).messages[0].text, raw);
-  assert((await call('conclusion.list', { projectId: profile.projects[0].id })).some(item => item.title === '新人检查清单'));
+  assert((await call('conclusion.list', { projectId: profile.projects[0].id })).some(item => item.title.endsWith('新人检查清单')));
   assert.deepEqual(errors, []);
   console.log('Reference status artifacts: ' + data);
   console.log('Session context UI passed: original user bubbles, first-only references for Codex/Cursor, actual second-turn payload deduplicated, legacy duplicate snapshots and selections, raw trajectory retention, single-conclusion processing direction, editable preview and explicit save across restart.');

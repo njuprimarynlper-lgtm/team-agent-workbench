@@ -36,7 +36,8 @@ import { projectDirectoryKey } from '../shared/project-directory';
 import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
-import { attachedConclusion, conclusionTitle } from '../shared/conclusion-context';
+import { attachedConclusion, conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
+import { sourceIdentity, sourceWasAccepted } from '../shared/session-context';
 import { safeFilename, localWithin } from './paths';
 import { ProviderAccounts, authReady } from './provider-auth';
 import { inspectCatalog } from './provider-catalog';
@@ -319,7 +320,9 @@ export class Workbench {
   }
   private addContentAction(event: ContentUpdate, action: ContentUpdateAction) {
     const actions = event.actions ||= [];
-    if (!actions.some(prior => prior.kind === action.kind && prior.targetId === action.targetId && prior.sourceRevision === action.sourceRevision)) actions.push(action);
+    const sessionAction = action.kind === 'attached_session' || action.kind === 'detached_session';
+    const priorSessionAction = sessionAction ? actions.slice().reverse().find(prior => (prior.kind === 'attached_session' || prior.kind === 'detached_session') && prior.targetId === action.targetId && prior.sourceRevision === action.sourceRevision) : undefined;
+    if (sessionAction ? priorSessionAction?.kind !== action.kind : !actions.some(prior => prior.kind === action.kind && prior.targetId === action.targetId && prior.sourceRevision === action.sourceRevision)) actions.push(action);
     event.readAt ||= action.at; event.statusChangedAt = action.at;
   }
   private recordContentAction(projectId: string, contentId: string, revision: number, action: Omit<ContentUpdateAction, 'at' | 'sourceRevision'>) {
@@ -975,6 +978,35 @@ export class Workbench {
       session.sources.push(source);
       for (const origin of conclusion.sources) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(conclusion.projectId, origin.id, origin.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title });
       await this.store.save(); this.broadcast(); return source;
+    }, false);
+  }
+  async detachPendingSource(id: string, sourceId: string) {
+    return this.edit('source-detach:' + id, async () => {
+      const session = this.session(id); this.assertCanWork(session.binding);
+      if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
+      if (this.sending.has(id) || this.steering.has(id) || ['starting', 'running', 'approval'].includes(session.status)) throw new Error('会话正在发送，请等待本轮结束后重试');
+      const source = session.sources.find(item => item.id === sourceId);
+      if (!source || (!source.contentRef && !isConclusionSource(source))) throw new Error('只能撤销尚未发送的成果引用');
+      const identity = sourceIdentity(source), matches = session.sources.filter(item => sourceIdentity(item) === identity);
+      if (matches.some(item => item.id === session.projectBrief?.sourceId || session.assignment?.sourceIds.includes(item.id))) throw new Error('项目说明或任务资料不能在此撤销');
+      if (matches.some(item => sourceWasAccepted(session, item))) throw new Error('这份成果已发送给模型，不能从当前对话历史中撤销');
+      const removed = new Set(matches.map(item => item.id));
+      session.sources = session.sources.filter(item => !removed.has(item.id));
+      const input = this.store.inputs[id]; if (input) input.sourceIds = input.sourceIds.filter(item => !removed.has(item));
+      const refs = new Map<string, { projectId: string; id: string; revision: number }>();
+      for (const item of matches) {
+        if (item.contentRef) {
+          const ref = item.contentRef; refs.set(`${ref.projectId}:${ref.id}:${ref.revision}`, ref);
+        } else if (isConclusionSource(item)) {
+          const conclusionId = item.sourcePath.match(/^local-conclusion:(.+):v\d+$/)?.[1];
+          const conclusion = this.store.conclusions.find(value => value.id === conclusionId);
+          for (const origin of conclusion?.sources || []) if (origin.kind === 'remote' && origin.revision !== undefined) refs.set(`${conclusion!.projectId}:${origin.id}:${origin.revision}`, { projectId: conclusion!.projectId, id: origin.id, revision: origin.revision });
+        }
+      }
+      for (const ref of refs.values()) this.recordContentAction(ref.projectId, ref.id, ref.revision, { kind: 'detached_session', targetId: id, targetTitle: session.title });
+      await this.store.save(); this.broadcast();
+      for (const item of matches) if (localWithin(path.join(this.store.sessionDir(id), 'sources'), item.localPath)) await fs.rm(item.localPath, { force: true }).catch(() => {});
+      return { sourceIds: [...removed] };
     }, false);
   }
   prepare(id: string, extraFiles: string[] = [], categories?: ContributionCategory[], scope?: PreparationScope, temporary = false): Promise<Draft> {

@@ -29,6 +29,25 @@ async function fixture() {
 }
 async function done(transfer: Transfer) { const end = Date.now() + 5000; while (['queued', 'running'].includes(transfer.status)) { if (Date.now() > end) throw new Error('queue stalled'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
+test('retracting an unsent team result removes the session reference but retains the personal copy and records the reversal', async () => {
+  const x = await fixture();
+  try {
+    const binding = x.alice.remote.binding(x.project.id), file = path.join(x.root, 'result.md'); await fs.writeFile(file, '团队成果');
+    await x.alice.remote.upload(binding, file, binding.project.uploadPath + '/result.md', () => {}, { kind: 'contribution', title: '低清晰度样本', description: '需要补样本' });
+    const remote = (await x.alice.remote.contentList(binding))[0]; await x.bob.syncContentUpdates();
+    const session = await x.bob.createSession('codex', x.root, x.project.id), source = await x.bob.attachContent(session.id, remote.id);
+    await x.bob.saveInput(session.id, { text: '继续', sourceIds: [source.id], answers: {} });
+    assert.equal(x.bob.conclusions(x.project.id).length, 1);
+    await x.bob.detachPendingSource(session.id, source.id);
+    assert.equal(session.sources.some(item => item.id === source.id), false); assert.deepEqual(x.bob.store.inputs[session.id].sourceIds, []);
+    assert.equal(x.bob.conclusions(x.project.id).length, 1);
+    assert.deepEqual(x.bob.contentUpdates().find(item => item.id === remote.id)?.actions?.map(action => action.kind), ['saved_conclusion', 'attached_session', 'detached_session']);
+    await assert.rejects(fs.stat(source.localPath), { code: 'ENOENT' });
+    const again = await x.bob.attachContent(session.id, remote.id); assert.notEqual(again.id, source.id);
+    assert.equal(x.bob.contentUpdates().find(item => item.id === remote.id)?.actions?.at(-1)?.kind, 'attached_session');
+  } finally { await x.close(); }
+});
+
 test('personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart', async () => {
   const x = await fixture();
   try {

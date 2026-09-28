@@ -15,6 +15,13 @@ export function uniqueSources(sources: SourceFile[]) {
   });
 }
 
+// An older native conversation may already have received this snapshot even when
+// the current conversation shows it as pending again.
+export function sourceWasAccepted(session: AgentSession, source: SourceFile) {
+  const ids = new Set(session.sources.filter(item => sourceIdentity(item) === sourceIdentity(source)).map(item => item.id));
+  return session.messages.some(message => message.context?.accepted && Object.entries(message.context.sourceHashes).some(([id, hash]) => ids.has(id) && hash === source.sha256));
+}
+
 // Match the current native conversation: failed sends and replaced contexts do not count.
 export function acceptedSessionContext(session: AgentSession) {
   const sourceHashes: Record<string, string> = {};

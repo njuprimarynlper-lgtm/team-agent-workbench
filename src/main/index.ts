@@ -186,6 +186,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     }
     case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid() }).parse(raw); return workbench.attachContent(p.id, p.contentId); }
     case 'session.attachConclusion': { const p = z.object({ id, conclusionId: z.string().uuid() }).parse(raw); return workbench.attachConclusion(p.id, p.conclusionId); }
+    case 'session.detachPendingSource': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return workbench.detachPendingSource(p.id, p.sourceId); }
     case 'session.projectContext': return workbench.refreshProjectContext(sessionInput.parse(raw).id);
     case 'draft.revise': return workbench.reviseDraft(sessionInput.parse(raw).id);
     case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }
