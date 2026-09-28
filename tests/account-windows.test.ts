@@ -108,7 +108,14 @@ test('production window routing restores the account in any window, isolates fai
   const abandoned = assert.rejects(login(third, 'bob'), /窗口正在关闭/);
   await until(() => entered); third.close(); await until(() => third.destroyed); resumeLogin(); await abandoned; SharedFiles.prototype.connect = connect;
   assert.equal((await snapshot(second)).connection?.connected, true);
+  const requireAuth = Workbench.prototype.requireAuth;
+  try {
+    Workbench.prototype.requireAuth = async () => { throw new Error('CLI 尚未登录'); };
+    const offlineSession = await call(second, 'session.create', { provider: 'codex', cwd: root, projectId: project.id });
+    assert.equal(offlineSession.binding.project.id, project.id, 'creating a local session must not require a model login');
+    await assert.rejects(call(second, 'session.send', { id: offlineSession.id, text: '开始任务' }), /CLI 尚未登录/);
+  } finally { Workbench.prototype.requireAuth = requireAuth; }
   app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit);
   const stored = JSON.parse(await fs.readFile(path.join(accountDirectory(base, profile), 'sessions.json'), 'utf8'));
-  assert.equal(stored[0].title, '原窗口关闭后继续'); assert.deepEqual(dialogs, []);
+  assert.equal(stored.find((item: { id: string }) => item.id === session.id)?.title, '原窗口关闭后继续'); assert.deepEqual(dialogs, []);
 });

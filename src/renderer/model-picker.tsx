@@ -16,7 +16,7 @@ export function ModelPicker({ provider, cwd, ready, model, changed, initialCatal
   return <section className="model-picker" aria-label="模型与额度">
     <div className="row"><b>模型与额度</b><span className="spacer"/><button className="text-button" disabled={!ready || busy} onClick={() => void refresh()}><RefreshCw size={13} className={busy ? 'spin' : ''}/>{busy ? '读取中…' : '刷新模型与额度'}</button></div>
     <label className="field">会话模型<select aria-label="会话模型" value={model} disabled={!ready || busy} onChange={e => changed(e.target.value)}><option value="">沿用 CLI 默认模型</option>{model && !catalog?.models.some(m => m.id === model) && <option value={model}>{model}（上次选择）</option>}{catalog?.models.map(m => <option key={m.id} value={m.id}>{m.name}{m.isDefault ? ' · 默认' : ''}</option>)}</select></label>
-    {!ready && <p className="muted small">请先登录</p>}
+    {!ready && <p className="muted small">暂时无法读取模型列表；仍可创建会话并沿用 CLI 默认模型。</p>}
     {(error || catalog?.modelError) && <p role="alert" className="inline-error">{error || catalog?.modelError}</p>}
     <div className="quota-panel">
       <div className="row"><strong>账号额度</strong><span className="spacer"/><button className="text-button" onClick={() => void window.workbench.call('open.link', url).catch(() => setError('无法打开浏览器，请稍后重试。'))}><ExternalLink size={13}/>查看官方额度页</button></div>

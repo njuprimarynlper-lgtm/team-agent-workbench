@@ -95,8 +95,7 @@ try {
   await page.getByRole('button', { name: '新建工作会话', exact: true }).click();
   await page.getByLabel('本地工作目录', { exact: true }).fill(data);
   await page.getByLabel('Codex 登录状态', { exact: true }).getByText('未登录', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: '创建会话', exact: true }).isDisabled(), true);
-  await assert.rejects(page.evaluate(cwd => window.workbench.call('session.create', { provider: 'codex', cwd }), data), /尚未登录/);
+  assert.equal(await page.getByRole('button', { name: '创建会话', exact: true }).isDisabled(), false);
   await page.getByRole('button', { name: 'Cursor', exact: true }).click();
   const cursorAuth = page.getByLabel('Cursor 登录状态', { exact: true });
   await cursorAuth.getByText('未登录', { exact: true }).waitFor();
