@@ -43,6 +43,86 @@ class ContentRules(unittest.TestCase):
     def publish(self, actor='bob', name='result.zip', kind='contribution'):
         return self.call(actor, op='publish', target='/projects/relation/实体抽取/submissions/' + actor + '/' + name, sha256=content.digest(self.incoming), metadata={'title': '方案结论', 'description': '已验证内容', 'kind': kind})
 
+    def test_team_merge_creates_new_identity_and_readable_history(self):
+        sources = [self.publish(name=f'source-{index}.zip') for index in range(3)]
+        change = dict(requestId=str(uuid.uuid4()), sources=[dict(id=item['id'], revision=item['revision']) for item in sources], replaceIds=[item['id'] for item in sources], title='综合结论', description='保留原始证据后形成的新结论')
+        with self.assertRaises(PermissionError):
+            self.call('bob', op='merge_content', change=change)
+        stale = copy.deepcopy(change)
+        stale['sources'][0]['revision'] = 99
+        with self.assertRaises(ValueError):
+            self.call('alice', op='merge_content', change=stale)
+        self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 3)
+        result = self.call('alice', op='merge_content', change=change)
+        self.assertEqual(self.call('alice', op='merge_content', change=change)['id'], result['id'])
+        with self.assertRaises(ValueError):
+            self.call('alice', op='merge_content', change=dict(change, replaceIds=[]))
+        self.assertNotIn(result['id'], {item['id'] for item in sources})
+        self.assertEqual(result['derivedFrom'], result['replaces'])
+        self.assertEqual({item['id'] for item in content.read_json(self.directory / '.workbench-content.json')}, {result['id']})
+        history = self.call('bob', op='content_history')
+        self.assertEqual({item['id'] for item in history}, {item['id'] for item in sources})
+        self.assertTrue(all(not item['description'] for item in self.call('bob', op='content_history', summary=True)))
+        for source in sources:
+            frozen = self.call('bob', op='content_history', id=source['id'], revision=source['revision'])[0]
+            self.assertEqual(frozen['description'], source['description'])
+            self.assertEqual(frozen['author'], source['author'])
+            self.assertEqual(frozen['supersededBy']['id'], result['id'])
+        with self.assertRaises(PermissionError):
+            self.call('carol', op='content_history')
+        with self.assertRaises(PermissionError):
+            self.call('carol', op='merge_content', change=change)
+        with self.assertRaises(ValueError):
+            self.call('alice', op='merge_content', change=dict(change, requestId=str(uuid.uuid4())))
+
+    def test_merge_index_failure_restores_current_and_history(self):
+        sources = [self.publish(name=f'rollback-{index}.zip') for index in range(2)]
+        change = dict(sources=[dict(id=item['id'], revision=1) for item in sources], replaceIds=[item['id'] for item in sources], title='合并', description='正文')
+        original_atom = content.atom
+        def fail_index(file, data, gid=None):
+            if file == self.directory / '.workbench-content.json' and len(data) == 1:
+                raise OSError('disk failure')
+            return original_atom(file, data, gid)
+        with patch.object(content, 'atom', side_effect=fail_index), self.assertRaises(OSError):
+            self.call('alice', op='merge_content', change=change)
+        self.assertEqual({item['id'] for item in content.read_json(self.directory / '.workbench-content.json')}, {item['id'] for item in sources})
+        self.assertEqual(self.call('alice', op='content_history'), [])
+
+    def test_sources_can_support_different_result_combinations(self):
+        a, b, c = [self.publish(name=f'combination-{index}.zip') for index in range(3)]
+        def merge(*sources, replace_ids=None):
+            return self.call('alice', op='merge_content', change=dict(
+                requestId=str(uuid.uuid4()),
+                sources=[dict(id=item['id'], revision=item['revision']) for item in sources],
+                replaceIds=replace_ids or [], title='不同角度的结论', description='按当前组合得出的判断'))
+        first = merge(a, b)
+        second = merge(b, c)
+        self.assertNotEqual(first['id'], second['id'])
+        self.assertEqual(first['replaces'], [])
+        self.assertEqual(second['replaces'], [])
+        self.assertEqual({item['id'] for item in content.read_json(self.directory / '.workbench-content.json') if item['kind'] == 'contribution'}, {a['id'], b['id'], c['id'], first['id'], second['id']})
+        self.assertIn(b['id'], {ref['id'] for ref in first['derivedFrom']})
+        self.assertIn(b['id'], {ref['id'] for ref in second['derivedFrom']})
+        third = merge(a, c, replace_ids=[a['id']])
+        self.assertEqual([ref['id'] for ref in third['replaces']], [a['id']])
+        self.assertEqual(self.call('alice', op='content_history', id=a['id'])[0]['supersededBy']['id'], third['id'])
+        self.assertIn(c['id'], {item['id'] for item in content.read_json(self.directory / '.workbench-content.json')})
+        with self.assertRaises(ValueError):
+            merge(b, c, replace_ids=[a['id']])
+
+    def test_explicit_delete_leaves_only_a_tombstone_not_historical_body(self):
+        item = self.publish()
+        edited = self.edit('alice', item, title='新版', description='后来需要移除的内容')
+        self.assertEqual(edited['id'], item['id'])
+        self.assertEqual(edited['revision'], 2)
+        self.assertEqual(self.call('alice', op='content_history', id=item['id'], revision=1)[0]['description'], item['description'])
+        self.call('alice', op='edit_content', change=dict(id=item['id'], revision=2, action='delete', curate=False, merge=[]))
+        history = self.call('bob', op='content_history', id=item['id'])
+        self.assertEqual(len(history), 1)
+        self.assertTrue(history[0]['deletedAt'])
+        self.assertEqual(history[0]['description'], '')
+        self.assertIsNone(history[0]['sourceDetails'])
+
     def test_private_account_data_is_isolated_versioned_and_not_public(self):
         self.assertEqual(self.call('bob', op='account_read')['records'], {})
         data = {'material:one': {'title': 'private'}, 'result-rules:preferences': {'combinations': [], 'projects': {self.project: 'development'}}}
@@ -211,15 +291,19 @@ class ContentRules(unittest.TestCase):
         self.assertEqual(len(items), 1); self.assertEqual(items[0]['path'], curated['path'])
         self.assertFalse((self.directory / 'submissions/bob/result.zip').exists())
 
-    def test_stale_revision_rejected_and_merge_removes_source_files(self):
+    def test_stale_revision_rejected_and_merge_preserves_source_history(self):
         one = self.publish(); two = self.publish(name='second.zip')
         updated = self.edit('bob', one)
         with self.assertRaises(ValueError): self.edit('alice', one)
-        result = self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}], sourceSessionTitle='统一口径复核')
-        self.assertEqual(result['sources'], [two['id']])
+        with self.assertRaisesRegex(ValueError, '旧版合并入口'):
+            self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}])
+        result = self.call('alice', op='merge_content', change=dict(requestId=str(uuid.uuid4()), sources=[{'id': updated['id'], 'revision': updated['revision']}, {'id': two['id'], 'revision': two['revision']}], replaceIds=[updated['id'], two['id']], title='合并结论', description='已合并', sourceSessionTitle='统一口径复核'))
+        self.assertNotIn(result['id'], {updated['id'], two['id']})
+        self.assertEqual(set(result['sources']), {updated['id'], two['id']})
         self.assertEqual({source['id'] for source in result['provenance']}, {updated['id'], two['id']})
         self.assertEqual(result['sourceSessionTitle'], '统一口径复核')
-        self.assertFalse((self.directory / 'submissions/bob/second.zip').exists())
+        self.assertTrue((self.directory / 'submissions/bob/second.zip').exists())
+        self.assertEqual(self.call('alice', op='content_history', id=two['id'], revision=two['revision'])[0]['description'], two['description'])
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
 
     def test_author_can_delete_only_pending(self):

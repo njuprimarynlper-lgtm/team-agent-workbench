@@ -9,7 +9,9 @@ function previousWorkRecordInstructions(s: AgentSession) {
   return `\n\n[工作台阶段摘要约定]\n本会话的本地阶段摘要为：${s.handoffPath}\n在形成阶段性结果时更新该文件，记录目标、阶段性发现或结论、依据、待验证内容及后续建议；涉及代码时可附改动说明和 GitHub 仓库链接，链接不是必填项。请区分事实与推测，不上传任何内容。阶段摘要仅在本地保存，最终提交由用户决定。`;
 }
 
-export function workRecordInstructions(s: AgentSession) { return previousWorkRecordInstructions(s) + '\n' + humanReadableWritingGuide; }
+export function workRecordInstructions(s: AgentSession) {
+  return `\n\n[工作台阶段摘要约定]\n本会话的本地阶段摘要为：${s.handoffPath}\n在形成阶段性结果或结束本轮工作时更新该文件。请简要记录：当前工作焦点与范围、当前进展、已确认的决定及其依据、改动和受影响范围及验证、阻塞或待确认事项、下一步可执行动作。涉及代码时写明文件和版本；区分已验证事实与推测，保留仍有效的结论，删除过期或重复内容。阶段摘要仅保存在本机；用户可以选择将其快照带入同一项目的其他会话，不要自行上传或发送。\n` + humanReadableWritingGuide;
+}
 
 const legacyWorkRecordInstructions = (s: AgentSession) => `\n\n[工作台工作记录约定]\n本会话的本地 Agent 工作记录为：${s.handoffPath}\n在形成阶段性结果时更新该文件，记录目标、阶段性发现或结论、依据、待验证内容及后续建议；涉及代码时可附改动说明和 GitHub 仓库链接，链接不是必填项。请区分事实与推测，不上传任何内容。工作记录仅在本地保存，最终提交由用户决定。`;
 
@@ -29,7 +31,8 @@ function legacyContext(s: AgentSession, text: string) {
     }
     if (!remaining && matched.length) { userText = text.slice(0, index); sources = matched; }
   }
-  const instructions = [workRecordInstructions(s), previousWorkRecordInstructions(s), legacyWorkRecordInstructions(s)].find(value => userText.endsWith(value));
+  const current = workRecordInstructions(s);
+  const instructions = [current, current.slice(0, -humanReadableWritingGuide.length - 1), previousWorkRecordInstructions(s) + '\n' + humanReadableWritingGuide, previousWorkRecordInstructions(s), legacyWorkRecordInstructions(s)].find(value => userText.endsWith(value));
   if (instructions) { userText = userText.slice(0, -instructions.length); workRecord = true; }
   return { userText, sources, workRecord };
 }
@@ -52,7 +55,7 @@ export function migrateSessionContext(s: AgentSession) {
 
 export function sessionContext(s: AgentSession, userText: string, sourceIds: string[]) {
   const { sourceHashes: known, workRecord: hasWorkRecord } = acceptedSessionContext(s);
-  const selected = [...new Set([...sourceIds, ...(s.projectBrief ? [s.projectBrief.sourceId] : []), ...(s.assignment?.sourceIds || []), ...s.sources.filter(isConclusionSource).map(source => source.id)])].map(id => {
+  const selected = [...new Set([...sourceIds, ...(s.projectBrief ? [s.projectBrief.sourceId] : []), ...(s.assignment?.sourceIds || []), ...(s.fork ? [s.fork.sourceId, ...s.fork.inheritedSourceIds] : []), ...s.sources.filter(isConclusionSource).map(source => source.id)])].map(id => {
     const source = s.sources.find(f => f.id === id);
     if (!source) throw new Error('引用不属于当前会话');
     return source;

@@ -29,6 +29,51 @@ async function setup() {
 }
 async function settled(wb: Workbench) { const deadline = Date.now() + 15000; while (wb.store.transfers.some(item => ['running', 'queued'].includes(item.status))) { if (Date.now() > deadline) throw Error('queue timed out'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
+test('sharing a personal result creates an independent team ID and discloses only selected direct references', async () => {
+  const env = await setup();
+  try {
+    const wb = env.first, projectId = env.project.id;
+    const privateSource = await wb.createConclusion(projectId, '未分享的依据', '仅自己可见的原文');
+    const result = await wb.createConclusion(projectId, '可分享结论', '公开给项目组的结论');
+    result.derivedFrom = [{ scope: 'personal', projectId, id: privateSource.id, version: privateSource.version }];
+    await assert.rejects(wb.publishConclusion(result.id, [{ scope: 'personal', projectId, id: randomUUID(), version: 1 }]), /直接来源/);
+    await wb.publishConclusion(result.id); await settled(wb);
+    const binding = wb.remote.binding(projectId), first = (await wb.remote.contentList(binding))[0];
+    assert.notEqual(first.id, result.id);
+    assert.equal(first.description, result.content);
+    assert.equal(first.disclosedSources, undefined);
+    assert.equal(first.replaces, undefined);
+    await wb.publishConclusion(result.id, result.derivedFrom); await settled(wb);
+    const published = await wb.remote.contentList(binding);
+    assert.equal(published.length, 2);
+    assert.deepEqual(published[0].disclosedSources, result.derivedFrom);
+    assert.equal(published[0].replaces, undefined);
+    assert.equal(wb.conclusions(projectId).find(item => item.id === privateSource.id)?.content, '仅自己可见的原文');
+    const teammate = await env.client('private-check', 'bob');
+    assert.equal(teammate.conclusions(projectId).length, 0);
+    assert(!JSON.stringify(await teammate.remote.contentList(teammate.remote.binding(projectId))).includes('仅自己可见的原文'));
+  } finally { await env.close(); }
+});
+
+test('a later team revision does not rewrite a personal copy or an already attached session snapshot', async () => {
+  const env = await setup();
+  try {
+    const alice = env.first, bob = await env.client('version-copy', 'bob'), binding = alice.remote.binding(env.project.id);
+    const local = path.join(env.root, 'version-source.md'); await fs.writeFile(local, '上传包');
+    const original = await alice.remote.upload(binding, local, `${binding.project.uploadPath}/version-source.md`, () => {}, { kind: 'contribution', title: '团队 D', description: 'D 第一版正文' });
+    const copy = (await bob.importContentConclusion(env.project.id, original.id, 1)).conclusion;
+    const session = await bob.createSession('codex', env.root, env.project.id);
+    const source = await bob.attachConclusion(session.id, copy.id), frozenText = await fs.readFile(source.localPath, 'utf8');
+    const updated = await alice.editSharedContent(env.project.id, { id: original.id, revision: 1, action: 'save', title: '团队 D', description: 'D 第二版正文', curate: true, merge: [] });
+    assert.equal(updated?.id, original.id);
+    assert.equal(updated?.revision, 2);
+    assert.deepEqual(copy.derivedFrom, [{ scope: 'team', projectId: env.project.id, id: original.id, version: 1 }]);
+    assert.equal(copy.content, 'D 第一版正文');
+    assert.equal(await fs.readFile(source.localPath, 'utf8'), frozenText);
+    assert.equal((await alice.remote.contentHistory(binding, original.id, 1))[0].description, 'D 第一版正文');
+  } finally { await env.close(); }
+});
+
 test('personal combinations synchronize across computers with explicit conflicts, remain account-private and restore frozen review categories', async () => {
   const env = await setup();
   try {
@@ -94,7 +139,7 @@ test('research folders persist; account restores personal materials and selected
     const file = path.join(root, '证据.csv'); await fs.writeFile(file, 'item,result\n1,pass'); await a.addDraftFiles(draft.id, [file], draft.artifacts![0].id);
     await a.accountSync.sync(); assert.equal(a.accountSync.state.status, 'synced', a.accountSync.state.detail || '');
     const remote = await a.remote.accountData(); assert(!JSON.stringify(remote).includes('PRIVATE_FULL_CONVERSATION')); assert(!JSON.stringify(remote).includes(session.cwd));
-    const b = await env.client('two'); assert.equal(b.store.sessions.length, 0); assert.equal(b.conclusions(project.id)[0].id, material.id);
+    const b = await env.client('two'); assert.equal(b.store.sessions.length, 0); assert.deepEqual(b.conclusions(project.id).map(item => item.id), [material.id], 'an unsaved preparation must not become a personal result on another computer');
     assert.equal(await fs.readFile(b.store.drafts[0].files[0].localPath, 'utf8'), 'item,result\n1,pass');
     assert.equal((await env.client('other', 'bob')).conclusions(project.id).length, 0);
     await a.saveConclusion(material.id, material.title, '电脑一编辑'); await a.accountSync.sync();
@@ -102,6 +147,7 @@ test('research folders persist; account restores personal materials and selected
     assert.equal(b.accountSync.state.status, 'conflict'); assert.equal(b.conclusions(project.id)[0].content, '电脑二编辑');
     await b.accountSync.resolve('material:' + material.id, 'local'); assert.equal(b.accountSync.state.status, 'synced');
     await a.accountSync.sync(); assert.equal(a.conclusions(project.id)[0].content, '电脑二编辑');
+    assert(a.conclusions(project.id)[0].versions?.some(version => version.content === '必须保留独立复核。'), 'older personal versions survive account synchronization');
     assert.equal(a.store.sessions.length, 2); assert.equal(a.session(session.id).cwd, session.cwd);
   } finally { await env.close(); }
 });
@@ -112,7 +158,7 @@ test('a second computer repairs a reviewed preparation whose personal result is 
     const a = env.first, projectId = env.project.id, session = await a.createSession('codex', '', projectId);
     const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'legacy-input'), outputPath: path.join(a.store.root, 'legacy-result.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, combinationId: 'research', name: '调研分析', categories: ['finding'] }, preparationEvidenceIds: ['handoff'] };
     applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', topic: '换机恢复', title: '已确认成果应跟随账号', body: '新电脑应同时恢复整理记录和已确认的个人成果。', origin: 'project', evidenceIds: ['handoff'] }] }));
-    a.store.drafts.push(draft); await a.renameDraftResult(draft.id, '已确认成果应跟随账号', draft.artifacts![0].id); await a.accountSync.sync();
+    a.store.drafts.push(draft); await a.saveDraftPersonal(draft.id, [draft.artifacts![0].id]); await a.accountSync.sync();
     const complete = await a.remote.accountData();
     const incomplete = Object.fromEntries(Object.entries(complete.records).filter(([key]) => !key.startsWith('material:')));
     const legacy = await a.remote.accountData({ revision: complete.revision, records: incomplete }); assert(!legacy.conflict);
@@ -133,7 +179,9 @@ test('account synchronization while an activity scan awaits its response cannot 
     await fs.writeFile(file, '验证内容');
     for (const name of ['one', 'two']) await a.remote.upload(binding, file, binding.project.uploadPath + '/' + name + '.md', () => {}, { kind: 'contribution', title: name, description: name });
     const items = await a.remote.contentList(binding); await bob.syncContentUpdates(); await bob.accountSync.sync();
-    const merged = await a.remote.contentEdit(binding, { id: items[0].id, revision: 1, action: 'save', title: '综合结果', description: '合并证据', curate: true, merge: [{ id: items[1].id, revision: 1 }] });
+    const merged = await a.remote.contentMerge(binding, { requestId: randomUUID(), sources: items.map(item => ({ id: item.id, revision: item.revision })), replaceIds: items.map(item => item.id), title: '综合结果', description: '合并证据' });
+    const contentHistory = bob.remote.contentHistory.bind(bob.remote);
+    bob.remote.contentHistory = async () => { throw new Error('不支持的内容操作'); };
     const contentList = bob.remote.contentList.bind(bob.remote), gate = new Promise<void>(resolve => { release = resolve; });
     let entered!: () => void; const pending = new Promise<void>(resolve => { entered = resolve; });
     bob.remote.contentList = async (...args) => { const result = await contentList(...args); entered(); await gate; return result; };
@@ -141,9 +189,28 @@ test('account synchronization while an activity scan awaits its response cannot 
     assert.notEqual(bob.store.settings.contentUpdates, inbox, 'account restore replaces the array during this scan');
     release!(); const result = await scan;
     assert(result.some(item => item.id === merged!.id && item.change === 'merged'));
-    assert(result.some(item => item.id === items[1].id && item.change === 'deleted'));
+    assert(result.some(item => item.id === items[1].id && item.change === 'superseded' && item.replacedBy?.id === merged!.id));
     bob.remote.contentList = contentList;
+    bob.remote.contentHistory = contentHistory;
   } finally { release?.(); await env.close(); }
+});
+
+test('a source deletion stays a deletion after it was reused in another result', async () => {
+  const env = await setup();
+  try {
+    const alice = env.first, bob = await env.client('source-deletion', 'bob'), binding = alice.remote.binding(env.project.id), file = path.join(env.root, 'source-reuse.md');
+    await fs.writeFile(file, '证据');
+    for (const name of ['first', 'second']) await alice.remote.upload(binding, file, binding.project.uploadPath + '/' + name + '.md', () => {}, { kind: 'contribution', title: name, description: name });
+    const sources = await alice.remote.contentList(binding);
+    await bob.syncContentUpdates();
+    const derived = await alice.remote.contentMerge(binding, { requestId: randomUUID(), sources: sources.map(item => ({ id: item.id, revision: item.revision })), title: '新角度结论', description: '沿用两条来源' });
+    assert.deepEqual(derived?.replaces, []);
+    await bob.syncContentUpdates();
+    await alice.remote.contentEdit(binding, { id: sources[0].id, revision: sources[0].revision, action: 'delete', curate: false, merge: [] });
+    const updates = await bob.syncContentUpdates();
+    assert(updates.some(item => item.id === sources[0].id && item.change === 'deleted'));
+    assert(!updates.some(item => item.id === sources[0].id && item.change === 'superseded'));
+  } finally { await env.close(); }
 });
 
 test('attachments are explicit, frozen, deduplicated, dependency-gated and retryable without duplicating successful files', async () => {
@@ -164,7 +231,7 @@ test('attachments are explicit, frozen, deduplicated, dependency-gated and retry
     assert(wb.store.transfers.every(item => item.status === 'done'), JSON.stringify(wb.store.transfers.map(item => item.error))); assert.equal(successful, 1);
     const shared = await wb.remote.contentList(session.binding!); assert.equal(shared.length, 2); assert.equal(shared[0].attachments![0].path, shared[1].attachments![0].path);
     assert.equal(await fs.readFile(await diskPath(env.shared, shared[0].attachments![0].path), 'utf8'), 'frozen evidence');
-    const combined = await wb.remote.contentEdit(session.binding!, { id: shared[0].id, revision: 1, action: 'save', title: '合并结果', description: '保留证据', curate: true, merge: [{ id: shared[1].id, revision: 1 }] });
+    const combined = await wb.remote.contentMerge(session.binding!, { requestId: randomUUID(), sources: shared.map(item => ({ id: item.id, revision: item.revision })), title: '合并结果', description: '保留证据' });
     assert.equal(combined!.attachments!.length, 1);
     await assert.rejects(wb.addDraftFiles(draft.id, [file], draft.artifacts![0].id), /提交前/);
   } finally { await env.close(); }
@@ -203,7 +270,7 @@ test('deleting a restored preparation record syncs without deleting results or t
     const id = randomUUID(), base = path.join(a.store.root, 'drafts', id);
     const draft: Draft = { id, sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(base, 'input'), outputPath: path.join(base, 'draft.md'), createdAt: now, generation: 'ready', preparationVersion: 3, snapshot: { capturedAt: now, messageCount: 1, totalMessageCount: 1, lastMessageId: 'boundary', lastMessageLength: 5, conversationHash: 'snapshot' } };
     applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', title: '独立成果', fields: { statement: '不是整理记录的附属品。' } }] }));
-    a.store.drafts.push(draft); await a.renameDraftResult(id, '独立成果', draft.artifacts![0].id); await a.accountSync.sync();
+    a.store.drafts.push(draft); await a.renameDraftResult(id, '独立成果', draft.artifacts![0].id); await a.saveDraftPersonal(id, [draft.artifacts![0].id]); await a.accountSync.sync();
     assert.equal(a.accountSync.state.status, 'synced', a.accountSync.state.detail || '');
     const progress = structuredClone(session.preparationCheckpoint), result = a.conclusions(env.project.id)[0]; assert(progress);
     const b = await env.client('delete-record'); assert.equal(b.store.sessions.length, 0);

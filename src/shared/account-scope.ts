@@ -21,6 +21,7 @@ export function scopeAccountSnapshot(snapshot: Snapshot): Snapshot {
   const directoryKeys = new Set(profile?.projects.map(project => projectDirectoryKey(profile, project.id)));
   const settings = { ...snapshot.settings,
     resultPreferences: Object.fromEntries(Object.entries(snapshot.settings.resultPreferences || {}).filter(([key]) => !snapshot.accountChanging && key === owner)),
+    betaFeatures: Object.fromEntries(Object.entries(snapshot.settings.betaFeatures || {}).filter(([key]) => !snapshot.accountChanging && key === owner)),
     projectDirectories: Object.fromEntries(Object.entries(snapshot.settings.projectDirectories || {}).filter(([key]) => !snapshot.accountChanging && directoryKeys.has(key))),
     ...(snapshot.accountChanging ? { contentAliases: {}, contentSeen: {}, contentUpdates: [], dismissedContentUpdateIds: [] } : {}),
   };

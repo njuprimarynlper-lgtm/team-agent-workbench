@@ -109,6 +109,8 @@ test('local conclusions persist, can be edited and freeze an exact session sourc
     assert.equal(wb.matchConclusions(offlineProjectId, 'Windows 启动终端')[0].conclusion.id, first.id);
     await wb.saveConclusion(first.id, '部署入口', 'Windows 启动时使用隐藏窗口，不显示额外终端。');
     assert.equal(first.version, 2);
+    assert.equal(first.versions?.[0].version, 1);
+    assert.equal(first.versions?.[0].content, 'Windows 启动时不显示额外终端。');
     const session = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
     const source = await wb.attachConclusion(session.id, first.id);
     assert.match(source.name, /本地结论 v2/); assert.match(await fs.readFile(source.localPath, 'utf8'), /隐藏窗口/);
@@ -128,8 +130,14 @@ test('personal conclusion processing follows directions and archives sources onl
     const draft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [first.id, second.id], '保留 Windows 约束，不要补造测试结果。');
     await until(() => draft.generation === 'ready'); assert.match(draft.body, /统一结论/); assert.equal(draft.conclusionMergeInstruction, '保留 Windows 约束，不要补造测试结果。');
     assert.equal(wb.conclusions(offlineProjectId).length, 2, 'AI draft does not alter the source conclusions');
-    await wb.saveContentMerge(draft.id, '统一部署结论', draft.body); const merged = await wb.commitConclusionMerge(draft.id);
+    await wb.saveContentMerge(draft.id, '统一部署结论', draft.body); const merged = await wb.commitConclusionMerge(draft.id, [first.id, second.id]);
     assert.equal(wb.conclusions(offlineProjectId).length, 1); assert.equal(merged.title, '【项目结论】 统一部署结论'); assert(wb.conclusions(offlineProjectId, true).filter(item => item.archived).length === 2);
+    assert(![first.id, second.id].includes(merged.id));
+    assert.deepEqual(merged.derivedFrom, [first, second].map(item => ({ scope: 'personal', projectId: offlineProjectId, id: item.id, version: 1 })));
+    assert.deepEqual(merged.replaces, merged.derivedFrom);
+    assert.equal(first.supersededBy?.id, merged.id);
+    await assert.rejects(wb.archiveConclusion(first.id, false), /不能恢复到当前列表/);
+    await assert.rejects(wb.saveConclusion(first.id, '改写历史', '旧来源不能覆盖'), /历史原文不可修改/);
     const single = await wb.createConclusion(offlineProjectId, '独立约束', '窗口启动应隐藏终端，人工验证范围未知。');
     const instruction = '只改写为新人的检查清单，不需要合并。';
     const processed = await wb.prepareConclusionMerge(offlineProjectId, session.id, [single.id], instruction);
@@ -140,9 +148,39 @@ test('personal conclusion processing follows directions and archives sources onl
     assert(!prompt.includes('这不是拼接或摘要任务')); assert(!prompt.includes('请去重并形成统一结论'));
     assert.equal(single.archived, undefined, 'a single-source preview also leaves originals intact');
     await wb.saveContentMerge(processed.id, '新人检查清单', '人工修订后的检查步骤');
-    const saved = await wb.commitConclusionMerge(processed.id);
+    const saved = await wb.commitConclusionMerge(processed.id, [single.id]);
     assert.equal(saved.title, '【项目结论】 新人检查清单'); assert.equal(saved.content, '人工修订后的检查步骤');
     assert.equal(single.archived, true); assert.equal(saved.sources[0].id, single.id);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('personal results can reuse one source in different combinations', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-conclusion-branches-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' }), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    const session = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+    const a = await wb.createConclusion(offlineProjectId, '输入 A', '观察 A');
+    const b = await wb.createConclusion(offlineProjectId, '输入 B', '观察 B');
+    const c = await wb.createConclusion(offlineProjectId, '输入 C', '观察 C');
+    const firstDraft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [a.id, b.id], '比较 A 和 B');
+    await until(() => firstDraft.generation === 'ready');
+    const first = await wb.commitConclusionMerge(firstDraft.id);
+    const secondDraft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [b.id, c.id], '比较 B 和 C');
+    await until(() => secondDraft.generation === 'ready');
+    const second = await wb.commitConclusionMerge(secondDraft.id);
+    assert.notEqual(first.id, second.id);
+    assert.deepEqual(first.replaces, []); assert.deepEqual(second.replaces, []);
+    assert.equal(wb.conclusions(offlineProjectId).length, 5);
+    assert(first.derivedFrom?.some(ref => ref.id === b.id));
+    assert(second.derivedFrom?.some(ref => ref.id === b.id));
+    assert.equal(b.archived, undefined);
+    const thirdDraft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [a.id, c.id], '对比 A 和 C');
+    await until(() => thirdDraft.generation === 'ready');
+    const third = await wb.commitConclusionMerge(thirdDraft.id, [a.id]);
+    assert.deepEqual(third.replaces?.map(ref => ref.id), [a.id]);
+    assert.equal(a.archived, true);
+    assert.equal(c.archived, undefined);
+    await assert.rejects(wb.commitConclusionMerge(secondDraft.id, [a.id]), /已经保存/);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 

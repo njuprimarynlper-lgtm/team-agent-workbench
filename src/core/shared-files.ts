@@ -1,9 +1,9 @@
-import type { ContentEdit, ContentMetadata } from '../shared/content';
+import type { ContentEdit, ContentMerge, ContentMetadata } from '../shared/content';
 import type { SharedServerRoute } from '../shared/egress';
 import type { AccountSnapshot } from '../shared/account-data';
 import { SftpConnection } from './sftp';
 import { LocalFileConnection } from './local-files';
-import type { ConnectionProfile, RemoteBinding } from '../shared/types';
+import type { ConnectionProfile, RemoteBinding, TransferPhase } from '../shared/types';
 import type { ProjectBrief } from '../shared/project-brief';
 import type { AssignmentCreate, AssignmentStatusChange, AssignmentUpload } from '../shared/assignments';
 
@@ -40,6 +40,8 @@ export class SharedFiles {
   loadManifest() { return this.backend.loadManifest(); }
   createProject(name: string, groupName?: string, brief?: ProjectBrief) { return this.backend.createProject(name, groupName, brief); }
   contentList(binding: RemoteBinding) { return this.backend.contentList(binding); }
+  contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false) { return this.backend.contentHistory(binding, id, revision, summary); }
+  contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.backend.contentMerge(binding, change); }
   assignmentMembers(binding: RemoteBinding) { return this.backend.assignmentMembers(binding); }
   assignmentList(binding: RemoteBinding) { return this.backend.assignmentList(binding); }
   assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.backend.assignmentCreate(binding, input); }
@@ -54,7 +56,8 @@ export class SharedFiles {
   ensurePersonalFolder(binding: RemoteBinding, target: string) { return this.backend.ensurePersonalFolder(binding, target); }
   list(binding: RemoteBinding, target: string) { return this.backend.list(binding, target); }
   preview(binding: RemoteBinding, target: string, displayName?: string) { return this.backend.preview(binding, target, displayName); }
-  uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void) { return this.backend.uploadAttachment(binding, local, hash, progress); }
-  download(binding: RemoteBinding, target: string, local: string, progress?: (bytes: number, total: number) => void) { return this.backend.download(binding, target, local, progress); }
-  upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string) { return this.backend.upload(binding, local, target, progress, metadata, hash); }
+  uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) { return this.backend.uploadAttachment(binding, local, hash, progress, requestId, phase); }
+  downloadInfo(binding: RemoteBinding, target: string) { return this.backend.downloadInfo(binding, target); }
+  download(binding: RemoteBinding, target: string, local: string, progress?: (bytes: number, total: number) => void, expected?: { sha256: string; size: number }) { return this.backend.download(binding, target, local, progress, expected); }
+  upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) { return this.backend.upload(binding, local, target, progress, metadata, hash, requestId, phase); }
 }

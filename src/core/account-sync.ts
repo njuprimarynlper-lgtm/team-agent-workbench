@@ -54,7 +54,7 @@ export class AccountSync {
     if (this.store.settings.resultPreferences?.[key]) records['result-rules:preferences'] = this.store.settings.resultPreferences[key];
     // Losing group access must never mean deleting the account's existing private records.
     for (const [id, value] of Object.entries(this.base)) if (id.startsWith('draft:') && value && !projectIds.has(value.projectId)) records[id] = value;
-    for (const item of this.store.conclusions) if (item.accountOwner === key) records['material:' + item.id] = { ...item, sources: item.sources.map(source => ({ ...source, path: source.path && !/^[A-Za-z]:|^file:/.test(source.path) ? source.path : undefined })) };
+    for (const item of this.store.conclusions) if (item.accountOwner === key) { const safeSource = (source: typeof item.sources[number]) => ({ ...source, path: source.path && !/^[A-Za-z]:|^file:/.test(source.path) ? source.path : undefined }); records['material:' + item.id] = { ...item, sources: item.sources.map(safeSource), versions: item.versions?.map(version => ({ ...version, sources: version.sources.map(safeSource) })) }; }
     for (const draft of this.store.drafts) if (this.owns(draft, profile)) {
       const selectedFiles = new Set(draft.artifacts?.flatMap(item => (item.attachments || []).filter(entry => entry.selected).map(entry => entry.fileId)));
       // Account restoration contains reviewed results, never conversations, CLI state or local code paths.

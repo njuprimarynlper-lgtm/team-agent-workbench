@@ -139,7 +139,8 @@ try {
   await page.getByRole('button', { name: '编辑内容', exact: true }).click();
   await page.getByLabel('预处理结果内容', { exact: true }).fill('人工核对后的检查步骤。');
   await page.screenshot({ path: path.join(data, 'conclusion-processing-preview.png') });
-  await page.getByRole('button', { name: '保存新成果并将 1 条原成果移入历史', exact: true }).click();
+  await page.locator('.merge-replacement-choice input[type="checkbox"]').check();
+  await page.getByRole('button', { name: '保存新成果，1 条来源移入历史', exact: true }).click();
   await expect(page.locator('.result-card.is-expanded .result-card-heading b')).toHaveText(/新人检查清单$/);
   const savedConclusions = await call('conclusion.list', { projectId: profile.projects[0].id, includeArchived: true });
   assert.equal(savedConclusions.find(item => item.id === processSource.id).archived, true);

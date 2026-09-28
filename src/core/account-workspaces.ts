@@ -149,7 +149,15 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
   for (const [index, name] of ['sessions', 'drafts', 'transfers', 'conclusions'].entries()) await atomicJson(path.join(staging, name + '.json'), [...selected[index].values()]);
   await atomicJson(path.join(staging, 'inputs.json'), inputs);
   await atomicJson(path.join(staging, 'migration.json'), { version: 1, owner, completedAt: new Date().toISOString(), sources: sources.map(source => source.directory), counts: selected.map(records => records.size), conflicts });
-  await fs.rename(staging, destination);
+  // Antivirus and file indexers can briefly hold a newly written directory on Windows.
+  // Keep the complete staging tree intact and retry only transient locks.
+  for (let attempt = 0; ; attempt++) {
+    try { await fs.rename(staging, destination); break; }
+    catch (error: any) {
+      if (attempt >= 6 || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || await fs.stat(destination).then(() => true).catch(() => false)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 10 * 2 ** attempt));
+    }
+  }
   return destination;
 }
 

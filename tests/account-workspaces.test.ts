@@ -27,6 +27,20 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   return { root, first, profile };
 }
 
+test('account migration retries a transient Windows directory lock without publishing partial data', async t => {
+  const { root, first, profile } = await fixture(t), destination = accountDirectory(first.store.root, profile);
+  const rename = fs.rename.bind(fs); let blocked = 0;
+  const mock = t.mock.method(fs, 'rename', async (from: string, to: string) => {
+    if (to === destination && from.startsWith(destination + '.migrating-') && blocked++ < 2) throw Object.assign(new Error('scanner lock'), { code: 'EPERM' });
+    return rename(from, to);
+  });
+  try {
+    assert.equal(await migrateAccountWorkspace(first.store.root, profile, root), destination);
+    assert.equal(blocked, 3);
+    assert.equal(JSON.parse(await fs.readFile(path.join(destination, 'migration.json'), 'utf8')).owner, accountIdentity(profile));
+  } finally { mock.mock.restore(); }
+});
+
 test('account migration finds sessions in a window now logged in as someone else and preserves histories, drafts, inputs and account isolation', async t => {
   const { root, first, profile } = await fixture(t), base = first.store.root;
   const second = new Workbench(path.join(base, 'instances', '2'), () => {}, () => {});

@@ -6,15 +6,51 @@ import { atomicJson } from './store';
 import { hashFile } from './artifacts';
 import { assertRemote, childRemote } from './paths';
 import { attachmentPath, mergeAttachments } from '../shared/attachments';
-import { contentEditSchema, contentMetadataSchema, contributionCategoryFields, contributionCategoryInfo, type ContentEdit, type ContentMetadata, type SharedContent } from '../shared/content';
+import { contentEditSchema, contentMergeSchema, contentMetadataSchema, contributionCategoryFields, contributionCategoryInfo, type ContentEdit, type ContentMerge, type ContentMetadata, type SharedContent } from '../shared/content';
 import type { RemoteBinding } from '../shared/types';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
 export class ContentFiles {
   constructor(private root: string, private authorize: (binding: RemoteBinding) => Promise<{ username: string; admin: boolean }>) {}
   private index(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content.json'), true); }
+  private historyIndex(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content-history.json'), true); }
   private async read(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.index(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
+  private async historyRead(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.historyIndex(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
   async list(binding: RemoteBinding) { await this.authorize(binding); return this.read(binding); }
+  async history(binding: RemoteBinding, id?: string, revision?: number, summary = false) { await this.authorize(binding); const items = await this.historyRead(binding); return items.filter(item => (!id || item.id === id) && (!revision || item.revision === revision)).map(item => summary ? { ...item, description: '', fields: undefined, attachments: undefined, sourceDetails: undefined } : item); }
+  async merge(binding: RemoteBinding, input: ContentMerge) {
+    const change = contentMergeSchema.parse(input);
+    return registryLock(this.root, async () => {
+      const actor = await this.authorize(binding); if (!actor.admin) throw new Error('只有本组组管理员可以整理团队成果');
+      const items = await this.read(binding), history = await this.historyRead(binding);
+      const prior = change.requestId && items.find(item => item.mergeRequestId === change.requestId);
+      if (prior) {
+        if (new Set(prior.replaces?.map(ref => ref.id) || []).size !== change.replaceIds.length || change.replaceIds.some(id => !prior.replaces?.some(ref => ref.id === id))) throw new Error('这次整理已用另一组替代来源保存，请刷新');
+        return prior;
+      }
+      const sources = change.sources.map(ref => {
+        const item = items.find(value => value.id === ref.id);
+        if (!item || item.revision !== ref.revision || item.kind !== 'contribution') throw new Error('待整理成果已更新或移出当前列表，请刷新');
+        return item;
+      });
+      const attachments = mergeAttachments(sources), now = new Date().toISOString(), id = randomUUID();
+      const target = assertRemote(binding.project.remoteRoot, path.posix.join(binding.project.remoteRoot, 'curated', `${id}-v1.md`));
+      const file = await diskPath(this.root, target, true), body = `# ${change.title}\n\n${change.description}`;
+      const refs = sources.map(source => ({ scope: 'team' as const, projectId: binding.project.id, id: source.id, version: source.revision }));
+      const replacedSources = sources.filter(source => change.replaceIds.includes(source.id));
+      const result: SharedContent = { id, title: change.title, description: change.description, kind: 'contribution', category: change.category, sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
+      const archived = replacedSources.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id, version: 1 }, supersededAt: now }));
+      await this.authorize(binding);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, body, { flag: 'wx' });
+      try {
+        await atomicJson(await this.historyIndex(binding), [...archived, ...history]);
+        try { await atomicJson(await this.index(binding), [result, ...items.filter(item => !replacedSources.includes(item))]); }
+        catch (error) { await atomicJson(await this.historyIndex(binding), history); throw error; }
+      } catch (error) { await fs.rm(file, { force: true }); throw error; }
+      return result;
+    });
+  }
   async publishAttachment(binding: RemoteBinding, source: string, hash: string) {
     return registryLock(this.root, async () => {
       await this.authorize(binding);
@@ -81,8 +117,10 @@ export class ContentFiles {
       if (!item || item.revision !== change.revision) throw new Error('内容已更新或删除，请刷新后再操作；本地编辑仍保留');
       if (!actor.admin && (item.author !== actor.username || item.state === 'curated')) throw new Error('只能修改自己尚未被组管理员整理的提交；可另提补充');
       if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组组管理员可以整理或合并内容');
+      if (change.merge.length) throw new Error('旧版合并入口已停用，请更新客户端后重新整理；原成果保持不变');
       if (new Set(change.merge.map(m => m.id)).size !== change.merge.length) throw new Error('不能重复合并同一成果');
       const merged = change.merge.map(m => { const source = items.find(i => i.id === m.id); if (!source || source.id === item.id || source.revision !== m.revision || source.kind !== 'contribution') throw new Error('待合并内容已改变或不是文字成果，请刷新'); return source; });
+      const history = await this.historyRead(binding), previous = structuredClone(item);
       const attachments = mergeAttachments([item, ...merged]);
       const provenance = [...(item.provenance || []), { id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt }, ...merged.flatMap(source => [...(source.provenance || []), { id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt }])].filter((source, index, all) => all.findIndex(value => value.id === source.id && value.revision === source.revision) === index);
       const oldPaths = [item, ...merged].map(i => i.path);
@@ -108,7 +146,11 @@ export class ContentFiles {
       }
       await this.authorize(binding);
       if (change.action === 'save' && attachments.length) item.attachments = attachments;
-      await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id)));
+      const tombstone = { ...previous, description: '', attachments: undefined, fields: undefined, sourceDetails: undefined, deletedAt: new Date().toISOString() };
+      const archived = [change.action === 'delete' ? tombstone : previous, ...merged.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id: item.id, version: item.revision }, supersededAt: new Date().toISOString() }))];
+      await atomicJson(await this.historyIndex(binding), [...archived, ...history.filter(entry => change.action !== 'delete' || entry.id !== item.id)]);
+      try { await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id))); }
+      catch (error) { await atomicJson(await this.historyIndex(binding), history); throw error; }
       for (const target of oldPaths.filter(target => change.action === 'delete' || target !== item.path)) await fs.unlink(await diskPath(this.root, target)).catch(() => {});
       return change.action === 'delete' ? undefined : item;
     });

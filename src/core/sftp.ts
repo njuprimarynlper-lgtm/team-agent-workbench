@@ -2,7 +2,7 @@ import { storageRequest } from './storage-requests';
 import { forwardEgress } from './ssh-egress';
 import type { AssignmentCreate, AssignmentMember, AssignmentStatusChange, ProjectAssignment, AssignmentUpload, AssignmentFile } from '../shared/assignments';
 import { hashFile } from './artifacts';
-import type { ContentEdit, ContentMetadata, SharedContent } from '../shared/content';
+import type { ContentEdit, ContentMerge, ContentMetadata, SharedContent } from '../shared/content';
 import { Client, type SFTPWrapper, type Stats } from 'ssh2';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -17,6 +17,7 @@ import type { AccountSnapshot } from '../shared/account-data';
 import { newProjectLayout, projectName } from './project-layout';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
 import { groupWorkspacePattern } from '../shared/groups';
+import type { TransferPhase } from '../shared/types';
 const MAX_PREVIEW = 512 * 1024;
 export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
   return a.connectionId === b.id && a.host === b.host && a.port === b.port && a.username === b.username && a.fingerprint === b.fingerprint;
@@ -181,9 +182,9 @@ export class SftpConnection {
     this.changed(); return projects;
   }
   private requireStorage() { if (this.storageVersion !== 1) throw new Error('服务器尚未启用受控文件操作。请管理员使用新版管理员端配置 SFTP 与文件操作器；当前只允许读取。'); }
-  private request(data: Record<string, unknown>, binding?: RemoteBinding, local?: string, progress?: (bytes: number, total: number) => void) {
+  private request(data: Record<string, unknown>, binding?: RemoteBinding, local?: string, progress?: (bytes: number, total: number) => void, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) {
     this.requireStorage(); const s = this.channel(binding), profile = this.profile!;
-    return storageRequest(s, profile.username, data, () => { if (this.channel(binding) !== s || this.profile !== profile) throw new Error('请求期间连接已改变'); }, local, progress);
+    return storageRequest(s, profile.username, data, () => { if (this.channel(binding) !== s || this.profile !== profile) throw new Error('请求期间连接已改变'); }, local, progress, requestId, phase);
   }
   async createProject(name: string, groupName?: string, brief?: ProjectBrief): Promise<Project> {
     await this.loadManifest();
@@ -197,6 +198,8 @@ export class SftpConnection {
     const s = this.channel(binding); await this.checked(binding, binding.project.remoteRoot);
     return new Promise((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) resolve([]); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
   }
+  contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false): Promise<SharedContent[]> { return this.request({ op: 'content_history', projectId: binding.project.id, id, revision, summary }, binding); }
+  contentMerge(binding: RemoteBinding, change: ContentMerge): Promise<SharedContent> { return this.request({ op: 'merge_content', projectId: binding.project.id, change }, binding); }
   private async assignmentRequest(binding: RemoteBinding, input: Record<string, unknown>, local?: string) {
     try { return await this.request({ ...input, projectId: binding.project.id }, binding, local); }
     catch (error: any) { if (/不支持的内容操作|不支持的任务操作/.test(error.message)) throw new Error('服务器尚未更新任务功能，请管理员在新版管理端点击“更新服务端功能”'); throw error; }
@@ -272,14 +275,30 @@ export class SftpConnection {
     if (data.buffer.includes(0) || ['.zip', '.pdf', '.docx', '.xlsx', '.exe'].includes(ext)) return { name, path: target, type: 'binary', content: '', truncated: false, size: stats.size };
     return { name, path: target, type: 'text', content: data.buffer.toString('utf8'), truncated: data.truncated, size: stats.size };
   }
-  async download(binding: RemoteBinding, target: string, local: string, progress: (bytes: number, total: number) => void = () => {}) {
+  async downloadInfo(binding: RemoteBinding, target: string) {
+    const c = await this.checked(binding, target), stats = await this.stat(c.s, c.target);
+    if (!stats.isFile()) throw new Error('只能下载普通文件');
+    const hash = createHash('sha256'), stream = c.s.createReadStream(c.target), closed = finished(stream);
+    void closed.catch(() => {});
+    let size = 0;
+    try { for await (const chunk of stream) { hash.update(chunk); size += chunk.length; } await closed; }
+    catch (error) { throw friendlySftp(error); }
+    if (size !== stats.size) throw new Error('远端文件在读取期间发生变化，请重新下载');
+    const again = await this.checked(binding, target);
+    if (again.s !== c.s || again.target !== c.target) throw new Error('下载期间项目或连接已改变');
+    return { sha256: hash.digest('hex'), size };
+  }
+  async download(binding: RemoteBinding, target: string, local: string, progress: (bytes: number, total: number) => void = () => {}, expected?: { sha256: string; size: number }) {
+    expected ||= await this.downloadInfo(binding, target);
     const c = await this.checked(binding, target), stats = await this.stat(c.s, c.target);
     if (!stats.isFile()) throw new Error('只能下载普通文件');
     await fsp.mkdir(path.dirname(local), { recursive: true });
-    const temp = local + '.' + randomUUID() + '.partial'; let count = 0;
+    const temp = local + '.' + randomUUID() + '.partial'; let count = 0; const hash = createHash('sha256');
     try {
-      await pipeline(c.s.createReadStream(c.target), new Transform({ transform(chunk, _encoding, done) { count += chunk.length; progress(count, stats.size); done(null, chunk); } }), fs.createWriteStream(temp, { flags: 'wx' }));
-      if (count !== stats.size) throw new Error('传输期间文件大小发生变化，请重新下载');
+      await pipeline(c.s.createReadStream(c.target), new Transform({ transform(chunk, _encoding, done) { count += chunk.length; hash.update(chunk); progress(count, expected!.size); done(null, chunk); } }), fs.createWriteStream(temp, { flags: 'wx' }));
+      if (count !== expected.size || hash.digest('hex') !== expected.sha256) throw new Error('远端文件内容已改变或下载不完整，请重新选择该文件');
+      const again = await this.checked(binding, target);
+      if (again.s !== c.s || again.target !== c.target) throw new Error('下载期间项目或连接已改变');
       await fsp.rename(temp, local);
     } catch (e) { await fsp.rm(temp, { force: true }); throw friendlySftp(e); }
   }
@@ -298,11 +317,11 @@ export class SftpConnection {
     }
     return true;
   }
-  async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void) {
-    return this.request({ op: 'publish_attachment', projectId: binding.project.id, sha256: hash }, binding, local, progress);
+  async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) {
+    return this.request({ op: 'publish_attachment', projectId: binding.project.id, sha256: hash }, binding, local, progress, requestId, phase);
   }
-  async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string) {
+  async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) {
     assertRemote(binding.project.remoteRoot, target);
-    return this.request({ op: 'publish', projectId: binding.project.id, target, sha256: hash || await hashFile(local), metadata }, binding, local, progress);
+    return this.request({ op: 'publish', projectId: binding.project.id, target, sha256: hash || await hashFile(local), metadata }, binding, local, progress, requestId, phase);
   }
 }

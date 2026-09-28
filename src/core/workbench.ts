@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPermissions, setCursorManualReview } from './permissions';
 import type { PermissionMode } from '../shared/types';
 import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
-import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput } from '../shared/types';
+import type { AgentCapabilitySelection, AgentSession, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SubsessionReport, SubsessionReportPreview } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { preparationSnapshot, prepareReadableInputs } from './preparation-snapshot';
 import { preparationPrompt } from './preparation-prompt';
@@ -37,7 +37,9 @@ import { normalizedResultBody, teamResultDifference } from '../shared/team-resul
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
 import { attachedConclusion, conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
-import { sourceIdentity, sourceWasAccepted } from '../shared/session-context';
+import { acceptedSessionContext, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
+import { forkWorkspace, removeForkWorkspace } from './subsession-workspace';
+import { changedWorkspaceFiles, forkContextMarkdown, reportSourceHash } from './subsession-report';
 import { safeFilename, localWithin } from './paths';
 import { ProviderAccounts, authReady } from './provider-auth';
 import { inspectCatalog } from './provider-catalog';
@@ -79,7 +81,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'window.new'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'result.rules', 'session.history', 'session.files', 'session.file.preview', 'handoff.read', 'draft.attachment.preview', 'content.attachment.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'result.rules', 'session.history', 'session.files', 'session.file.preview', 'handoff.read', 'handoff.list', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -98,8 +100,11 @@ export class Workbench {
     this.accountSync = new AccountSync(this.store, this.remote, this.broadcast, () => {
       for (const draft of this.store.drafts) {
         const explicitlySaved = new Set(draft.personalSavedIds || []);
+        // A ready or team-submitted draft is only a preparation record. Recreate
+        // personal results solely from the explicit personal-save receipt.
         if (!explicitlySaved.size) continue;
-        this.syncDraftConclusions(draft, true, explicitlySaved);
+        const restored = this.syncDraftConclusions(draft, true, explicitlySaved);
+        for (const result of restored) result.conclusion.automatic = false;
       }
     });
     this.accounts = new ProviderAccounts(p => this.store.settings.providerPaths[p], broadcast, provider => {
@@ -108,7 +113,16 @@ export class Workbench {
   }
   async init() {
     await this.store.init();
-    for (const draft of this.store.drafts) this.syncDraftConclusions(draft, true);
+    // Older versions saved prepared results automatically. Preserve those records
+    // without creating new personal results from drafts during startup.
+    for (const draft of this.store.drafts) {
+      if (!draft.binding || draft.mergeSources?.length) continue;
+      const owner = accountIdentity(draft.binding);
+      const saved = this.store.conclusions.filter(item => !item.deletedAt && item.projectId === draft.binding!.project.id && item.accountOwner === owner)
+        .flatMap(item => item.sources.filter(source => source.kind === 'session' && (source.id === draft.id || source.id.startsWith(draft.id + '-'))).map(source => source.id));
+      if (saved.length) draft.personalSavedIds = [...new Set([...(draft.personalSavedIds || []), ...saved])];
+    }
+    linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     await this.store.save(); await this.restoreLocalWorkspace(); await this.detect();
   }
   async restoreLocalWorkspace() {
@@ -215,10 +229,11 @@ export class Workbench {
   }
   async saveConclusion(id: string, title: string, content: string, category?: ContributionCategory) {
     const conclusion = this.conclusion(id);
+    if (conclusion.supersededBy) throw new Error('这条成果已被新成果替代，历史原文不可修改');
     const priorCategory = conclusion.category || materialCategories.find(key => conclusion.title.startsWith(`【${contributionCategoryInfo[key].label}】`)) || 'finding';
     if (category) { if (category !== priorCategory && !this.resultRules(conclusion.projectId).combination.categories.includes(category as any)) throw new Error('请选择当前分类组合中启用的类别'); title = contributionTitle(category, title); }
     title = title.trim(); content = content.trim(); if (!title || !content) throw new Error('请填写结论标题和内容');
-    if (conclusion.title !== title || conclusion.content !== content) { conclusion.title = title; conclusion.content = content; conclusion.version++; conclusion.updatedAt = new Date().toISOString(); conclusion.automatic = false; }
+    if (conclusion.title !== title || conclusion.content !== content) { (conclusion.versions ||= []).push({ version: conclusion.version, title: conclusion.title, content: conclusion.content, updatedAt: conclusion.updatedAt, sources: structuredClone(conclusion.sources), derivedFrom: structuredClone(conclusion.derivedFrom) }); conclusion.title = title; conclusion.content = content; conclusion.version++; conclusion.updatedAt = new Date().toISOString(); conclusion.automatic = false; }
     if (category) conclusion.category = category;
     await this.store.save(); this.broadcast(); return conclusion;
   }
@@ -228,8 +243,21 @@ export class Workbench {
     if (value) conclusion.titleAlias = value; else delete conclusion.titleAlias;
     await this.store.save(); this.broadcast(); return conclusion;
   }
+  async publishConclusion(id: string, disclose: { scope: 'personal' | 'team'; projectId: string; id: string; version: number }[] = []) {
+    const conclusion = this.conclusion(id);
+    if (conclusion.archived) throw new Error('请先恢复这条个人成果再分享');
+    const allowed = conclusion.derivedFrom || [];
+    if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
+    const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
+    const category = conclusion.category || 'finding';
+    const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
+    await fs.mkdir(path.dirname(local), { recursive: true });
+    await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
+    return this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, title: conclusion.title, description: conclusion.content, sourceSessionTitle: '个人成果库', ...(disclose.length ? { disclosedSources: disclose } : {}) });
+  }
   async archiveConclusion(id: string, archived: boolean) {
     const conclusion = this.conclusion(id);
+    if (!archived && conclusion.supersededBy) throw new Error('这条成果已被新成果替代，不能恢复到当前列表；可从历史查看或另建成果');
     conclusion.archived = archived || undefined; conclusion.updatedAt = new Date().toISOString(); await this.store.save(); this.broadcast(); return conclusion;
   }
   async deleteConclusion(id: string, version: number) {
@@ -281,6 +309,7 @@ export class Workbench {
       const prior = sourced.sources.find(value => value.kind === source.kind && value.id === source.id)!;
       const nextSource = { ...source, ...(prior.publication ? { publication: prior.publication } : {}) };
       const changed = JSON.stringify(prior) !== JSON.stringify(nextSource) || !!(sourced.automatic && sourced.sources.length === 1 && sourced.title !== title);
+      if (changed) (sourced.versions ||= []).push({ version: sourced.version, title: sourced.title, content: sourced.content, updatedAt: sourced.updatedAt, sources: structuredClone(sourced.sources), derivedFrom: structuredClone(sourced.derivedFrom) });
       Object.assign(prior, nextSource); sourced.archived = undefined;
       if (changed) {
         if (sourced.automatic) { sourced.title = title; sourced.content = content; }
@@ -342,7 +371,9 @@ export class Workbench {
     const published = this.conclusions(projectId, true).find(value => value.sources.some(source => source.kind === 'session' && source.publication?.path === item.path) && !teamResultDifference(item, [value]));
     if (published) { this.linkPublishedContentId(projectId, item); return { conclusion: published, action: 'duplicate' as const }; }
     const localTitle = item.category ? contributionTitle(item.category, this.localContentTitle(projectId, item)) : resultTitle('项目结论', this.localContentTitle(projectId, item));
-    return this.organizeConclusion(projectId, localTitle, item.description || item.title, { id: item.id, kind: 'remote', title: localTitle, content: item.description, ...(item.sourceDetails ? { details: item.sourceDetails } : {}), revision: item.revision, sha256: item.sha256, path: item.path, updatedAt: item.updatedAt }, item.category);
+    const result = this.organizeConclusion(projectId, localTitle, item.description || item.title, { id: item.id, kind: 'remote', title: localTitle, content: item.description, ...(item.sourceDetails ? { details: item.sourceDetails } : {}), revision: item.revision, sha256: item.sha256, path: item.path, updatedAt: item.updatedAt }, item.category);
+    result.conclusion.derivedFrom = [{ scope: 'team', projectId, id: item.id, version: item.revision }];
+    return result;
   }
   private linkPublishedContentId(projectId: string, item: SharedContent) {
     let changed = false;
@@ -355,7 +386,7 @@ export class Workbench {
   private syncDraftConclusions(draft: Draft, preserveExisting = false, requestedIds?: Set<string>) {
     if (!draft.binding || draft.mergeSources?.length || draft.generation !== 'ready') return [];
     const owner = accountIdentity(draft.binding);
-    const projectId = draft.binding.project.id, selectedIds = new Set((draft.artifacts || []).filter(item => item.selected && (!requestedIds || requestedIds.has(item.id))).map(item => item.id));
+    const projectId = draft.binding.project.id, selectedIds = new Set((draft.artifacts || []).filter(item => requestedIds ? requestedIds.has(item.id) : item.selected).map(item => item.id));
     if (!draft.artifacts?.length && draft.body.trim() && (!requestedIds || requestedIds.has(draft.id))) selectedIds.add(draft.id);
     const owns = (source: ConclusionSource) => source.kind === 'session' && (source.id === draft.id || source.id.startsWith(draft.id + '-'));
     const now = draft.generationFinishedAt || new Date().toISOString();
@@ -380,9 +411,27 @@ export class Workbench {
       const title = draft.titleAlias || titleSubject(draft.title) || draft.title, content = contributionBody(draft);
       results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }, undefined, owner));
     }
-    if (selectedIds.size) draft.personalSavedIds = [...new Set([...(draft.personalSavedIds || []), ...selectedIds])];
     linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     return results;
+  }
+  saveDraftPersonal(id: string, artifactIds: string[]) {
+    return this.edit('draft:' + id, async () => {
+      const draft = this.draft(id);
+      if (draft.mergeSources?.length) throw new Error('请在合并结果页面选择保存位置');
+      if (draft.generation !== 'ready' || !draft.binding) throw new Error('请等待整理完成并确认项目');
+      const available = draft.artifacts?.length ? draft.artifacts.filter(item => item.selected).map(item => item.id) : draft.body.trim() ? [draft.id] : [];
+      if (!artifactIds.length || new Set(artifactIds).size !== artifactIds.length || artifactIds.some(item => !available.includes(item))) throw new Error('请选择要保存的整理结果');
+      const before = structuredClone(this.store.conclusions), savedBefore = draft.personalSavedIds;
+      try {
+        const results = this.syncDraftConclusions(draft, true, new Set(artifactIds));
+        for (const result of results) result.conclusion.automatic = false;
+        const owner = accountIdentity(draft.binding);
+        const saved = artifactIds.map(sourceId => this.store.conclusions.find(item => !item.deletedAt && item.projectId === draft.binding!.project.id && item.accountOwner === owner && item.sources.some(source => source.kind === 'session' && source.id === sourceId)));
+        if (saved.some(item => !item)) throw new Error('选中的个人成果曾被删除，请重新整理后保存');
+        draft.personalSavedIds = [...new Set([...(draft.personalSavedIds || []), ...artifactIds])];
+        await this.store.save(); this.broadcast(); return saved.map(item => item!);
+      } catch (error) { this.store.conclusions = before; draft.personalSavedIds = savedBefore; throw error; }
+    }, false);
   }
   async importContentConclusion(projectId: string, contentId: string, expectedRevision?: number) {
     const owner = () => { const profile = this.localProfile(); return profile ? accountIdentity(profile) : ''; };
@@ -484,7 +533,11 @@ export class Workbench {
       const workspace = this.remote.workspaces.find(item => item.groupName === project.groupName);
       if (workspace?.accessError) continue;
       try {
-        const items = await this.remote.contentList(this.remote.binding(project.id));
+        const binding = this.remote.binding(project.id);
+        const items = await this.remote.contentList(binding);
+        let history: SharedContent[] = [];
+        try { history = await this.remote.contentHistory(binding, undefined, undefined, true); }
+        catch (error: any) { if (!/不支持的内容操作/.test(error.message || '')) throw error; }
         if (!this.remote.connected || !this.remote.profile || this.remote.profile.id !== profile.id || accountIdentity(this.remote.profile) !== accountIdentity(profile)) return this.contentUpdates();
         for (const item of items) if (this.linkPublishedContentId(project.id, item)) changed = true;
         // Account restoration replaces these containers while the network request is pending.
@@ -498,6 +551,8 @@ export class Workbench {
         if (prior) {
           const removed = Object.entries(prior).filter(([id]) => !current[id]).map(([id, value]) => ({ id, ...value }));
           for (const source of removed) {
+            const superseded = history.find(item => item.id === source.id && item.revision === source.revision && item.supersededBy) || items.find(item => (!prior[item.id] || item.revision > prior[item.id].revision) && (item.replaces || []).some(ref => ref.id === source.id && ref.version === source.revision));
+            if (superseded) continue;
             for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === source.id) {
               if (inbox[index].readAt || inbox[index].actions?.length) inbox[index].unavailableAt = detectedAt; else inbox.splice(index, 1);
               changed = true;
@@ -507,12 +562,17 @@ export class Workbench {
           for (const item of items) {
             const before = prior[item.id], contentChanged = !before ? 'new' as const : item.revision > before.revision ? 'updated' as const : undefined;
             if (!contentChanged) continue;
-            const sourceIds = new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)]);
+            const sourceIds = new Set((item.replaces || []).map(ref => ref.id));
             const mergedSources = removed.filter(source => sourceIds.has(source.id));
             const change = mergedSources.length ? 'merged' as const : contentChanged;
             add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
-          for (const source of removed) add({ eventId: `${key}:deleted:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, sourceSessionTitle: source.sourceSessionTitle, change: 'deleted', occurredAt: detectedAt, detectedAt });
+          for (const source of removed) {
+            const historic = history.find(item => item.id === source.id && item.revision === source.revision && item.supersededBy);
+            const replacement = historic?.supersededBy ? items.find(item => item.id === historic.supersededBy!.id) : items.find(item => (!prior[item.id] || item.revision > prior[item.id].revision) && (item.replaces || []).some(ref => ref.id === source.id && ref.version === source.revision));
+            const superseded = !!historic || !!replacement;
+            add({ eventId: `${key}:${superseded ? 'superseded' : 'deleted'}:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, sourceSessionTitle: source.sourceSessionTitle, change: superseded ? 'superseded' : 'deleted', ...(superseded ? { replacedBy: { id: historic?.supersededBy?.id || replacement!.id, title: replacement?.title || '新成果' } } : {}), occurredAt: historic?.supersededAt || detectedAt, detectedAt });
+          }
         } else {
           const recent = Date.now() - 24 * 60 * 60 * 1000;
           for (const item of items.filter(item => Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
@@ -541,6 +601,18 @@ export class Workbench {
   async detect() { this.providers = await Promise.all((['codex', 'cursor', 'claude'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
   snapshot(): Snapshot { return scopeAccountSnapshot({ accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions: this.store.sessions, inputs: this.store.inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined }); }
   private localProfile() { return !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; }
+  betaFeatureEnabled(feature: 'sessionHandoff') {
+    const profile = this.localProfile();
+    return !!profile && !!this.store.settings.betaFeatures?.[accountIdentity(profile)]?.[feature];
+  }
+  async setBetaFeature(feature: 'sessionHandoff', enabled: boolean) {
+    const profile = this.localProfile();
+    if (!profile) throw new Error('请先连接团队账号');
+    const key = accountIdentity(profile);
+    this.store.settings.betaFeatures ||= {};
+    this.store.settings.betaFeatures[key] = { ...this.store.settings.betaFeatures[key], [feature]: enabled };
+    await this.store.save(); this.broadcast(); return enabled;
+  }
   private ownsLocal(binding?: RemoteBinding) { return ownsBinding(this.localProfile(), binding); }
   private sessionNotice(session: AgentSession, message: string) { if (!this.configuring && this.ownsLocal(session.binding)) this.notice(message); }
   assertAccountReady() { if (this.configuring) throw new Error('正在登录，请等待账号切换完成'); }
@@ -721,7 +793,7 @@ export class Workbench {
     const id = randomUUID(); const dir = purpose === 'work' ? path.join(cwd, '.workbench', 'sessions', id) : cwd;
     await fs.mkdir(dir, { recursive: true });
     const handoffPath = path.join(dir, 'handoff.md');
-    await fs.writeFile(handoffPath, '# 阶段摘要\n\n## 目标与范围\n待补充。\n\n## 当前结果\n尚未整理。\n\n## 验证与证据\n尚无验证记录。\n\n## 代码改动与仓库链接（如有）\n无代码改动时可留空。\n\n## 尚未解决的问题\n待补充。\n', { flag: 'wx' });
+    await fs.writeFile(handoffPath, '# 阶段摘要\n\n## 当前工作焦点与范围\n待补充。\n\n## 当前进展\n尚未整理。\n\n## 已确认的决定与依据\n尚无。\n\n## 改动、影响范围与验证\n记录文件、版本、受影响的流程或文档、检查结果；尚无时写“尚未验证”。\n\n## 阻塞与待确认事项\n尚无。\n\n## 下一步\n待补充。\n', { flag: 'wx' });
     const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath };
     this.store.sessions.unshift(session);
     const managed = cwd.startsWith(path.join(this.store.root, 'workspaces') + path.sep);
@@ -889,12 +961,11 @@ export class Workbench {
         } catch (e: any) { draft.generation = 'error'; draft.generationError = preparationErrorMessage(e); }
         draft.generationFinishedAt = new Date().toISOString();
         if (draft.generation === 'ready') {
-          this.syncDraftConclusions(draft);
           const parent = this.store.sessions.find(session => session.id === draft.sessionId);
           if (parent) rememberPreparationProgress(parent, [draft]);
         }
         await this.store.save(); this.broadcast();
-        this.sessionNotice(s, draft.generation === 'ready' ? isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”预处理结果已生成，请审阅后保存。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，待确认上传。` : `“${draft.title}”整理失败：${draft.generationError}`);
+        this.sessionNotice(s, draft.generation === 'ready' ? isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”处理草稿已生成，请审阅后选择保存到个人成果库或提交团队。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，请审阅后选择保存到个人成果库或提交团队。` : `“${draft.title}”整理失败：${draft.generationError}`);
         const runtime = this.runtimes.get(id); if (runtime) { this.runtimes.delete(id); await runtime.close(); }
       }
     }
@@ -993,10 +1064,10 @@ export class Workbench {
       if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
       if (this.sending.has(id) || this.steering.has(id) || ['starting', 'running', 'approval'].includes(session.status)) throw new Error('会话正在发送，请等待本轮结束后重试');
       const source = session.sources.find(item => item.id === sourceId);
-      if (!source || (!source.contentRef && !isConclusionSource(source))) throw new Error('只能撤销尚未发送的成果引用');
+      if (!source || (!source.contentRef && !isConclusionSource(source) && !isPersonalHandoffSource(source))) throw new Error('只能撤销尚未发送的成果或会话摘要引用');
       const identity = sourceIdentity(source), matches = session.sources.filter(item => sourceIdentity(item) === identity);
       if (matches.some(item => item.id === session.projectBrief?.sourceId || session.assignment?.sourceIds.includes(item.id))) throw new Error('项目说明或任务资料不能在此撤销');
-      if (matches.some(item => sourceWasAccepted(session, item))) throw new Error('这份成果已发送给模型，不能从当前对话历史中撤销');
+      if (matches.some(item => sourceWasAccepted(session, item))) throw new Error('这份参考内容已发送给模型，不能从当前对话历史中撤销');
       const removed = new Set(matches.map(item => item.id));
       session.sources = session.sources.filter(item => !removed.has(item.id));
       const input = this.store.inputs[id]; if (input) input.sourceIds = input.sourceIds.filter(item => !removed.has(item));
@@ -1177,7 +1248,7 @@ export class Workbench {
     await this.store.save(); this.broadcast(); this.notice('成果整理失败：' + d.generationError);
   }
   async retryPreparation(id: string) {
-    const d = this.draft(id); if (d.mergeCompletedAt || d.submitted || this.submittingDrafts.has(id) || d.generation === 'running') throw new Error('此草稿已提交或正在整理');
+    const d = this.draft(id); if (d.mergeCompletedAt || d.submitted || d.personalSavedIds?.length || this.submittingDrafts.has(id) || d.generation === 'running') throw new Error('此草稿已保存、已提交或正在整理；请从原会话再次整理');
     // Reserve before the first await. Retry uses the same frozen inputs but a fresh CLI context.
     const refreshInputs = d.generation === 'ready';
     d.generation = 'running'; d.generationError = undefined; d.generationStartedAt = new Date().toISOString(); d.generationFinishedAt = undefined; this.broadcast();
@@ -1277,7 +1348,7 @@ export class Workbench {
         delete target.titleAlias;
       }
       if (artifact && draft.artifacts?.length === 1) { draft.title = artifact.title; draft.titleAlias = artifact.titleAlias; }
-      this.syncDraftConclusions(draft); await this.store.save(); this.broadcast(); return draft;
+      await this.store.save(); this.broadcast(); return draft;
     }, false);
   }
   saveDraftSupplement(id: string, supplement: string, repoUrlOverride: string) {
@@ -1286,13 +1357,13 @@ export class Workbench {
       const d = this.draft(id); if (d.submitted) throw new Error('该成果已提交');
       await fs.mkdir(path.dirname(d.outputPath), { recursive: true });
       await fs.writeFile(d.outputPath, contributionBody({ ...d, supplement }), 'utf8');
-      Object.assign(d, { supplement, repoUrlOverride }); this.syncDraftConclusions(d); await this.store.save(); this.broadcast(); return d;
+      Object.assign(d, { supplement, repoUrlOverride }); await this.store.save(); this.broadcast(); return d;
     });
   }
   async selectDraftArtifact(id: string, artifactId: string, selected: boolean) {
     const d = this.draft(id); if (d.submitted || this.submittingDrafts.has(id)) throw new Error('该批成果正在提交或已提交');
     const artifact = d.artifacts?.find(item => item.id === artifactId); if (!artifact) throw new Error('候选成果不存在');
-    artifact.selected = selected; this.syncDraftConclusions(d); await this.store.save(); this.broadcast(); return d;
+    artifact.selected = selected; await this.store.save(); this.broadcast(); return d;
   }
   changeDraftCategory(id: string, category: ContributionCategory, artifactId?: string) {
     return this.edit('draft:' + id, async () => {
@@ -1308,7 +1379,6 @@ export class Workbench {
         artifact.fields = { [contributionCategoryFields[category][0]]: artifact.body };
         artifact.target = contributionCategoryDirectory(draft.binding, category);
         if (draft.artifacts?.length === 1) { draft.title = artifact.title; draft.target = artifact.target; }
-        this.syncDraftConclusions(draft);
       }
       await this.store.save(); this.broadcast(); return draft;
     }, false);
@@ -1319,7 +1389,35 @@ export class Workbench {
     if (d.generation !== 'ready') throw new Error('请等待处理完成');
     d.title = d.resultCategory ? contributionTitle(d.resultCategory, title) : d.conclusionMergeProjectId ? title.trim() : resultTitle('综合整理', title, 200); d.body = body; await fs.writeFile(d.outputPath, body, 'utf8'); await this.store.save(); this.broadcast(); return d;
   }
-  async commitContentMerge(id: string) {
+  saveContentMergePersonal(id: string) {
+    return this.edit('draft:' + id, async () => {
+      const draft = this.draft(id);
+      if (!draft.mergeProjectId || !draft.mergeSources?.length || !draft.binding) throw new Error('这不是团队成果融合草稿');
+      if (draft.generation !== 'ready' || !draft.title.trim() || !draft.body.trim()) throw new Error('请等待融合完成并填写标题与正文');
+      const owner = accountIdentity(draft.binding);
+      const existing = this.store.conclusions.find(item => !item.deletedAt && item.accountOwner === owner && item.projectId === draft.mergeProjectId && item.sources.some(source => source.kind === 'session' && source.id === draft.id));
+      if (existing) return existing;
+      const now = new Date().toISOString();
+      const frozen: { id: string; revision: number; description?: string }[] = await fs.readFile(path.join(draft.inputDir, 'merge-sources.json'), 'utf8').then(JSON.parse).catch(() => []);
+      const conclusion: ProjectConclusion = {
+        id: randomUUID(), projectId: draft.mergeProjectId, accountOwner: owner,
+        title: draft.title, content: draft.body, category: draft.resultCategory,
+        sources: [
+          { id: draft.id, kind: 'session', title: '团队成果融合草稿', content: draft.body, updatedAt: now },
+          ...draft.mergeSources.map(source => ({ id: source.id, kind: 'remote' as const, title: source.title, content: frozen.find(item => item.id === source.id && item.revision === source.revision)?.description, revision: source.revision, updatedAt: source.updatedAt }))
+        ],
+        derivedFrom: draft.mergeSources.map(source => ({ scope: 'team' as const, projectId: draft.mergeProjectId!, id: source.id, version: source.revision })),
+        updatedAt: now, version: 1, automatic: false
+      };
+      this.store.conclusions.unshift(conclusion);
+      const previous = draft.personalSavedIds;
+      draft.personalSavedIds = [...new Set([...(previous || []), draft.id])];
+      try { await this.store.save(); }
+      catch (error) { this.store.conclusions = this.store.conclusions.filter(item => item.id !== conclusion.id); draft.personalSavedIds = previous; throw error; }
+      this.broadcast(); return conclusion;
+    }, false);
+  }
+  async commitContentMerge(id: string, replaceIds: string[] = []) {
     if (this.submittingDrafts.has(id)) throw new Error('正在确认合并，请等待结果');
     this.submittingDrafts.add(id);
     try {
@@ -1327,19 +1425,20 @@ export class Workbench {
       if (!d.mergeSources?.length || !d.binding || !d.mergeProjectId) throw new Error('合并草稿缺少来源或项目绑定');
       if (d.mergeCompletedAt) throw new Error('该合并已经完成');
       if (d.generation !== 'ready' || !d.title.trim() || !d.body.trim()) throw new Error('请等待融合完成并填写标题与正文');
-      const current = await this.remote.contentList(d.binding);
-      for (const source of d.mergeSources) {
-        const item = current.find(value => value.id === source.id);
-        if (!item || item.revision !== source.revision) throw new Error(`来源“${source.title}”已被更新或删除；原条目保持不变，请重新发起合并`);
+      if (new Set(replaceIds).size !== replaceIds.length || replaceIds.some(sourceId => !d.mergeSources!.some(source => source.id === sourceId))) throw new Error('移入历史的成果必须属于本次整理来源，且不能重复');
+      if (d.mergeReplacementIds && (d.mergeReplacementIds.length !== replaceIds.length || d.mergeReplacementIds.some(sourceId => !replaceIds.includes(sourceId)))) throw new Error('上次保存请求已使用另一组替代来源，请刷新整理记录');
+      if (!d.mergeReplacementIds) {
+        d.mergeReplacementIds = [...replaceIds];
+        try { await this.store.save(); }
+        catch (error) { delete d.mergeReplacementIds; throw error; }
       }
-      const primary = d.mergeSources[0];
-      const result = await this.remote.contentEdit(d.binding, { id: primary.id, revision: primary.revision, action: 'save', title: d.title, description: d.body, category: d.resultCategory, sourceDetails: d.resultSourceDetails, sourceSessionTitle: this.session(d.sessionId).title, curate: true, merge: d.mergeSources.slice(1).map(source => ({ id: source.id, revision: source.revision })) });
+      const result = await this.remote.contentMerge(d.binding, { requestId: d.id, sources: d.mergeSources.map(source => ({ id: source.id, revision: source.revision })), replaceIds, title: d.title, description: d.body, category: d.resultCategory, sourceDetails: d.resultSourceDetails, sourceSessionTitle: this.session(d.sessionId).title });
       if (!result) throw new Error('服务端未返回合并结果');
       d.mergeCompletedAt = new Date().toISOString(); d.mergeResultId = result.id; d.mergeResultPath = result.path; d.submitted = 'merge:' + result.id;
       await this.store.save(); this.broadcast(); return result;
     } finally { this.submittingDrafts.delete(id); }
   }
-  async commitConclusionMerge(id: string) {
+  async commitConclusionMerge(id: string, replaceIds: string[] = []) {
     if (this.submittingDrafts.has(id)) throw new Error('正在保存处理结果，请等待');
     this.submittingDrafts.add(id);
     try {
@@ -1347,13 +1446,51 @@ export class Workbench {
       if (!d.mergeSources?.length || !d.conclusionMergeProjectId) throw new Error('预处理结果缺少来源或项目');
       if (d.mergeCompletedAt) throw new Error('该处理结果已经保存');
       if (d.generation !== 'ready' || !d.title.trim() || !d.body.trim()) throw new Error('请等待处理完成并填写标题与正文');
+      if (new Set(replaceIds).size !== replaceIds.length || replaceIds.some(sourceId => !d.mergeSources!.some(source => source.id === sourceId))) throw new Error('移入历史的成果必须属于本次整理来源，且不能重复');
       const current = d.mergeSources.map(source => this.conclusions(d.conclusionMergeProjectId!).find(item => item.id === source.id));
       for (let index = 0; index < d.mergeSources.length; index++) if (!current[index] || current[index]!.version !== d.mergeSources[index].revision) throw new Error(`来源“${d.mergeSources[index].title}”已被更新或归档；原结论保持不变，请重新发起处理`);
-      const now = new Date().toISOString(), conclusion: ProjectConclusion = { id: randomUUID(), projectId: d.conclusionMergeProjectId, title: d.title, category: d.resultCategory, content: d.body, sources: current.map(item => ({ id: item!.id, kind: 'conclusion' as const, title: item!.title, content: item!.content, revision: item!.version, updatedAt: item!.updatedAt, details: item!.id === d.mergeSources![0].id ? d.resultSourceDetails : undefined })), updatedAt: now, version: 1, automatic: false };
-      for (const source of current) { source!.archived = true; source!.updatedAt = now; }
+      const previousSources = current.map(source => structuredClone(source!));
+      const previousDraft = { mergeCompletedAt: d.mergeCompletedAt, mergeResultId: d.mergeResultId, submitted: d.submitted };
+      const now = new Date().toISOString(), refs = current.map(item => ({ scope: 'personal' as const, projectId: d.conclusionMergeProjectId!, id: item!.id, version: item!.version }));
+      const replaced = refs.filter(ref => replaceIds.includes(ref.id));
+      const conclusion: ProjectConclusion = { id: randomUUID(), projectId: d.conclusionMergeProjectId, title: d.title, category: d.resultCategory, content: d.body, sources: current.map(item => ({ id: item!.id, kind: 'conclusion' as const, title: item!.title, content: item!.content, revision: item!.version, updatedAt: item!.updatedAt, details: item!.id === d.mergeSources![0].id ? d.resultSourceDetails : undefined })), derivedFrom: refs, replaces: replaced, updatedAt: now, version: 1, automatic: false };
+      for (const source of current.filter(item => replaceIds.includes(item!.id))) { source!.archived = true; source!.supersededBy = { scope: 'personal', projectId: d.conclusionMergeProjectId!, id: conclusion.id, version: 1 }; }
       if (d.binding) conclusion.accountOwner = accountIdentity(d.binding);
       this.store.conclusions.unshift(conclusion); d.mergeCompletedAt = now; d.mergeResultId = conclusion.id; d.submitted = 'conclusion:' + conclusion.id;
-      await this.store.save(); this.broadcast(); return conclusion;
+      try { await this.store.save(); }
+      catch (error) {
+        this.store.conclusions = this.store.conclusions.filter(item => item.id !== conclusion.id);
+        current.forEach((source, index) => { for (const key of Object.keys(source!)) delete (source! as any)[key]; Object.assign(source!, previousSources[index]); });
+        delete d.mergeCompletedAt; delete d.mergeResultId; delete d.submitted; Object.assign(d, previousDraft);
+        throw error;
+      }
+      this.broadcast(); return conclusion;
+    } finally { this.submittingDrafts.delete(id); }
+  }
+  async submitConclusionMerge(id: string) {
+    if (this.submittingDrafts.has(id)) throw new Error('成果正在提交，请稍后重试');
+    this.submittingDrafts.add(id);
+    try {
+      await this.edits;
+      const draft = this.draft(id);
+      if (!draft.conclusionMergeProjectId || !draft.mergeSources?.length || !draft.binding) throw new Error('这不是个人成果处理草稿');
+      if (draft.mergeCompletedAt || draft.submitted) throw new Error('该草稿已经保存或提交');
+      if (draft.generation !== 'ready' || !draft.title.trim() || !draft.body.trim()) throw new Error('请等待处理完成并填写标题与正文');
+      this.assertCanWork(draft.binding);
+      for (const source of draft.mergeSources) {
+        const current = this.conclusions(draft.conclusionMergeProjectId, true).find(item => item.id === source.id);
+        if (!current || current.version !== source.revision) throw new Error(`来源“${source.title}”已更新或删除，请重新审阅后整理`);
+      }
+      const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
+      await fs.mkdir(path.dirname(local), { recursive: true });
+      await fs.writeFile(local, `# ${draft.title}\n\n${draft.body}`, 'utf8');
+      const category = draft.resultCategory || 'finding';
+      const transfer = await this.queue.enqueue(local, draft.binding, contributionCategoryDirectory(draft.binding, category), 'upload', draft.sessionId, {
+        kind: 'contribution', category, title: draft.title, description: draft.body,
+        sourceSessionTitle: this.store.sessions.find(item => item.id === draft.sessionId)?.title || draft.sourceSessionTitle || '个人成果处理'
+      });
+      draft.mergeCompletedAt = new Date().toISOString(); draft.mergeResultPath = transfer.target; draft.submitted = transfer.id;
+      await this.store.save(); this.broadcast(); return transfer;
     } finally { this.submittingDrafts.delete(id); }
   }
   async addDraftFiles(id: string, files: string[], artifactId?: string) {
@@ -1397,7 +1534,6 @@ export class Workbench {
         const packages = await Promise.all(selected.map(item => packageDraftArtifact(d, item, this.store.root)));
         const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ conclusionSourceId: item.id, local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { kind: 'contribution' as const, category: item.category, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
         const transfers = batch.slice(attachments.transfers.length);
-        this.syncDraftConclusions(d);
         selected.forEach((item, index) => { item.submitted = transfers[index].id; });
         d.submitted = transfers[0].id; await this.store.save(); this.broadcast(); return transfers[0];
       }
@@ -1405,14 +1541,13 @@ export class Workbench {
       this.remote.channel(d.binding); const artifact = { id: d.id, category: 'finding' as const, title: d.title, fields: { statement: d.body }, body: d.body, repoUrl: d.repoUrl, target: target || d.target || d.binding.project.uploadPath, selected: true };
       const zip = await packageDraftArtifact(d, artifact, this.store.root);
       const transfer = await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, { kind: 'contribution', title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle }, undefined, d.id);
-      this.syncDraftConclusions(d);
       d.submitted = transfer.id; await this.store.save(); this.broadcast(); return transfer;
     } finally { this.submittingDrafts.delete(id); }
   }
   async reviseDraft(id: string) {
     const original = this.draft(id); this.assertCanWork(original.binding);
     const draft = structuredClone(original); draft.id = randomUUID(); draft.submitted = undefined; draft.artifacts?.forEach((item, index) => { item.id = `${draft.id}-${index + 1}`; item.submitted = undefined; }); draft.generation = 'ready'; draft.generationError = undefined; draft.prepareSessionId = undefined; draft.createdAt = new Date().toISOString(); draft.outputPath = path.join(this.store.root, 'drafts', draft.id, 'draft.md');
-    this.syncDraftConclusions(draft);
+    delete draft.personalSavedIds;
     this.store.drafts.unshift(draft); await this.store.save(); this.broadcast(); return draft;
   }
   async archive(id: string): Promise<Transfer>;
@@ -1423,6 +1558,10 @@ export class Workbench {
   }
   private async createTrajectory(id: string, automatic: boolean) {
     const s = this.session(id); if (!s.binding) throw new Error('会话没有绑定远端项目'); this.assertCanWork(s.binding);
+    if (automatic && s.sources.some(isPersonalHandoffSource)) {
+      s.autoUpload = false; clearTimeout(this.trajectoryTimers.get(id)); this.trajectoryTimers.delete(id);
+      await this.store.save(); this.broadcast(); return;
+    }
     const frozen = structuredClone(s);
     await this.eventWrites.get(id);
     const events = await fs.readFile(path.join(this.store.sessionDir(id), 'events.jsonl'), 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
@@ -1460,6 +1599,7 @@ export class Workbench {
   async cleanUploadCache() {
     let count = 0, bytes = 0;
     for (const transfer of this.store.transfers) {
+      if (transfer.kind === 'download') continue;
       if (!this.ownsLocal(transfer.binding)) continue;
       if (transfer.status !== 'done' || transfer.cacheCleared) continue;
       if (!['packages', 'uploads'].some(folder => localWithin(path.join(this.store.root, folder), transfer.localPath))) continue;
@@ -1474,7 +1614,147 @@ export class Workbench {
     this.remote.channel(binding);
     for (const file of files) { const frozen = await freezeFile(file, path.join(this.store.root, 'uploads', randomUUID())); await this.queue.enqueue(frozen.localPath, binding, folder, 'upload'); }
   }
-  async readHandoff(id: string) { return (await fs.readFile(this.session(id).handoffPath, 'utf8')).replace(/^# Agent 工作记录\s*/u, '# 阶段摘要\n\n'); }
+  async forkSubsession(parentId: string, focus: string) {
+    if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话协作');
+    const parent = this.session(parentId), title = focus.trim();
+    if (!title || title.length > 120) throw new Error('请填写不超过 120 字的探索方向');
+    if (parent.purpose !== 'work' || !parent.binding) throw new Error('只能从项目工作会话创建 Subsession');
+    if (['starting', 'running', 'approval'].includes(parent.status)) throw new Error('请等父会话当前回复结束后再创建 Subsession');
+    this.assertCanWork(parent.binding);
+    const context = forkContextMarkdown(parent, await this.readHandoff(parentId));
+    const workspace = await forkWorkspace(parent.cwd, this.store.root, randomUUID());
+    let child: AgentSession | undefined;
+    try {
+      child = await this.createSession(parent.provider, workspace.cwd, parent.binding.project.id, 'work', parent.id, parent.model, parent.permissionMode || 'inherit', false);
+      if (!child.binding || accountIdentity(child.binding) !== accountIdentity(parent.binding)) throw new Error('创建期间团队账号已改变，请重试');
+      const sourcesDir = path.join(this.store.sessionDir(child.id), 'sources'); await fs.mkdir(sourcesDir, { recursive: true });
+      const sourceId = randomUUID(), localPath = path.join(sourcesDir, sourceId + '-parent-context.md');
+      await fs.writeFile(localPath, context, { flag: 'wx' });
+      const snapshotHash = createHash('sha256').update(context).digest('hex');
+      child.sources.push({ id: sourceId, name: `父会话派生点 · ${parent.title}`, localPath, sourcePath: 'session-handoff:fork:' + parent.id + ':' + (parent.messages.at(-1)?.id || 'empty'), sha256: snapshotHash, size: Buffer.byteLength(context), fetchedAt: new Date().toISOString() });
+      const accepted = acceptedSessionContext(parent).sourceHashes;
+      const inheritedSourceIds: string[] = [];
+      for (const original of parent.sources.filter(source => accepted[source.id] === source.sha256)) {
+        const frozen = await freezeFile(original.localPath, sourcesDir);
+        Object.assign(frozen, { name: original.name, sourcePath: original.sourcePath, contentRef: original.contentRef });
+        child.sources.push(frozen); inheritedSourceIds.push(frozen.id);
+        if (parent.projectBrief?.sourceId === original.id) child.projectBrief = { ...parent.projectBrief, sourceId: frozen.id };
+      }
+      child.title = title;
+      child.fork = { parentId: parent.id, capturedAt: new Date().toISOString(), parentMessageId: parent.messages.at(-1)?.id, parentMessageCount: parent.messages.length, snapshotHash, sourceId, inheritedSourceIds, workspaceKind: workspace.kind, workspaceRoot: workspace.root, baseRevision: workspace.baseRevision };
+      this.store.inputs[child.id] = { text: title, sourceIds: [], answers: {} };
+      this.session(parentId); // Reject an account switch before saving a child under the wrong identity.
+      await this.store.save(); this.broadcast(); return child;
+    } catch (error) {
+      if (child) {
+        this.store.sessions = this.store.sessions.filter(session => session.id !== child!.id);
+        delete this.store.inputs[child.id];
+        await fs.rm(this.store.sessionDir(child.id), { recursive: true, force: true }).catch(() => {});
+        await this.store.save().catch(() => {});
+      }
+      await removeForkWorkspace(workspace, parent.cwd).catch(() => {});
+      throw error;
+    }
+  }
+  async previewSubsessionReport(childId: string): Promise<SubsessionReportPreview> {
+    if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话协作');
+    const child = this.session(childId);
+    if (!child.fork || child.purpose !== 'work' || !child.binding) throw new Error('请选择 Subsession');
+    const parent = this.session(child.fork.parentId);
+    if (parent.binding?.project.id !== child.binding.project.id || accountIdentity(parent.binding) !== accountIdentity(child.binding)) throw new Error('父子会话项目或账号不一致');
+    if (['starting', 'running', 'approval'].includes(child.status)) throw new Error('请等子会话当前回复结束后再回报');
+    const handoff = await this.readHandoff(child.id);
+    const latestReply = [...child.messages].reverse().find(message => message.role === 'assistant')?.text || '';
+    const changedFiles = await changedWorkspaceFiles(child.cwd);
+    return { childId, parentId: parent.id, title: child.title, body: handoff, latestReply, changedFiles, messageCount: child.messages.length, sourceHash: reportSourceHash(child, handoff, latestReply, changedFiles), nextVersion: (child.reports?.at(-1)?.version || 0) + 1 };
+  }
+  async publishSubsessionReport(childId: string, expectedHash: string, body: string): Promise<SubsessionReport> {
+    return this.edit('subsession-report:' + childId, async () => {
+      const preview = await this.previewSubsessionReport(childId), text = body.trim();
+      if (preview.sourceHash !== expectedHash) throw new Error('子会话内容已有更新，请重新预览后回报');
+      if (!text || Buffer.byteLength(text) > 128 * 1024) throw new Error('回报内容不能为空且不能超过 128 KB');
+      const child = this.session(childId);
+      const prior = child.reports?.at(-1);
+      if (prior?.sourceHash === expectedHash && prior.body === text) return prior;
+      const report: SubsessionReport = { id: randomUUID(), version: preview.nextVersion, createdAt: new Date().toISOString(), title: child.title, body: text, sourceHash: preview.sourceHash, messageCount: preview.messageCount, latestReply: preview.latestReply, changedFiles: preview.changedFiles };
+      (child.reports ||= []).push(report);
+      try { await this.store.save(); } catch (error) { child.reports.pop(); throw error; }
+      this.broadcast(); return report;
+    }, false);
+  }
+  async reviewSubsessionReport(parentId: string, childId: string, reportId: string) {
+    const parent = this.session(parentId), child = this.session(childId);
+    if (child.fork?.parentId !== parent.id || !parent.binding || !child.binding || accountIdentity(parent.binding) !== accountIdentity(child.binding)) throw new Error('回报不属于此父会话');
+    const report = child.reports?.find(item => item.id === reportId);
+    if (!report) throw new Error('回报不存在');
+    if (!report.reviewedAt) { report.reviewedAt = new Date().toISOString(); await this.store.save(); this.broadcast(); }
+    return report;
+  }
+  async attachSubsessionReport(parentId: string, childId: string, reportId: string) {
+    return this.edit('subsession-report-attach:' + parentId, async () => {
+      if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话协作');
+      const parent = this.session(parentId), child = this.session(childId);
+      if (parent.closedAt || parent.purpose !== 'work' || !parent.binding) throw new Error('请先重新打开父会话');
+      if (child.fork?.parentId !== parent.id || !child.binding || child.binding.project.id !== parent.binding.project.id || accountIdentity(parent.binding) !== accountIdentity(child.binding)) throw new Error('只能引用当前账号与项目下的直接子会话回报');
+      const report = child.reports?.find(item => item.id === reportId);
+      if (!report) throw new Error('回报不存在');
+      const sourcePath = `subsession-report:${child.id}:${report.id}`;
+      const body = `# Subsession 回报 · ${report.title}\n\n子会话 ID：${child.id}\n回报 ID：${report.id}\n版本：v${report.version}\n派生点：父会话 ${parent.id} 的第 ${child.fork.parentMessageCount} 条消息\n\n## 回报内容\n\n${report.body}\n\n## 最近一轮回复\n\n${report.latestReply || '未记录'}\n\n## 当前工作区文件状态\n\n${report.changedFiles.length ? report.changedFiles.join('\n') : '未检测到 Git 文件变化'}\n`;
+      const sha256 = createHash('sha256').update(body).digest('hex');
+      const existing = parent.sources.find(source => source.sourcePath === sourcePath && source.sha256 === sha256);
+      if (existing) return existing;
+      const directory = path.join(this.store.sessionDir(parentId), 'sources'); await fs.mkdir(directory, { recursive: true });
+      const id = randomUUID(), localPath = path.join(directory, id + '-subsession-report.md');
+      await fs.writeFile(localPath, body, { flag: 'wx' });
+      const source: SourceFile = { id, name: `${child.title} · 回报 v${report.version}`, localPath, sourcePath, sha256, size: Buffer.byteLength(body), fetchedAt: new Date().toISOString() };
+      parent.sources.push(source);
+      if (parent.autoUpload) { parent.autoUpload = false; clearTimeout(this.trajectoryTimers.get(parentId)); this.trajectoryTimers.delete(parentId); }
+      try { await this.store.save(); } catch (error) { parent.sources.pop(); await fs.rm(localPath, { force: true }); throw error; }
+      this.broadcast(); return source;
+    }, false);
+  }
+  async readHandoff(id: string) { const s = this.session(id); if (!localWithin(s.cwd, s.handoffPath)) throw new Error('交接文件路径越界'); return (await fs.readFile(s.handoffPath, 'utf8')).replace(/^# Agent 工作记录\s*/u, '# 阶段摘要\n\n'); }
+  async listSessionHandoffs(id: string) {
+    if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话引用');
+    const target = this.session(id);
+    if (target.purpose !== 'work' || !target.binding) throw new Error('请选择项目工作会话');
+    const candidates = this.store.sessions.filter(source => source.id !== id && source.purpose === 'work' && source.binding?.project.id === target.binding!.project.id && accountIdentity(source.binding) === accountIdentity(target.binding!));
+    return (await Promise.all(candidates.map(async source => {
+      try {
+        const text = await this.readHandoff(source.id);
+        const stat = await fs.stat(source.handoffPath);
+        if (Buffer.byteLength(text) > 128 * 1024) throw new Error('摘要超过 128 KB，请先精简');
+        return { id: source.id, title: source.title, createdAt: source.createdAt, closedAt: source.closedAt, updatedAt: stat.mtime.toISOString(), sha256: createHash('sha256').update(text).digest('hex'), text, error: '' };
+      } catch (error) {
+        return { id: source.id, title: source.title, createdAt: source.createdAt, closedAt: source.closedAt, updatedAt: '', sha256: '', text: '', error: error instanceof Error ? error.message : '摘要读取失败' };
+      }
+    }))).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
+  }
+  async attachSessionHandoff(id: string, sourceId: string, expectedSha256: string) {
+    return this.edit('handoff-attach:' + id, async () => {
+      if (!this.betaFeatureEnabled('sessionHandoff')) throw new Error('请先在 Beta 功能中开启跨会话引用');
+      const target = this.session(id), source = this.session(sourceId);
+      if (target.closedAt || target.purpose !== 'work' || !target.binding) throw new Error('请选择未关闭的项目工作会话');
+      if (source.id === target.id || source.purpose !== 'work' || !source.binding || source.binding.project.id !== target.binding.project.id || accountIdentity(source.binding) !== accountIdentity(target.binding)) throw new Error('只能引用同一账号、同一项目的其他工作会话');
+      const text = await this.readHandoff(sourceId);
+      if (Buffer.byteLength(text) > 128 * 1024) throw new Error('阶段摘要超过 128 KB，请先精简');
+      const hash = createHash('sha256').update(text).digest('hex');
+      if (hash !== expectedSha256) throw new Error('来源会话的阶段摘要已更新，请刷新预览后重试');
+      const sourcePath = 'session-handoff:' + source.id;
+      const body = `# 来自会话“${source.title.replace(/[\r\n]/g, ' ')}”的阶段摘要\n\n来源会话 ID：${source.id}\n来源项目：${source.binding.project.name}\n原文 SHA256：${hash}\n\n---\n\n${text}`;
+      const snapshotHash = createHash('sha256').update(body).digest('hex');
+      const existing = target.sources.find(item => item.sourcePath === sourcePath && item.sha256 === snapshotHash);
+      if (existing) return existing;
+      const directory = path.join(this.store.sessionDir(id), 'sources'); await fs.mkdir(directory, { recursive: true });
+      const sourceFileId = randomUUID(), localPath = path.join(directory, sourceFileId + '-session-handoff.md');
+      await fs.writeFile(localPath, body, { flag: 'wx' });
+      const item: SourceFile = { id: sourceFileId, name: `会话摘要 · ${source.title}`, localPath, sourcePath, sha256: snapshotHash, size: Buffer.byteLength(body), fetchedAt: new Date().toISOString() };
+      if (target.closedAt) { await fs.rm(localPath, { force: true }); throw new Error('目标会话已关闭'); }
+      target.sources.push(item);
+      if (target.autoUpload) { target.autoUpload = false; clearTimeout(this.trajectoryTimers.get(id)); this.trajectoryTimers.delete(id); }
+      await this.store.save(); this.broadcast(); return item;
+    }, false);
+  }
   saveHandoff(id: string, text: string) { return this.edit('handoff:' + id, async () => { const s = this.session(id); if (!localWithin(s.cwd, s.handoffPath)) throw new Error('交接文件路径越界'); await fs.writeFile(s.handoffPath, text, 'utf8'); }); }
   async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await this.store.save(); }
   async close() { this.closing = true; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const timer of this.preparationTimers.values()) clearTimeout(timer); this.preparationTimers.clear(); for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); }

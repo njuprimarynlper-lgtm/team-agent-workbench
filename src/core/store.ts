@@ -71,7 +71,7 @@ export class Store {
       } catch { /* Missing legacy snapshots retain the conservative boundary replay. */ }
     }
     for (const session of this.sessions) rememberPreparationProgress(session, this.drafts);
-    this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = '应用重启，确认服务器连接后可重试'; } });
+    this.transfers.forEach(t => { if (t.status === 'running' || t.status === 'queued') { t.status = 'error'; t.error = t.phase === 'awaiting_receipt' ? '应用重启前服务器可能已接收，重试时会先核对原请求回执' : t.phase === 'streaming' ? '应用重启前传输未完成，重试会校验身份和内容后从头传输' : '应用重启前尚未完成，确认服务器连接后可重试'; } });
     await this.repairConclusionImports();
     // Preserve the exact pre-repair backup, then stamp legacy personal results
     // before login can change the active account or drafts restore their results.

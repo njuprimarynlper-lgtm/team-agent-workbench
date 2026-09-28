@@ -20,6 +20,7 @@ import { CliConnectionNotice } from './cli-connection-notice';
 export function DraftEditor({ draft, session, sourceTitle, sourceSession, transfers, run, notice, close, reorganized, returnToList = false, viewShared, viewConclusion }: { draft: Draft; session?: AgentSession; sourceTitle?: string; sourceSession?: AgentSession; transfers: Transfer[]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notice: (s: string) => void; close: () => void; reorganized: (draft: Draft) => void; returnToList?: boolean; viewShared: (projectId: string, path: string) => void; viewConclusion: (projectId: string, id: string) => void }) {
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [expanded, setExpanded] = useState(false);
   const [editingMerge, setEditingMerge] = useState(false);
+  const [replaceIds, setReplaceIds] = useState<string[]>(draft.mergeReplacementIds || []);
   const [leaving, setLeaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [choosingScope, setChoosingScope] = useState(false);
@@ -29,6 +30,8 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
   const generating = draft.generation === 'running', ready = draft.generation === 'ready', isMerge = !!draft.mergeSources?.length, isLocalMerge = !!draft.conclusionMergeProjectId;
   const categories = draft.resultRules?.categories || draft.requestedCategories || materialCategories;
   const artifacts = draft.artifacts || [], selectedArtifacts = artifacts.filter(item => item.selected);
+  const selectedIds = artifacts.length ? selectedArtifacts.map(item => item.id) : draft.body.trim() ? [draft.id] : [];
+  const unsavedIds = selectedIds.filter(id => !draft.personalSavedIds?.includes(id));
   const empty = isEmptyPreparation(draft);
   const attachmentCount = new Set(selectedArtifacts.flatMap(item => (item.attachments || []).filter(entry => entry.selected).map(entry => draft.files.find(file => file.id === entry.fileId)?.sha256).filter(Boolean))).size;
   const transfer = transfers.find(item => item.id === draft.submitted);
@@ -59,18 +62,19 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
   });
   useEffect(() => { setNow(Date.now()); if (!generating) return; const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, [generating, draft.generationStartedAt]);
   useEffect(() => { if (ready) setShowRepo(!!draft.repoUrlOverride); }, [draft.repoUrl, ready]);
+  useEffect(() => { setReplaceIds(draft.mergeReplacementIds || []); }, [draft.id]);
   const elapsed = Math.max(0, Math.floor((now - Date.parse(draft.generationStartedAt || draft.createdAt)) / 1000));
   const chooseScope = () => setChoosingScope(true);
   const backLabel = returnToList ? '返回成果整理' : isLocalMerge ? '返回个人成果库' : isMerge ? '返回团队成果库' : sourceTitle ? `返回“${sourceTitle}”` : '返回原会话';
   const selectedDestination = draft.destinations?.find(item => item.path === draft.target);
   const destinationLabel = generating ? '识别中…' : ready && draft.target ? selectedDestination?.id === 'default' ? '我的成果（自动选择）' : `${selectedDestination?.description || '项目成果'}（自动选择）` : '尚未确定';
   const visibleBody = draft.body.replace(/^#\s+(.+)\r?\n+/u, (full, heading) => heading.trim() === draft.title.trim() ? '' : full);
-  const status = draft.mergeCompletedAt ? isLocalMerge ? '处理结果已保存' : '语义合并已保存' : generating ? session?.approvals.length ? session.approvals.some(isQuestionRequest) ? '有问题需要你回答' : '需要你确认一项操作' : isLocalMerge ? '正在按要求处理…' : isMerge ? '正在进行语义融合…' : '正在整理…' : ready ? empty ? draft.emptyResult?.confirmedAt ? '已确认本次无需保留' : '本次未生成新成果，请核对原因' : isLocalMerge ? '预处理结果已生成，请审阅后保存' : isMerge ? '融合完成，请审阅后确认' : '已整理好，请确认后上传' : draft.generation === 'error' ? isLocalMerge ? '处理失败，可重试' : isMerge ? '语义融合失败，可重试' : '整理失败，可重试' : '已停止，可重新整理';
+  const status = draft.mergeCompletedAt ? isLocalMerge ? draft.mergeResultPath ? '处理结果已提交团队' : '处理结果已保存到个人成果库' : '语义合并已提交团队' : generating ? session?.approvals.length ? session.approvals.some(isQuestionRequest) ? '有问题需要你回答' : '需要你确认一项操作' : isLocalMerge ? '正在按要求处理…' : isMerge ? '正在进行语义融合…' : '正在整理…' : ready ? empty ? draft.emptyResult?.confirmedAt ? '已确认本次无需保留' : '本次未生成新成果，请核对原因' : isLocalMerge ? '处理草稿已生成，可保存个人或提交团队' : isMerge ? draft.personalSavedIds?.includes(draft.id) ? '已保存个人成果，可继续提交团队' : '融合草稿已生成，可保存个人或提交团队' : draft.personalSavedIds?.length ? '已保存个人成果，可继续提交团队' : '整理草稿已生成，请选择保存位置' : draft.generation === 'error' ? isLocalMerge ? '处理失败，可重试' : isMerge ? '语义融合失败，可重试' : '整理失败，可重试' : '已停止，可重新整理';
   return <div className="draft-editor">
     <div className="draft-editor-heading"><button className="text-button draft-back" title={generating ? '返回不会停止整理' : undefined} disabled={leaving} onClick={back}><ArrowLeft size={15}/><span>{leaving ? '正在返回…' : backLabel}</span></button><span className="spacer"/>{generating && <><span className="muted small">返回后仍会继续整理</span><button className="secondary compact" disabled={leaving} onClick={stop}><Square size={12}/>停止整理</button></>}{<button className="secondary compact danger" disabled={busy || leaving} onClick={() => setConfirmingDelete(true)}><Trash2 size={13}/>删除整理记录</button>}</div>
     {draft.restored && <p className="muted small">已恢复整理结果；原 Session 留在原电脑，不会自动继续运行。</p>}
     <section className="preparation-summary" aria-label="成果整理进度">
-      <div className="preparation-status" aria-live="polite" aria-label="整理状态">{generating && <LoaderCircle size={17} className="spin"/>}<strong>{draft.mergeCompletedAt ? status : draft.submitted ? batchStatus : status}</strong>{generating && <span className="muted small" aria-label="整理已用时间">{elapsed < 60 ? `${elapsed} 秒` : `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</span>}{!draft.restored && sourceSession && !generating && !isMerge && ready && <button className="secondary compact" disabled={busy || leaving} onClick={chooseScope}>再次整理</button>}{!draft.restored && !locked && !generating && !draft.submitted && !draft.mergeCompletedAt && (isMerge || !ready) && <button className="text-button" onClick={() => void run(() => { notice(''); return api.call('draft.retry', { id: draft.id }); })}>{draft.generation === 'error' ? '重试' : isLocalMerge ? '重新处理' : isMerge ? '重新进行语义融合' : '重新整理'}</button>}</div>
+      <div className="preparation-status" aria-live="polite" aria-label="整理状态">{generating && <LoaderCircle size={17} className="spin"/>}<strong>{isLocalMerge && draft.mergeResultPath ? batchStatus : draft.mergeCompletedAt ? status : draft.submitted ? batchStatus : status}</strong>{generating && <span className="muted small" aria-label="整理已用时间">{elapsed < 60 ? `${elapsed} 秒` : `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</span>}{!draft.restored && sourceSession && !generating && !isMerge && ready && <button className="secondary compact" disabled={busy || leaving} onClick={chooseScope}>再次整理</button>}{!draft.restored && !locked && !generating && !draft.submitted && !draft.mergeCompletedAt && (isMerge || !ready) && <button className="text-button" onClick={() => void run(() => { notice(''); return api.call('draft.retry', { id: draft.id }); })}>{draft.generation === 'error' ? '重试' : isLocalMerge ? '重新处理' : isMerge ? '重新进行语义融合' : '重新整理'}</button>}</div>
       <p className="muted small preparation-source">{isMerge ? `${isLocalMerge ? '处理' : '融合'} ${draft.mergeSources!.length} 条${isLocalMerge ? '项目成果' : '团队成果'}；使用“${sourceTitle || '工作会话'}”完成整理，不会写入原对话` : <>来自“{sourceTitle || '原工作会话'}”{draft.snapshot ? `，${draft.preparationScope === 'incremental' ? `增量整理了 ${draft.snapshot.messageCount} 条新增或续写消息` : '全量整理'}，采用截至 ${new Date(draft.snapshot.capturedAt).toLocaleString()} 的内容` : ''}</>}</p>
       {draft.generationError && <div className="inline-error" role="alert">{preparationErrorMessage(draft.generationError)}</div>}
       <CliConnectionNotice value={session?.cliConnection}/>
@@ -78,10 +82,18 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
     </section>
 
     {empty && <EmptyPreparationReview draft={draft} busy={busy || leaving} viewConclusion={viewConclusion} confirm={() => void run(async () => { setBusy(true); try { await api.call('draft.confirmEmpty', { id: draft.id }); notice('已确认本次无需保留，整理结果已记录'); } finally { setBusy(false); } })}/>}
-    {isMerge && draft.body && <section className="semantic-merge-review" aria-label={isLocalMerge ? '预处理结果' : '语义合并结果'}><div className="merge-source-list"><b>{isLocalMerge ? '本次处理的成果' : '本次融合来源'}</b>{draft.mergeSources!.map(source => <span key={source.id}>{source.title} · {source.author} · v{source.revision}</span>)}</div>{isLocalMerge && draft.conclusionMergeInstruction && <div className="callout"><div><b>你的处理要求</b><small>{draft.conclusionMergeInstruction}</small></div></div>}{draft.resultCategory && <label className="field">类别<select aria-label="合并成果类别" disabled={locked || !!draft.mergeCompletedAt} value={draft.resultCategory} onChange={event => changeCategory(event.target.value as ContributionCategory)}>{categories.map(category => <option key={category} value={category}>{contributionCategoryInfo[category].label}</option>)}</select></label>}<label className="field">{isLocalMerge ? '结果标题' : '合并后标题'}<input aria-label={isLocalMerge ? '结果标题' : '合并后标题'} disabled={locked} value={mergeEditor.value.title} onChange={e => mergeEditor.change({ ...mergeEditor.value, title: e.target.value })}/></label><div className="result-reading-toolbar"><b>{isLocalMerge ? '预处理结果内容' : '融合后的项目文档'}</b>{!locked && <button className="secondary compact" onClick={() => setEditingMerge(!editingMerge)}>{editingMerge ? '完成编辑，查看排版' : '编辑内容'}</button>}</div>{editingMerge && !locked ? <label className="field">修改内容<textarea aria-label={isLocalMerge ? '预处理结果内容' : '融合后的项目文档'} rows={16} value={mergeEditor.value.body} onChange={e => mergeEditor.change({ ...mergeEditor.value, body: e.target.value })}/></label> : <div className="markdown result-reading" aria-label={isLocalMerge ? '预处理结果内容' : '融合后的项目文档'}><ReactMarkdown remarkPlugins={[remarkGfm]}>{mergeEditor.value.body}</ReactMarkdown></div>}{!locked && mergeEditor.status !== '已保存' && <div className="row small muted" role="status"><span>{mergeEditor.status}</span>{mergeEditor.status.startsWith('保存失败') && <button className="text-button" onClick={mergeEditor.retry}>重试保存</button>}</div>}{draft.resultSourceDetails && <details className="content-provenance"><summary>来源详情</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{draft.resultSourceDetails}</pre></details>}<details className="merge-safety"><summary>{isLocalMerge ? '保存说明' : '合并保存规则'}</summary><p>确认时会再次核对所有来源版本；任何来源已变化都会停止保存。只有保存成功后原{isLocalMerge ? '成果才会移入历史，系统不会直接删除或覆盖' : '条目才会归档，AI 无权直接删除或覆盖'}。</p></details></section>}
+    {isMerge && draft.body && <section className="semantic-merge-review" aria-label={isLocalMerge ? '预处理结果' : '语义合并结果'}><div className="merge-source-list"><b>{isLocalMerge ? '本次处理的成果' : '本次融合来源'}</b>{draft.mergeSources!.map(source => <span key={source.id}>{source.title} · {source.author} · v{source.revision}</span>)}</div>{isLocalMerge && draft.conclusionMergeInstruction && <div className="callout"><div><b>你的处理要求</b><small>{draft.conclusionMergeInstruction}</small></div></div>}{draft.resultCategory && <label className="field">类别<select aria-label="合并成果类别" disabled={locked || !!draft.mergeReplacementIds || !!draft.mergeCompletedAt} value={draft.resultCategory} onChange={event => changeCategory(event.target.value as ContributionCategory)}>{categories.map(category => <option key={category} value={category}>{contributionCategoryInfo[category].label}</option>)}</select></label>}<label className="field">{isLocalMerge ? '结果标题' : '合并后标题'}<input aria-label={isLocalMerge ? '结果标题' : '合并后标题'} disabled={locked || !!draft.mergeReplacementIds} value={mergeEditor.value.title} onChange={e => mergeEditor.change({ ...mergeEditor.value, title: e.target.value })}/></label><div className="result-reading-toolbar"><b>{isLocalMerge ? '预处理结果内容' : '融合后的项目文档'}</b>{!locked && !draft.mergeReplacementIds && <button className="secondary compact" onClick={() => setEditingMerge(!editingMerge)}>{editingMerge ? '完成编辑，查看排版' : '编辑内容'}</button>}</div>{editingMerge && !locked && !draft.mergeReplacementIds ? <label className="field">修改内容<textarea aria-label={isLocalMerge ? '预处理结果内容' : '融合后的项目文档'} rows={16} value={mergeEditor.value.body} onChange={e => mergeEditor.change({ ...mergeEditor.value, body: e.target.value })}/></label> : <div className="markdown result-reading" aria-label={isLocalMerge ? '预处理结果内容' : '融合后的项目文档'}><ReactMarkdown remarkPlugins={[remarkGfm]}>{mergeEditor.value.body}</ReactMarkdown></div>}{!locked && mergeEditor.status !== '已保存' && <div className="row small muted" role="status"><span>{mergeEditor.status}</span>{mergeEditor.status.startsWith('保存失败') && <button className="text-button" onClick={mergeEditor.retry}>重试保存</button>}</div>}{draft.resultSourceDetails && <details className="content-provenance"><summary>来源详情</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{draft.resultSourceDetails}</pre></details>}<details className="merge-safety"><summary>{isLocalMerge ? '保存说明' : '合并保存规则'}</summary><p>{isLocalMerge ? '保存个人成果时会核对来源版本；保存成功后，仅把勾选的个人来源移入历史。' : '保存个人副本不会改变团队来源；提交团队时会核对来源版本，提交成功后仅把勾选的来源移入历史。'}</p></details></section>}
     {isMerge && uploaded && <div className="row"><span>{draft.titleAlias || draft.title}{draft.titleAlias ? '（本地名称）' : ''}</span><button className="text-button" disabled={busy || leaving} onClick={() => setRenaming({ title: draft.titleAlias || titleSubject(draft.title) })}>修改名称</button></div>}
+    {isMerge && ready && !uploaded && <fieldset className="merge-replacement-choice" disabled={locked || !!draft.mergeReplacementIds}>
+      <legend>将哪些来源移入历史（可选）</legend>
+      <p className="muted small">{draft.mergeReplacementIds ? '保存请求已发出；重试时沿用本次选择。' : `${isLocalMerge ? '保存个人成果时' : '提交团队时'}，勾选的来源会移入历史。新成果仍记录全部来源；想继续使用某条来源时，请勿勾选。`}</p>
+      {draft.mergeSources!.map(source => <label className="check-row" key={source.id}>
+        <input type="checkbox" checked={replaceIds.includes(source.id)} onChange={event => setReplaceIds(current => event.target.checked ? [...current, source.id] : current.filter(id => id !== source.id))}/>
+        <span>{source.title} · v{source.revision}</span>
+      </label>)}
+    </fieldset>}
     {!isMerge && artifacts.length > 0 ? <section className="artifact-results" aria-label="整理结果">
-      <p className="muted small">本次整理出 {artifacts.length} 项，选择需要共享的成果和附件。</p>
+      <p className="muted small">本次整理出 {artifacts.length} 项。勾选要保存或提交的成果；附件只会随团队提交上传。</p>
       {artifacts.map(item => {
         const itemTransfer = transfers.find(transfer => transfer.id === item.submitted);
         const itemRepo = value.repoUrlOverride.trim() || item.repoUrl || '';
@@ -93,7 +105,7 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
           {item.body.length > 800 && <button className="text-button" onClick={() => setExpanded(!expanded)}>{expanded ? '收起详情' : '展开详情'}</button>}
           <details className="content-provenance"><summary>来源详情</summary><p>{sourceTitle || '原 Session'}{draft.git?.commit ? ` · 代码版本 ${draft.git.commit.slice(0, 12)}` : ''}</p>{item.sourceDetails && <pre style={{ whiteSpace: 'pre-wrap' }}>{item.sourceDetails}</pre>}</details>
           <DraftAttachments draft={draft} artifact={item} locked={locked || !ready} run={run}/>
-          <p className="artifact-destination">共享到：{draft.binding?.project.name} · 项目组成员可见</p>
+          <p className="artifact-destination">提交到团队后：{draft.binding?.project.name} · 项目组成员可见{draft.personalSavedIds?.includes(item.id) ? ' · 已另存个人成果' : ''}</p>
           {itemTransfer?.status === 'error' && <div className="inline-error" role="alert">上传失败：{itemTransfer.error}<button className="secondary compact" onClick={() => void run(() => api.call('transfer.retry', { id: itemTransfer.id }))}>重试</button></div>}{itemTransfer?.status === 'done' && <button className="secondary compact" onClick={() => viewShared(itemTransfer.binding.project.id, itemTransfer.target)}>查看上传结果</button>}
         </article>;
       })}
@@ -109,9 +121,78 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
     {!empty && !isMerge && <label className="field contribution-supplement">给团队的补充（可选）<textarea rows={3} aria-label="给团队的补充（可选）" placeholder="只有需要补充或更正时填写" disabled={locked} value={value.supplement} onChange={e => change({ supplement: e.target.value })}/></label>}
     {!empty && !isMerge && !locked && editor.status !== '已保存' && <div className="row small muted" role="status"><span>{editor.status}</span>{editor.status.startsWith('保存失败') && <button className="text-button" onClick={editor.retry}>重试保存</button>}</div>}
     {!empty && !isMerge && !artifacts.length && <div className="upload-destination" aria-label="上传位置" title={ready ? draft.target : undefined}><span>上传位置</span>{draft.binding ? <b>{draft.binding.project.name} / {destinationLabel}</b> : <b>未绑定项目，无法上传</b>}</div>}
-    {empty ? <div className="draft-actions"><button className="secondary back-action" disabled={busy || leaving} onClick={back}>{backLabel}</button></div> : isMerge ? <div className="draft-actions"><button className="secondary back-action" disabled={leaving} onClick={back}>{backLabel}</button><span className="spacer"/>{draft.mergeCompletedAt && draft.mergeResultId && isLocalMerge ? <button className="primary" onClick={() => viewConclusion(draft.conclusionMergeProjectId!, draft.mergeResultId!)}>查看处理结果</button> : draft.mergeCompletedAt && draft.mergeProjectId && draft.mergeResultPath ? <button className="primary" onClick={() => viewShared(draft.mergeProjectId!, draft.mergeResultPath!)}>查看合并结果</button> : <button className="primary" disabled={busy || leaving || !ready || !mergeEditor.value.title.trim() || !mergeEditor.value.body.trim()} onClick={() => void run(async () => { setBusy(true); try { await mergeEditor.flush(); if (isLocalMerge) { const result = await api.call<{ id: string }>('conclusion.merge.commit', { id: draft.id }); setSubmitted(true); notice('新成果已保存，原成果已移入历史'); viewConclusion(draft.conclusionMergeProjectId!, result.id); } else { const result = await api.call<{ path: string }>('content.merge.commit', { id: draft.id }); setSubmitted(true); notice('语义合并已保存，原条目已归档'); viewShared(draft.mergeProjectId!, result.path); } } finally { setBusy(false); } })}><Check size={15}/>{busy ? '正在核对并保存…' : isLocalMerge ? `保存新成果并将 ${draft.mergeSources!.length} 条原成果移入历史` : `确认合并并归档 ${draft.mergeSources!.length} 条原文`}</button>}</div> : <div className="draft-actions">{!draft.submitted && !submitted ? <>{draft.body && <button className="secondary back-action" disabled={leaving} onClick={back}>{backLabel}</button>}<span className="spacer"/><button className="primary" disabled={busy || leaving || !ready || !(artifacts.length ? selectedArtifacts.length : draft.body.trim()) || !draft.binding} onClick={() => void run(async () => { setBusy(true); try { await editor.flush(); await api.call('draft.submit', { id: draft.id }); setSubmitted(true); notice(artifacts.length ? `已开始上传 ${selectedArtifacts.length} 项成果；所选成果也已保存到“个人成果库”` : '已开始上传成果；同时已保存到“个人成果库”'); } finally { setBusy(false); } })}><Upload size={15}/>{busy ? '正在上传…' : artifacts.length ? `提交 ${selectedArtifacts.length} 项成果${attachmentCount ? `及 ${attachmentCount} 个附件` : ""}` : '确认上传'}</button></> : <><button className="secondary back-action" onClick={back}>{backLabel}</button><span className="green row"><Check size={17}/>{transfers.some(item => item.status === 'error') ? '部分上传失败，可在对应成果中重试' : transfers.length && transfers.every(item => item.status === 'done') ? '上传已完成。点击上方成果中的“查看上传结果”，即可打开团队公共区里的内容。' : '正在上传'}</span>{!artifacts.length && transfer?.status === 'done' && <button className="primary compact" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看上传结果</button>}</>}</div>}
-    {renaming && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="rename-result-title"><header><h2 id="rename-result-title">修改成果名称</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setRenaming(undefined)}>×</button></header><div className="modal-body"><label className="field">成果名称<input autoFocus aria-label="成果名称" maxLength={120} value={renaming.title} onChange={e => setRenaming({ ...renaming, title: e.target.value })}/></label><p className="muted small">{uploaded ? '只修改本机显示名称，已上传的成果包和共享区标题保持不变。' : '修改后将使用新名称上传，内容和勾选状态保持不变。'}</p></div><footer><button className="secondary" disabled={busy} onClick={() => setRenaming(undefined)}>取消</button><button className="primary" disabled={busy || !renaming.title.trim()} onClick={() => void run(async () => { setBusy(true); try { await api.call('draft.renameResult', { id: draft.id, artifactId: renaming.artifactId, title: renaming.title }); setRenaming(undefined); notice(uploaded ? '本地名称已保存，远端未修改' : '成果名称已保存'); } finally { setBusy(false); } })}>保存名称</button></footer></section></div>}
-    {confirmingDelete && <DraftDeleteDialog draft={draft} close={() => setConfirmingDelete(false)} remove={async () => { if (!uploaded && !draft.mergeCompletedAt) await (isMerge ? mergeEditor.flush() : editor.flush()); await api.call('draft.delete', { id: draft.id }); notice('整理记录已删除，成果和增量进度已保留'); close(); }}/>}
+    {empty ? <div className="draft-actions"><button className="secondary back-action" disabled={busy || leaving} onClick={back}>{backLabel}</button></div> : isMerge ? (<>
+      <div className="draft-actions">
+        <button className="secondary back-action" disabled={leaving} onClick={back}>{backLabel}</button>
+        <span className="spacer"/>
+        {!isLocalMerge && ready && <button className="secondary" disabled={busy || leaving || !!draft.personalSavedIds?.includes(draft.id)} onClick={() => void run(async () => {
+          setBusy(true);
+          try {
+            if (!draft.mergeCompletedAt) await mergeEditor.flush();
+            const result = await api.call<{ id: string }>('content.merge.personal', { id: draft.id });
+            notice('融合结果已保存到个人成果库；团队来源保持原状');
+            viewConclusion(draft.mergeProjectId!, result.id);
+          } finally { setBusy(false); }
+        })}>{draft.personalSavedIds?.includes(draft.id) ? '已保存到个人成果库' : '保存到个人成果库'}</button>}
+        {isLocalMerge && ready && !draft.mergeCompletedAt && <button className="secondary" disabled={busy || leaving || !mergeEditor.value.title.trim() || !mergeEditor.value.body.trim()} onClick={() => void run(async () => {
+          setBusy(true);
+          try {
+            await mergeEditor.flush();
+            await api.call('conclusion.merge.submit', { id: draft.id });
+            setSubmitted(true);
+            notice('已开始提交团队成果；个人来源保持原状，上传完成后项目组成员可见');
+          } finally { setBusy(false); }
+        })}>提交为团队成果</button>}
+        {draft.mergeCompletedAt && draft.mergeResultId && isLocalMerge ? <button className="primary" onClick={() => viewConclusion(draft.conclusionMergeProjectId!, draft.mergeResultId!)}>查看个人成果</button> :
+          draft.mergeCompletedAt && isLocalMerge && draft.mergeResultPath && transfer?.status === 'done' ? <button className="primary" onClick={() => viewShared(draft.binding!.project.id, draft.mergeResultPath!)}>查看团队成果</button> :
+          draft.mergeCompletedAt && draft.mergeProjectId && draft.mergeResultPath ? <button className="primary" onClick={() => viewShared(draft.mergeProjectId!, draft.mergeResultPath!)}>查看团队成果</button> :
+          draft.mergeCompletedAt ? null : <button className="primary" disabled={busy || leaving || !ready || !mergeEditor.value.title.trim() || !mergeEditor.value.body.trim()} onClick={() => void run(async () => {
+            setBusy(true);
+            try {
+              await mergeEditor.flush();
+              if (isLocalMerge) {
+                const result = await api.call<{ id: string }>('conclusion.merge.commit', { id: draft.id, replaceIds });
+                setSubmitted(true);
+                notice(replaceIds.length ? `已保存到个人成果库，${replaceIds.length} 条个人来源移入历史` : '已保存到个人成果库，来源仍可继续使用');
+                viewConclusion(draft.conclusionMergeProjectId!, result.id);
+              } else {
+                const result = await api.call<{ path: string }>('content.merge.commit', { id: draft.id, replaceIds });
+                setSubmitted(true);
+                notice(replaceIds.length ? `已提交为团队成果，${replaceIds.length} 条团队来源移入历史` : '已提交为团队成果，来源仍可继续使用');
+                viewShared(draft.mergeProjectId!, result.path);
+              }
+            } finally { setBusy(false); }
+          })}><Check size={15}/>{busy ? '正在保存…' : isLocalMerge ? '保存到个人成果库' : '提交为团队成果'}</button>}
+      </div>
+      {isLocalMerge && draft.mergeResultPath && transfer?.status === 'error' && <div className="inline-error" role="alert">团队成果上传失败：{transfer.error}<button className="secondary compact" onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>重试上传</button></div>}
+      </>
+    ) : (
+      <div className="draft-actions">
+        <button className="secondary back-action" disabled={leaving} onClick={back}>{backLabel}</button>
+        <span className="spacer"/>
+        {ready && !!draft.binding && <button className="secondary" disabled={busy || leaving || !unsavedIds.length} onClick={() => void run(async () => {
+          setBusy(true);
+          try {
+            if (!draft.submitted) await editor.flush();
+            await api.call('draft.personal.save', { id: draft.id, artifactIds: selectedIds });
+            notice(`已将 ${unsavedIds.length} 项成果保存到个人成果库；团队成员暂不可见`);
+          } finally { setBusy(false); }
+        })}><Check size={15}/>{unsavedIds.length ? `保存 ${unsavedIds.length} 项到个人成果库` : '所选成果已保存到个人成果库'}</button>}
+        {!draft.submitted && !submitted ? <button className="primary" disabled={busy || leaving || !ready || !selectedIds.length || !draft.binding} onClick={() => void run(async () => {
+          setBusy(true);
+          try {
+            await editor.flush();
+            await api.call('draft.submit', { id: draft.id });
+            setSubmitted(true);
+            notice(`已开始提交 ${selectedIds.length} 项成果到团队`);
+          } finally { setBusy(false); }
+        })}><Upload size={15}/>{busy ? '正在提交…' : `提交 ${selectedIds.length} 项到团队${attachmentCount ? `（含 ${attachmentCount} 个附件）` : ''}`}</button> :
+          <span className="green row"><Check size={17}/>{transfers.some(item => item.status === 'error') ? '部分上传失败，可在对应成果中重试' : transfers.length && transfers.every(item => item.status === 'done') ? '团队提交已完成，可查看团队成果' : '正在提交团队成果'}</span>}
+        {!artifacts.length && transfer?.status === 'done' && <button className="primary compact" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看团队成果</button>}
+      </div>
+    )}
+    {renaming && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="rename-result-title"><header><h2 id="rename-result-title">修改成果名称</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setRenaming(undefined)}>×</button></header><div className="modal-body"><label className="field">成果名称<input autoFocus aria-label="成果名称" maxLength={120} value={renaming.title} onChange={e => setRenaming({ ...renaming, title: e.target.value })}/></label><p className="muted small">{uploaded ? '只修改本机显示名称，已上传的成果包和共享区标题保持不变。' : draft.personalSavedIds?.includes(renaming.artifactId || draft.id) ? '只修改整理草稿；已保存的个人成果请在个人成果库单独改名。' : '修改后保存个人成果或提交团队时将使用新名称。'}</p></div><footer><button className="secondary" disabled={busy} onClick={() => setRenaming(undefined)}>取消</button><button className="primary" disabled={busy || !renaming.title.trim()} onClick={() => void run(async () => { setBusy(true); try { await api.call('draft.renameResult', { id: draft.id, artifactId: renaming.artifactId, title: renaming.title }); setRenaming(undefined); notice(uploaded ? '本地名称已保存，远端未修改' : '成果名称已保存'); } finally { setBusy(false); } })}>保存名称</button></footer></section></div>}
+    {confirmingDelete && <DraftDeleteDialog draft={draft} close={() => setConfirmingDelete(false)} remove={async () => { if (!uploaded && !draft.mergeCompletedAt) await (isMerge ? mergeEditor.flush() : editor.flush()); await api.call('draft.delete', { id: draft.id }); notice('整理记录已删除，已保存成果和增量进度保留'); close(); }}/>}
     {choosingScope && sourceSession && <PreparationOptionsModal session={sourceSession} baseline={preparationCheckpoint(sourceSession, [draft])} again close={() => setChoosingScope(false)} started={async (scope, categories, temporary) => { if (!uploaded && !empty) await editor.flush(); const next = await api.call<Draft>('draft.reorganize', { id: draft.id, scope, categories, temporary }); notice(`已创建${scope === 'incremental' ? '增量' : '全量'}整理任务，原任务已保留`); reorganized(next); }}/>}
   </div>;
 }

@@ -147,6 +147,28 @@ test('local shared files: project roles, real disk transfers, team result and up
     alice.disconnect(); bob.disconnect(); carol.disconnect();
   } finally { await x.clean(); }
 });
+
+test('local download verifies the selected remote version before replacing a destination', async () => {
+  const x = await setup();
+  try {
+    const alice = await x.connect('alice'), project = await alice.createProject('下载校验');
+    const bob = await x.connect('bob'), binding = bob.binding(project.id);
+    const source = path.join(x.base, 'source.txt'), target = binding.project.uploadPath.replace('/bob', '/alice') + '/file.txt';
+    await fs.writeFile(source, 'version one'); await alice.upload(alice.binding(project.id), source, target, () => {});
+    const expected = await bob.downloadInfo(binding, target), destination = path.join(x.base, 'saved.txt');
+    await fs.writeFile(destination, 'previous copy');
+    await fs.writeFile(await diskPath(x.root, target), 'version two');
+    await assert.rejects(bob.download(binding, target, destination, () => {}, expected), /内容已改变/);
+    assert.equal(await fs.readFile(destination, 'utf8'), 'previous copy');
+    assert.equal((await fs.readdir(x.base)).filter(name => name.endsWith('.partial')).length, 0);
+    const current = await bob.downloadInfo(binding, target);
+    await bob.download(binding, target, destination, () => {}, current);
+    assert.equal(await fs.readFile(destination, 'utf8'), 'version two');
+    await x.admin.operation({ op: 'user_groups', username: 'bob', groups: [], contentAdminGroups: [] });
+    await assert.rejects(bob.downloadInfo(binding, target), /不属于此项目组|项目入口/);
+    alice.disconnect(); bob.disconnect();
+  } finally { await x.clean(); }
+});
 test('local permission changes apply to live user connections, including password reset and role revocation', async () => {
   const x = await setup();
   try {

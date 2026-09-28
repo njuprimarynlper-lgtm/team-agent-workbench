@@ -2,7 +2,7 @@ import { atomicJson } from './store';
 import { ContentFiles } from './content-files';
 import { AssignmentFiles } from './assignment-files';
 import type { AssignmentCreate, AssignmentStatusChange, AssignmentUpload } from '../shared/assignments';
-import type { ContentEdit, ContentMetadata } from '../shared/content';
+import type { ContentEdit, ContentMerge, ContentMetadata } from '../shared/content';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -200,11 +200,23 @@ export class LocalFileConnection {
     const type = mime[ext] && stat.size <= limit ? 'image' : data.includes(0) || ['.zip', '.pdf', '.exe', '.docx', '.xlsx'].includes(ext) ? 'binary' : 'text';
     return { name, path: target, type, content: type === 'image' ? `data:${mime[ext]};base64,${data.toString('base64')}` : type === 'text' ? data.toString('utf8') : '', size: stat.size, truncated: stat.size > limit };
   }
-  async download(binding: RemoteBinding, target: string, local: string, progress = (_bytes: number, _total: number) => {}) {
+  async downloadInfo(binding: RemoteBinding, target: string) {
+    const file = await this.checked(binding, target), stat = await fs.lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('只能下载普通文件');
+    const sha256 = await hashFile(file);
+    await this.checked(binding, target);
+    return { sha256, size: stat.size };
+  }
+  async download(binding: RemoteBinding, target: string, local: string, progress = (_bytes: number, _total: number) => {}, expected?: { sha256: string; size: number }) {
+    expected ||= await this.downloadInfo(binding, target);
     const file = await this.checked(binding, target), stat = await fs.stat(file);
     if (!stat.isFile()) throw new Error('只能下载普通文件');
     await fs.mkdir(path.dirname(local), { recursive: true }); const temp = local + '.' + randomUUID() + '.partial';
-    try { await fs.copyFile(file, temp, fs.constants.COPYFILE_EXCL); await this.checked(binding, target); await fs.rename(temp, local); progress(stat.size, stat.size); }
+    try {
+      await fs.copyFile(file, temp, fs.constants.COPYFILE_EXCL);
+      if ((await fs.stat(temp)).size !== expected.size || await hashFile(temp) !== expected.sha256) throw new Error('远端文件内容已改变或下载不完整，请重新选择该文件');
+      await this.checked(binding, target); await fs.rename(temp, local); progress(expected.size, expected.size);
+    }
     finally { await fs.rm(temp, { force: true }); }
   }
   async projectBrief(binding: RemoteBinding) {
@@ -245,14 +257,16 @@ export class LocalFileConnection {
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.assignments().status(binding, input); }
   private content() { return new ContentFiles(this.root, async binding => { this.channel(binding); const { user, group } = await this.access(binding.project.remoteRoot); const project = await this.readProject(binding.project.remoteRoot); if (project?.id !== binding.project.id) throw new Error('项目身份已改变'); return { username: user.username, admin: !!user.contentAdminGroups?.includes(group.name) }; }); }
   contentList(binding: RemoteBinding) { return this.content().list(binding); }
+  contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false) { return this.content().history(binding, id, revision, summary); }
+  contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.content().merge(binding, change); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.content().adopt(binding, target); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.content().edit(binding, change); }
   contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.content().edit(binding, change, file); }
-  async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void) {
-    this.channel(binding); const item = await this.content().publishAttachment(binding, local, hash); progress(item.size, item.size); return item;
+  async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void, _requestId?: string, phase?: (value: import('../shared/types').TransferPhase) => Promise<void> | void) {
+    this.channel(binding); await phase?.('streaming'); const item = await this.content().publishAttachment(binding, local, hash); progress(item.size, item.size); await phase?.('verifying'); return item;
   }
-  async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string) {
-    await this.checked(binding, target, true, true);
-    const item = await this.content().publish(binding, local, target, metadata, hash); progress(item.size, item.size); return item;
+  async upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string, _requestId?: string, phase?: (value: import('../shared/types').TransferPhase) => Promise<void> | void) {
+    await this.checked(binding, target, true, true); await phase?.('streaming');
+    const item = await this.content().publish(binding, local, target, metadata, hash); progress(item.size, item.size); await phase?.('verifying'); return item;
   }
 }

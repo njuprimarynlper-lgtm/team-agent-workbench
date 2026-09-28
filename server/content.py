@@ -584,6 +584,82 @@ def handle(root, state, username, request, incoming=None):
         return project
     index = directory / '.workbench-content.json'
     items = read_json(index, [])
+    history_index = directory / '.workbench-content-history.json'
+    if op == 'content_history':
+        history = read_json(history_index, [])
+        result_id = request.get('id')
+        revision = request.get('revision')
+        if result_id is not None and (not isinstance(result_id, str) or not re.fullmatch(r'[a-f0-9-]{36}', result_id)):
+            raise ValueError('成果 ID 无效')
+        if revision is not None and (type(revision) is not int or revision < 1):
+            raise ValueError('成果版本无效')
+        matches = [item for item in history if (result_id is None or item['id'] == result_id) and (revision is None or item['revision'] == revision)]
+        if request.get('summary') is True:
+            return [dict(item, description='', fields=None, attachments=[], sourceDetails=None) for item in matches]
+        return matches
+    if op == 'merge_content':
+        if not admin:
+            raise PermissionError('只有本组组管理员可以整理团队成果')
+        change = request.get('change') or {}
+        request_id = change.get('requestId')
+        if request_id is not None and (not isinstance(request_id, str) or not re.fullmatch(r'[a-f0-9-]{36}', request_id)):
+            raise ValueError('整理请求 ID 无效')
+        prior = next((item for item in items if request_id and item.get('mergeRequestId') == request_id), None)
+        if prior:
+            replace_ids = change.get('replaceIds', [])
+            if not isinstance(replace_ids, list) or any(not isinstance(source_id, str) for source_id in replace_ids) or set(ref['id'] for ref in prior.get('replaces', [])) != set(replace_ids):
+                raise ValueError('这次整理已用另一组替代来源保存，请刷新')
+            return prior
+        refs = change.get('sources')
+        if not isinstance(refs, list) or not 2 <= len(refs) <= 20 or any(not isinstance(ref, dict) for ref in refs) or len({ref.get('id') for ref in refs}) != len(refs):
+            raise ValueError('待整理成果列表无效')
+        replace_ids = change.get('replaceIds', [])
+        if not isinstance(replace_ids, list) or len(replace_ids) > 20 or any(not isinstance(source_id, str) for source_id in replace_ids) or len(set(replace_ids)) != len(replace_ids) or any(source_id not in {ref.get('id') for ref in refs} for source_id in replace_ids):
+            raise ValueError('移入历史的成果必须属于本次整理来源，且不能重复')
+        sources = []
+        for ref in refs:
+            source = next((item for item in items if item['id'] == ref.get('id')), None)
+            if not source or source['revision'] != ref.get('revision') or source['kind'] != 'contribution':
+                raise ValueError('待整理成果已更新或移出当前列表，请刷新')
+            sources.append(source)
+        title = text(change.get('title'), 200).strip()
+        description = text(change.get('description')).strip()
+        if not title or not description:
+            raise ValueError('请填写成果标题和内容')
+        category = change.get('category')
+        if category is not None and category not in CONTRIBUTION_FOLDERS:
+            raise ValueError('成果类别无效')
+        attachments = list({attachment['sha256']: attachment for source in sources for attachment in source.get('attachments', [])}.values())
+        if len(attachments) > 30:
+            raise ValueError('合并后的附件超过 30 个，请分批整理')
+        result_id = str(uuid.uuid4())
+        timestamp = now()
+        file = safe(directory, 'curated/' + result_id + '-v1.md')
+        payload = ('# ' + title + '\n\n' + description).encode()
+        refs = [dict(scope='team', projectId=project['id'], id=source['id'], version=source['revision']) for source in sources]
+        result = dict(id=result_id, title=title, description=description, kind='contribution', path='/' + file.relative_to(root).as_posix(), author=username, state='curated', revision=1, createdAt=timestamp, updatedAt=timestamp, updatedBy=username, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload), attachments=attachments, derivedFrom=refs, replaces=[ref for ref in refs if ref['id'] in replace_ids], sources=[source['id'] for source in sources], provenance=[dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt']) for source in sources])
+        if request_id:
+            result['mergeRequestId'] = request_id
+        if category is not None:
+            result['category'] = category
+        if 'sourceDetails' in change:
+            result['sourceDetails'] = text(change['sourceDetails'], 8000)
+        if 'sourceSessionTitle' in change:
+            result['sourceSessionTitle'] = text(change['sourceSessionTitle'], 120)
+        old_history = read_json(history_index, [])
+        archived = [dict(source, supersededBy=dict(scope='team', projectId=project['id'], id=result_id, version=1), supersededAt=timestamp) for source in sources if source['id'] in replace_ids]
+        publish_bytes(file, payload, gid)
+        try:
+            atom(history_index, archived + old_history, gid)
+            try:
+                atom(index, [result] + [item for item in items if item['id'] not in replace_ids], gid)
+            except Exception:
+                atom(history_index, old_history, gid)
+                raise
+        except Exception:
+            file.unlink(missing_ok=True)
+            raise
+        return result
     if op == 'adopt_content':
         if not admin:
             raise PermissionError('只有组管理员可以纳入已有文件')
@@ -667,6 +743,11 @@ def handle(root, state, username, request, incoming=None):
             item['attachments'] = [{k: a[k] for k in ('name', 'path', 'sha256', 'size')} for a in attachments]
         if meta.get('sourceDetails'):
             item['sourceDetails'] = text(meta['sourceDetails'], 8000)
+        disclosed = meta.get('disclosedSources', [])
+        if not isinstance(disclosed, list) or len(disclosed) > 30 or any(not isinstance(ref, dict) or ref.get('scope') not in ('personal', 'team') or ref.get('projectId') != project['id'] or not isinstance(ref.get('id'), str) or not re.fullmatch(r'[a-f0-9-]{36}', ref['id']) or type(ref.get('version')) is not int or ref['version'] < 1 for ref in disclosed):
+            raise ValueError('公开来源格式无效')
+        if disclosed:
+            item['disclosedSources'] = disclosed
         items.insert(0, item)
         atom(index, items, gid)
         receipts[key] = item
@@ -682,6 +763,8 @@ def handle(root, state, username, request, incoming=None):
         raise PermissionError('只能修改自己尚未被整理的提交；可另提补充')
     if not admin and (change.get('curate') or change.get('merge')):
         raise PermissionError('只有组管理员可以整理或合并')
+    if change.get('merge'):
+        raise ValueError('旧版合并入口已停用，请更新客户端后重新整理；原成果保持不变')
     merged = []
     sources = change.get('merge', [])
     if not isinstance(sources, list) or len(sources) > 100 or len({s.get('id') for s in sources}) != len(sources):
@@ -691,6 +774,9 @@ def handle(root, state, username, request, incoming=None):
         if not other or other is item or other['revision'] != source.get('revision') or other['kind'] != 'contribution':
             raise ValueError('待合并内容已改变，请刷新')
         merged.append(other)
+    import copy
+    history = read_json(history_index, [])
+    previous = copy.deepcopy(item)
     provenance = list(item.get('provenance', [])) + [dict(id=item['id'], revision=item['revision'], title=item['title'], author=item['author'], updatedAt=item['updatedAt'])]
     for source in merged:
         provenance += list(source.get('provenance', [])) + [dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt'])]
@@ -741,7 +827,14 @@ def handle(root, state, username, request, incoming=None):
     items = [i for i in items if i not in merged and (change['action'] != 'delete' or i is not item)]
     if change['action'] == 'save' and attachments:
         item['attachments'] = attachments
-    atom(index, items, gid)
+    archived = [dict(previous, **({'description': '', 'attachments': [], 'fields': None, 'sourceDetails': None, 'deletedAt': now()} if change['action'] == 'delete' else {}))]
+    archived += [dict(source, supersededBy=dict(scope='team', projectId=project['id'], id=item['id'], version=item['revision']), supersededAt=now()) for source in merged]
+    atom(history_index, archived + [entry for entry in history if change['action'] != 'delete' or entry['id'] != item['id']], gid)
+    try:
+        atom(index, items, gid)
+    except Exception:
+        atom(history_index, history, gid)
+        raise
     for old in paths:
         if change['action'] == 'delete' or old != item['path']:
             safe(root, old).unlink(missing_ok=True)

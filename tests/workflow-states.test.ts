@@ -91,10 +91,15 @@ for (const failure of ['enqueue', 'running', 'completed'] as const) test('transf
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-state-transfer-')), store = new Store(root);
   try {
     await store.init(); const file = path.join(root, 'source.txt'); await fs.writeFile(file, 'payload');
-    let uploads = 0, writes = 0; const targets: string[] = [], byteStates: number[] = [];
-    const remote = { channel: () => {}, ensurePersonalFolder: async () => {}, upload: async (_binding: RemoteBinding, _local: string, target: string, progress: (bytes: number, total: number) => void) => { uploads++; targets.push(target); progress(7, 7); } } as unknown as SharedFiles;
+    let uploads = 0, injected = false; const targets: string[] = [], byteStates: number[] = [];
+    const remote = { channel: () => {}, loadManifest: async () => [], ensurePersonalFolder: async () => {}, upload: async (_binding: RemoteBinding, _local: string, target: string, progress: (bytes: number, total: number) => void, _metadata: unknown, hash: string, _requestId: string, phase: (value: string) => Promise<void>) => { await phase('streaming'); uploads++; targets.push(target); progress(7, 7); await phase('verifying'); return { path: target, sha256: hash, size: 7, author: 'alice' }; } } as unknown as SharedFiles;
     const queue = new TransferQueue(store, remote, () => { if (store.transfers[0]?.status === 'queued') byteStates.push(store.transfers[0].bytes); });
-    const save = store.save.bind(store); store.save = async () => { if (++writes === ({ enqueue: 1, running: 2, completed: 3 })[failure]) throw new Error('fixture disk unavailable'); await save(); };
+    const save = store.save.bind(store); store.save = async () => {
+      const task = store.transfers[0];
+      const failNow = !injected && (failure === 'enqueue' ? task?.status === 'queued' : failure === 'running' ? task?.status === 'running' && task.phase === 'queued' : task?.status === 'done' && task.phase === 'completed');
+      if (failNow) { injected = true; throw new Error('fixture disk unavailable'); }
+      await save();
+    };
     if (failure === 'enqueue') { await assert.rejects(queue.enqueue(file, binding, '/p/uploads', 'upload'), /disk/); assert.equal(uploads, 0); assert.equal(store.transfers.length, 0); }
     else {
       const item = await queue.enqueue(file, binding, '/p/uploads', 'upload'); await until(() => item.status === 'error' && !(queue as any).active);

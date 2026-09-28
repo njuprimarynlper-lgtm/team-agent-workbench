@@ -6,7 +6,7 @@ import { draftDeleteBatchLimit, type DraftDeleteResult } from '../shared/draft-d
 import { DraftBulkDeleteDialog } from './draft-delete';
 
 export function draftIsPreserved(draft: Draft) {
-  return !!draft.mergeCompletedAt || !!draft.submitted || !!draft.artifacts?.some(item => item.submitted);
+  return !!draft.mergeCompletedAt || !!draft.submitted || !!draft.artifacts?.some(item => item.submitted) || !!draft.personalSavedIds?.length;
 }
 
 function relatedTransfers(draft: Draft, transfers: Transfer[]) {
@@ -15,8 +15,10 @@ function relatedTransfers(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskStatus(draft: Draft, transfers: Transfer[]) {
-  if (draft.mergeCompletedAt) return draft.conclusionMergeProjectId ? '已保存到个人成果库' : '已保存到团队成果库';
+  if (draft.mergeCompletedAt && draft.conclusionMergeProjectId && !draft.mergeResultPath) return '已保存到个人成果库';
+  if (draft.mergeCompletedAt && !draft.conclusionMergeProjectId) return '已保存到团队成果库';
   const related = relatedTransfers(draft, transfers);
+  if (draft.personalSavedIds?.length && !draft.submitted) return `已保存 ${draft.personalSavedIds.length} 项个人成果`;
   if (draftIsPreserved(draft)) {
     if (related.some(item => item.status === 'error')) return '上传未完成';
     if (related.some(item => item.status === 'running')) return '正在上传';

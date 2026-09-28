@@ -39,9 +39,13 @@ async function main() {
       const next = await app.firstWindow(); next.on('pageerror', error => errors.push(error.message)); return { app, page: next };
     };
     const connect = async (client: Page) => {
-      const login = client.locator('.modal').filter({ hasText: '登录团队工作台' }); await login.waitFor();
-      await call(client, 'remote.connect', { profile: profiles.bob, password: '1', localPath: data });
-      await login.getByRole('button', { name: '取消', exact: true }).click();
+      const login = client.locator('.modal').filter({ hasText: '登录团队工作台' });
+      await client.waitForLoadState('domcontentloaded');
+      await login.waitFor({ timeout: 1500 }).catch(() => {});
+      if (await login.isVisible()) {
+        await call(client, 'remote.connect', { profile: profiles.bob, password: '1', localPath: data });
+        await login.getByRole('button', { name: '取消', exact: true }).click();
+      } else await client.getByTitle('团队动态', { exact: true }).waitFor();
       const dismiss = client.getByTitle('关闭本轮动态提示', { exact: true }); if (await dismiss.isVisible()) await dismiss.click();
     };
     const first = await launch(); page = first.page; await connect(page);
@@ -106,7 +110,7 @@ async function main() {
     await page.getByLabel('使用成果的会话：新会话').check(); await page.getByRole('button', { name: '加入 1 个会话', exact: true }).click();
     await expect(page.getByRole('dialog', { name: '选择使用成果的会话' })).toHaveCount(0);
     const source = (await call(page, 'snapshot')).sessions[0].sources.find((item: any) => item.sourcePath.startsWith('local-conclusion:'));
-    assert.match(source.name, /^接口超时验收约束/);
+    assert.match(source.name, /接口超时验收约束/);
     await page.screenshot({ path: path.join(data, 'conclusion-alias.png') });
 
     // Leave an old result open while the administrator removes it: never fall back to other content.
@@ -117,7 +121,7 @@ async function main() {
     await entry.getByRole('button', { name: '查看结果', exact: true }).click();
     await alice.editSharedContent(project.id, { id: remote.id, revision: remote.revision, action: 'delete', curate: true, merge: [] });
     await page.getByRole('button', { name: '刷新', exact: true }).click();
-    await expect(page.locator('.content-detail')).toContainText('当前结果已不可用');
+    await expect(page.locator('.content-detail')).toContainText('这条成果已删除，正文不可用。');
     await expect(page.locator('.content-card')).toHaveCount(0); await expect(page.locator('.activity-result-page')).not.toContainText('扫描件质量');
     await call(page, 'content.sync');
     assert.equal((await call(page, 'conclusion.list', { projectId: project.id }))[0].id, local.id);

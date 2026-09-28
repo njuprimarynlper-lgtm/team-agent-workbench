@@ -1,7 +1,7 @@
 import { ownDataDirectory } from '../shared/single-instance';
 import { runtimeAssets } from '../shared/runtime-assets';
 import { draftDeleteIdsSchema } from '../shared/draft-delete';
-import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema } from '../shared/content';
+import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema, resultReferenceSchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, safeStorage } from 'electron';
 import fs from 'node:fs/promises';
@@ -75,11 +75,12 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
-      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences', 'projectDirectories'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
+      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences', 'projectDirectories', 'betaFeatures'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
       for (const p of ['codex', 'cursor', 'claude'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
     case 'layout.sidebar': { const p = z.object({ height: z.number().int().min(180).max(4000) }).parse(raw); await atomicJson(windowStateFile(context.slot), { profile: workbench.store.settings.workspaceSnapshot?.profile, sidebarProjectHeight: p.height }); context.sidebarProjectHeight = p.height; return true; }
+    case 'beta.set': { const p = z.object({ feature: z.literal('sessionHandoff'), enabled: z.boolean() }).parse(raw); return workbench.setBetaFeature(p.feature, p.enabled); }
     case 'providers.detect': return workbench.detect();
     case 'account.sync': await workbench.accountSync.sync(); return workbench.accountSync.state;
     case 'account.sync.resolve': { const p = z.object({ key: z.string(), choice: z.enum(['local', 'remote']) }).parse(raw); await workbench.accountSync.resolve(p.key, p.choice); return workbench.accountSync.state; }
@@ -127,14 +128,21 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'remote.download': {
       const p = z.object({ projectId: z.string(), path: text }).parse(raw); const binding = workbench.remote.binding(p.projectId);
       const result = await dialog.showSaveDialog(owner, { defaultPath: path.posix.basename(p.path) }); if (!result.filePath) return false;
-      await workbench.remote.download(binding, p.path, result.filePath); notice('已下载到 ' + result.filePath); return true;
+      await workbench.queue.enqueueDownload(binding, p.path, result.filePath); notice('文件已加入下载队列，可在传输记录查看结果'); return true;
     }
     case 'remote.upload': { const p = z.object({ projectId: z.string(), folder: text }).parse(raw); const binding = workbench.remote.binding(p.projectId); const files = await chooseFiles(owner); await workbench.uploadFiles(binding, p.folder, files); return files.length; }
     case 'session.create': { const p = z.object({ provider, cwd: text, projectId: z.string().optional(), model: z.string().min(1).max(256).regex(/^[^\x00-\x1f]+$/).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true) }).parse(raw); p.cwd = p.cwd.trim() || await workbench.researchWorkspace(); await workbench.requireAuth(p.provider, p.cwd); return workbench.createSession(p.provider, p.cwd, p.projectId, 'work', undefined, p.model, p.permissionMode, p.includeBrief); }
+    case 'subsession.create': { const p = z.object({ parentId: id, focus: z.string().trim().min(1).max(120) }).parse(raw); return workbench.forkSubsession(p.parentId, p.focus); }
+    case 'subsession.report.preview': return workbench.previewSubsessionReport(sessionInput.parse(raw).id);
+    case 'subsession.report.publish': { const p = z.object({ id, sourceHash: z.string().regex(/^[a-f0-9]{64}$/), body: z.string().min(1).max(128 * 1024) }).parse(raw); return workbench.publishSubsessionReport(p.id, p.sourceHash, p.body); }
+    case 'subsession.report.review': { const p = z.object({ parentId: id, childId: id, reportId: id }).parse(raw); return workbench.reviewSubsessionReport(p.parentId, p.childId, p.reportId); }
+    case 'subsession.report.attach': { const p = z.object({ parentId: id, childId: id, reportId: id }).parse(raw); return workbench.attachSubsessionReport(p.parentId, p.childId, p.reportId); }
     case 'session.rename': { const p = z.object({ id, title: z.string().trim().min(1).max(120) }).parse(raw); return workbench.renameSession(p.id, p.title); }
     case 'project.brief': return workbench.remote.projectBrief(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
     case 'project.brief.save': { const p = z.object({ projectId: z.string(), brief: projectBriefSchema, revision: z.number().int().nonnegative() }).parse(raw); const value = await workbench.remote.saveProjectBrief(workbench.remote.binding(p.projectId), p.brief, p.revision); await workbench.refreshGroups(); return value; }
     case 'content.list': return workbench.remote.contentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'content.history': { const p = z.object({ projectId: z.string(), id: z.string().uuid().optional(), revision: z.number().int().positive().optional() }).parse(raw); return workbench.remote.contentHistory(workbench.remote.binding(p.projectId), p.id, p.revision); }
+    case 'conclusion.publish': { const p = z.object({ id: z.string().uuid(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose); }
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'content.sync': return workbench.syncContentUpdates();
     case 'content.updates': return workbench.contentUpdates();
@@ -170,10 +178,12 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.updates.delete': return workbench.deleteContentUpdates(z.object({ eventIds: z.array(z.string()).min(1).max(10000) }).parse(raw).eventIds);
     case 'conclusion.import': { const p = z.object({ projectId: z.string(), contentId: id, expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.importContentConclusion(p.projectId, p.contentId, p.expectedRevision); }
     case 'conclusion.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(id).min(1).max(20), instruction: z.string().max(8000).default('') }).parse(raw); return workbench.prepareConclusionMerge(p.projectId, p.sessionId, p.sourceIds, p.instruction); }
-    case 'conclusion.merge.commit': return workbench.commitConclusionMerge(sessionInput.parse(raw).id);
+    case 'conclusion.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]) }).parse(raw); return workbench.commitConclusionMerge(p.id, p.replaceIds); }
+    case 'conclusion.merge.submit': { const p = z.object({ id }).parse(raw); return workbench.submitConclusionMerge(p.id); }
     case 'content.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(z.string().uuid()).min(2).max(20) }).parse(raw); return workbench.prepareContentMerge(p.projectId, p.sessionId, p.sourceIds); }
     case 'content.merge.save': { const p = z.object({ id, title: z.string().max(200), body: text }).parse(raw); return workbench.saveContentMerge(p.id, p.title, p.body); }
-    case 'content.merge.commit': return workbench.commitContentMerge(sessionInput.parse(raw).id);
+    case 'content.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]) }).parse(raw); return workbench.commitContentMerge(p.id, p.replaceIds); }
+    case 'content.merge.personal': { const p = z.object({ id }).parse(raw); return workbench.saveContentMergePersonal(p.id); }
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
     case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.editSharedContent(p.projectId, p.change); }
     case 'content.deleteMany': { const p = z.object({ projectId: z.string(), selections: contentDeleteSelectionsSchema }).parse(raw); return workbench.deleteSharedContents(p.projectId, p.selections); }
@@ -211,10 +221,12 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'session.answer': { const p = z.object({ id, requestId: z.string(), option: z.string(), answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional() }).parse(raw); return workbench.answer(p.id, p.requestId, p.option, p.answers); }
     case 'session.attachLocal': { const p = sessionInput.parse(raw); return workbench.attachLocal(p.id, await chooseFiles(owner)); }
     case 'session.attachRemote': { const p = z.object({ id, projectId: z.string(), path: text }).parse(raw); return workbench.attachRemote(p.id, p.projectId, p.path); }
-    case 'session.autoUpload': { const p = z.object({ id, enabled: z.boolean() }).parse(raw); const s = workbench.session(p.id); if (p.enabled && (!s.binding || s.purpose !== 'work')) throw new Error('只有绑定远端项目的工作会话可开启自动上传'); s.autoUpload = p.enabled; await workbench.store.save(); broadcast(); return true; }
+    case 'session.autoUpload': { const p = z.object({ id, enabled: z.boolean() }).parse(raw); const s = workbench.session(p.id); if (p.enabled && (!s.binding || s.purpose !== 'work')) throw new Error('只有绑定远端项目的工作会话可开启自动上传'); if (p.enabled && s.sources.some(source => source.sourcePath.startsWith('session-handoff:') || source.sourcePath.startsWith('subsession-report:'))) throw new Error('当前会话引用了个人会话内容，不能开启轨迹自动上传；如需分享轨迹，请先预览并手动确认'); s.autoUpload = p.enabled; await workbench.store.save(); broadcast(); return true; }
     case 'session.history': return historyMarkdown(workbench.session(sessionInput.parse(raw).id));
     case 'session.uploadTrajectory': return workbench.archive(sessionInput.parse(raw).id);
     case 'handoff.read': return workbench.readHandoff(sessionInput.parse(raw).id);
+    case 'handoff.list': return workbench.listSessionHandoffs(sessionInput.parse(raw).id);
+    case 'handoff.attach': { const p = z.object({ id, sourceId: id, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw); return workbench.attachSessionHandoff(p.id, p.sourceId, p.sha256); }
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
     case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional(), temporary: z.boolean().optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.temporary); }
     case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']), temporary: z.boolean().optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.temporary); }
@@ -253,6 +265,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       await fs.copyFile(temporary, result.filePath); await fs.unlink(temporary); notice('附件已下载'); return true;
     }
     case 'draft.submit': { const p = z.object({ id, target: z.string().optional() }).parse(raw); return workbench.submitDraft(p.id, p.target); }
+    case 'draft.personal.save': { const p = z.object({ id, artifactIds: z.array(id).min(1).max(5) }).parse(raw); return workbench.saveDraftPersonal(p.id, p.artifactIds); }
     case 'draft.export': {
       const d = workbench.draft(sessionInput.parse(raw).id); const target = await dialog.showSaveDialog(owner, { defaultPath: 'contribution.zip', filters: [{ name: '成果包', extensions: ['zip'] }] }); if (!target.filePath) return false;
       const zip = await packageDraft(d, workbench.store.root); await fs.copyFile(zip, target.filePath); return true;

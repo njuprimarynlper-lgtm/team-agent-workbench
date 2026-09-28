@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { memberProfile } from './fixtures/member-profile';
 import { Workbench } from '../src/core/workbench';
@@ -202,8 +203,10 @@ test('one SSH identity spans groups; author revisions, admin curation, merge and
     await assert.rejects(x.alice.remote.saveProjectBrief(x.alice.remote.binding(other.id), brief, 0), /组管理员/);
     await x.bob.remote.upload(b, file, b.project.uploadPath + '/补充.md', () => {}, { kind: 'contribution', title: '新的补充', description: '补充' });
     const second = (await x.bob.remote.contentList(b)).find(i => i.id !== item.id)!;
-    const merged = await x.alice.remote.contentEdit(a, { id: item.id, revision: item.revision, action: 'save', title: '合并结论', description: '已合并', curate: true, merge: [{ id: second.id, revision: second.revision }] });
-    assert.deepEqual(merged?.sources, [second.id]); assert.deepEqual(new Set(merged?.provenance?.map(source => source.id)), new Set([item.id, second.id])); assert.equal((await x.bob.remote.contentList(b)).length, 1);
+    await assert.rejects(x.alice.remote.contentEdit(a, { id: item.id, revision: item.revision, action: 'save', title: '旧式合并', description: '不应保存', curate: true, merge: [{ id: second.id, revision: second.revision }] }), /旧版合并入口/);
+    const merged = await x.alice.remote.contentMerge(a, { requestId: randomUUID(), sources: [{ id: item.id, revision: item.revision }, { id: second.id, revision: second.revision }], replaceIds: [item.id, second.id], title: '合并结论', description: '已合并' });
+    assert.notEqual(merged.id, item.id); assert.notEqual(merged.id, second.id);
+    assert.deepEqual(new Set(merged.sources), new Set([item.id, second.id])); assert.deepEqual(new Set(merged.provenance?.map(source => source.id)), new Set([item.id, second.id])); assert.equal((await x.bob.remote.contentList(b)).length, 1);
   } finally { await x.close(); }
 });
 

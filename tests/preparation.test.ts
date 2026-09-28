@@ -40,7 +40,7 @@ test('new summaries use at most three category fields without truncating verific
   assert.match(draft.body, /未运行官方 self_check/); assert.match(draft.body, /编译记录/);
 });
 
-test('result names update the selected artifact and local conclusion but never rewrite submitted titles', async () => {
+test('result names stay in the draft until personal save and never rewrite submitted titles', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-rename-result-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
@@ -52,6 +52,8 @@ test('result names update the selected artifact and local conclusion but never r
     await wb.renameDraftResult(draft.id, '人工修改的短名称', artifact.id);
     assert.match(artifact.title, /人工修改的短名称$/); assert.equal(draft.title, artifact.title);
     assert.equal(artifact.body, body); assert.equal(artifact.selected, selected);
+    assert.equal(wb.conclusions(offlineProjectId).length, 0);
+    await wb.saveDraftPersonal(draft.id, [artifact.id]);
     assert(wb.conclusions(offlineProjectId).some(item => item.title === '【项目结论】 人工修改的短名称'));
     assert.throws(() => wb.renameDraftResult(draft.id, '  ', artifact.id), /名称/);
     await assert.rejects(wb.renameDraftResult(draft.id, '名字', 'missing'), /不存在/);
@@ -156,7 +158,7 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     await wb.saveDraftSupplement(d.id, '人工补充：下轮补充边界用例。', '');
     await assert.rejects(wb.submitDraft(d.id));
     await until(() => d.generation === 'ready'); assert.equal(d.target, p.uploadPath + '/findings'); assert.equal(wb.store.transfers.length, 0); assert(d.generationStartedAt); assert(d.generationFinishedAt);
-    const localConclusions = wb.conclusions(p.id); assert(localConclusions.length > 0, 'local preparation is available as a project conclusion before upload'); assert(localConclusions.every(item => item.sources.some(source => source.kind === 'session')));
+    assert.equal(wb.conclusions(p.id).length, 0, 'preparation remains a draft until the user explicitly saves it');
     assert.equal((await wb.prepare(s.id)).id, d.id, 'ready contribution opens the same panel');
     await assert.rejects(wb.submitDraft(d.id, p.remoteRoot + '/trajectories/alice'), /不能在提交时改变/);
     // Refresh from the latest handoff only when explicitly regenerating completed work.
@@ -170,7 +172,13 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
       { category: 'issue', title: '覆盖率风险', fields: { problem: '数据覆盖不足', impact: '收益判断可能失真' } }
     ] } });
     await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.repoUrl, ''); assert.equal(d.artifacts?.length, 2);
+    assert.equal(wb.conclusions(p.id).length, 0, 'retry does not save draft results');
+    const savedPersonal = await wb.saveDraftPersonal(d.id, d.artifacts!.map(item => item.id));
+    assert.equal(savedPersonal.length, 2); assert.equal(wb.conclusions(p.id).length, 2);
+    assert(savedPersonal.every(item => item.sources.some(source => source.kind === 'session')));
+    assert.deepEqual((await wb.saveDraftPersonal(d.id, d.artifacts!.map(item => item.id))).map(item => item.id), savedPersonal.map(item => item.id), 'personal save is idempotent');
     const transfer = await wb.submitDraft(d.id); await until(() => wb.store.transfers.slice(0, 2).every(item => !['queued', 'running'].includes(item.status))); assert.equal(transfer.status, 'done', transfer.error || '');
+    assert.equal(wb.conclusions(p.id).length, 2, 'team submission does not create another personal result');
     assert.deepEqual(new Set(wb.store.transfers.slice(0, 2).map(item => path.posix.dirname(item.target))), new Set([p.uploadPath + '/findings', p.uploadPath + '/issues']));
     const zip = JSON.parse(execFileSync('python', ['-c', 'import sys,json,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(json.dumps({n:z.read(n).decode("utf-8") for n in z.namelist()}))', transfer.localPath], { encoding: 'utf8' }));
     const manifest = JSON.parse(zip['manifest.json']);
@@ -196,17 +204,52 @@ test('local shared filesystem: discover descriptions, auto destination, explicit
     const mergeDraft = await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id)); await until(() => mergeDraft.generation === 'ready');
     assert.match(mergeDraft.body, /融合而非拼接的综合判断/); assert.doesNotMatch(mergeDraft.body, /^## /m); assert.equal((await wb.prepareContentMerge(p.id, s.id, shared.map(item => item.id))).id, mergeDraft.id);
     await wb.saveContentMerge(mergeDraft.id, '人工复核后的统一结论', mergeDraft.body + '\n\n人工确认：保留冲突记录。');
-    const merged = await wb.commitContentMerge(mergeDraft.id); assert.equal(merged.title, '【项目结论】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
-    assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).filter(item => shared.some(source => source.id === item.id)).length, 1);
+    const teamBeforePersonalSave = await wb.remote.contentList(wb.remote.binding(p.id));
+    const privateMerge = await wb.saveContentMergePersonal(mergeDraft.id);
+    assert.deepEqual(privateMerge.derivedFrom, shared.map(item => ({ scope: 'team', projectId: p.id, id: item.id, version: item.revision })));
+    assert.equal((await wb.saveContentMergePersonal(mergeDraft.id)).id, privateMerge.id, 'saving the same merge draft is idempotent');
+    assert.deepEqual((await wb.remote.contentList(wb.remote.binding(p.id))).map(item => item.id), teamBeforePersonalSave.map(item => item.id), 'personal save leaves team results alone');
+    const merged = await wb.commitContentMerge(mergeDraft.id, shared.map(item => item.id)); assert.equal(merged.title, '【项目结论】 人工复核后的统一结论'); assert.equal(mergeDraft.mergeResultPath, merged.path); assert.equal(merged.sourceSessionTitle, '覆盖率验证会话');
+    assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).filter(item => shared.some(source => source.id === item.id)).length, 0);
+    assert(!shared.some(source => source.id === merged.id));
+    const frozenSources = await wb.remote.contentHistory(wb.remote.binding(p.id));
+    assert.deepEqual(new Set(frozenSources.filter(item => item.supersededBy?.id === merged.id).map(item => item.id)), new Set(shared.map(item => item.id)));
+    assert(frozenSources.filter(item => item.supersededBy?.id === merged.id).every(item => item.description && item.revision === 1));
     assert.equal(merged.provenance?.length, 2); assert.deepEqual(new Set(merged.provenance?.map(item => item.id)), new Set(shared.map(item => item.id)));
-    const mergeUpdates = await bob.syncContentUpdates(), mergeUpdate = mergeUpdates.find(item => item.change === 'merged'); assert(mergeUpdate); assert.equal(mergeUpdate.title, merged.title); assert.equal(mergeUpdate.sourceTitles?.length, 1); assert.equal(mergeUpdate.sourceSessionTitle, '覆盖率验证会话');
+    const mergeUpdates = await bob.syncContentUpdates(), mergeUpdate = mergeUpdates.find(item => item.change === 'merged'); assert(mergeUpdate); assert.equal(mergeUpdate.title, merged.title); assert.equal(mergeUpdate.sourceTitles?.length, 2); assert.equal(mergeUpdate.sourceSessionTitle, '覆盖率验证会话');
+    assert.deepEqual(new Set(mergeUpdates.filter(item => item.change === 'superseded' && item.replacedBy?.id === merged.id).map(item => item.id)), new Set(shared.map(item => item.id)));
     await bob.markContentUpdates([mergeUpdate.eventId]); assert((await bob.contentUpdates()).find(item => item.eventId === mergeUpdate.eventId)?.readAt);
+    const teamCopy = (await wb.importContentConclusion(p.id, merged.id, merged.revision)).conclusion;
+    const privateC = await wb.createConclusion(p.id, '个人路线 C', '我自己的补充论据，与团队来源有交集也不改变团队原件。');
+    const personalDraft = await wb.prepareConclusionMerge(p.id, s.id, [privateC.id, teamCopy.id], '保留各自的验证边界');
+    await until(() => personalDraft.generation === 'ready');
+    await wb.saveContentMerge(personalDraft.id, '下一轮个人路线 E', '结合 C 与 D 个人副本后的新判断');
+    const personalE = await wb.commitConclusionMerge(personalDraft.id, [privateC.id, teamCopy.id]);
+    assert.deepEqual(personalE.derivedFrom, [{ scope: 'personal', projectId: p.id, id: privateC.id, version: privateC.version }, { scope: 'personal', projectId: p.id, id: teamCopy.id, version: teamCopy.version }]);
+    assert(privateC.archived && teamCopy.archived);
+    assert.equal((await wb.remote.contentList(wb.remote.binding(p.id))).find(item => item.id === merged.id)?.id, merged.id, 'personal processing leaves team D current');
     await wb.editSharedContent(p.id, { id: merged.id, revision: merged.revision, action: 'delete', curate: true, merge: [] });
     const ownDeleteUpdate = (await wb.contentUpdates()).find(item => item.change === 'deleted' && item.id === merged.id); assert(ownDeleteUpdate); assert.equal(ownDeleteUpdate.readAt, undefined, 'a retained local copy still needs an explicit choice, even for the deleting administrator'); assert(wb.deletedContentConclusions(ownDeleteUpdate.eventId).length > 0); assert.equal(ownDeleteUpdate.updatedBy, 'alice');
     const deleteUpdates = await bob.syncContentUpdates(), deleteUpdate = deleteUpdates.find(item => item.change === 'deleted' && item.id === merged.id); assert(deleteUpdate); assert.equal(deleteUpdate.title, merged.title); assert.equal(deleteUpdate.path, undefined); assert(deleteUpdates.some(item => item.eventId === mergeUpdate.eventId && item.readAt && item.unavailableAt), 'processed history survives removal with its original handling record'); assert.equal(deleteUpdates.filter(item => item.id === merged.id && !item.readAt).length, 1, 'only the deletion decision remains pending');
+    const privateCount = wb.conclusions(p.id).length;
+    const teamOnly = await wb.prepare(s.id); await until(() => teamOnly.generation === 'ready');
+    await wb.submitDraft(teamOnly.id); await until(() => teamOnly.artifacts!.every(item => wb.store.transfers.some(transfer => transfer.id === item.submitted && !['queued', 'running'].includes(transfer.status))));
+    assert.equal(wb.conclusions(p.id).length, privateCount, 'team-only submission does not save a personal copy');
+    const localA = await wb.createConclusion(p.id, '个人方案 A', '第一组依据');
+    const localB = await wb.createConclusion(p.id, '个人方案 B', '第二组依据');
+    const personalTeamDraft = await wb.prepareConclusionMerge(p.id, s.id, [localA.id, localB.id], '合并两组依据，形成团队可复核的判断');
+    await until(() => personalTeamDraft.generation === 'ready');
+    await wb.saveContentMerge(personalTeamDraft.id, '团队复核方案', '对两组依据的综合判断');
+    const beforeDirectTeamSubmit = wb.conclusions(p.id).length;
+    const directTeamTransfer = await wb.submitConclusionMerge(personalTeamDraft.id);
+    await until(() => !['queued', 'running'].includes(directTeamTransfer.status));
+    assert.equal(directTeamTransfer.status, 'done', directTeamTransfer.error || '');
+    assert.equal(wb.conclusions(p.id).length, beforeDirectTeamSubmit, 'submitting a personal merge draft to the team does not save a personal result');
+    assert(!localA.archived && !localB.archived, 'team submission leaves personal sources current');
+    assert((await wb.remote.contentList(wb.remote.binding(p.id))).some(item => item.path === directTeamTransfer.target), 'team members can find the submitted result');
     const next = await wb.prepare(s.id); await until(() => next.generation === 'ready'); assert.notEqual(next.id, d.id);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_prepare', role: 'remove', handoffs: { local_prepare: 'bob' } });
-    const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于/);
+    const denied = await wb.submitDraft(next.id); await until(() => denied.status === 'error'); assert.match(denied.error!, /不属于|项目入口配置已改变/);
     const original = await diskPath(share, bob.remote.binding(p.id).project.uploadPath + '/findings/teammate.md'); assert((await fs.stat(original)).size > 0);
   } finally { await Promise.all([wb.close(), bob.close()]); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-prepare-local-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });

@@ -1,5 +1,8 @@
 import type { AgentSession, SourceFile } from './types';
 
+// Personal, local continuity notes are conversation context, not team result inputs.
+export const isPersonalHandoffSource = (source: SourceFile) => source.sourcePath.startsWith('session-handoff:') || source.sourcePath.startsWith('subsession-report:');
+
 // The same snapshot can have multiple IDs in older sessions. Keep different origins
 // and different contents separate, even when their display names are identical.
 export function sourceIdentity(source: SourceFile) {

@@ -103,6 +103,7 @@ test('restart under another account restores prepared results to the source acco
   const alice = await wb.createSession('codex', root, offlineProjectId), prepared = draft(alice, root);
   const originalOwner = accountIdentity(alice.binding!);
   wb.store.drafts.push(prepared);
+  await wb.saveDraftPersonal(prepared.id, [prepared.id]);
   wb.store.settings.workspaceSnapshot!.profile.username = 'bob';
   await wb.store.save();
   const restarted = new Workbench(wb.store.root, () => {}, () => {}); restarted.detect = async () => [];

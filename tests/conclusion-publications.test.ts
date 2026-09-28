@@ -91,11 +91,13 @@ test('new uploads carry the source link even after their preparation record is r
   wb.store.drafts = []; wb.store.transfers = [];
   const file = path.join(wb.store.root, 'snapshot.txt'); await fs.writeFile(file, 'frozen package');
   wb.remote.ensurePersonalFolder = async () => {};
-  wb.remote.upload = async () => undefined as any;
+  wb.remote.loadManifest = async () => [wb.remote.binding(offlineProjectId).project];
+  wb.remote.channel = () => undefined as any;
+  wb.remote.upload = async (binding, _local, target, _progress, _metadata, hash) => ({ path: target, sha256: hash, size: 14, author: binding.username }) as any;
   const [task] = await wb.queue.enqueueMany([{ conclusionSourceId: personal.sources[0].id, local: file, binding: wb.remote.binding(offlineProjectId), folder: wb.remote.binding(offlineProjectId).project.uploadPath, kind: 'upload', metadata: { title: team.title, description: team.description, kind: team.kind } }]);
   const end = Date.now() + 5000;
   while (task.status !== 'done' && task.status !== 'error' && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(task.status, 'done'); assert.equal(personal.sources[0].publication?.path, task.target);
+  assert.equal(task.status, 'done', task.error || ''); assert.equal(personal.sources[0].publication?.path, task.target);
   assert.equal(teamResultDifference({ ...team, path: task.target, sha256: task.sha256! }, [personal]), undefined);
   await wb.store.save();
   const persisted = JSON.parse(await fs.readFile(path.join(wb.store.root, 'conclusions.json'), 'utf8'));

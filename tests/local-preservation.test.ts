@@ -16,7 +16,7 @@ test('an explicitly removed local conclusion is not recreated from its saved dra
     const session = await wb.createSession('codex', root, offlineProjectId), now = new Date().toISOString();
     const draft: Draft = { title: '', body: '', id: 'deleted-source-draft', sessionId: session.id, binding: session.binding, generation: 'ready', preparationVersion: 3, inputDir: path.join(root, 'input'), outputPath: path.join(root, 'draft.md'), files: [], createdAt: now };
     applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', title: '曾经保留的内容', fields: { statement: '同一结论同时有本地和远端来源。' } }] }));
-    wb.store.drafts.push(draft); await wb.renameDraftResult(draft.id, '曾经保留的内容', draft.artifacts![0].id);
+    wb.store.drafts.push(draft); await wb.renameDraftResult(draft.id, '曾经保留的内容', draft.artifacts![0].id); await wb.saveDraftPersonal(draft.id, [draft.artifacts![0].id]);
     const item = wb.conclusions(offlineProjectId)[0];
     item.sources.push({ id: 'removed-remote', kind: 'remote', title: '远端来源', updatedAt: now });
     wb.store.settings.contentUpdates = [{ eventId: 'deletion', projectId: offlineProjectId, projectName: '测试项目', id: 'removed-remote', title: '远端来源', revision: 1, change: 'deleted', occurredAt: now, detectedAt: now }];
@@ -51,7 +51,7 @@ test('restart preserves sessions, inputs, all unread/history events, dismissed a
     assert.equal(wb.store.settings.contentUpdates[1].readAt, undefined, 'closing the toast must not mark a pending item read');
     const draft: Draft = { title: '', body: '', id: 'preserved-draft', sessionId: session.id, binding: session.binding, generation: 'ready', preparationVersion: 3, inputDir: path.join(root, 'input'), outputPath: path.join(root, 'draft.md'), files: [], createdAt: now };
     applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', title: '旧名称', fields: { statement: '待验证的算法结论' } }] }));
-    wb.store.drafts.push(draft); await wb.renameDraftResult(draft.id, '用户填写的名称', draft.artifacts![0].id);
+    wb.store.drafts.push(draft); await wb.renameDraftResult(draft.id, '用户填写的名称', draft.artifacts![0].id); await wb.saveDraftPersonal(draft.id, [draft.artifacts![0].id]);
     const conclusion = wb.conclusions(offlineProjectId)[0]; await wb.attachConclusion(session.id, conclusion.id);
     await wb.archiveConclusion(conclusion.id, true);
     draft.submitted = draft.artifacts![0].submitted = 'uploaded-package';

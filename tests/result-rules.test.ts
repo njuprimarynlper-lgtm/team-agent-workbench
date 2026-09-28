@@ -150,6 +150,7 @@ test('in-flight preparation freezes rules, later preparation uses changed select
     assert.deepEqual(prepared.resultRules!.categories, ['requirement', 'design']); assert.equal(prepared.artifacts![0].category, 'requirement');
     await wb.changeDraftCategory(prepared.id, 'design', prepared.artifacts![0].id);
     assert.equal(prepared.artifacts![0].category, 'design'); assert.match(prepared.artifacts![0].target, /\/designs$/);
+    await wb.saveDraftPersonal(prepared.id, [prepared.artifacts![0].id]);
     assert.equal(wb.conclusions(offlineProjectId)[0].category, 'design');
     await assert.rejects(wb.changeDraftCategory(prepared.id, 'finding', prepared.artifacts![0].id), /启用/);
     const restored = new Store(wb.store.root); await restored.init(); assert.deepEqual(restored.drafts[0].resultRules, prepared.resultRules); assert.equal(restored.drafts[0].artifacts![0].category, 'design');

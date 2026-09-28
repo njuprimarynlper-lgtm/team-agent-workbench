@@ -76,7 +76,7 @@ try {
   const briefMarkdown = await fs.readFile(path.join(share, ...project.remoteRoot.split('/').filter(Boolean), '项目说明.md'), 'utf8');
   assert.match(briefMarkdown, /## 项目目标\s+提高质量和效率/); await ap.getByRole('button', { name: '关闭窗口', exact: true }).click();
   // Wait for Alice's asynchronous save before Bob re-reads the manifest, or Bob legitimately still sees version 1.
-  await expect(ap.getByRole('button', { name: '项目资料 · v2', exact: true })).toBeVisible();
+  await expect(ap.getByRole('button', { name: '项目说明 · v2', exact: true })).toBeVisible();
   await call(bp, 'remote.manifest'); await expect(bp.locator('.session-materials .materials-update')).toBeVisible();
   assert.equal((await call(bp, 'snapshot')).sessions[0].projectBrief.revision, 1);
   // The adoption action and the version note live behind the collapsed materials summary.
@@ -95,13 +95,14 @@ try {
   await ap.getByRole('button', { name: '清除筛选', exact: true }).click(); await expect(ap.getByLabel('选择合并：第一项结论')).not.toBeChecked();
   await ap.getByLabel('选择合并：第一项结论').check(); await ap.getByLabel('选择合并：第二项结论').check();
   await ap.getByRole('button', { name: '开始语义合并（2 条）', exact: true }).click();
-  await expect(ap.getByLabel('融合后的项目文档')).toContainText('综合结论');
+  await expect(ap.getByLabel('融合后的项目文档')).toContainText('统一结论');
   await ap.getByLabel('合并后标题').fill('Alice 统一整理的结论');
-  await ap.getByRole('button', { name: '确认合并并归档 2 条原文', exact: true }).click();
+  for (const checkbox of await ap.locator('.merge-replacement-choice input[type="checkbox"]').all()) await checkbox.check();
+  await ap.getByRole('button', { name: '保存新成果，2 条来源移入历史', exact: true }).click();
   await expect(ap.locator('.content-card')).toHaveCount(1);
   await expect(ap.getByLabel('团队成果类别')).toHaveValue('all');
   await expect(ap.getByLabel('团队成果操作状态')).toHaveCount(0);
-  await expect(ap.getByRole('button', { name: '从共享区移除：Alice 统一整理的结论', exact: true })).toBeVisible();
+  await expect(ap.getByRole('button', { name: /从共享区移除：.*Alice 统一整理的结论/ })).toBeVisible();
   await ap.getByRole('button', { name: '打开成果整理', exact: true }).click();
   const savedMerge = ap.locator('.draft-task-card').filter({ hasText: 'Alice 统一整理的结论' });
   await expect(savedMerge).toContainText('已保存到公共区'); await expect(savedMerge).toContainText('已保留，不可删除');
@@ -113,8 +114,8 @@ try {
   await expect(bp.locator('.result-card.is-expanded').getByRole('button', { name: '下载', exact: true })).toHaveCount(0);
   await expect(bp.locator('.result-card.is-expanded')).not.toContainText('已整理');
   await bp.locator('.result-card.is-expanded').getByRole('button', { name: '加入会话', exact: true }).click(); await bp.getByLabel('选择会话：新会话').check(); await bp.getByRole('button', { name: '加入 1 个会话', exact: true }).click(); await expect(bp.locator('.toast').filter({ hasText: '加入会话：新会话' })).toBeVisible(); await bp.getByTitle('工作会话', { exact: true }).click();
-  await expect(bp.locator('.source-chips')).toContainText('Alice 统一整理的结论 · v3');
-  const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v3'));
+  await expect(bp.locator('.source-chips')).toContainText('Alice 统一整理的结论 · v1');
+  const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v1'));
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
   await bp.getByTitle('项目成果库', { exact: true }).click(); await bp.getByRole('tab', { name: '个人', exact: true }).click(); await expect(bp.getByRole('heading', { name: `项目成果库 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
@@ -134,12 +135,12 @@ try {
   await expect(bp.getByRole('heading', { name: '选择这次会话要参考的项目成果', exact: true })).toBeVisible(); await expect(bp.getByLabel(/带入成果：.*Alice 统一整理的结论/)).toBeChecked(); await bp.getByRole('button', { name: '带入 1 条并发送', exact: true }).click(); await expect(bp.locator('.message.user')).toContainText('是否支持后续验证');
   // An existing group still requires a brief for every new project, or explicit deferral.
   await ap.getByTitle('在 research 创建项目', { exact: true }).click(); await ap.getByLabel('项目名称', { exact: true }).fill('第二个项目');
-  await expect(ap.getByRole('dialog', { name: '项目资料' }).getByRole('button', { name: '创建项目', exact: true })).toBeDisabled();
-  await ap.getByText('先创建目录，稍后完善项目资料', { exact: true }).click(); await ap.getByRole('dialog', { name: '项目资料' }).getByRole('button', { name: '创建项目', exact: true }).click();
-  await expect(ap.getByRole('button', { name: '项目资料 · 待完善', exact: true })).toBeVisible();
-  await ap.getByRole('button', { name: '项目资料 · 待完善', exact: true }).click();
+  await expect(ap.getByRole('dialog', { name: '项目说明' }).getByRole('button', { name: '创建项目', exact: true })).toBeDisabled();
+  await ap.getByText('先创建目录，稍后完善项目说明', { exact: true }).click(); await ap.getByRole('dialog', { name: '项目说明' }).getByRole('button', { name: '创建项目', exact: true }).click();
+  await expect(ap.getByRole('button', { name: '项目说明 · 待完善', exact: true })).toBeVisible();
+  await ap.getByRole('button', { name: '项目说明 · 待完善', exact: true }).click();
   await ap.getByLabel('项目背景', { exact: true }).fill('新项目背景'); await ap.getByLabel('项目目标', { exact: true }).fill('新目标'); await ap.getByLabel('验收标准', { exact: true }).fill('新指标'); await ap.getByRole('button', { name: '保存新版本', exact: true }).click();
-  await expect(ap.getByRole('button', { name: '项目资料 · v1', exact: true })).toBeVisible();
+  await expect(ap.getByRole('button', { name: '项目说明 · v1', exact: true })).toBeVisible();
   await ap.setViewportSize({ width: 1100, height: 760 }); await ap.getByTitle('项目成果库', { exact: true }).click(); await ap.getByRole('tab', { name: '团队', exact: true }).click();
   await ap.locator(`[data-project-id="${project.id}"]`).click(); await ap.locator('.content-card-summary').click();
   await ap.screenshot({ path: path.join(data, 'public-content.png') }); await mp.screenshot({ path: path.join(data, 'admin-management.png') });

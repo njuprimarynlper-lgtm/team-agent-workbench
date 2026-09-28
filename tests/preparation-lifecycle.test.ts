@@ -25,6 +25,7 @@ async function readyDraft(wb: Workbench, session: AgentSession) {
   const draft: Draft = { id, sessionId: session.id, title: '', body: '', files, snapshot, generation: 'ready', preparationVersion: 3, binding: session.binding, createdAt: new Date().toISOString(), inputDir, outputPath: path.join(base, 'draft.md') };
   applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', title: '已确认结论', fields: { statement: '只保留确认过的结果。' } }] }));
   wb.store.drafts.push(draft); await wb.renameDraftResult(id, '已确认结论', draft.artifacts![0].id);
+  await wb.saveDraftPersonal(id, [draft.artifacts![0].id]);
   rememberPreparationProgress(session, [draft]); await wb.store.save(); return draft;
 }
 
@@ -162,5 +163,5 @@ test('delete confirmation names the independent data it preserves without invoki
   let calls = 0;
   const draft = { id: 'd', title: '整理记录', generation: 'running' } as Draft;
   const html = renderToStaticMarkup(React.createElement(DraftDeleteDialog, { draft, close: () => {}, remove: async () => { calls++; } }));
-  assert.equal(calls, 0); assert.match(html, /并停止这次整理/); assert.match(html, /本地成果、团队成果、原 Session 和增量整理进度都会保留/); assert.match(html, /同步到你的其他电脑/);
+  assert.equal(calls, 0); assert.match(html, /并停止这次整理/); assert.match(html, /已保存的个人成果、已提交的团队成果、原 Session 和增量整理进度都会保留/); assert.match(html, /同步到你的其他电脑/);
 });
