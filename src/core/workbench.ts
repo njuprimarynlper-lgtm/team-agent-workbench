@@ -35,6 +35,7 @@ import { isProtectedSessionSource, isRemovableSessionReference, sessionWithAvail
 import { reconcileTeamResultReferences } from './session-result-references';
 import { resolveProvider, inspectProvider } from './providers';
 import { freezeFile, packageDraftArtifact, packageHistory, hashFile, contributionBody, artifactContributionBody } from './artifacts';
+import { listSessionFiles } from './session-files';
 import { attachmentList, freezeDraftAttachments } from './draft-attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
@@ -909,7 +910,7 @@ export class Workbench {
     await fs.mkdir(dir, { recursive: true });
     const handoffPath = path.join(dir, 'handoff.md');
     await fs.writeFile(handoffPath, '# 阶段摘要\n\n## 当前工作焦点与范围\n待补充。\n\n## 当前进展\n尚未整理。\n\n## 已确认的决定与依据\n尚无。\n\n## 改动、影响范围与验证\n记录文件、版本、受影响的流程或文档、检查结果；尚无时写“尚未验证”。\n\n## 阻塞与待确认事项\n尚无。\n\n## 下一步\n待补充。\n', { flag: 'wx' });
-    const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, networkRoute: route || (this.store.settings.egress?.enabled ? 'management' : 'direct'), parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath };
+    const session: AgentSession = { id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, networkRoute: route || (this.store.settings.egress?.enabled ? 'management' : 'direct'), parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath, ...(purpose === 'work' ? { followProjectBrief: includeBrief } : {}) };
     this.store.sessions.unshift(session);
     const managed = cwd.startsWith(path.join(this.store.root, 'workspaces') + path.sep);
     if (purpose === 'work' && binding) {
@@ -1023,6 +1024,7 @@ export class Workbench {
     if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
     await this.applyDeferredSettings(s);
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
+    await this.adoptLatestProjectBrief(s);
     this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; s.status = 'starting'; this.changed();
     const canceled = () => this.canceledSends.has(id) || this.closing;
     try {
@@ -1819,7 +1821,7 @@ export class Workbench {
     const events = await fs.readFile(path.join(this.store.sessionDir(id), 'events.jsonl'), 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
     const trajectoryHash = createHash('sha256').update(JSON.stringify([frozen.nativeId, frozen.messages, events])).digest('hex');
     const prior = this.store.transfers.find(t => t.sessionId === id && t.kind === 'history' && t.trajectoryHash === trajectoryHash);
-    if (prior) { if (prior.status === 'error' && !automatic) await this.queue.retry(prior.id); return prior; }
+    if (prior) { if (prior.status === 'error' && !automatic) await this.queue.retry(prior.id); await this.uploadSessionFiles(s); return prior; }
     const remaining = (this.store.settings.autoUploadMinutes || 15) * 60000 - (Date.now() - Date.parse(s.lastTrajectoryQueuedAt || ''));
     if (automatic && remaining > 0) {
       if (!this.trajectoryTimers.has(id)) this.trajectoryTimers.set(id, setTimeout(() => {
@@ -1831,7 +1833,27 @@ export class Workbench {
     clearTimeout(this.trajectoryTimers.get(id)); this.trajectoryTimers.delete(id);
     const zip = await packageHistory(frozen, this.store.sessionDir(id), this.store.root, events);
     const transfer = await this.queue.enqueue(zip, s.binding, s.binding.project.historyPath, 'history', id, { kind: 'trajectory', title: s.title + ' · 轨迹', description: '对话与工具事件快照；不包含厂商隐藏推理。', sourceSessionId: id, sourceSessionTitle: s.title }, trajectoryHash);
-    s.lastTrajectoryQueuedAt = transfer.createdAt; await this.store.save(); this.broadcast(); return transfer;
+    s.lastTrajectoryQueuedAt = transfer.createdAt; await this.store.save(); this.broadcast();
+    await this.uploadSessionFiles(s);
+    return transfer;
+  }
+  private async uploadSessionFiles(session: AgentSession) {
+    if (!session.binding) return;
+    const known = new Set(this.store.transfers.filter(item => item.sessionId === session.id && item.kind === 'upload' && item.sha256 && item.status !== 'error').map(item => item.sha256));
+    for (const file of await listSessionFiles(session)) {
+      try {
+        const sha = await hashFile(file.path);
+        if (known.has(sha)) continue;
+        known.add(sha);
+        const frozen = await freezeFile(file.path, path.join(this.store.root, 'uploads', randomUUID()));
+        await this.queue.enqueue(frozen.localPath, session.binding, session.binding.project.historyPath, 'upload', session.id, { kind: 'file', title: frozen.name.slice(0, 200), description: `会话文件 · ${session.title}`.slice(0, 2000), sourceSessionId: session.id, sourceSessionTitle: session.title, submission: submissionRecord(session.binding, [{ kind: 'session', id: session.id, title: session.title }]) });
+      } catch (error: any) { this.notice(`会话文件未上传：${file.name}，${error.message}`); }
+    }
+  }
+  async adoptLatestProjectBrief(session: AgentSession) {
+    if (session.purpose !== 'work' || session.followProjectBrief === false || !session.binding || session.closedAt || !this.remote.connected) return false;
+    if (['running', 'approval', 'starting'].includes(session.status)) return false;
+    return this.refreshProjectContext(session.id).catch((error: any) => { this.notice('项目说明未更新：' + error.message); return false; });
   }
   async refreshProjectContext(id: string) {
     const session = this.session(id); this.assertCanWork(session.binding); if (!session.binding) throw new Error('请选择项目');
@@ -1892,6 +1914,7 @@ export class Workbench {
         child.sources.push(frozen); inheritedSourceIds.push(frozen.id);
         if (parent.projectBrief?.sourceId === original.id) child.projectBrief = { ...parent.projectBrief, sourceId: frozen.id };
       }
+      child.followProjectBrief = parent.followProjectBrief !== false;
       child.title = title;
       child.fork = { parentId: parent.id, capturedAt: new Date().toISOString(), parentMessageId: parent.messages.at(-1)?.id, parentMessageCount: parent.messages.length, snapshotHash, sourceId, inheritedSourceIds, workspaceKind: workspace.kind, workspaceRoot: workspace.root, baseRevision: workspace.baseRevision };
       this.store.inputs[child.id] = { text: title, sourceIds: [], answers: {} };

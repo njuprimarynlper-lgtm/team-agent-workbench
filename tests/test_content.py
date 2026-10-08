@@ -170,12 +170,22 @@ class ContentRules(unittest.TestCase):
         self.assertEqual(edited['id'], item['id'])
         self.assertEqual(edited['revision'], 2)
         self.assertEqual(self.call('alice', op='content_history', id=item['id'], revision=1)[0]['description'], item['description'])
+        old_file, new_file = content.safe(self.root, item['path']), content.safe(self.root, edited['path'])
+        old_file.write_bytes(b'stale-version')
         self.call('alice', op='edit_content', change=dict(id=item['id'], revision=2, action='delete', curate=False, merge=[]))
         history = self.call('bob', op='content_history', id=item['id'])
+        stored = json.dumps(content.read_json(self.directory / '.workbench-content-history.json'), ensure_ascii=False)
         self.assertEqual(len(history), 1)
         self.assertTrue(history[0]['deletedAt'])
         self.assertEqual(history[0]['description'], '')
         self.assertIsNone(history[0]['sourceDetails'])
+        self.assertFalse(old_file.exists())
+        self.assertFalse(new_file.exists())
+        receipts = content.read_json(self.root / '.workbench/admin/uploads.json', {})
+        self.assertFalse(any(isinstance(value, dict) and value.get('id') == item['id'] for value in receipts.values()))
+        self.assertNotIn('已验证内容', json.dumps(receipts, ensure_ascii=False))
+        self.assertNotIn('后来需要移除的内容', stored)
+        self.assertNotIn('已验证内容', stored)
 
     def test_private_account_data_is_isolated_versioned_and_not_public(self):
         self.assertEqual(self.call('bob', op='account_read')['records'], {})
@@ -202,7 +212,14 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(PermissionError): self.call('alice', op='publish', target=target + '2', sha256=sha, metadata=metadata)
         with self.assertRaises(ValueError): self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, attachments=[dict(attachment, size=999)]))
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
-        self.assertEqual(self.edit('alice', item)['attachments'], [attachment])
+        edited = self.edit('alice', item)
+        self.assertEqual(edited['attachments'], [attachment])
+        blob_file = content.safe(self.root, attachment['path'])
+        second = self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, title='second'))
+        self.edit('alice', edited, action='delete')
+        self.assertTrue(blob_file.is_file())
+        self.edit('alice', second, action='delete')
+        self.assertFalse(blob_file.exists())
 
     def test_account_files_are_private_and_downloads_are_independent(self):
         self.state['users']['bob']['uid'] = 1001

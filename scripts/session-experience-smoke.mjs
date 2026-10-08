@@ -44,7 +44,7 @@ try {
   await page.getByRole('button', { name: '已关闭会话（1）', exact: true }).click();
   await expect(page.getByLabel('任务输入', { exact: true })).toHaveCount(0);
   await page.locator('.session-materials > summary').click();
-  await expect(page.getByRole('button', { name: '更新项目说明', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '更新项目说明', exact: true })).toHaveCount(0);
   await page.locator('.session-materials > summary').click();
   await page.getByRole('button', { name: '重新打开会话', exact: true }).click();
   await expect(page.getByLabel('任务输入', { exact: true })).toBeVisible();

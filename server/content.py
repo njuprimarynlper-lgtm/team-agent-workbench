@@ -984,6 +984,26 @@ def handle(root, state, username, request, incoming=None):
     for old in paths:
         if change['action'] == 'delete' or old != item['path']:
             safe(root, old).unlink(missing_ok=True)
+    if change['action'] == 'delete':
+        def recorded_files(entry):
+            found = [entry.get('path')] if isinstance(entry.get('path'), str) else []
+            found += [attachment.get('path') for attachment in entry.get('attachments') or [] if isinstance(attachment, dict) and isinstance(attachment.get('path'), str)]
+            return found
+        owned = [target for entry in [previous, *history] if isinstance(entry, dict) and entry.get('id') == item['id'] for target in recorded_files(entry)]
+        kept = {target for entry in items for target in recorded_files(entry)}
+        project_prefix = '/' + directory.relative_to(root).as_posix() + '/'
+        for target in dict.fromkeys(owned):
+            if target in kept:
+                continue
+            if '/.workbench-attachments/' not in target and item['id'] not in target and not target.startswith(project_prefix + 'submissions/') and not target.startswith(project_prefix + 'curated/'):
+                continue
+            safe(root, target).unlink(missing_ok=True)
+        receipt_file = safe(root, '.workbench/admin/uploads.json')
+        receipts = read_json(receipt_file, {}) if receipt_file.is_file() else {}
+        if isinstance(receipts, dict):
+            trimmed = {key: value for key, value in receipts.items() if not (isinstance(value, dict) and value.get('id') == item['id'])}
+            if len(trimmed) != len(receipts):
+                atom(receipt_file, trimmed, gid)
     return item if change['action'] == 'save' else None
 
 def save_brief_file(directory, project, brief, username, gid):

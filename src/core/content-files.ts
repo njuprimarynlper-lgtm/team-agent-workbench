@@ -178,10 +178,25 @@ export class ContentFiles {
       if (change.action === 'save' && attachments.length) item.attachments = attachments;
       const tombstone = { ...previous, description: '', attachments: undefined, fields: undefined, sourceDetails: undefined, deletedAt: new Date().toISOString(), deletedBy: actor.username };
       const archived = [change.action === 'delete' ? tombstone : previous, ...merged.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id: item.id, version: item.revision }, supersededAt: new Date().toISOString() }))];
+      const remaining = items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id));
       await atomicJson(await this.historyIndex(binding), [...archived, ...history.filter(entry => change.action !== 'delete' || entry.id !== item.id)]);
-      try { await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id))); }
+      try { await atomicJson(await this.index(binding), remaining); }
       catch (error) { await atomicJson(await this.historyIndex(binding), history); throw error; }
       for (const target of oldPaths.filter(target => change.action === 'delete' || target !== item.path)) await fs.unlink(await diskPath(this.root, target)).catch(() => {});
+      if (change.action === 'delete') {
+        const recordedFiles = (entry: { path?: string; attachments?: { path: string }[] }) => [entry.path, ...(entry.attachments || []).map(file => file.path)].filter((value): value is string => !!value);
+        const retained = new Set(remaining.flatMap(recordedFiles));
+        const projectPrefix = binding.project.remoteRoot + '/';
+        for (const target of [...new Set([previous, ...history].filter(entry => entry.id === item.id).flatMap(recordedFiles))]) {
+          if (retained.has(target)) continue;
+          if (!target.includes(item.id) && !target.includes('/.workbench-attachments/') && !target.startsWith(projectPrefix + 'submissions/') && !target.startsWith(projectPrefix + 'curated/')) continue;
+          await fs.unlink(await diskPath(this.root, target, true)).catch(() => {});
+        }
+        const receiptFile = await diskPath(this.root, '/.workbench-local/upload-receipts.json', true);
+        const receipts = JSON.parse(await fs.readFile(receiptFile, 'utf8').catch(() => '{}')) as Record<string, { id?: string }>;
+        const trimmed = Object.fromEntries(Object.entries(receipts).filter(([, value]) => value?.id !== item.id));
+        if (Object.keys(trimmed).length !== Object.keys(receipts).length) await atomicJson(receiptFile, trimmed);
+      }
       return change.action === 'delete' ? undefined : item;
     });
   }

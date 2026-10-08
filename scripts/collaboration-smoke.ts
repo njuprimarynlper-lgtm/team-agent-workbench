@@ -77,10 +77,10 @@ try {
   assert.match(briefMarkdown, /## 项目目标\s+提高质量和效率/); await ap.getByRole('button', { name: '关闭窗口', exact: true }).click();
   // Wait for Alice's asynchronous save before Bob re-reads the manifest, or Bob legitimately still sees version 1.
   await expect(ap.getByRole('button', { name: '项目说明 · v2', exact: true })).toBeVisible();
-  await call(bp, 'remote.manifest'); await expect(bp.locator('.session-materials .materials-update')).toBeVisible();
+  await call(bp, 'remote.manifest'); await expect(bp.locator('.session-materials .materials-update')).toHaveCount(0);
+  await expect(bp.getByRole('button', { name: '更新项目说明', exact: true })).toHaveCount(0);
   assert.equal((await call(bp, 'snapshot')).sessions[0].projectBrief.revision, 1);
-  // The adoption action and the version note live behind the collapsed materials summary.
-  await bp.locator('.session-materials > summary').click(); await expect(bp.locator('.session-materials-content')).toContainText('有新版本'); await bp.getByRole('button', { name: '更新项目说明', exact: true }).click();
+  await call(bp, 'session.send', { id: (await call(bp, 'snapshot')).sessions[0].id, text: '继续当前项目' });
   await expect.poll(async () => (await call(bp, 'snapshot')).sessions[0].projectBrief.revision).toBe(2);
   await expect(ap.locator('.content-update-toast')).toContainText('bob');
   await ap.getByTitle('关闭本轮动态提示', { exact: true }).click(); await expect(ap.locator('.content-update-toast')).toHaveCount(0);
