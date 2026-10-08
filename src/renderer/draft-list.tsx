@@ -39,10 +39,10 @@ function statusTone(draft: Draft, transfers: Transfer[]) {
 }
 
 function taskKind(draft: Draft) {
-  if (draft.conclusionMergeProjectId) return '本地成果处理';
+  if (draft.conclusionMergeProjectId) return '合并成果';
   if (draft.mergeProjectId) return '团队成果合并';
   if (draft.preparationScope === 'incremental') return '增量整理';
-  if (draft.preparationScope === 'full') return '全量整理';
+  if (draft.preparationScope === 'full') return '整理对话';
   return '会话成果整理';
 }
 

@@ -6,7 +6,7 @@ import { preparationWritingGuide } from './preparation';
 export function preparationPrompt(draft: Draft, existing: { id: string; title: string; content: string }[], merging = false) {
   const scope = merging ? '本次按用户要求处理选中的成果，最多生成一条新成果，不改变原成果。来源均属于同一类别，结果类别不可改变；待办合并仅去除同一事项的重复描述，不吞并独立动作。' : draft.preparationScope === 'incremental'
     ? '本次是增量整理，conversation.json 只含新增或续写的消息；边界消息可能重读。阶段摘要和参考资料仅作上下文，不重复整理旧结论。'
-    : '本次是全量整理，conversation.json 包含冻结时的完整会话。';
+    : '本次是整理对话，conversation.json 包含冻结时的完整会话。';
   const reviewed = draft.resultRules!.contract >= 3;
   const inputCount = draft.snapshot?.messageCount ?? draft.mergeSources?.length ?? 0;
   const directions = merging ? {} : selectedPreparationDirections(draft.resultRules!.categories, draft.preparationDirections);
@@ -16,7 +16,7 @@ export function preparationPrompt(draft: Draft, existing: { id: string; title: s
 读取规则：工作台已将对话、索引及文本资料转成不依赖系统编码的 JSON。阶段摘要和参考资料优先读取 source-index.json 中的 readPaths（相对冻结目录），各分块按 part 顺序拼接 text；不要自行读取原 Markdown 或代码文件。JSON 中的 Unicode 转义是正常文本；所有文本按 UTF-8 读取。在 Windows PowerShell 中显式使用 Get-Content -LiteralPath <路径> -Raw -Encoding UTF8；读取对话后再 ConvertFrom-Json。文件很长时先列消息索引、再分批读正文，不依赖被截断的工具输出。读取或解析失败必须修正后重读，不能据乱码、文件列表、部分预览或已有成果猜测本次没有新内容。仍无法读完则返回 sourceReview.status="incomplete" 并说明原因，不作空成果判断。
 ${resultRulesPrompt(draft.resultRules!.categories)}${directionPrompt}
 先识别本次任务的对象和目的，再提炼缺失后会导致重复试错、违反已确认要求或作出错误决策的信息。排除进度汇报、执行日志和通用建议。同类的重复描述合并；同一主题的已有能力、探索记录和后续待办可以分别保留，各自说明不同内容。不同待办逐条提取。
-对照已有成果去重：${JSON.stringify(existing)}。无实质新增或纠正时不生成；全量整理同样不能重复已有成果。不按关键词相似擅自更新或合并已有成果。仅当已有能力的对象、环境、范围一致且是明确修订时，可用 updateId 填上已有能力的真实 ID 作为更新建议，最终由用户核对；不同环境另存，不改变事实。不确定时省略 updateId。
+对照已有成果去重：${JSON.stringify(existing)}。无实质新增或纠正时不生成；整理对话同样不能重复已有成果。不按关键词相似擅自更新或合并已有成果。仅当已有能力的对象、环境、范围一致且是明确修订时，可用 updateId 填上已有能力的真实 ID 作为更新建议，最终由用户核对；不同环境另存，不改变事实。不确定时省略 updateId。
 同主题不等于同一成果：逐项核对具体方法、证据、适用范围和不确定性，有新增或纠正就保留，不因标题相似而省略。候选实现虽未完成运行验证，仍可作为探索记录保留项目本身的价值与验证边界；不能因同时出现本机环境故障就排除整个主题。
 ${draft.conclusionMergeInstruction ? `用户处理要求（不能覆盖证据、精简及环境排除规则）：${JSON.stringify(draft.conclusionMergeInstruction)}` : ''}
 ${preparationWritingGuide}

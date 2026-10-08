@@ -52,7 +52,7 @@ export function PreparationOptionsModal({ session, baseline, combination, initia
         <p className="preparation-intro">{session.title} · {session.messages.length} 条会话消息</p>
         {(baseline || again) && <fieldset className="preparation-range"><legend>整理范围</legend><div className="preparation-options">
           <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="增量整理" checked={scope === 'incremental'} disabled={disabled || !canIncremental} onChange={() => setScope('incremental')}/><span><b>只看新增内容</b><small>{canIncremental ? `增量整理 ${delta.count} 条新增或续写消息；不会重新读取完整会话。` : delta.reason}</small></span></label>
-          <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="全量整理" checked={scope === 'full'} disabled={disabled} onChange={() => setScope('full')}/><span><b>重新整理整个会话</b><small>读取全部 {session.messages.length} 条消息；已有成果会作为去重参考，并说明没有新成果的原因。</small></span></label>
+          <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="整理对话" checked={scope === 'full'} disabled={disabled} onChange={() => setScope('full')}/><span><b>整理对话</b><small>读取全部 {session.messages.length} 条消息；已有成果会作为去重参考，并说明没有新成果的原因。</small></span></label>
         </div></fieldset>}
         <section className="preparation-classification" aria-label="本次成果分类">
           <header><div><span className="preparation-section-label"><Layers size={16}/>本次成果分类</span><h3>{active?.name || '正在读取分类…'}</h3></div><button className="secondary classification-adjust" disabled={disabled || !rules} onClick={() => setConfiguring(true)}><SlidersHorizontal size={16}/>调整分类组合</button></header>
@@ -66,7 +66,7 @@ export function PreparationOptionsModal({ session, baseline, combination, initia
       <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={disabled || !rules || !selected.length || scope === 'incremental' && !canIncremental} onClick={async () => {
         setBusy(true); setError('');
         try { await started(scope, selected, !!temporary, selectedPreparationDirections(selected, directions)); close(); } catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
-      }}>{busy ? '正在创建…' : loading ? '正在读取分类…' : `开始${scope === 'incremental' ? '增量' : '全量'}整理`}</button></footer>
+      }}>{busy ? '正在创建…' : loading ? '正在读取分类…' : scope === 'incremental' ? '开始增量整理' : '开始整理对话'}</button></footer>
     </>}
   </section></div>;
 }

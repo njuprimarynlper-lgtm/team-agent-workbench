@@ -17,5 +17,5 @@ export function needsPreparationConfirmation(draft: Draft) {
 }
 
 export function emptyPreparationResult(draft: Draft): EmptyPreparationResult {
-  return draft.emptyResult || { code: 'legacy_unknown', explanation: '这条旧整理记录没有保存未生成成果的原因。可重新全量整理并核对分类，或确认本次不保留内容。' };
+  return draft.emptyResult || { code: 'legacy_unknown', explanation: '这条旧整理记录没有保存未生成成果的原因。可重新整理对话并核对分类，或确认本次不保留内容。' };
 }

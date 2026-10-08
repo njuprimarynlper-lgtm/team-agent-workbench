@@ -171,11 +171,13 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
       <button className="primary compact" disabled={busy || !title.trim()} onClick={() => void save('save')}>保存修改</button>
     </>;
     const disabled = busy || editing || !!savingId || selectingMerge || selectingDelete;
-    const keepSaveAppearance = backgroundRefreshing && !editing && !savingId && !selectingMerge && !selectingDelete && !!differences[value.id];
+    const difference = differences[value.id];
+    const keepSaveAppearance = backgroundRefreshing && !editing && !savingId && !selectingMerge && !selectingDelete && !!difference;
     const writable = admin || value.author === username && value.state === 'submitted';
     return <>
       {value.linkedAssignments?.length ? <span className="muted small">已关联项目任务 · {value.linkedAssignments.map(task => task.status === 'pending_review' ? '待验收' : task.status === 'completed' ? '已完成' : '按任务进度处理').join('、')}</span> : null}
-      {!activity && <button className={'primary compact' + (keepSaveAppearance ? ' result-save-refreshing' : '')} aria-label={resultId ? undefined : `存入个人成果库：${displayTitle(value)}`} disabled={disabled || !differences[value.id]} onClick={() => void storePersonal(value)}>{savingId === value.id ? '正在存入…' : differences[value.id] ? '存入个人成果库' : resultId ? '个人库已有此版本' : '个人库已有'}</button>}
+      {!activity && difference && <button className={'primary compact' + (keepSaveAppearance ? ' result-save-refreshing' : '')} aria-label={resultId ? undefined : `存入个人成果库：${displayTitle(value)}`} disabled={disabled} onClick={() => void storePersonal(value)}>{savingId === value.id ? '正在存入…' : '存入个人成果库'}</button>}
+      {!activity && !difference && resultId && <span className="muted small">个人库已有此版本</span>}
       {writable && <button className="secondary compact danger" aria-label={resultId ? undefined : `从共享区移除：${displayTitle(value)}`} disabled={disabled} onClick={() => setPendingDelete(value)}>从共享区移除</button>}
       <ResultMoreMenu>
         {writable && resultCategory(value) === 'todo' && !value.linkedAssignments?.length && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'todo', value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? 'pending' : 'completed')}>{value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? '重新打开' : '标记完成'}</button>}
@@ -216,8 +218,8 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
         <div className="row">{renderActions(item, editing)}</div>
       </> : <p className="muted">{busy ? '正在读取这条成果…' : error ? '读取失败，请重试。' : '这条成果已删除或被合并，当前结果已不可用。已保存的本地成果仍会保留。'}</p>}
     </section></div> : <div className="content-library result-library"><div className="content-cards">
-      {filtered.map(value => <ResultCard key={value.id + ':' + value.revision} id={value.id} completed={['completed', 'cancelled'].includes(effectiveResultStatus(value) || '')} title={displayTitle(value)}
-        badges={<><span className="content-category-badge">{categoryLabel(value)}</span>{resultStateLabel(value) && <span className="result-state-badge">{resultStateLabel(value)}</span>}<span className="team-result-difference">{differences[value.id] ? teamResultDifferenceLabels[differences[value.id]!] : '个人库已有此版本'}</span></>}
+      {filtered.map(value => { const difference = differences[value.id]; return <ResultCard key={value.id + ':' + value.revision} id={value.id} completed={['completed', 'cancelled'].includes(effectiveResultStatus(value) || '')} title={displayTitle(value)}
+        badges={<><span className="content-category-badge">{categoryLabel(value)}</span>{resultStateLabel(value) && <span className="result-state-badge">{resultStateLabel(value)}</span>}{difference && difference !== 'missing' && <span className="team-result-difference">{teamResultDifferenceLabels[difference]}</span>}{!difference && <span className="team-result-difference is-settled">个人库已有</span>}</>}
         metadata={<>{value.resultOwner ? `负责人：${value.resultOwner} · ` : ''}{value.author} · v{value.revision} · {new Date(value.updatedAt).toLocaleString()}{!!value.attachments?.length && ` · ${value.attachments.length} 个附件`}</>}
         preview={resultPreview(value.description) || '共享文件'} expanded={value.id === selected}
         selected={mergeSelection.includes(value.id) || deleteSelection.includes(value.id)} disabled={editing}
@@ -225,7 +227,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
         selection={selectingDelete ? <label className="content-card-select check-row" title={canDeleteSharedContent(value, username, admin) ? '选择删除' : '无删除权限'}><input type="checkbox" aria-label={`选择删除团队成果：${displayTitle(value)}`} checked={deletion.selected.some(item => item.id === value.id)} disabled={busy || !canDeleteSharedContent(value, username, admin) || !deleteSelection.includes(value.id) && deletion.selected.length >= 100} onChange={event => setDeleteSelection(current => event.target.checked ? [...new Set([...current, value.id])] : current.filter(id => id !== value.id))}/></label> : selectingMerge && value.kind === 'contribution' ? <label className="content-card-select check-row" title="加入语义合并"><input type="checkbox" aria-label={`选择合并：${value.title}`} checked={mergeSelection.includes(value.id)} disabled={busy || !!value.linkedAssignments?.length || !!mergeSelection.length && resultCategory(value) !== mergeCategory} onChange={event => toggleMerge(value.id, event.target.checked)}/></label> : undefined}
         actions={renderActions(value, editing && value.id === selected)}>
         {renderBody(value, editing && value.id === selected)}
-      </ResultCard>)}
+      </ResultCard>; })}
       {!filtered.length && <p className="muted">{busy ? '正在比对团队与个人成果…' : !showAll && !visibleItems.length && items.length ? '团队成果与个人库已一致，暂无需要存入的内容。' : hasFilters ? '暂无匹配成果，可清除筛选查看。' : '暂无团队成果'}</p>}
     </div></div>}
     {classifying && <ResultCategoryDialog category={resultCategory(classifying)!} busy={busy} error={error} close={() => setClassifying(undefined)} save={category => void updateMetadata(classifying, category)}/>}

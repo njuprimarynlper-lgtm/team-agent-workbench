@@ -24,13 +24,13 @@ export function rememberPreparationProgress(session: AgentSession, drafts: Draft
 }
 
 export function preparationDelta(session: Pick<AgentSession, 'messages'>, snapshot?: PreparationSnapshot) {
-  if (!snapshot) return { start: 0, count: 0, reason: '没有已完成的整理进度，请先全量整理。' };
+  if (!snapshot) return { start: 0, count: 0, reason: '没有已完成的整理进度，请先整理对话。' };
   if (!snapshot.lastMessageId) {
     if ((snapshot.totalMessageCount ?? snapshot.messageCount) === 0) return { start: 0, count: session.messages.length, reason: session.messages.length ? '' : '上次整理后没有新增消息。' };
-    return { start: 0, count: 0, reason: '上次整理缺少可定位的消息快照，请改用全量整理。' };
+    return { start: 0, count: 0, reason: '上次整理缺少可定位的消息快照，请改用整理对话。' };
   }
   const index = session.messages.findIndex(message => message.id === snapshot.lastMessageId);
-  if (index < 0) return { start: 0, count: 0, reason: '无法在当前会话中定位上次整理位置，请改用全量整理。' };
+  if (index < 0) return { start: 0, count: 0, reason: '无法在当前会话中定位上次整理位置，请改用整理对话。' };
   // A streamed reply can grow without getting a new message ID. Include that
   // boundary message again instead of dropping its remainder. Legacy snapshots
   // lack a length, so replay the boundary conservatively once.

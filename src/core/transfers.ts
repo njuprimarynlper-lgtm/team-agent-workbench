@@ -11,6 +11,7 @@ import { attachmentPath } from '../shared/attachments';
 import { linkConclusionPublications } from './conclusion-publications';
 export interface TransferInput { conclusionSourceId?: string; id?: string; dependsOn?: string[]; attachment?: boolean; name?: string; local: string; binding: RemoteBinding; folder: string; kind: Transfer['kind']; sessionId?: string; metadata?: ContentMetadata; trajectoryHash?: string }
 function failureMessage(task: Transfer, detail: string) {
+  if (detail.includes('不支持的成果类别')) return '服务器还不支持这个成果类别。请管理员用当前版本的管理端打开用户管理，点击“更新服务端功能”后再重试。已有内容和账号权限没有变化。';
   const prefix = task.phase === 'awaiting_receipt' ? '服务器可能已接收；重试会先查询原请求回执。' : task.phase === 'streaming' ? '传输中断，可能留有未完成的临时文件；重试会校验后从头传输。' : task.phase === 'verifying' ? '传输已结束但结果尚未通过校验；不会标记为成功。' : task.phase === 'rejected' ? '服务器已拒绝此次请求；重试前会重新核对账号和项目权限。' : '传输尚未开始。';
   return prefix + ' ' + detail;
 }

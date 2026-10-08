@@ -120,12 +120,12 @@ test('team project results have one name for both roles while administrative con
 test('result preparation separates stored results from deletable task records', async () => {
   const { DraftTaskList } = await import('../src/renderer/draft-list');
   const common = { sessionId: 's', title: '已整理的成果', body: '', files: [], inputDir: 'test-input', outputPath: 'test-output.md', createdAt: '2026-09-22T00:00:00Z', mergeCompletedAt: '2026-09-22T00:01:00Z' };
-  const drafts = [{ ...common, id: 'local', conclusionMergeProjectId: 'p' }, { ...common, id: 'team', mergeProjectId: 'p' }] as Draft[];
+  const drafts = [{ ...common, id: 'local', conclusionMergeProjectId: 'p' }, { ...common, id: 'team', mergeProjectId: 'p' }, { sessionId: 's', id: 'full', title: '整段对话', body: '', files: [], inputDir: 'test-input', outputPath: 'test-output.md', createdAt: '2026-09-22T00:00:00Z', preparationScope: 'full' }] as Draft[];
   const html = renderToStaticMarkup(createElement(DraftTaskList, { drafts, sessions: [], transfers: [], open: () => {}, remove: () => {} }));
   assert.match(html, /aria-label="成果整理任务列表"/);
-  assert.match(html, /本地成果处理/); assert.match(html, /团队成果合并/);
+  assert.match(html, /合并成果/); assert.match(html, /团队成果合并/); assert.match(html, /整理对话/);
   assert.match(html, /已保存到个人成果库/); assert.match(html, /已保存到团队成果库/);
   assert.equal(html.match(/成果已单独保存/g)?.length, 2);
-  assert.equal(html.match(/aria-label="删除整理记录：/g)?.length, 2);
+  assert.equal(html.match(/aria-label="删除整理记录：/g)?.length, 3);
   assert.doesNotMatch(html, /项目资料处理|项目文档合并|不可删除/);
 });
