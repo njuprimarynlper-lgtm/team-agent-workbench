@@ -383,7 +383,7 @@ class ContentRules(unittest.TestCase):
             with self.assertRaises(ValueError): self.edit('alice', item, category='invented')
             self.assertEqual(next(row for row in content.read_json(self.directory / '.workbench-content.json') if row['id'] == item['id'])['revision'], 1)
             edited = self.edit('alice', item, category='verification', sourceDetails='验证来源。')
-            self.assertEqual(edited['category'], 'verification'); self.assertEqual(edited['fields'], {}); self.assertEqual(edited['sourceDetails'], '验证来源。')
+            self.assertEqual(edited['category'], 'verification'); self.assertEqual(edited['fields'], metadata['fields'] if category == 'verification' else {}); self.assertEqual(edited['sourceDetails'], '验证来源。')
 
     def test_task_files_snapshot_shared_attachments_and_deduplicate_only_equal_permissions(self):
         self.state['users']['bob']['uid'] = 1001

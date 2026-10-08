@@ -1,3 +1,4 @@
+import { resultDefaultStatus } from '../shared/result-model';
 import { z } from 'zod';
 import { contributionCategoryFields, contributionCategorySchema, contributionTitle } from '../shared/content';
 import type { Draft, DraftArtifact } from '../shared/types';
@@ -9,7 +10,7 @@ export const preparedResultSchema = z.object({
   origin: z.enum(['project', 'local_environment']),
   title: z.string().trim().min(1).max(40), body: z.string().trim().min(1).max(500),
   evidenceIds: z.array(z.string().min(1).max(200)).min(1).max(20),
-  sourceDetails: z.string().max(4000).optional(), attachmentIds: z.array(z.string().max(100)).max(30).optional(), repoUrl: z.string().max(2048).optional()
+  updateId: z.string().max(100).optional(), sourceDetails: z.string().max(4000).optional(), attachmentIds: z.array(z.string().max(100)).max(30).optional(), repoUrl: z.string().max(2048).optional()
 });
 
 // A conservative backstop, not a claim that regex can classify arbitrary prose.
@@ -24,13 +25,14 @@ export function containsLocalEnvironmentError(text: string) {
 const normalized = (text: string) => text.normalize('NFKC').toLocaleLowerCase().replace(/[\p{P}\p{Z}\s]/gu, '');
 
 export function reviewPreparedResults(draft: Draft, raw: unknown) {
+  const modern = draft.resultRules?.contract === 4;
   const parsed = z.object({
-    artifacts: z.array(preparedResultSchema).max(5),
+    artifacts: z.array(preparedResultSchema).max(modern ? 50 : 5),
     sourceReview: z.object({ status: z.enum(['complete', 'incomplete']), inputCount: z.number().int().nonnegative().optional(), conversationHash: z.string().optional(), explanation: z.string().max(600).optional() }).optional(),
     emptyReason: z.object({ code: z.enum(['already_saved', 'no_reusable_content', 'no_matching_category']), explanation: z.string().trim().min(1).max(600), existingResultIds: z.array(z.string()).max(100).default([]) }).optional()
   }).safeParse(raw);
-  if (!parsed.success) throw new Error('整理结果不符合精简规则（最多 5 条，标题不超过 40 字、正文不超过 500 字，须有主题和来源），请重试整理');
-  if (draft.resultRules?.contract === 3) {
+  if (!parsed.success) throw new Error(`整理结果不符合精简规则（最多 ${modern ? 50 : 5} 条，条数超限或缺少主题、来源；每条标题不超过 40 字、正文不超过 500 字），请重试整理`);
+  if ((draft.resultRules?.contract || 0) >= 3) {
     const review = parsed.data.sourceReview;
     if (!review || review.status !== 'complete') throw new Error('未能完整读取本次材料，不能判断是否有新成果。' + (review?.explanation || '请重试整理。'));
     if (review.inputCount !== (draft.snapshot?.messageCount ?? draft.mergeSources?.length ?? 0) || draft.snapshot && review.conversationHash !== draft.snapshot.conversationHash) throw new Error('AI 读取的材料范围与本次快照不一致，请重试整理，不能将此结果视为没有新内容');
@@ -40,12 +42,13 @@ export function reviewPreparedResults(draft: Draft, raw: unknown) {
   const topics = new Set<string>(), titles = new Set<string>(), bodies = new Set<string>();
   const results: z.infer<typeof preparedResultSchema>[] = [];
   for (const item of parsed.data.artifacts) {
-    if (item.origin === 'local_environment' || containsLocalEnvironmentError([item.topic, item.title, item.body, item.sourceDetails].filter(Boolean).join('\n'))) continue;
+    if (item.origin === 'local_environment' || !modern && containsLocalEnvironmentError([item.topic, item.title, item.body, item.sourceDetails].filter(Boolean).join('\n'))) continue;
     if (!categories.has(item.category)) throw new Error('整理结果使用了当前组合未启用的类别，请重试整理');
     if (item.evidenceIds.some(id => !evidence.has(id))) throw new Error('整理结果引用了本次冻结材料中不存在的来源，请重试整理');
+    if (item.updateId && (item.category !== 'capability' || !draft.preparationExistingResults?.some(existing => existing.id === item.updateId && existing.category === 'capability' && existing.version))) throw new Error('更新建议没有对应的已有能力版本，请重试整理');
     assertReadableResultText(item.title, '标题'); assertReadableResultText(item.body);
     if (item.body.split(/\n\s*\n/).length > 3) throw new Error('成果正文超过三段，请重新精简整理');
-    const topic = normalized(item.topic), title = normalized(item.title), body = normalized(item.body);
+    const topic = (modern ? item.category + ':' : '') + normalized(item.topic) + (modern && item.category === 'todo' ? ':' + normalized(item.title) : ''), title = (modern ? item.category + ':' : '') + normalized(item.title), body = normalized(item.body);
     if (!topic || topics.has(topic) || titles.has(title) || bodies.has(body)) throw new Error('同一主题被重复整理，请合为一条后重试');
     topics.add(topic); titles.add(title); bodies.add(body); results.push(item);
   }
@@ -68,7 +71,7 @@ export function validatePreparedResults(draft: Draft, raw: unknown) {
 }
 
 export function preparedArtifact(item: z.infer<typeof preparedResultSchema>, id: string, target: string): DraftArtifact {
-  return { id, category: item.category, title: contributionTitle(item.category, item.title), body: item.body,
+  return { id, category: item.category, resultStatus: resultDefaultStatus(item.category), title: contributionTitle(item.category, item.title), body: item.body,
     fields: { [contributionCategoryFields[item.category][0]]: item.body }, target, selected: true,
     topic: item.topic, evidenceIds: item.evidenceIds, sourceDetails: item.sourceDetails,
     attachments: [], repoUrl: item.repoUrl };

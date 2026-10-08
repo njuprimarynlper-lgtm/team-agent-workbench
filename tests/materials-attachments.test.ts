@@ -235,7 +235,11 @@ test('attachments are explicit, frozen, deduplicated, dependency-gated and retry
     assert(wb.store.transfers.every(item => item.status === 'done'), JSON.stringify(wb.store.transfers.map(item => item.error))); assert.equal(successful, 1);
     const shared = await wb.remote.contentList(session.binding!); assert.equal(shared.length, 2); assert.equal(shared[0].attachments![0].path, shared[1].attachments![0].path);
     assert.equal(await fs.readFile(await diskPath(env.shared, shared[0].attachments![0].path), 'utf8'), 'frozen evidence');
-    const combined = await wb.remote.contentMerge(session.binding!, { requestId: randomUUID(), sources: shared.map(item => ({ id: item.id, revision: item.revision })), title: '合并结果', description: '保留证据' });
+    await assert.rejects(wb.remote.contentMerge(session.binding!, { requestId: randomUUID(), sources: shared.map(item => ({ id: item.id, revision: item.revision })), title: '合并结果', description: '保留证据' }), /同一分类/);
+    const risk = shared.find(item => item.category === 'issue')!;
+    await wb.remote.contentEdit(session.binding!, { id: risk.id, revision: risk.revision, action: 'save', title: risk.title, description: risk.description, category: 'exploration', curate: true, merge: [] });
+    const updated = await wb.remote.contentList(session.binding!);
+    const combined = await wb.remote.contentMerge(session.binding!, { requestId: randomUUID(), sources: updated.map(item => ({ id: item.id, revision: item.revision })), title: '合并结果', description: '保留证据' });
     assert.equal(combined!.attachments!.length, 1);
     await assert.rejects(wb.addDraftFiles(draft.id, [file], draft.artifacts![0].id), /提交前/);
   } finally { await env.close(); }

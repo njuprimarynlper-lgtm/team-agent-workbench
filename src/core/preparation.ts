@@ -64,6 +64,7 @@ export function artifactMarkdown(category: ContributionCategory, fields: Record<
 export function preparationFieldContract(categories: readonly ContributionCategory[] = contributionCategories) {
   // Keep the full field whitelist for old results; new summaries use three sections at most.
   const fields: Record<ContributionCategory, readonly string[]> = {
+    project_goal: ['objective', 'acceptance', 'constraints'], capability: ['statement', 'scope', 'limitations'], exploration: ['approach', 'result', 'evidence'], todo: ['action', 'acceptance', 'impact'],
     experiment_result: ['change', 'result', 'nextSteps'],
     failed_direction: ['approach', 'failure', 'reusableInsight'],
     finding: ['statement', 'evidence', 'nextSteps'],
@@ -89,6 +90,7 @@ export function applyPreparation(draft: Draft, answer: string) {
     const review = reviewPreparedResults(draft, raw);
     const artifacts = review.artifacts.map((item, index) => {
       const artifact = preparedArtifact(item, `${draft.id}-${index + 1}`, contributionCategoryDirectory(draft.binding!, item.category));
+      if (item.updateId) { const existing = draft.preparationExistingResults!.find(value => value.id === item.updateId)!; artifact.updateTarget = { scope: 'personal', projectId: draft.binding!.project.id, id: existing.id, version: existing.version! }; }
       artifact.attachments = [...new Set(item.attachmentIds || [])].filter(id => draft.files.some(file => file.id === id)).map(fileId => ({ fileId, selected: false }));
       if (item.repoUrl) { try { artifact.repoUrl = githubRepository(item.repoUrl); } catch { artifact.repoUrl = undefined; } }
       return artifact;

@@ -110,11 +110,23 @@ test('production window routing restores the account in any window, isolates fai
   assert.equal((await snapshot(second)).connection?.connected, true);
   const requireAuth = Workbench.prototype.requireAuth;
   try {
-    Workbench.prototype.requireAuth = async () => { throw new Error('CLI 尚未登录'); };
+    const checkedRoutes: (string | undefined)[] = [];
+    Workbench.prototype.requireAuth = async (_provider, _cwd, route) => { checkedRoutes.push(route); throw new Error('CLI 尚未登录'); };
     const offlineSession = await call(second, 'session.create', { provider: 'codex', cwd: root, projectId: project.id });
     assert.equal(offlineSession.binding.project.id, project.id, 'creating a local session must not require a model login');
+    await assert.rejects(call(second, 'session.create', { provider: 'codex', cwd: root, projectId: project.id, networkRoute: 'management' }), /CLI 尚未登录/, 'a management-route session requires a verified model account');
     await assert.rejects(call(second, 'session.send', { id: offlineSession.id, text: '开始任务' }), /CLI 尚未登录/);
+    assert.deepEqual(checkedRoutes, ['management', 'direct'], 'creation and sending check the actual route of each session');
   } finally { Workbench.prototype.requireAuth = requireAuth; }
+  // Repeated launcher invocations must create a window for every request,
+  // including bursts after all stored account slots are already in use.
+  app.emit('second-instance'); app.emit('second-instance'); app.emit('second-instance');
+  await until(() => !!opened[5]?.entry);
+  for (const window of opened.slice(3, 6)) {
+    assert.equal(window.destroyed, false);
+    assert(Array.isArray((await snapshot(window)).sessions));
+  }
+  assert.equal((await snapshot(second)).connection?.connected, true);
   app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit);
   const stored = JSON.parse(await fs.readFile(path.join(accountDirectory(base, profile), 'sessions.json'), 'utf8'));
   assert.equal(stored.find((item: { id: string }) => item.id === session.id)?.title, '原窗口关闭后继续'); assert.deepEqual(dialogs, []);

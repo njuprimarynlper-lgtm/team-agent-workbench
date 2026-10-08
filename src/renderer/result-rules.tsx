@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { canonicalCategory } from '../shared/result-model';
 import { contributionCategoryInfo, materialCategories } from '../shared/content';
 import { resultCategoryBoundaries, resultPreferencesSchema, resultPresets, temporaryCombinationId, temporaryResultCombination, type ResultCombination, type ResultRulesState } from '../shared/result-rules';
 
@@ -25,7 +26,7 @@ export function ResultRulesEditor({ projectId, projectName, initialState, saved,
     else if (id === temporaryCombinationId) setForm({ id, name: '临时组合', categories: [...form.categories] });
     else {
       const next = [...resultPresets, ...data.preferences.combinations].find(item => item.id === id);
-      if (next) setForm(structuredClone(next));
+      if (next) setForm({ ...structuredClone(next), categories: [...new Set(next.categories.map(category => canonicalCategory(category)!))] });
     }
   };
   const save = async (removeId?: string) => {
@@ -58,7 +59,7 @@ export function ResultRulesEditor({ projectId, projectName, initialState, saved,
       </label>
       {!isTemporary && <div className="row">{editing ? <button className="secondary" disabled={busy} onClick={() => { setForm(data.combination); setEditing(false); setError(''); }}>取消编辑</button> : data.preferences.combinations.some(item => item.id === form.id) && <button className="secondary" disabled={busy} onClick={() => { setForm(structuredClone(form)); setEditing(true); setNotice(''); }}>编辑组合</button>}</div>}
       {editing && <><label className="field">组合名称<input autoFocus aria-label="组合名称" maxLength={30} placeholder="例如：算法比赛、客户端开发" disabled={busy} value={form.name} onChange={event => setForm({ ...form, name: event.target.value })}/></label><p className="muted small">{creating ? '新组合保存后可在其他项目中复用。' : '修改组合会影响你所有使用它的项目，仅影响后续整理。'}</p></>}
-      <p className="muted small">{isTemporary ? '勾选本次需要的类别，无需命名。关闭整理窗口后恢复项目默认组合。' : editing ? '选择这个组合包含的类别。类别可在不同组合中重复使用。' : '可在上方下拉菜单中新建组合，调整所含类别。'}每次最多 5 条，不凑数；本机环境故障不整理。</p>
+      <p className="muted small">{isTemporary ? '勾选本次需要的类别，无需命名。关闭整理窗口后恢复项目默认组合。' : editing ? '选择这个组合包含的类别。类别可在不同组合中重复使用。' : '可在上方下拉菜单中新建组合，调整所含类别。'}只整理相关类别；独立待办逐条保留，不按数量凑条目。</p>
       <div className="result-category-grid">{materialCategories.map(category => { const boundary = resultCategoryBoundaries[category]; return <section key={category} className="result-category-option"><label className="check-row"><input type="checkbox" aria-label={`启用${contributionCategoryInfo[category].label}`} disabled={busy || !editable} checked={form.categories.includes(category)} onChange={event => setForm({ ...form, categories: event.target.checked ? [...form.categories, category] : form.categories.filter(item => item !== category) })}/><span><b>{contributionCategoryInfo[category].label}</b><small>{boundary.question}</small></span></label><details><summary>收录边界</summary><p>{boundary.include}</p><p className="muted small">{boundary.exclude}</p></details></section>; })}</div>
       {!!data.preferences.combinations.length && <details><summary>管理我的组合</summary>{data.preferences.combinations.map(item => { const used = Object.values(data.preferences.projects).filter(id => id === item.id).length; return <div className="row" key={item.id}><span>{item.name} · {used ? `${used} 个项目使用中` : '未使用'}</span><button className="text-button danger" disabled={busy || editable || !!used} title={used ? '请先为使用中的项目切换其他组合并保存' : '删除未使用的组合'} onClick={() => void save(item.id)}>删除</button></div>; })}</details>}
     </>}

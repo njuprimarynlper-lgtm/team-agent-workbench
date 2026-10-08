@@ -1,3 +1,4 @@
+import { assertTodoMerge, canonicalCategory, resultCategory, resultDefaultStatus, sameResultCategory, validateResultStatus } from '../shared/result-model';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -16,7 +17,15 @@ export class ContentFiles {
   private historyIndex(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content-history.json'), true); }
   private async read(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.index(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
   private async historyRead(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.historyIndex(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
-  async list(binding: RemoteBinding) { await this.authorize(binding); return this.read(binding); }
+  private async tasks(binding: RemoteBinding): Promise<import('../shared/assignments').ProjectAssignment[]> {
+    try { return JSON.parse(await fs.readFile(await diskPath(this.root, '/.workbench-local/assignments/' + binding.project.id + '.json', true), 'utf8')); }
+    catch (error: any) { if (error.code === 'ENOENT') return []; throw error; }
+  }
+  private async linked(binding: RemoteBinding, id: string) { return (await this.tasks(binding)).filter(task => !task.purgedAt && task.references.some(ref => ref.id === id)); }
+  async list(binding: RemoteBinding) {
+    const actor = await this.authorize(binding), items = await this.read(binding), tasks = await this.tasks(binding);
+    return items.map(item => ({ ...item, linkedAssignments: resultCategory(item) === 'todo' ? tasks.filter(task => !task.purgedAt && task.references.some(ref => ref.id === item.id)).map(({ id, title, status, assignee }) => actor.admin || actor.username === assignee ? { id, title, status, assignee } : { id, title: '关联任务', status: 'linked', assignee: '' }) : [] }));
+  }
   async history(binding: RemoteBinding, id?: string, revision?: number, summary = false) { await this.authorize(binding); const items = await this.historyRead(binding); return items.filter(item => (!id || item.id === id) && (!revision || item.revision === revision)).map(item => summary ? { ...item, description: '', fields: undefined, attachments: undefined, sourceDetails: undefined } : item); }
   async merge(binding: RemoteBinding, input: ContentMerge) {
     const change = contentMergeSchema.parse(input);
@@ -33,12 +42,15 @@ export class ContentFiles {
         if (!item || item.revision !== ref.revision || item.kind !== 'contribution') throw new Error('待整理成果已更新或移出当前列表，请刷新');
         return item;
       });
+      const category = sameResultCategory(sources, change.category);
+      assertTodoMerge(sources, change.confirmDuplicateTodos);
+      if (category === 'todo' && (await Promise.all(sources.map(source => this.linked(binding, source.id)))).some(tasks => tasks.length)) throw new Error('已关联项目任务的待办不能合并，请在项目任务中处理');
       const attachments = mergeAttachments(sources), now = new Date().toISOString(), id = randomUUID();
-      const target = assertRemote(binding.project.remoteRoot, path.posix.join(binding.project.remoteRoot, 'curated', `${id}-v1.md`));
+      const target = assertRemote(binding.project.remoteRoot, path.posix.join(binding.project.remoteRoot, 'curated', contributionCategoryInfo[category].folder, `${id}-v1.md`));
       const file = await diskPath(this.root, target, true), body = `# ${change.title}\n\n${change.description}`;
       const refs = sources.map(source => ({ scope: 'team' as const, projectId: binding.project.id, id: source.id, version: source.revision }));
       const replacedSources = sources.filter(source => change.replaceIds.includes(source.id));
-      const result: SharedContent = { id, title: change.title, description: change.description, kind: 'contribution', category: change.category, sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
+      const result: SharedContent = { id, title: change.title, description: change.description, kind: 'contribution', category, resultStatus: resultDefaultStatus(category), sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
       const archived = replacedSources.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id, version: 1 }, supersededAt: now }));
       await this.authorize(binding);
       await fs.mkdir(path.dirname(file), { recursive: true });
@@ -78,6 +90,8 @@ export class ContentFiles {
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), project = binding.project;
       const metadata = contentMetadataSchema.parse(raw || { title: path.posix.basename(target), kind: target.includes('/trajectories/') ? 'trajectory' : 'file' });
+      validateResultStatus(metadata.category, metadata.resultStatus);
+      if (metadata.category) metadata.resultStatus ??= resultDefaultStatus(metadata.category);
       for (const attachment of metadata.attachments || []) {
         if (metadata.kind !== 'contribution' || attachment.path !== attachmentPath(binding, attachment.sha256)) throw new Error('附件不属于当前提交账号');
         const file = await diskPath(this.root, attachment.path), stat = await fs.lstat(file);
@@ -117,6 +131,9 @@ export class ContentFiles {
       if (!item || item.revision !== change.revision) throw new Error('内容已更新或删除，请刷新后再操作；本地编辑仍保留');
       if (!actor.admin && (item.author !== actor.username || item.state === 'curated')) throw new Error('只能修改自己尚未被组管理员整理的提交；可另提补充');
       if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组组管理员可以整理或合并内容');
+      const category = change.category || item.category;
+      validateResultStatus(category, change.resultStatus);
+      if (resultCategory(item) === 'todo' && (change.resultStatus !== undefined || change.category && canonicalCategory(change.category) !== resultCategory(item)) && (await this.linked(binding, item.id)).length) throw new Error('已关联项目任务，请在项目任务中提交验收或调整状态');
       if (change.merge.length) throw new Error('旧版合并入口已停用，请更新客户端后重新整理；原成果保持不变');
       if (new Set(change.merge.map(m => m.id)).size !== change.merge.length) throw new Error('不能重复合并同一成果');
       const merged = change.merge.map(m => { const source = items.find(i => i.id === m.id); if (!source || source.id === item.id || source.revision !== m.revision || source.kind !== 'contribution') throw new Error('待合并内容已改变或不是文字成果，请刷新'); return source; });
@@ -138,11 +155,11 @@ export class ContentFiles {
       } else if (change.action === 'save') {
         if (!change.title || change.description === undefined) throw new Error('请填写成果标题和内容');
         const revision = item.revision + 1, curated = actor.admin || item.state === 'curated';
-        const target = assertRemote(binding.project.remoteRoot, path.posix.join(binding.project.remoteRoot, curated ? 'curated' : 'submissions/' + actor.username, `${item.id}-v${revision}.md`));
+        const target = assertRemote(binding.project.remoteRoot, path.posix.join(binding.project.remoteRoot, curated ? 'curated' : 'submissions/' + actor.username, ...(category ? [contributionCategoryInfo[category].folder] : []), `${item.id}-v${revision}.md`));
         const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
         const temp = file + '.' + randomUUID() + '.tmp';
         try { await fs.writeFile(temp, `# ${change.title}\n\n${change.repoUrl ? change.repoUrl + '\n\n' : ''}${change.description}`, { flag: 'wx' }); await fs.rename(temp, file); } finally { await fs.rm(temp, { force: true }); }
-        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, ...(change.category ? { category: change.category, fields: {} } : {}), ...(change.sourceDetails !== undefined ? { sourceDetails: change.sourceDetails } : {}), ...(change.sourceSessionTitle ? { sourceSessionTitle: change.sourceSessionTitle } : {}), path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
+        Object.assign(item, { title: change.title, description: change.description, repoUrl: change.repoUrl, ...(change.category ? { category: change.category, ...(change.category !== item.category ? { fields: {} } : {}) } : {}), resultStatus: canonicalCategory(category) !== resultCategory(previous) ? resultDefaultStatus(category) : change.resultStatus ?? item.resultStatus ?? resultDefaultStatus(category), ...(change.resultOwner !== undefined ? { resultOwner: change.resultOwner } : {}), ...(change.sourceDetails !== undefined ? { sourceDetails: change.sourceDetails } : {}), ...(change.sourceSessionTitle ? { sourceSessionTitle: change.sourceSessionTitle } : {}), path: target, revision, state: curated ? 'curated' : 'submitted', updatedAt: new Date().toISOString(), updatedBy: actor.username, sha256: await hashFile(file), size: (await fs.stat(file)).size, sources: [...new Set([...(item.sources || []), ...merged.map(i => i.id)])], ...(merged.length ? { provenance } : {}) });
       }
       await this.authorize(binding);
       if (change.action === 'save' && attachments.length) item.attachments = attachments;

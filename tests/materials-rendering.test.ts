@@ -62,7 +62,7 @@ test('local project results use consistent navigation and actions without renami
     assert.match(library, /aria-label="个人成果类别"/);
     assert.match(library, /class="content-library result-library conclusion-library"/);
     assert.doesNotMatch(library, /class="content-detail/);
-    assert.match(library, /全部类别（0）/);
+    for (const category of ['项目目标', '已有能力', '探索记录', '待办事项']) assert(library.includes(category + '<span>0</span>'));
     for (const category of ['项目结论', '项目经验', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(!library.includes(category), 'an empty library must not offer project preset categories');
     assert.match(library, />新建成果<\/button>/);
     const unified = renderToStaticMarkup(createElement(ProjectResults, { projectName: project.name, scope: 'personal', changeScope: () => {}, children: createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {}, embedded: true }) }));
@@ -84,7 +84,9 @@ test('local project results use consistent navigation and actions without renami
   } finally { delete (globalThis as any).window; }
 });
 
-test('team project results have one name for both roles while administrative controls stay restricted', async () => {
+test('team project results have one name for both roles while administrative controls stay restricted', async context => {
+  (globalThis as any).window = { workbench: { call: async () => [] } };
+  context.after(() => { delete (globalThis as any).window; });
   const { SharedContentLibrary } = await import('../src/renderer/shared-content');
   const common = { project: { id: 'p', name: '测试项目' } as Project, username: 'member', aliases: {}, aliasSaved: async () => {}, attach: async () => {}, attachSessions: [], notice: () => {}, mergeSessions: [], mergeStarted: () => {} };
   for (const admin of [false, true]) {
@@ -93,17 +95,17 @@ test('team project results have one name for both roles while administrative con
     assert.match(html, /aria-label="搜索团队成果"/);
     assert.doesNotMatch(html, /aria-label="团队成果内容形式"/, 'a content format filter is unnecessary in an empty library');
     assert.doesNotMatch(html, /整理项目文档|公共成果|个人成果库/);
-    assert.equal(html.includes('多选语义合并'), admin);
+    assert.equal(html.includes('合并整理'), admin);
     assert.match(html, /aria-label="团队成果类别"/);
     assert.match(html, /class="content-library result-library"/);
     assert.doesNotMatch(html, /class="content-detail/);
-    assert.match(html, /全部类别（0）/);
-    assert.equal(html.includes('包含个人库已有成果'), admin);
+    for (const category of ['项目目标', '已有能力', '探索记录', '待办事项']) assert(html.includes(category + '<span>0</span>'));
+    assert(html.includes('仅看与个人库的差异'));
     assert.doesNotMatch(html, /维护全部成果|返回差异列表|全部类型|全部标签/);
     assert.doesNotMatch(html, /团队成果操作状态|未操作|已操作|待整理|已整理/);
     const result = renderToStaticMarkup(createElement(SharedContentLibrary, { ...common, admin, resultId: 'result', returnToUpdates: () => {} }));
     assert.match(result, /<h1>动态结果 · 测试项目<\/h1>/);
-    assert.doesNotMatch(result, /aria-label="搜索团队成果"|多选语义合并/);
+    assert.doesNotMatch(result, /aria-label="搜索团队成果"|合并整理/);
   }
 });
 

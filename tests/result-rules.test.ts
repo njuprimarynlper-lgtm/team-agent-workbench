@@ -6,7 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { contributionCategoryInfo, materialCategories } from '../src/shared/content';
+import { contributionCategoryInfo, legacyMaterialCategories, materialCategories } from '../src/shared/content';
 import { activeResultCombination, resultCategoryBoundaries, resultPreferencesSchema, resultPresets, resultRulesPrompt, temporaryCombinationId, temporaryResultCombination } from '../src/shared/result-rules';
 import { applyPreparation } from '../src/core/preparation';
 import { applyContentMerge } from '../src/core/content-merge';
@@ -20,20 +20,20 @@ import type { Draft, RemoteBinding } from '../src/shared/types';
 import { authLauncher } from './fixtures/auth-launcher.mjs';
 
 const binding: RemoteBinding = { connectionId: 'c', host: 'local', port: 22, username: 'alice', fingerprint: 'f', project: { id: 'p', name: '项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } };
-const draft = (): Draft => ({ id: 'draft', binding, files: [], body: '', title: '', resultRules: { contract: 2, combinationId: 'test', name: '测试', categories: [...materialCategories] }, preparationEvidenceIds: ['message:m1', 'handoff', 'file:report'] } as unknown as Draft);
+const draft = (): Draft => ({ id: 'draft', binding, files: [], body: '', title: '', resultRules: { contract: 2, combinationId: 'test', name: '测试', categories: [...legacyMaterialCategories] }, preparationEvidenceIds: ['message:m1', 'handoff', 'file:report'] } as unknown as Draft);
 const item = (extra: Record<string, unknown> = {}) => ({ category: 'verification', topic: '缓存压力测试', title: '缓存单次测试延迟降低', origin: 'project', body: '本次压力测试延迟降低 8%，只覆盖当前测试负载，尚不能证明生产环境收益。', evidenceIds: ['message:m1'], ...extra });
 const output = (...artifacts: ReturnType<typeof item>[]) => JSON.stringify({ artifacts });
 async function until(fn: () => boolean) { const end = Date.now() + 15000; while (!fn()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
 test('every category has a concrete boundary; overlapping presets are personal combinations, not generation quotas', () => {
-  assert.equal(materialCategories.length, 12);
+  assert.equal(materialCategories.length, 4);
   for (const category of materialCategories) {
     const boundary = resultCategoryBoundaries[category];
     assert(boundary.question && boundary.include && boundary.exclude);
     assert(contributionCategoryInfo[category].label && contributionCategoryInfo[category].folder);
   }
   assert.equal(resultPresets.length, 3);
-  assert(resultPresets.every(preset => preset.categories.includes('finding')));
+  assert(resultPresets.every(preset => preset.categories.includes('exploration')));
   const custom = { id: randomUUID(), name: '算法比赛', categories: ['finding', 'verification', 'method_exploration'] };
   const preferences = resultPreferencesSchema.parse({ combinations: [custom], projects: { project: custom.id } });
   assert.equal(activeResultCombination(preferences, 'project').name, '算法比赛');
@@ -59,7 +59,7 @@ test('temporary combinations accept supported categories but cannot enter person
 
 test('prompt specifies topic-first classification, human-confirmed standards and a single concise body', () => {
   const value = draft(), prompt = preparationPrompt(value, []);
-  assert(prompt.includes(resultRulesPrompt(materialCategories)));
+  assert(prompt.includes(resultRulesPrompt(legacyMaterialCategories)));
   for (const rule of ['禁止按类别逐个生成', '同一主题换类别重复', '最多 5 条', '允许 0 条', '多个独立主题可以使用相同类别', '必须能引用人的明确确认', '单次测试中延迟降低 8%', '静态检查通过', '不强制小标题', '不要输出 fields', '来源详情', 'message:m1']) assert(prompt.includes(rule), rule);
   assert(!prompt.includes('只用给定的三个字段'));
   assert.match(preparationPrompt(value, [], true), /最多生成一条新成果/);
@@ -126,7 +126,7 @@ test('personal configuration is version-checked, persists, permits manual catego
     await assert.rejects(wb.saveResultRules(offlineProjectId, 'different-owner', current.version, current.preferences), /账号已切换/);
     const material = await wb.createConclusion(offlineProjectId, '处理流程', '按需创建并释放资源。', 'design');
     assert.equal(material.title, '【设计方案】 处理流程'); assert.equal(material.category, 'design');
-    await assert.rejects(wb.createConclusion(offlineProjectId, '不启用的分类', '内容', 'verification'), /启用/);
+    await assert.rejects(wb.createConclusion(offlineProjectId, '不启用的分类', '内容', 'capability'), /启用/);
     const session = await wb.createSession('codex', root, offlineProjectId); const attached = await wb.attachConclusion(session.id, material.id);
     const context = structuredClone(session.sources), materialBefore = structuredClone(material);
     await wb.saveResultRules(offlineProjectId, current.owner, current.version, { ...current.preferences, projects: { [offlineProjectId]: 'research' } });
@@ -152,17 +152,17 @@ test('in-flight preparation freezes rules, later preparation uses changed select
     const prepared = await wb.prepare(session.id), current = wb.resultRules(offlineProjectId);
     await wb.saveResultRules(offlineProjectId, current.owner, current.version, { ...current.preferences, projects: { [offlineProjectId]: 'investigation' } });
     await until(() => prepared.generation !== 'running'); assert.equal(prepared.generation, 'ready', prepared.generationError || '');
-    assert.deepEqual(prepared.resultRules!.categories, ['requirement', 'design']); assert.equal(prepared.artifacts![0].category, 'requirement');
-    await wb.changeDraftCategory(prepared.id, 'design', prepared.artifacts![0].id);
-    assert.equal(prepared.artifacts![0].category, 'design'); assert.match(prepared.artifacts![0].target, /\/designs$/);
+    assert.deepEqual(prepared.resultRules!.categories, ['project_goal', 'exploration']); assert.equal(prepared.artifacts![0].category, 'exploration');
+    await wb.changeDraftCategory(prepared.id, 'capability', prepared.artifacts![0].id);
+    assert.equal(prepared.artifacts![0].category, 'capability'); assert.match(prepared.artifacts![0].target, /\/capabilities$/);
     await wb.saveDraftPersonal(prepared.id, [prepared.artifacts![0].id]);
-    assert.equal(wb.conclusions(offlineProjectId)[0].category, 'design');
+    assert.equal(wb.conclusions(offlineProjectId)[0].category, 'capability');
     await assert.rejects(wb.changeDraftCategory(prepared.id, 'finding', prepared.artifacts![0].id), /启用/);
-    const restored = new Store(wb.store.root); await restored.init(); assert.deepEqual(restored.drafts[0].resultRules, prepared.resultRules); assert.equal(restored.drafts[0].artifacts![0].category, 'design');
+    const restored = new Store(wb.store.root); await restored.init(); assert.deepEqual(restored.drafts[0].resultRules, prepared.resultRules); assert.equal(restored.drafts[0].artifacts![0].category, 'capability');
     const next = await wb.reorganizePreparation(prepared.id, 'full', ['research', 'comparison']); await until(() => next.generation !== 'running');
     assert.equal(next.generation, 'ready', next.generationError || ''); assert.equal(next.resultRules!.combinationId, 'investigation');
     assert.deepEqual(next.resultRules!.categories, ['research', 'comparison']); assert.deepEqual(next.requestedCategories, ['research', 'comparison']);
-    await assert.rejects(wb.reorganizePreparation(next.id, 'full', ['design']), /启用/);
+    const legacy = await wb.reorganizePreparation(next.id, 'full', ['design']); await until(() => legacy.generation !== 'running'); assert.equal(legacy.generation, 'ready');
     await assert.rejects(wb.reorganizePreparation(next.id, 'full', []), /至少/);
     prepared.artifacts![0].submitted = 'uploaded'; await assert.rejects(wb.changeDraftCategory(prepared.id, 'requirement', prepared.artifacts![0].id), /已提交/);
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
@@ -226,7 +226,7 @@ test('temporary preparation and reorganization keep personal defaults unchanged 
     assert.deepEqual(normal.resultRules!.categories, before.combination.categories);
     assert.deepEqual(wb.resultRules(offlineProjectId), before);
     assert.deepEqual(wb.store.settings.resultPreferences, preferences);
-    await assert.rejects(wb.reorganizePreparation(normal.id, 'full', ['design']), /启用/);
+    const legacy = await wb.reorganizePreparation(normal.id, 'full', ['design']); await until(() => legacy.generation !== 'running'); assert.equal(legacy.generation, 'ready');
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
@@ -236,16 +236,16 @@ test('classification settings expose presets and collapsed boundaries without ad
     const { ResultRulesEditor } = await import('../src/renderer/result-rules');
     const initialState = { owner: 'alice', version: '1', preferences: { combinations: [], projects: {} }, combination: resultPresets[0] };
     const html = renderToStaticMarkup(createElement(ResultRulesEditor, { projectId: 'p', projectName: '示例', initialState }));
-    for (const label of ['算法研究', '软件开发', '调研分析', '新建组合', '保存并用于当前项目', '本机环境故障不整理']) assert(html.includes(label));
+    for (const label of ['算法研究', '软件开发', '调研分析', '新建组合', '保存并用于当前项目', '独立待办逐条保留']) assert(html.includes(label));
     assert.match(html, /<option value="new">新建组合…<\/option>/);
     assert.doesNotMatch(html, /<button[^>]*>新建组合/);
     assert.doesNotMatch(html, /<option value="temporary"/);
-    assert.equal((html.match(/<summary>收录边界<\/summary>/g) || []).length, 12); assert(!html.includes('<details open'));
+    assert.equal((html.match(/<summary>收录边界<\/summary>/g) || []).length, 4); assert(!html.includes('<details open'));
     const temporaryHtml = renderToStaticMarkup(createElement(ResultRulesEditor, { projectId: 'p', projectName: '示例', initialState, temporary: temporaryResultCombination(['design', 'guide']), appliedTemporary: () => {} }));
     assert.match(temporaryHtml, /value="temporary" selected=""/);
     assert.match(temporaryHtml, /用于本次整理/);
     assert.doesNotMatch(temporaryHtml, /保存并用于当前项目|aria-label="组合名称"/);
-    assert.equal((temporaryHtml.match(/type="checkbox"/g) || []).length, 12);
+    assert.equal((temporaryHtml.match(/type="checkbox"/g) || []).length, 4);
     assert.doesNotMatch(temporaryHtml, /disabled=""/);
     const main = await fs.readFile('src/renderer/main.tsx', 'utf8'); assert.match(main, /整理分类组合/); assert.doesNotMatch(main, /started\(selected, scope\)/);
   } finally { delete (globalThis as any).window; }

@@ -21,6 +21,7 @@ if "acl_apply" not in globals():
     exec(compile(pathlib.Path(__file__).with_name("acl_support.py").read_text(encoding="utf-8"), "acl_support.py", "exec"))
 
 CONTRIBUTION_FOLDERS = {
+    'project_goal': 'project-goals', 'capability': 'capabilities', 'exploration': 'explorations', 'todo': 'todos',
     'experiment_result': 'experiments',
     'failed_direction': 'failed-directions',
     'finding': 'findings',
@@ -32,6 +33,10 @@ CONTRIBUTION_FOLDERS = {
     'troubleshooting': 'troubleshooting', 'guide': 'guides', 'research': 'research', 'comparison': 'comparisons',
 }
 CONTRIBUTION_FIELDS = {
+    'project_goal': {'objective', 'acceptance', 'scope', 'constraints', 'evidence'},
+    'capability': {'statement', 'scope', 'verification', 'limitations', 'usage'},
+    'exploration': {'approach', 'result', 'evidence', 'scope', 'uncertainty'},
+    'todo': {'action', 'acceptance', 'trigger', 'impact', 'evidence'},
     'experiment_result': {'objective', 'change', 'environment', 'baseline', 'result', 'evidence', 'scope', 'limitations', 'nextSteps'},
     'failed_direction': {'objective', 'approach', 'failure', 'evidence', 'likelyCause', 'avoidWhen', 'reusableInsight'},
     'finding': {'statement', 'evidence', 'scope', 'uncertainty', 'nextSteps'},
@@ -43,6 +48,36 @@ CONTRIBUTION_FIELDS = {
     'verification': {'result', 'evidence', 'limitations'}, 'troubleshooting': {'problem', 'likelyCause', 'workaround'},
     'guide': {'scope', 'approach', 'result'}, 'research': {'statement', 'evidence', 'scope'}, 'comparison': {'approach', 'evidence', 'limitations'},
 }
+
+RESULT_CATEGORIES = {'project_goal', 'capability', 'exploration', 'todo'}
+RESULT_STATUSES = {'project_goal': {'pending', 'confirmed'}, 'capability': {'available', 'limited'}, 'exploration': set(), 'todo': {'pending', 'in_progress', 'completed', 'cancelled'}}
+RESULT_DEFAULTS = {'project_goal': 'pending', 'capability': 'limited', 'todo': 'pending'}
+def result_category(item):
+    category = item.get('category')
+    if category in RESULT_CATEGORIES:
+        return category
+    if category in ('project_standard', 'requirement'):
+        return 'project_goal'
+    if category in ('issue', 'baseline_change_proposal'):
+        return 'todo'
+    if not category:
+        label = re.match(r'^【([^】]+)】', item.get('title', ''))
+        label = label.group(1) if label else ''
+        if label in ('项目目标', '项目标准', '需求说明'):
+            return 'project_goal'
+        if label in ('待办事项', '问题与风险', '改进建议'):
+            return 'todo'
+        if label == '已有能力':
+            return 'capability'
+    return 'exploration'
+
+def validate_result_status(category, status):
+    if status is not None and status not in RESULT_STATUSES[result_category({'category': category})]:
+        raise ValueError('所选状态不适用于这个分类')
+
+def linked_result_tasks(root, project_id, result_id):
+    tasks = read_json(safe(root, '.workbench/admin/assignments/' + project_id + '.json'), [])
+    return [task for task in tasks if not task.get('purgedAt') and any(ref.get('id') == result_id for ref in task.get('references', []))]
 
 MAX_FILE = 2 * 1024 ** 3
 BRIEF_FIELDS = [('background', '项目背景'), ('objectives', '项目目标'), ('acceptance', '验收标准'), ('scope', '范围与非目标'), ('deliverables', '交付物与里程碑'), ('resources', '现有资料与入口'), ('constraints', '约束与风险'), ('collaboration', '协作约定')]
@@ -585,6 +620,19 @@ def handle(root, state, username, request, incoming=None):
     index = directory / '.workbench-content.json'
     items = read_json(index, [])
     history_index = directory / '.workbench-content-history.json'
+    if op == 'content_task_links':
+        # Expose only the existence of another member's private task.
+        links = {item['id']: [] for item in items if item.get('kind') == 'contribution' and result_category(item) == 'todo'}
+        tasks = read_json(safe(root, '.workbench/admin/assignments/' + project['id'] + '.json'), [])
+        for task in tasks:
+            if task.get('purgedAt'):
+                continue
+            visible = admin or task.get('assignee') == username
+            summary = dict(id=task['id'], title=task.get('title', '') if visible else '关联任务', status=task['status'] if visible else 'linked', assignee=task.get('assignee', '') if visible else '')
+            for reference in task.get('references', []):
+                if reference.get('id') in links:
+                    links[reference['id']].append(summary)
+        return links
     if op == 'content_history':
         history = read_json(history_index, [])
         result_id = request.get('id')
@@ -629,12 +677,20 @@ def handle(root, state, username, request, incoming=None):
         category = change.get('category')
         if category is not None and category not in CONTRIBUTION_FOLDERS:
             raise ValueError('成果类别无效')
+        source_categories = {result_category(source) for source in sources}
+        if len(source_categories) != 1 or category and result_category({'category': category}) not in source_categories:
+            raise ValueError('只能合并同一分类的文字成果，合并结果必须保留来源分类')
+        category = next(iter(source_categories))
+        if category == 'todo' and change.get('confirmDuplicateTodos') is not True:
+            raise ValueError('请确认这些待办是同一事项的重复记录；独立事项请分别保留')
+        if category == 'todo' and any(linked_result_tasks(root, project['id'], source['id']) for source in sources):
+            raise ValueError('已关联项目任务的待办不能合并，请在项目任务中处理')
         attachments = list({attachment['sha256']: attachment for source in sources for attachment in source.get('attachments', [])}.values())
         if len(attachments) > 30:
             raise ValueError('合并后的附件超过 30 个，请分批整理')
         result_id = str(uuid.uuid4())
         timestamp = now()
-        file = safe(directory, 'curated/' + result_id + '-v1.md')
+        file = safe(directory, 'curated/' + CONTRIBUTION_FOLDERS[category] + '/' + result_id + '-v1.md')
         payload = ('# ' + title + '\n\n' + description).encode()
         refs = [dict(scope='team', projectId=project['id'], id=source['id'], version=source['revision']) for source in sources]
         result = dict(id=result_id, title=title, description=description, kind='contribution', path='/' + file.relative_to(root).as_posix(), author=username, state='curated', revision=1, createdAt=timestamp, updatedAt=timestamp, updatedBy=username, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload), attachments=attachments, derivedFrom=refs, replaces=[ref for ref in refs if ref['id'] in replace_ids], sources=[source['id'] for source in sources], provenance=[dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt']) for source in sources])
@@ -642,6 +698,7 @@ def handle(root, state, username, request, incoming=None):
             result['mergeRequestId'] = request_id
         if category is not None:
             result['category'] = category
+            result['resultStatus'] = RESULT_DEFAULTS.get(category)
         if 'sourceDetails' in change:
             result['sourceDetails'] = text(change['sourceDetails'], 8000)
         if 'sourceSessionTitle' in change:
@@ -703,6 +760,7 @@ def handle(root, state, username, request, incoming=None):
         if not admin and not any(relative.startswith(folder + '/' + username + '/') for folder in ('submissions', 'trajectories')):
             raise PermissionError('只能写入自己的公共提交目录')
         category = meta.get('category')
+        validate_result_status(category, meta.get('resultStatus'))
         if meta.get('kind') == 'contribution' and category:
             if category not in CONTRIBUTION_FOLDERS:
                 raise ValueError('不支持的成果类别')
@@ -746,6 +804,10 @@ def handle(root, state, username, request, incoming=None):
         disclosed = meta.get('disclosedSources', [])
         if not isinstance(disclosed, list) or len(disclosed) > 30 or any(not isinstance(ref, dict) or ref.get('scope') not in ('personal', 'team') or ref.get('projectId') != project['id'] or not isinstance(ref.get('id'), str) or not re.fullmatch(r'[a-f0-9-]{36}', ref['id']) or type(ref.get('version')) is not int or ref['version'] < 1 for ref in disclosed):
             raise ValueError('公开来源格式无效')
+        if category:
+            item['resultStatus'] = meta.get('resultStatus') or RESULT_DEFAULTS.get(result_category(item))
+        if 'resultOwner' in meta:
+            item['resultOwner'] = text(meta['resultOwner'], 160)
         if disclosed:
             item['disclosedSources'] = disclosed
         items.insert(0, item)
@@ -763,6 +825,10 @@ def handle(root, state, username, request, incoming=None):
         raise PermissionError('只能修改自己尚未被整理的提交；可另提补充')
     if not admin and (change.get('curate') or change.get('merge')):
         raise PermissionError('只有组管理员可以整理或合并')
+    next_category = change.get('category') or item.get('category')
+    validate_result_status(next_category, change.get('resultStatus'))
+    if result_category(item) == 'todo' and ('resultStatus' in change or change.get('category') and result_category({'category': change['category']}) != result_category(item)) and linked_result_tasks(root, project['id'], item['id']):
+        raise ValueError('已关联项目任务，请在项目任务中提交验收或调整状态')
     if change.get('merge'):
         raise ValueError('旧版合并入口已停用，请更新客户端后重新整理；原成果保持不变')
     merged = []
@@ -813,12 +879,20 @@ def handle(root, state, username, request, incoming=None):
         if not title:
             raise ValueError('请填写标题')
         folder = 'curated' if admin else 'submissions/' + username
+        effective_category = category or item.get('category')
+        if effective_category:
+            folder += '/' + CONTRIBUTION_FOLDERS[effective_category]
         relative = folder + '/' + item['id'] + '-v' + str(item['revision'] + 1) + '.md'
         file = safe(directory, relative)
         repo = text(change.get('repoUrl', ''), 2048)
         publish_bytes(file, ('# ' + title + '\n\n' + (repo + '\n\n' if repo else '') + description).encode(), gid)
         if category is not None:
-            item.update(category=category, fields={})
+            if category != item.get('category'):
+                item['fields'] = {}
+            item['category'] = category
+        item['resultStatus'] = RESULT_DEFAULTS.get(result_category(item)) if result_category(item) != result_category(previous) else change.get('resultStatus', item.get('resultStatus') or RESULT_DEFAULTS.get(result_category(item)))
+        if 'resultOwner' in change:
+            item['resultOwner'] = text(change['resultOwner'], 160)
         if source_details is not None:
             item['sourceDetails'] = source_details
         item.update(title=title, description=description, repoUrl=repo, **({'sourceSessionTitle': text(change.get('sourceSessionTitle'), 120)} if change.get('sourceSessionTitle') else {}), path='/' + str(file.relative_to(root)).replace('\\', '/'), revision=item['revision'] + 1, state='curated' if admin else 'submitted', updatedAt=now(), updatedBy=username, sha256=digest(file), size=file.stat().st_size, sources=list(dict.fromkeys(item.get('sources', []) + [i['id'] for i in merged])), **({'provenance': provenance} if merged else {}))

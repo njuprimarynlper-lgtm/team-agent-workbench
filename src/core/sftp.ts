@@ -196,7 +196,14 @@ export class SftpConnection {
   async ensurePersonalFolder(binding: RemoteBinding, _target: string) { this.channel(binding); this.requireStorage(); }
   async contentList(binding: RemoteBinding): Promise<SharedContent[]> {
     const s = this.channel(binding); await this.checked(binding, binding.project.remoteRoot);
-    return new Promise((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) resolve([]); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
+    const items = await new Promise<SharedContent[]>((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) resolve([]); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
+    if (this.storageVersion === 1 && items.some(item => ['todo', 'issue', 'baseline_change_proposal'].includes(item.category || ''))) {
+      try {
+        const links = await this.request({ op: 'content_task_links', projectId: binding.project.id }, binding);
+        return items.map(item => ({ ...item, linkedAssignments: links[item.id] || [] }));
+      } catch (error: any) { if (!/不支持的内容操作/.test(error.message || '')) throw error; }
+    }
+    return items;
   }
   contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false): Promise<SharedContent[]> { return this.request({ op: 'content_history', projectId: binding.project.id, id, revision, summary }, binding); }
   contentMerge(binding: RemoteBinding, change: ContentMerge): Promise<SharedContent> { return this.request({ op: 'merge_content', projectId: binding.project.id, change }, binding); }

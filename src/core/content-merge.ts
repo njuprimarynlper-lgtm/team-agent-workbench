@@ -1,3 +1,4 @@
+import { sameResultCategory } from '../shared/result-model';
 import { z } from 'zod';
 import type { ContentMergeAnalysis, Draft } from '../shared/types';
 import { contributionTitle, resultTitle } from '../shared/content';
@@ -38,6 +39,7 @@ export function applyContentMerge(draft: Draft, answer: string) {
     const { artifacts, emptyResult } = reviewPreparedResults(draft, raw);
     if (artifacts.length > 1) throw new Error('合并处理只生成一条成果，请重试');
     const item = artifacts[0];
+    if (item && draft.resultRules.contract === 4) sameResultCategory(draft.mergeSources || [], item.category);
     draft.emptyResult = emptyResult;
     draft.title = item ? contributionTitle(item.category, item.title) : '本次没有需要保留的新内容';
     draft.body = item?.body || ''; draft.generatedBody = draft.body; draft.resultCategory = item?.category;

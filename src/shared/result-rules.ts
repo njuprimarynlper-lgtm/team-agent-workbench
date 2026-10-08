@@ -1,9 +1,14 @@
+import { canonicalCategory } from './result-model';
 import { z } from 'zod';
-import { contributionCategoryInfo, materialCategories, type ContributionCategory } from './content';
+import { contributionCategoryInfo, materialCategories, contributionCategorySchema, legacyMaterialCategories, type ContributionCategory } from './content';
 
-export type MaterialCategory = typeof materialCategories[number];
-export const materialCategorySchema = z.enum(materialCategories);
+export type MaterialCategory = typeof materialCategories[number] | typeof legacyMaterialCategories[number];
+export const materialCategorySchema = z.enum([...materialCategories, ...legacyMaterialCategories]);
 export const resultCategoryBoundaries: Record<MaterialCategory, { question: string; include: string; exclude: string }> = {
+  project_goal: { question: '要做到什么，怎样算达标？', include: '目标、验收标准、范围及约束；保留确认状态。', exclude: 'AI 的建议不能自动变成已确认目标。' },
+  capability: { question: '现在已经能做什么？', include: '已实现能力、使用条件、验证范围和限制。', exclude: '计划与候选方案不能写成已有能力；不同环境的能力不能按时间合并。' },
+  exploration: { question: '尝试了什么，发现了什么？', include: '方案、取舍、观察和依据，包括失败尝试。', exclude: '不冒充最终定论；可执行的后续动作单独列待办。' },
+  todo: { question: '还有什么要做或解决？', include: '可独立推进的任务、缺陷、风险和待确认问题。', exclude: '独立事项逐条保留，不把任务清单压缩成一个摘要。' },
   finding: { question: '这次实践有哪些值得复用的经验，适用于什么条件？', include: '基于项目实际尝试与观察提炼的做法、取舍和教训，写清当时条件、依据和适用边界；包括有依据的失败经验。', exclude: '只报告一次测试的数据归验证结果；尚无实践或观察依据的设想归方法探索；不能把局部经验推广为普遍规律、最终定论或项目强制标准。' },
   project_standard: { question: '哪些规则必须遵守？', include: '人明确确认的规范、约束、验收阈值和判定口径。', exclude: 'AI 建议不能升为标准；要做的功能归需求说明；怎么实现归设计方案。' },
   requirement: { question: '需要做什么、不做什么？', include: '有明确来源的用户/业务目标、行为、范围和非目标；未确认的需求必须说明待确认。', exclude: '实现结构归设计方案；强制规范和已确认验收阈值归项目标准；模型自行提出的优化归改进建议。' },
@@ -18,7 +23,7 @@ export const resultCategoryBoundaries: Record<MaterialCategory, { question: stri
   baseline_change_proposal: { question: '已有做法值得怎样改进？', include: '针对现有做法、带依据但尚未采纳的改进建议，写清预期作用和待验证项。', exclude: '已确认的规则归项目标准；明确的实现安排归设计方案；没有项目依据的通用建议不保留。' }
 };
 
-const categoriesSchema = z.array(materialCategorySchema).min(1, '至少启用一个类别').max(materialCategories.length).refine(values => new Set(values).size === values.length, '类别不能重复');
+const categoriesSchema = z.array(materialCategorySchema).min(1, '至少启用一个类别').max(materialCategories.length + legacyMaterialCategories.length).refine(values => new Set(values).size === values.length, '类别不能重复');
 export const resultCombinationSchema = z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(30), categories: categoriesSchema });
 export interface ResultCombination { id: string; name: string; categories: MaterialCategory[] }
 export const temporaryCombinationId = 'temporary';
@@ -26,9 +31,9 @@ export function temporaryResultCombination(categories: unknown): ResultCombinati
   return { id: temporaryCombinationId, name: '临时组合', categories: categoriesSchema.parse(categories) };
 }
 export const resultPresets: ResultCombination[] = [
-  { id: 'research', name: '算法研究', categories: ['finding', 'project_standard', 'method_exploration', 'verification', 'issue', 'baseline_change_proposal'] },
-  { id: 'development', name: '软件开发', categories: ['requirement', 'project_standard', 'design', 'finding', 'verification', 'issue', 'troubleshooting', 'guide', 'baseline_change_proposal'] },
-  { id: 'investigation', name: '调研分析', categories: ['research', 'comparison', 'finding', 'method_exploration', 'issue', 'baseline_change_proposal'] }
+  { id: 'research', name: '算法研究', categories: [...materialCategories] },
+  { id: 'development', name: '软件开发', categories: [...materialCategories] },
+  { id: 'investigation', name: '调研分析', categories: [...materialCategories] }
 ];
 export const resultPreferencesSchema = z.object({ combinations: z.array(resultCombinationSchema).max(50), projects: z.record(z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), z.string().max(80)) }).superRefine((value, context) => {
   const all = [...resultPresets, ...value.combinations], ids = new Set(all.map(item => item.id)), names = all.map(item => item.name.normalize('NFKC').toLocaleLowerCase());
@@ -36,16 +41,22 @@ export const resultPreferencesSchema = z.object({ combinations: z.array(resultCo
   if (Object.values(value.projects).some(id => !ids.has(id))) context.addIssue({ code: 'custom', message: '请先为使用该组合的项目选择其他组合，再删除组合' });
 });
 export type ResultPreferences = z.infer<typeof resultPreferencesSchema>;
-export interface ResultRuleSnapshot { contract: 2 | 3; combinationId: string; name: string; categories: ContributionCategory[] }
+export interface ResultRuleSnapshot { contract: 2 | 3 | 4; combinationId: string; name: string; categories: ContributionCategory[] }
 export interface ResultRulesState { owner: string; version: string; preferences: ResultPreferences; combination: ResultCombination }
 export function activeResultCombination(preferences: ResultPreferences, projectId: string): ResultCombination {
-  return [...resultPresets, ...preferences.combinations].find(item => item.id === preferences.projects[projectId]) || resultPresets[0];
+  const item = [...resultPresets, ...preferences.combinations].find(item => item.id === preferences.projects[projectId]) || resultPresets[0];
+  return { ...item, categories: [...new Set(item.categories.map(category => canonicalCategory(category)!))] };
 }
 export function resultRulesPrompt(categories: readonly ContributionCategory[]) {
   const definitions = categories.map(category => {
     const boundary = resultCategoryBoundaries[category as MaterialCategory];
     return { category, name: contributionCategoryInfo[category].label, ...(boundary || { include: contributionCategoryInfo[category].description }) };
   });
+  if (categories.every(category => materialCategories.includes(category as any))) return `先识别内容的用途，再按四类分别提炼。类别边界：${JSON.stringify(definitions)}。
+允许同一主题分别形成已有能力、探索记录和待办事项，但各自回答不同问题，不能复制相同正文。探索记录可关联待办；跨类引用不等于跨类合并。
+独立待办逐条输出；只有确属同一事项的重复描述才合并。最多 50 条，超过时返回 sourceReview.status="incomplete" 并说明需缩小范围，不得静默截断。允许 0 条，不凑齐分类。
+项目目标默认待确认，由用户确认后生效；已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。
+过滤与项目无关的操作流水、凭据和本机临时故障。项目自身的缺陷、交付环境限制和网络适配任务可以保留。不要因正文出现权限或网络就过滤整个项目任务。只从启用类别选择，不为迁就分类夸大事实。`;
   return `整理顺序：先过滤不应保留的信息，再按独立主题提炼和合并，最后为每个主题选择一个主类别。禁止按类别逐个生成，禁止同一主题换类别重复输出。总计最多 5 条，允许 0 条，不凑类别或数量；多个独立主题可以使用相同类别。
 类别边界：${JSON.stringify(definitions)}
 优先规则：先按主要用途区分需求、标准、设计、操作及问题处理，不因它们也可复用就一律归项目经验。finding 表示项目经验：从实际尝试、观察及取舍中提炼值得后续参考的做法或教训，说明当时条件、证据、适用边界和未验证范围，不要求形成最终定论；相关验证和对比依据放在同一条。只报告实测数据用 verification、摘录外部事实用 research、尚未结合实践的方案比较用 comparison。尚无实践或观察依据的设想用 method_exploration，不能仅加“可能”就包装成经验。未解决项目缺陷用 issue，根因和修复均确认后用 troubleshooting。requirement 描述做什么，project_standard 描述人确认的必须遵守事项，design 描述如何实现，baseline_change_proposal 描述尚未采纳的改进。只能从启用类别选择；没有合适类别且无法如实表达时省略，不夸大事实迁就分类。

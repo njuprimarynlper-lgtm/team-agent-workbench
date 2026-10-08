@@ -41,16 +41,16 @@ else if (command === 'login') {
     const preparation = semanticMerge || /destinationId|artifacts/.test(requestText);
     const promptText = (m.params?.input || m.params?.prompt || []).map(item => item.text || '').join('\n');
     const strictResult = raw => {
-      if (!/preparationContractVersion:[23]/.test(promptText)) return JSON.stringify(raw);
+      if (!/preparationContractVersion:[234]/.test(promptText)) return JSON.stringify(raw);
       const evidenceIds = JSON.parse(promptText.match(/合法来源清单：(\[[^\n]*?\])。/)?.[1] || '[]');
       const categories = JSON.parse(promptText.match(/启用类别清单：(\[[^\n]*?\])。/)?.[1] || '["finding"]');
       const artifacts = raw.artifacts || [{ ...raw, body: raw.body || [raw.overview, ...(raw.consensus || []), ...(raw.unresolved || [])].filter(Boolean).join(' ') }];
-      const reviewed = /preparationContractVersion:3/.test(promptText) ? {
+      const reviewed = /preparationContractVersion:[34]/.test(promptText) ? {
         sourceReview: { status: 'complete', inputCount: Number(promptText.match(/本次输入条数：(\d+)。/)?.[1] || 0), conversationHash: promptText.match(/冻结对话哈希：([^。]*)。/)?.[1] || '' },
         ...(!artifacts.length ? { emptyReason: { code: 'no_reusable_content', explanation: '本次材料没有可单独保留的新内容。', existingResultIds: [] } } : {})
       } : {};
       return JSON.stringify({ ...reviewed, artifacts: artifacts.map(item => ({ ...item,
-        category: item.category || (categories.includes('finding') ? 'finding' : categories[0]),
+        category: /preparationContractVersion:4/.test(promptText) ? ({finding:'exploration', verification:'exploration', design:'exploration', method_exploration:'exploration', project_standard:'project_goal', requirement:'project_goal', issue:'todo', baseline_change_proposal:'todo'}[item.category] || item.category || (categories.includes('exploration') ? 'exploration' : categories[0])) : item.category || (categories.includes('finding') ? 'finding' : categories[0]),
         topic: item.topic || item.title, origin: item.origin || 'project',
         body: item.body || Object.values(item.fields || {}).join(' '),
         evidenceIds: item.evidenceIds || evidenceIds.slice(0, 1) })) });

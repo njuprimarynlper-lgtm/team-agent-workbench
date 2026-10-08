@@ -1,3 +1,4 @@
+import { resultStatusSchema } from '../shared/result-model';
 import { ownDataDirectory } from '../shared/single-instance';
 import { runtimeAssets } from '../shared/runtime-assets';
 import { draftDeleteIdsSchema } from '../shared/draft-delete';
@@ -33,7 +34,8 @@ const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, Wind
 const switchingWindows = new Set<BrowserWindow>();
 let accountRouting: Promise<unknown> = Promise.resolve();
 function routeAccount<T>(operation: () => Promise<T>): Promise<T> { const next = accountRouting.catch(() => {}).then(operation); accountRouting = next; return next; }
-let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false; let pendingStoredWindow = false;
+let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false;
+const pendingWindowRequests: boolean[] = [];
 const entry = path.join(__dirname, runtimeAssets, 'index.html');
 app.setName('Team Agent User');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
@@ -173,8 +175,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.updateAssignment(p.projectId, p.change); }
     case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); if ((p.networkRoute || (workbench.store.settings.egress?.enabled ? 'management' : 'direct')) === 'management') await workbench.requireAuth(p.provider, p.cwd.trim() || await workbench.researchWorkspace(), 'management'); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief, p.networkRoute); }
     case 'conclusion.match': { const p = z.object({ projectId: z.string(), query: text.min(1) }).parse(raw); return workbench.matchConclusions(p.projectId, p.query); }
-    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category); }
-    case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional() }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content, p.category); }
+    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category, p.resultStatus, p.resultOwner); }
+    case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), version: z.number().int().positive().optional(), resultOwner: z.string().max(160).optional() }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content, p.category, p.resultStatus, p.version, p.resultOwner); }
     case 'conclusion.alias.save': { const p = z.object({ id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveConclusionAlias(p.id, p.alias); }
     case 'content.deletion.conclusions': return workbench.deletedContentConclusions(z.object({ eventId: z.string() }).parse(raw).eventId);
     case 'content.deletion.resolve': { const p = z.object({ eventId: z.string(), selections: z.array(z.object({ id, version: z.number().int().positive() })).max(1000) }).parse(raw); return workbench.resolveContentDeletion(p.eventId, p.selections); }
@@ -184,12 +186,12 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.updates.delete': return workbench.deleteContentUpdates(z.object({ eventIds: z.array(z.string()).min(1).max(10000) }).parse(raw).eventIds);
     case 'conclusion.import': { const p = z.object({ projectId: z.string(), contentId: id, expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.importContentConclusion(p.projectId, p.contentId, p.expectedRevision); }
     case 'conclusion.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(id).min(1).max(20), instruction: z.string().max(8000).default('') }).parse(raw); return workbench.prepareConclusionMerge(p.projectId, p.sessionId, p.sourceIds, p.instruction); }
-    case 'conclusion.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]) }).parse(raw); return workbench.commitConclusionMerge(p.id, p.replaceIds); }
-    case 'conclusion.merge.submit': { const p = z.object({ id }).parse(raw); return workbench.submitConclusionMerge(p.id); }
+    case 'conclusion.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]), confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.commitConclusionMerge(p.id, p.replaceIds, p.confirmDuplicateTodos); }
+    case 'conclusion.merge.submit': { const p = z.object({ id, confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.submitConclusionMerge(p.id, p.confirmDuplicateTodos); }
     case 'content.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(z.string().uuid()).min(2).max(20) }).parse(raw); return workbench.prepareContentMerge(p.projectId, p.sessionId, p.sourceIds); }
     case 'content.merge.save': { const p = z.object({ id, title: z.string().max(200), body: text }).parse(raw); return workbench.saveContentMerge(p.id, p.title, p.body); }
-    case 'content.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]) }).parse(raw); return workbench.commitContentMerge(p.id, p.replaceIds); }
-    case 'content.merge.personal': { const p = z.object({ id }).parse(raw); return workbench.saveContentMergePersonal(p.id); }
+    case 'content.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]), confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.commitContentMerge(p.id, p.replaceIds, p.confirmDuplicateTodos); }
+    case 'content.merge.personal': { const p = z.object({ id, confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.saveContentMergePersonal(p.id, p.confirmDuplicateTodos); }
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
     case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.editSharedContent(p.projectId, p.change); }
     case 'content.deleteMany': { const p = z.object({ projectId: z.string(), selections: contentDeleteSelectionsSchema }).parse(raw); return workbench.deleteSharedContents(p.projectId, p.selections); }
@@ -244,6 +246,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'draft.supplement': { const p = z.object({ id, supplement: text, repoUrlOverride: z.string().max(2048) }).parse(raw); return workbench.saveDraftSupplement(p.id, p.supplement, p.repoUrlOverride); }
     case 'result.rules': return workbench.resultRules(z.object({ projectId: z.string() }).parse(raw).projectId);
     case 'result.rules.save': { const p = z.object({ projectId: z.string(), owner: z.string(), version: z.string(), preferences: z.unknown() }).parse(raw); return workbench.saveResultRules(p.projectId, p.owner, p.version, p.preferences); }
+    case 'draft.artifact.edit': { const p = z.object({ id, artifactId: z.string(), title: z.string().trim().min(1).max(120), body: text.min(1), updateTarget: resultReferenceSchema.nullable().optional() }).parse(raw); return workbench.editDraftArtifact(p.id, p.artifactId, p.title, p.body, p.updateTarget); }
     case 'draft.category': { const p = z.object({ id, category: contributionCategorySchema, artifactId: z.string().optional() }).parse(raw); return workbench.changeDraftCategory(p.id, p.category, p.artifactId); }
     case 'draft.artifactSelection': { const p = z.object({ id, artifactId: z.string(), selected: z.boolean() }).parse(raw); return workbench.selectDraftArtifact(p.id, p.artifactId, p.selected); }
     case 'draft.renameResult': { const p = z.object({ id, artifactId: z.string().optional(), title: z.string().trim().min(1).max(120) }).parse(raw); return workbench.renameDraftResult(p.id, p.title, p.artifactId); }
@@ -466,17 +469,24 @@ async function createWindow(preferredSlot?: number, fresh = false) {
   await window.loadFile(entry);
   return window;
 }
-function focusLatestWindow() { const window = latestWindow(); if (!window || window.isDestroyed()) return; if (window.isMinimized()) window.restore(); window.show(); window.focus(); }
 function openAdditionalWindow(reuseStored: boolean) {
   if (quitting || closing) return;
-  if (!windowsReady) { if (reuseStored) pendingStoredWindow = true; return; }
-  if (openingWindow) return; openingWindow = true;
+  pendingWindowRequests.push(reuseStored);
+  void drainAdditionalWindows();
+}
+function drainAdditionalWindows() {
+  if (!windowsReady || openingWindow || quitting || closing) return;
+  openingWindow = true;
   void (async () => {
     try {
-      const storedSlot = reuseStored ? (await storedDatasetSlots()).find(slot => !activeSlots.has(slot)) : undefined;
-      if (reuseStored && !storedSlot && windows.size > 1) { focusLatestWindow(); return; }
-      await routeAccount(() => createWindow(storedSlot, !reuseStored));
-    } catch (error: any) { dialog.showErrorBox('工作台窗口启动失败', error.message); }
+      while (pendingWindowRequests.length && !quitting && !closing) {
+        const reuseStored = pendingWindowRequests.shift()!;
+        try {
+          const storedSlot = reuseStored ? (await storedDatasetSlots()).find(slot => !activeSlots.has(slot)) : undefined;
+          await routeAccount(() => createWindow(storedSlot, !reuseStored));
+        } catch (error: any) { dialog.showErrorBox('工作台窗口启动失败', error.message); }
+      }
+    }
     finally { openingWindow = false; }
   })();
 }
@@ -496,7 +506,7 @@ if (ownDataDirectory(latestWindow, () => openAdditionalWindow(true))) app.whenRe
   await serverIdentities.init(legacySettings.trustedServerIdentities || {});
   await routeAccount(() => createWindow());
   windowsReady = true;
-  if (pendingStoredWindow) { pendingStoredWindow = false; openAdditionalWindow(true); }
+  void drainAdditionalWindows();
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
 app.on('window-all-closed', () => { if (!closing) void finishQuit(); });
 async function closeWindow(window: BrowserWindow) {
