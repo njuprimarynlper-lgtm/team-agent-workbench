@@ -255,8 +255,16 @@ test('attachments are explicit, frozen, deduplicated, dependency-gated and retry
     await wb.remote.contentEdit(session.binding!, { id: firstHolder.id, revision: firstHolder.revision, action: 'delete', curate: true, merge: [] });
     assert.equal(await fs.readFile(attachmentFile, 'utf8'), 'frozen evidence');
     listed = await wb.remote.contentList(session.binding!);
+    const removed = [firstHolder, ...holders()];
     for (const item of holders()) await wb.remote.contentEdit(session.binding!, { id: item.id, revision: item.revision, action: 'delete', curate: true, merge: [] });
     await assert.rejects(() => fs.stat(attachmentFile));
+    const receipts = JSON.parse(await fs.readFile(await diskPath(env.shared, '/.workbench-local/upload-receipts.json'), 'utf8')) as Record<string, { id?: string; description?: string }>;
+    assert(!Object.values(receipts).some(value => removed.some(item => item.id === value.id)));
+    assert(!Object.values(receipts).some(value => removed.some(item => item.description && value.description === item.description)));
+    for (const item of removed) {
+      const file = await diskPath(env.shared, item.path, true);
+      await assert.rejects(() => fs.stat(file));
+    }
     await assert.rejects(wb.addDraftFiles(draft.id, [file], draft.artifacts![0].id), /提交前/);
   } finally { await env.close(); }
 });
