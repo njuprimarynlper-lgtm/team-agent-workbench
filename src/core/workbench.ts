@@ -576,7 +576,7 @@ export class Workbench {
             const current = await this.remote.contentList(binding);
             if (!current.some(item => item.id === selection.id)) {
               result.deletedIds.push(selection.id); result.remaining = selections.slice(index + 1);
-              result.error = '该条目已从共享区移除，但后续处理未完成：' + result.error;
+              result.error = '该团队成果已删除，但后续处理未完成：' + result.error;
               try { await this.recordSharedDeletion(binding, current, before.find(item => item.id === selection.id)!); }
               catch (recordError: any) { result.error += '；本地删除记录保存失败：' + recordError.message; }
             }

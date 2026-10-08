@@ -49,7 +49,7 @@ export function activityActor(item: { change: string; updatedBy?: string; author
   return item.updatedBy || (item.change === 'new' ? item.author : undefined) || '';
 }
 export function activityText(item: { change: string; updatedBy?: string; author?: string; title: string }, title = item.title): string {
-  const verb: Record<string, string> = { new: '提交了', updated: '更新了', deleted: '移除了', merged: '整理了', superseded: '替代了' };
+  const verb: Record<string, string> = { new: '提交了', updated: '更新了', deleted: '删除了', merged: '整理了', superseded: '替代了' };
   const actor = activityActor(item);
   return `${actor ? actor + ' ' : ''}${verb[item.change] || '更新了'}《${title}》`;
 }

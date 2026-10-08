@@ -102,7 +102,7 @@ try {
   await expect(ap.locator('.content-card')).toHaveCount(1);
   await expect(ap.getByLabel('团队成果类别')).toHaveValue('all');
   await expect(ap.getByLabel('团队成果操作状态')).toHaveCount(0);
-  await expect(ap.getByRole('button', { name: /从共享区移除：.*Alice 统一整理的结论/ })).toBeVisible();
+  await expect(ap.getByRole('button', { name: /删除团队成果：.*Alice 统一整理的结论/ })).toBeVisible();
   await ap.getByRole('button', { name: '打开成果整理', exact: true }).click();
   const savedMerge = ap.locator('.draft-task-card').filter({ hasText: 'Alice 统一整理的结论' });
   await expect(savedMerge).toContainText('已保存到公共区'); await expect(savedMerge).toContainText('已保留，不可删除');
