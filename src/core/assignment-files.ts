@@ -82,6 +82,7 @@ export class AssignmentFiles {
     const references = await Promise.all(selections.map(async selection => {
       const item = content.find(value => value.id === selection.id && value.revision === selection.revision && ['contribution', 'file'].includes(value.kind));
       if (!item) throw new Error('关联结论已更新或移除，请刷新后重新选择');
+      if (!(await fs.lstat(await diskPath(this.root, item.path))).isFile()) throw new Error('关联成果文件暂不可访问，请刷新后检查');
       if (item.kind === 'file') {
         if (!item.path.startsWith(binding.project.remoteRoot + '/') || item.path.slice(binding.project.remoteRoot.length + 1).split('/').some(part => part.startsWith('.'))) throw new Error('关联共享文件路径无效');
         candidates.push({ local: await diskPath(this.root, item.path), name: path.posix.basename(item.path), sha256: item.sha256, size: item.size, source: item.title });

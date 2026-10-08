@@ -330,6 +330,8 @@ def assignment_snapshot(root, directory, project_id, assignee, identifier, usern
         item = next((value for value in content if value['id'] == selection['id'] and value['revision'] == selection['revision'] and value['kind'] in ('contribution', 'file')), None)
         if not item:
             raise ValueError('关联结论已更新或移除，请刷新后重新选择')
+        if not safe(root, item['path']).is_file():
+            raise ValueError('关联成果文件缺失或暂不可访问，请刷新后检查')
         if item['kind'] == 'file':
             source_file = safe(root, item['path'])
             relative = source_file.relative_to(directory)
@@ -620,6 +622,7 @@ def handle(root, state, username, request, incoming=None):
                 public_dir(directory / folder, group['gid'])
             if brief:
                 save_brief_file(directory, project, brief, username, group['gid'])
+            atom(directory / '.workbench-content.json', [], group['gid'])
             atom(directory / '.workbench-project.json', project, group['gid'])
             public_dir(directory, group['gid'])
         except Exception:
@@ -727,6 +730,9 @@ def handle(root, state, username, request, incoming=None):
         source_categories = {result_category(source) for source in sources}
         if len(source_categories) != 1 or category and result_category({'category': category}) not in source_categories:
             raise ValueError('只能合并同一分类的文字成果，合并结果必须保留来源分类')
+        for source in sources:
+            if not safe(root, source['path']).is_file() or any(not safe(root, attachment['path']).is_file() for attachment in source.get('attachments') or []):
+                raise ValueError('关联文件缺失或暂不可访问，请刷新并检查文件后再合并')
         category = next(iter(source_categories))
         if category == 'todo' and change.get('confirmDuplicateTodos') is not True:
             raise ValueError('请确认这些待办是同一事项的重复记录；独立事项请分别保留')
@@ -975,25 +981,27 @@ def handle(root, state, username, request, incoming=None):
         item['attachments'] = attachments
     archived = [dict(previous, **({'description': '', 'attachments': [], 'fields': None, 'sourceDetails': None, 'deletedAt': now(), 'deletedBy': username} if change['action'] == 'delete' else {}))]
     archived += [dict(source, supersededBy=dict(scope='team', projectId=project['id'], id=item['id'], version=item['revision']), supersededAt=now()) for source in merged]
-    atom(history_index, archived + [entry for entry in history if change['action'] != 'delete' or entry['id'] != item['id']], gid)
+    next_history = archived + [entry for entry in history if change['action'] != 'delete' or entry['id'] != item['id']]
+    atom(history_index, next_history, gid)
     try:
         atom(index, items, gid)
     except Exception:
         atom(history_index, history, gid)
         raise
+    def recorded_files(entry):
+        found = [entry.get('path')] if isinstance(entry.get('path'), str) else []
+        found += [attachment.get('path') for attachment in entry.get('attachments') or [] if isinstance(attachment, dict) and isinstance(attachment.get('path'), str)]
+        return found
+    kept = {target for entry in items + [entry for entry in next_history if not entry.get('deletedAt')] for target in recorded_files(entry)}
+    kept_bodies = kept if change['action'] == 'delete' else {target for entry in items for target in recorded_files(entry)}
     for old in paths:
-        if change['action'] == 'delete' or old != item['path']:
+        if (change['action'] == 'delete' or old != item['path']) and old not in kept_bodies:
             safe(root, old).unlink(missing_ok=True)
     if change['action'] == 'delete':
-        def recorded_files(entry):
-            found = [entry.get('path')] if isinstance(entry.get('path'), str) else []
-            found += [attachment.get('path') for attachment in entry.get('attachments') or [] if isinstance(attachment, dict) and isinstance(attachment.get('path'), str)]
-            return found
         owned = [target for entry in [previous, *history] if isinstance(entry, dict) and entry.get('id') == item['id'] for target in recorded_files(entry)]
-        kept = {target for entry in items for target in recorded_files(entry)}
         project_prefix = '/' + directory.relative_to(root).as_posix() + '/'
         for target in dict.fromkeys(owned):
-            if target in kept:
+            if target in kept or not target.startswith(project_prefix):
                 continue
             if '/.workbench-attachments/' not in target and item['id'] not in target and not target.startswith(project_prefix + 'submissions/') and not target.startswith(project_prefix + 'curated/'):
                 continue

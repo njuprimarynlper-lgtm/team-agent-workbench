@@ -38,8 +38,8 @@ test('both libraries expose five stable categories and metadata takes precedence
     assert.doesNotMatch(html, /项目结论|项目经验|方法探索|全部类型|全部标签/);
     assert.equal((html.match(/<button /g) || []).length, 6);
     const empty = renderToStaticMarkup(createElement(ResultCategoryFilter, { items: [], value: 'all', label, onChange: () => {} }));
-    assert.equal((empty.match(/<span>0<\/span>/g) || []).length, 5);
-    assert.match(empty, /aria-pressed="true">全部<\/button>/);
+    assert.equal((empty.match(/<span>0<\/span>/g) || []).length, 6);
+    assert.match(empty, /aria-pressed="true">全部<span>0<\/span><\/button>/);
   }
   assert.deepEqual(items, original);
 });

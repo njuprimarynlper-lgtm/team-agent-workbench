@@ -49,6 +49,8 @@ export function activityActor(item: { change: string; updatedBy?: string; author
   return item.updatedBy || (item.change === 'new' ? item.author : undefined) || '';
 }
 export function activityText(item: { change: string; updatedBy?: string; author?: string; title: string }, title = item.title): string {
+  if (item.change === 'files_missing') return `《${title}》的关联文件缺失`;
+  if (item.change === 'files_restored') return `《${title}》的关联文件已恢复`;
   const verb: Record<string, string> = { new: '提交了', updated: '更新了', deleted: '删除了', merged: '整理了', superseded: '替代了' };
   const actor = activityActor(item);
   return `${actor ? actor + ' ' : ''}${verb[item.change] || '更新了'}《${title}》`;

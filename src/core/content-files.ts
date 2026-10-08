@@ -10,6 +10,8 @@ import { assertRemote, childRemote } from './paths';
 import { attachmentPath, mergeAttachments } from '../shared/attachments';
 import { contentEditSchema, contentMergeSchema, contentMetadataSchema, contributionCategoryFields, contributionCategoryInfo, type ContentEdit, type ContentMerge, type ContentMetadata, type SharedContent } from '../shared/content';
 import type { RemoteBinding } from '../shared/types';
+import { inspectContentFiles } from './content-files-state';
+import { assertContentReadable } from '../shared/content-files-state';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
 export class ContentFiles {
@@ -24,8 +26,25 @@ export class ContentFiles {
   }
   private async linked(binding: RemoteBinding, id: string) { return (await this.tasks(binding)).filter(task => !task.purgedAt && task.references.some(ref => ref.id === id)); }
   async list(binding: RemoteBinding) {
+    await this.authorize(binding);
+    try { await fs.stat(await this.index(binding)); }
+    catch (error: any) { if (error.code === 'ENOENT') throw new Error('团队成果登记文件缺失，暂无法确认成果状态，请联系组管理员'); throw error; }
     const actor = await this.authorize(binding), items = await this.read(binding), tasks = await this.tasks(binding);
-    return items.map(item => ({ ...item, linkedAssignments: resultCategory(item) === 'todo' ? tasks.filter(task => !task.purgedAt && task.references.some(ref => ref.id === item.id)).map(({ id, title, status, assignee }) => actor.admin || actor.username === assignee ? { id, title, status, assignee } : { id, title: '关联任务', status: 'linked', assignee: '' }) : [] }));
+    const checked = await this.inspect(binding, items);
+    await this.authorize(binding);
+    return checked.map(item => ({ ...item, linkedAssignments: resultCategory(item) === 'todo' ? tasks.filter(task => !task.purgedAt && task.references.some(ref => ref.id === item.id)).map(({ id, title, status, assignee }) => actor.admin || actor.username === assignee ? { id, title, status, assignee } : { id, title: '关联任务', status: 'linked', assignee: '' }) : [] }));
+  }
+  private inspect(binding: RemoteBinding, items: SharedContent[]) {
+    return inspectContentFiles(items, async target => {
+      try { assertRemote(binding.project.remoteRoot, target); }
+      catch { return 'unverified'; }
+      try { return (await fs.lstat(await diskPath(this.root, target, true))).isFile() ? 'ok' : 'unverified'; }
+      catch (error: any) {
+        if (['ENOENT', 'ENOTDIR'].includes(error.code)) return 'missing';
+        if (['EACCES', 'EPERM'].includes(error.code)) return 'unverified';
+        throw error;
+      }
+    });
   }
   async history(binding: RemoteBinding, id?: string, revision?: number, summary = false) { await this.authorize(binding); const items = await this.historyRead(binding); return items.filter(item => (!id || item.id === id) && (!revision || item.revision === revision)).map(item => summary ? { ...item, description: '', fields: undefined, attachments: undefined, sourceDetails: undefined } : item); }
   async merge(binding: RemoteBinding, input: ContentMerge) {
@@ -43,6 +62,7 @@ export class ContentFiles {
         if (!item || item.revision !== ref.revision || item.kind !== 'contribution') throw new Error('待整理成果已更新或移出当前列表，请刷新');
         return item;
       });
+      for (const source of await this.inspect(binding, sources)) assertContentReadable(source, true);
       const category = sameResultCategory(sources, change.category);
       assertTodoMerge(sources, change.confirmDuplicateTodos);
       if (category === 'todo' && (await Promise.all(sources.map(source => this.linked(binding, source.id)))).some(tasks => tasks.length)) throw new Error('已关联项目任务的待办不能合并，请在项目任务中处理');
@@ -179,16 +199,19 @@ export class ContentFiles {
       const tombstone = { ...previous, description: '', attachments: undefined, fields: undefined, sourceDetails: undefined, deletedAt: new Date().toISOString(), deletedBy: actor.username };
       const archived = [change.action === 'delete' ? tombstone : previous, ...merged.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id: item.id, version: item.revision }, supersededAt: new Date().toISOString() }))];
       const remaining = items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id));
-      await atomicJson(await this.historyIndex(binding), [...archived, ...history.filter(entry => change.action !== 'delete' || entry.id !== item.id)]);
+      const nextHistory = [...archived, ...history.filter(entry => change.action !== 'delete' || entry.id !== item.id)];
+      await atomicJson(await this.historyIndex(binding), nextHistory);
       try { await atomicJson(await this.index(binding), remaining); }
       catch (error) { await atomicJson(await this.historyIndex(binding), history); throw error; }
-      for (const target of oldPaths.filter(target => change.action === 'delete' || target !== item.path)) await fs.unlink(await diskPath(this.root, target)).catch(() => {});
+      const recordedFiles = (entry: { path?: string; attachments?: { path: string }[] }) => [entry.path, ...(entry.attachments || []).map(file => file.path)].filter((value): value is string => !!value);
+      const retained = new Set([...remaining, ...nextHistory.filter(entry => !entry.deletedAt)].flatMap(recordedFiles));
+      const retainedBodies = change.action === 'delete' ? retained : new Set(remaining.flatMap(recordedFiles));
+      for (const target of oldPaths.filter(target => (change.action === 'delete' || target !== item.path) && !retainedBodies.has(target))) await fs.unlink(await diskPath(this.root, target)).catch(() => {});
       if (change.action === 'delete') {
-        const recordedFiles = (entry: { path?: string; attachments?: { path: string }[] }) => [entry.path, ...(entry.attachments || []).map(file => file.path)].filter((value): value is string => !!value);
-        const retained = new Set(remaining.flatMap(recordedFiles));
         const projectPrefix = binding.project.remoteRoot + '/';
         for (const target of [...new Set([previous, ...history].filter(entry => entry.id === item.id).flatMap(recordedFiles))]) {
           if (retained.has(target)) continue;
+          if (!target.startsWith(projectPrefix)) continue;
           if (!target.includes(item.id) && !target.includes('/.workbench-attachments/') && !target.startsWith(projectPrefix + 'submissions/') && !target.startsWith(projectPrefix + 'curated/')) continue;
           await fs.unlink(await diskPath(this.root, target, true)).catch(() => {});
         }

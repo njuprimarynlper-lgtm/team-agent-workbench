@@ -5,6 +5,7 @@ import path from 'node:path';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { Workbench } from '../src/core/workbench';
 import { memberProfile } from '../tests/fixtures/member-profile';
+import { diskPath } from '../src/core/local-space';
 // @ts-expect-error Shared fixture.
 import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 
@@ -226,8 +227,24 @@ async function main() {
     const finalRun = await launch(); page = finalRun.page; await connect(page);
     assert.deepEqual(await call(page, 'content.sync'), []);
     assert.deepEqual(await call(page, 'conclusion.list', { projectId: project.id, includeArchived: true }), []);
+    // A direct filesystem change is a file incident, never a result deletion.
+    const incident = await alice.remote.upload(binding, file, binding.project.uploadPath + '/file-state.md', () => {}, { kind: 'contribution', title: '文件状态回归', description: '仍有登记的验证文字' });
+    await call(page, 'content.sync');
+    const incidentFile = await diskPath(share, incident.path), incidentBytes = await fs.readFile(incidentFile);
+    await fs.unlink(incidentFile); await call(page, 'content.sync');
+    await page.getByTitle('团队动态', { exact: true }).click(); await page.getByRole('tab', { name: /^待处理/ }).click();
+    const incidentEntry = page.locator('.update-entry').filter({ has: page.getByRole('heading', { name: '《文件状态回归》的关联文件缺失', exact: true }) });
+    await expect(incidentEntry).toHaveCount(1); await incidentEntry.getByRole('button', { name: '查看结果', exact: true }).click();
+    await expect(page.locator('.content-detail')).toContainText('成果文件缺失');
+    await expect(page.getByRole('button', { name: '存入个人成果库', exact: true })).toBeDisabled();
+    await page.screenshot({ path: path.join(data, 'missing-file-result.png') });
+    await fs.writeFile(incidentFile, incidentBytes); await call(page, 'content.sync');
+    await page.getByRole('button', { name: '刷新', exact: true }).click();
+    await expect(page.getByRole('button', { name: '存入个人成果库', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: '返回动态', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '《文件状态回归》的关联文件已恢复', exact: true })).toBeVisible();
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ passed: true, data, cases: ['single activity result by stable ID', 'refresh stays scoped', 'full library remains available', 'aliases save, clear, attach and persist', 'missing result does not show unrelated content', 'remote deletion keeps local conclusions', 'retention survives restart', 'only explicitly selected local conclusions are removed', 'unsent references disappear while frozen source files survive', 'batch activity deletion selects current scope and filter only', 'cancel leaves records intact', 'batch conclusions exclude hidden history and show aliases', 'history allows actual deletion', 'both batch deletions survive restart and sync'] }));
+    console.log(JSON.stringify({ passed: true, data, cases: ['single activity result by stable ID', 'refresh stays scoped', 'full library remains available', 'aliases save, clear, attach and persist', 'missing result does not show unrelated content', 'remote deletion keeps local conclusions', 'retention survives restart', 'only explicitly selected local conclusions are removed', 'unsent references disappear while frozen source files survive', 'batch activity deletion selects current scope and filter only', 'cancel leaves records intact', 'batch conclusions exclude hidden history and show aliases', 'history allows actual deletion', 'both batch deletions survive restart and sync', 'external file loss disables adoption without deleting the result', 'restoring files re-enables adoption and generates a recovery activity'] }));
   } catch (error) {
     if (page && !page.isClosed()) await page.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {});
     console.error('Activity regression artifacts:', data); throw error;

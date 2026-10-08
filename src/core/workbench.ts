@@ -33,6 +33,8 @@ import { prepareCodexStorage } from './codex-storage';
 import { sessionContext } from './session-context';
 import { isProtectedSessionSource, isRemovableSessionReference, sessionWithAvailableReferences } from '../shared/session-result-references';
 import { reconcileTeamResultReferences } from './session-result-references';
+import { invalidateContentActivities } from './content-activity-lifecycle';
+import { assertContentReadable, missingContentFiles } from '../shared/content-files-state';
 import { resolveProvider, inspectProvider } from './providers';
 import { freezeFile, packageDraftArtifact, packageHistory, hashFile, contributionBody, artifactContributionBody } from './artifacts';
 import { listSessionFiles } from './session-files';
@@ -503,6 +505,7 @@ export class Workbench {
       const binding = this.remote.binding(projectId), item = (await this.remote.contentList(binding)).find(value => value.id === contentId);
       if (owner() !== expectedOwner) throw new Error('账号已改变，请重新查看团队成果');
       if (!item) throw new Error('内容已删除，请刷新');
+      assertContentReadable(item);
       if (expectedRevision !== undefined && item.revision !== expectedRevision) throw new Error('这条成果已更新，请刷新并确认最新内容后再存入个人成果库');
       const before = this.conclusions(projectId, true).map(value => ({ value, snapshot: structuredClone(value) }));
       const events = (this.store.settings.contentUpdates || []).filter(event => event.projectId === projectId && event.id === contentId).map(value => ({ value, snapshot: structuredClone(value) }));
@@ -520,7 +523,7 @@ export class Workbench {
     }, false);
   }
   private contentSeenState(item: SharedContent): ContentSeenState {
-    return { submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
+    return { files: item.files, missingFiles: missingContentFiles(item), submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
   }
   async editSharedContent(projectId: string, change: ContentEdit) {
     const binding = this.remote.binding(projectId), before = await this.remote.contentList(binding), target = before.find(item => item.id === change.id);
@@ -535,9 +538,7 @@ export class Workbench {
     const key = [binding.connectionId, binding.username, projectId].join(':'), now = new Date().toISOString();
     const seen = this.store.settings.contentSeen ||= {}, inbox = this.store.settings.contentUpdates ||= [];
     seen[key] = Object.fromEntries(before.filter(item => item.id !== target.id).map(item => [item.id, this.contentSeenState(item)]));
-    for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === target.id && inbox[index].change !== 'deleted') {
-      if (inbox[index].readAt || inbox[index].actions?.length) inbox[index].unavailableAt = now; else inbox.splice(index, 1);
-    }
+    invalidateContentActivities(inbox, key, target.id, now);
     const hasLocalCopy = this.localCopiesOfRemovedContent(projectId, target.id, target.path).length > 0;
     const eventId = `${key}:deleted:${target.id}:${target.revision}`;
     if (!inbox.some(item => item.eventId === eventId)) inbox.unshift({ eventId, projectId, projectName: binding.project.name, id: target.id, removedPath: target.path, title: target.title, author: target.author, updatedBy: binding.username, revision: target.revision, category: target.category, submission: target.submission, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
@@ -612,15 +613,29 @@ export class Workbench {
         const prior = priorRaw && Object.fromEntries(Object.entries(priorRaw).map(([id, value]) => [id, typeof value === 'number' ? { revision: value } : value])) as Record<string, ContentSeenState> | undefined;
         const current = Object.fromEntries(items.map(item => [item.id, this.contentSeenState(item)]));
         const detectedAt = new Date().toISOString();
+        for (const item of items.filter(item => item.kind !== 'trajectory')) {
+          const before = prior?.[item.id], missing = missingContentFiles(item);
+          const verified = !!item.files && item.files.body !== 'unverified' && !Object.values(item.files.attachments).includes('unverified');
+          if (!verified && before?.missingFiles?.length) current[item.id].missingFiles = [...new Set([...before.missingFiles, ...missing])].sort();
+          for (const event of inbox.filter(event => event.eventId.startsWith(key + ':') && event.id === item.id && !event.unavailableAt && event.change !== 'deleted')) {
+            if (JSON.stringify(event.files) !== JSON.stringify(item.files)) { event.files = item.files; changed = true; }
+          }
+          const changedMissing = missing.some(name => !before?.missingFiles?.includes(name));
+          const restored = before?.missingFiles?.length && !missing.length && verified;
+          if (before && changedMissing || restored) {
+            const change = restored ? 'files_restored' as const : 'files_missing' as const;
+            if (restored) for (const event of inbox.filter(event => event.eventId.startsWith(key + ':') && event.id === item.id && event.change === 'files_missing' && !event.readAt)) {
+              event.readAt = detectedAt; event.statusChangedAt = detectedAt; event.archiveReason = 'files_restored'; changed = true;
+            }
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}:${detectedAt}`, projectId: project.id, projectName: project.name, id: item.id, title: item.title, path: item.path, author: item.author, revision: item.revision, category: item.category, submission: item.submission, files: item.files, missingFiles: missing, change, occurredAt: detectedAt, detectedAt });
+          }
+        }
         if (prior) {
           const removed = Object.entries(prior).filter(([id]) => !current[id]).map(([id, value]) => ({ id, ...value }));
           for (const source of removed.filter(item => item.kind !== 'trajectory')) {
             const superseded = history.find(item => item.id === source.id && item.revision === source.revision && item.supersededBy) || items.find(item => (!prior[item.id] || item.revision > prior[item.id].revision) && (item.replaces || []).some(ref => ref.id === source.id && ref.version === source.revision));
             if (superseded) continue;
-            for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === source.id) {
-              if (inbox[index].readAt || inbox[index].actions?.length) inbox[index].unavailableAt = detectedAt; else inbox.splice(index, 1);
-              changed = true;
-            }
+            if (invalidateContentActivities(inbox, key, source.id, detectedAt)) changed = true;
             // A shared deletion is a notification, never permission to remove local knowledge or names.
           }
           for (const item of items.filter(item => item.kind !== 'trajectory')) {
@@ -629,7 +644,7 @@ export class Workbench {
             const sourceIds = new Set((item.replaces || []).map(ref => ref.id));
             const mergedSources = removed.filter(source => sourceIds.has(source.id));
             const change = mergedSources.length ? 'merged' as const : contentChanged;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, files: item.files, missingFiles: missingContentFiles(item), change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
           for (const source of removed.filter(item => item.kind !== 'trajectory')) {
             // Several revisions can happen between polls. A newer replacement still
@@ -637,13 +652,14 @@ export class Workbench {
             const historic = history.find(item => item.id === source.id && item.revision >= source.revision && item.supersededBy);
             const replacement = historic?.supersededBy ? items.find(item => item.id === historic.supersededBy!.id) : items.find(item => (!prior[item.id] || item.revision > prior[item.id].revision) && (item.replaces || []).some(ref => ref.id === source.id && ref.version >= source.revision));
             const superseded = !!historic || !!replacement;
-            add({ eventId: `${key}:${superseded ? 'superseded' : 'deleted'}:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, submission: source.submission, updatedBy: replacement?.updatedBy || history.find(item => item.id === source.id && item.deletedAt)?.deletedBy, sourceSessionTitle: source.sourceSessionTitle, change: superseded ? 'superseded' : 'deleted', ...(superseded ? { replacedBy: { id: historic?.supersededBy?.id || replacement!.id, title: replacement?.title || '新成果' } } : {}), occurredAt: historic?.supersededAt || detectedAt, detectedAt });
+            const deletion = !superseded ? history.find(item => item.id === source.id && item.deletedAt) : undefined;
+            add({ eventId: `${key}:${superseded ? 'superseded' : 'deleted'}:${source.id}:${deletion?.revision || source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: deletion?.title || source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: deletion?.revision || source.revision, category: source.category, submission: source.submission, updatedBy: replacement?.updatedBy || deletion?.deletedBy, sourceSessionTitle: source.sourceSessionTitle, change: superseded ? 'superseded' : 'deleted', ...(superseded ? { replacedBy: { id: historic?.supersededBy?.id || replacement!.id, title: replacement?.title || '新成果' } } : {}), occurredAt: historic?.supersededAt || deletion?.deletedAt || detectedAt, detectedAt });
           }
         } else {
           const recent = Date.now() - 24 * 60 * 60 * 1000;
           for (const item of items.filter(item => item.kind !== 'trajectory' && Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
             const change = item.sources?.length || item.provenance?.length ? 'merged' as const : 'new' as const;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, files: item.files, missingFiles: missingContentFiles(item), change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
         }
         if (JSON.stringify(priorRaw || {}) !== JSON.stringify(current)) { seen[key] = current; changed = true; }
@@ -1154,6 +1170,7 @@ export class Workbench {
       const session = this.session(id); this.assertCanWork(session.binding); if (!session.binding) throw new Error('请选择项目');
       if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
       const item = (await this.remote.contentList(session.binding)).find(i => i.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
+      assertContentReadable(item);
       if (session.closedAt) throw new Error('请选择未关闭的工作会话');
       const existing = session.sources.find(source => source.contentRef
         ? source.contentRef.projectId === session.binding!.project.id && source.contentRef.id === item.id && source.contentRef.revision === item.revision
@@ -1256,6 +1273,7 @@ export class Workbench {
     const items = await this.remote.contentList(binding), selected = sourceIds.map(id => items.find(item => item.id === id));
     if (selected.some(item => !item || item.kind !== 'contribution')) throw new Error('待合并内容已改变或包含非文字成果，请刷新后重新选择');
     const sources = selected as NonNullable<(typeof selected)[number]>[];
+    sources.forEach(item => assertContentReadable(item, true));
     const mergeCategory = sameResultCategory(sources);
     const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
     await fs.mkdir(inputDir, { recursive: true });
@@ -1344,7 +1362,7 @@ export class Workbench {
     if (this.remote.connected) {
       const reads = await Promise.allSettled([this.remote.projectBrief(binding), this.remote.contentList(binding), this.remote.contentHistory(binding)]);
       if (reads[0].status === 'fulfilled' && reads[0].value.brief) { brief = reads[0].value.brief; revision = reads[0].value.revision; }
-      for (const [index, read] of reads.entries()) if (index > 0 && read.status === 'fulfilled' && Array.isArray(read.value)) candidates.push(...read.value.filter(item => item.kind === 'contribution' && !item.deletedAt).map(item => ({ projectId: binding.project.id, scope: 'team' as const, id: item.id, version: item.revision, title: item.title, category: canonicalCategory(item.category), state: index === 2 || item.supersededBy ? 'history' as const : 'current' as const, content: item.description, updatedAt: item.updatedAt, resultStatus: item.resultStatus })));
+      for (const [index, read] of reads.entries()) if (index > 0 && read.status === 'fulfilled' && Array.isArray(read.value)) candidates.push(...read.value.filter(item => item.kind === 'contribution' && !item.deletedAt && (!item.files || item.files.body === 'ok')).map(item => ({ projectId: binding.project.id, scope: 'team' as const, id: item.id, version: item.revision, title: item.title, category: canonicalCategory(item.category), state: index === 2 || item.supersededBy ? 'history' as const : 'current' as const, content: item.description, updatedAt: item.updatedAt, resultStatus: item.resultStatus })));
     }
     const query = draft.mergeSources?.length ? draft.mergeSources.map(item => item.title).join(' ') + ' ' + draft.conclusionMergeInstruction : conversation.slice(-12).map(item => item.text).join(' ');
     const context = buildPreparationContext(binding.project, query, candidates, brief, revision);
