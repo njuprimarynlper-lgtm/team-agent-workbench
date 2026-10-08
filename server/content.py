@@ -21,7 +21,7 @@ if "acl_apply" not in globals():
     exec(compile(pathlib.Path(__file__).with_name("acl_support.py").read_text(encoding="utf-8"), "acl_support.py", "exec"))
 
 CONTRIBUTION_FOLDERS = {
-    'project_goal': 'project-goals', 'capability': 'capabilities', 'exploration': 'explorations', 'todo': 'todos',
+    'project_goal': 'project-goals', 'project_material': 'project-materials', 'capability': 'capabilities', 'exploration': 'explorations', 'todo': 'todos',
     'experiment_result': 'experiments',
     'failed_direction': 'failed-directions',
     'finding': 'findings',
@@ -34,6 +34,7 @@ CONTRIBUTION_FOLDERS = {
 }
 CONTRIBUTION_FIELDS = {
     'project_goal': {'objective', 'acceptance', 'scope', 'constraints', 'evidence'},
+    'project_material': {'subject', 'location', 'usage', 'scope'},
     'capability': {'statement', 'scope', 'verification', 'limitations', 'usage'},
     'exploration': {'approach', 'result', 'evidence', 'scope', 'uncertainty'},
     'todo': {'action', 'acceptance', 'trigger', 'impact', 'evidence'},
@@ -49,8 +50,8 @@ CONTRIBUTION_FIELDS = {
     'guide': {'scope', 'approach', 'result'}, 'research': {'statement', 'evidence', 'scope'}, 'comparison': {'approach', 'evidence', 'limitations'},
 }
 
-RESULT_CATEGORIES = {'project_goal', 'capability', 'exploration', 'todo'}
-RESULT_STATUSES = {'project_goal': {'pending', 'confirmed'}, 'capability': {'available', 'limited'}, 'exploration': set(), 'todo': {'pending', 'in_progress', 'completed', 'cancelled'}}
+RESULT_CATEGORIES = {'project_goal', 'project_material', 'capability', 'exploration', 'todo'}
+RESULT_STATUSES = {'project_goal': {'pending', 'confirmed'}, 'project_material': set(), 'capability': {'available', 'limited'}, 'exploration': set(), 'todo': {'pending', 'in_progress', 'completed', 'cancelled'}}
 RESULT_DEFAULTS = {'project_goal': 'pending', 'capability': 'limited', 'todo': 'pending'}
 def result_category(item):
     category = item.get('category')
@@ -58,6 +59,8 @@ def result_category(item):
         return category
     if category in ('project_standard', 'requirement'):
         return 'project_goal'
+    if category == 'research':
+        return 'project_material'
     if category in ('issue', 'baseline_change_proposal'):
         return 'todo'
     if not category:
@@ -65,6 +68,8 @@ def result_category(item):
         label = label.group(1) if label else ''
         if label in ('项目目标', '项目标准', '需求说明'):
             return 'project_goal'
+        if label in ('项目资料', '调研发现'):
+            return 'project_material'
         if label in ('待办事项', '问题与风险', '改进建议'):
             return 'todo'
         if label == '已有能力':
@@ -727,7 +732,24 @@ def handle(root, state, username, request, incoming=None):
             raise ValueError('请确认这些待办是同一事项的重复记录；独立事项请分别保留')
         if category == 'todo' and any(linked_result_tasks(root, project['id'], source['id']) for source in sources):
             raise ValueError('已关联项目任务的待办不能合并，请在项目任务中处理')
-        attachments = list({attachment['sha256']: attachment for source in sources for attachment in source.get('attachments', [])}.values())
+        extra = change.get('attachments') or []
+        if not isinstance(extra, list) or len(extra) > 30:
+            raise ValueError('附件列表无效')
+        checked = []
+        for attachment in extra:
+            if not isinstance(attachment, dict):
+                raise ValueError('附件格式无效')
+            name = text(attachment.get('name'), 240)
+            sha = attachment.get('sha256')
+            if not name or re.search(r'[/\\\x00-\x1f]', name) or not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha):
+                raise ValueError('附件格式无效')
+            file = safe(directory, '.workbench-attachments/' + username + '/' + sha)
+            if attachment.get('path') != '/' + file.relative_to(root).as_posix():
+                raise PermissionError('附件不属于当前提交账号')
+            if not file.is_file() or type(attachment.get('size')) is not int or file.stat().st_size != attachment['size'] or digest(file) != sha:
+                raise ValueError('附件尚未上传成功或校验失败')
+            checked.append({key: attachment[key] for key in ('name', 'path', 'sha256', 'size')})
+        attachments = list({attachment['sha256']: attachment for attachment in [item for source in sources for item in source.get('attachments', [])] + checked}.values())
         if len(attachments) > 30:
             raise ValueError('合并后的附件超过 30 个，请分批整理')
         result_id = str(uuid.uuid4())

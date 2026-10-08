@@ -46,7 +46,12 @@ export class ContentFiles {
       const category = sameResultCategory(sources, change.category);
       assertTodoMerge(sources, change.confirmDuplicateTodos);
       if (category === 'todo' && (await Promise.all(sources.map(source => this.linked(binding, source.id)))).some(tasks => tasks.length)) throw new Error('已关联项目任务的待办不能合并，请在项目任务中处理');
-      const attachments = mergeAttachments(sources), now = new Date().toISOString(), id = randomUUID();
+      for (const attachment of change.attachments || []) {
+        if (attachment.path !== attachmentPath(binding, attachment.sha256)) throw new Error('附件不属于当前提交账号');
+        const stored = await diskPath(this.root, attachment.path), stat = await fs.lstat(stored);
+        if (!stat.isFile() || stat.size !== attachment.size || await hashFile(stored) !== attachment.sha256) throw new Error('附件尚未上传成功或校验失败');
+      }
+      const attachments = mergeAttachments([...sources, { attachments: change.attachments }]), now = new Date().toISOString(), id = randomUUID();
       const target = assertRemote(binding.project.remoteRoot, path.posix.join(binding.project.remoteRoot, 'curated', contributionCategoryInfo[category].folder, `${id}-v1.md`));
       const file = await diskPath(this.root, target, true), body = `# ${change.title}\n\n${change.description}`;
       const refs = sources.map(source => ({ scope: 'team' as const, projectId: binding.project.id, id: source.id, version: source.revision }));

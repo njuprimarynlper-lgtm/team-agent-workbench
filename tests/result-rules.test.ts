@@ -26,7 +26,9 @@ const output = (...artifacts: ReturnType<typeof item>[]) => JSON.stringify({ art
 async function until(fn: () => boolean) { const end = Date.now() + 15000; while (!fn()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 
 test('every category has a concrete boundary; overlapping presets are personal combinations, not generation quotas', () => {
-  assert.equal(materialCategories.length, 4);
+  assert.equal(materialCategories.length, 5);
+  assert.match(resultRulesPrompt(materialCategories), /项目资料只记录可查阅的参考资料/);
+  assert.match(resultRulesPrompt(materialCategories), /不能写入目标、验收标准或约束/);
   for (const category of materialCategories) {
     const boundary = resultCategoryBoundaries[category];
     assert(boundary.question && boundary.include && boundary.exclude);
@@ -240,12 +242,12 @@ test('classification settings expose presets and collapsed boundaries without ad
     assert.match(html, /<option value="new">新建组合…<\/option>/);
     assert.doesNotMatch(html, /<button[^>]*>新建组合/);
     assert.doesNotMatch(html, /<option value="temporary"/);
-    assert.equal((html.match(/<summary>收录边界<\/summary>/g) || []).length, 4); assert(!html.includes('<details open'));
+    assert.equal((html.match(/<summary>收录边界<\/summary>/g) || []).length, 5); assert(!html.includes('<details open'));
     const temporaryHtml = renderToStaticMarkup(createElement(ResultRulesEditor, { projectId: 'p', projectName: '示例', initialState, temporary: temporaryResultCombination(['design', 'guide']), appliedTemporary: () => {} }));
     assert.match(temporaryHtml, /value="temporary" selected=""/);
     assert.match(temporaryHtml, /用于本次整理/);
     assert.doesNotMatch(temporaryHtml, /保存并用于当前项目|aria-label="组合名称"/);
-    assert.equal((temporaryHtml.match(/type="checkbox"/g) || []).length, 4);
+    assert.equal((temporaryHtml.match(/type="checkbox"/g) || []).length, 5);
     assert.doesNotMatch(temporaryHtml, /disabled=""/);
     const main = await fs.readFile('src/renderer/main.tsx', 'utf8'); assert.match(main, /整理分类组合/); assert.doesNotMatch(main, /started\(selected, scope\)/);
   } finally { delete (globalThis as any).window; }

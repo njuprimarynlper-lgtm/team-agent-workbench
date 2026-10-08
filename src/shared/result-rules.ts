@@ -5,7 +5,8 @@ import { contributionCategoryInfo, materialCategories, contributionCategorySchem
 export type MaterialCategory = typeof materialCategories[number] | typeof legacyMaterialCategories[number];
 export const materialCategorySchema = z.enum([...materialCategories, ...legacyMaterialCategories]);
 export const resultCategoryBoundaries: Record<MaterialCategory, { question: string; include: string; exclude: string }> = {
-  project_goal: { question: '要做到什么，怎样算达标？', include: '目标、验收标准、范围及约束；保留确认状态。', exclude: 'AI 的建议不能自动变成已确认目标。' },
+  project_goal: { question: '要做到什么，怎样算达标？', include: '目标、验收标准、范围及约束；保留确认状态。', exclude: '参考资料、文档、样例和协作文本链接归项目资料。AI 的建议不能自动变成已确认目标。' },
+  project_material: { question: '要查阅哪些资料或链接？', include: '参考资料、项目文档、样例、数据入口和协作文本链接，写清位置、用途和适用范围。', exclude: '不写成项目目标、验收标准或已实现能力；链接本身不是待办。' },
   capability: { question: '现在已经能做什么？', include: '已实现能力、使用条件、验证范围和限制。', exclude: '计划与候选方案不能写成已有能力；不同环境的能力不能按时间合并。' },
   exploration: { question: '尝试了什么，发现了什么？', include: '方案、取舍、观察和依据，包括失败尝试。', exclude: '不冒充最终定论；可执行的后续动作单独列待办。' },
   todo: { question: '还有什么要做或解决？', include: '可独立推进的任务、缺陷、风险和待确认问题。', exclude: '独立事项逐条保留，不把任务清单压缩成一个摘要。' },
@@ -52,10 +53,11 @@ export function resultRulesPrompt(categories: readonly ContributionCategory[]) {
     const boundary = resultCategoryBoundaries[category as MaterialCategory];
     return { category, name: contributionCategoryInfo[category].label, ...(boundary || { include: contributionCategoryInfo[category].description }) };
   });
-  if (categories.every(category => materialCategories.includes(category as any))) return `先识别内容的用途，再按四类分别提炼。类别边界：${JSON.stringify(definitions)}。
-允许同一主题分别形成已有能力、探索记录和待办事项，但各自回答不同问题，不能复制相同正文。探索记录可关联待办；跨类引用不等于跨类合并。
+  if (categories.every(category => materialCategories.includes(category as any))) return `先识别内容的用途，再按启用类别分别提炼。类别边界：${JSON.stringify(definitions)}。
+允许同一主题分别形成项目资料、已有能力、探索记录和待办事项，但各自回答不同问题，不能复制相同正文。探索记录可关联待办；跨类引用不等于跨类合并。
+项目资料只记录可查阅的参考资料、项目文档、样例和协作文本链接，写清位置、用途和适用范围。这些内容不是项目目标，不能写入目标、验收标准或约束。
 独立待办逐条输出；只有确属同一事项的重复描述才合并。最多 50 条，超过时返回 sourceReview.status="incomplete" 并说明需缩小范围，不得静默截断。允许 0 条，不凑齐分类。
-项目目标默认待确认，由用户确认后生效；已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。
+项目目标默认待确认，由用户确认后生效；项目资料不设确认状态；已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。
 过滤与项目无关的操作流水、凭据和本机临时故障。项目自身的缺陷、交付环境限制和网络适配任务可以保留。不要因正文出现权限或网络就过滤整个项目任务。只从启用类别选择，不为迁就分类夸大事实。`;
   return `整理顺序：先过滤不应保留的信息，再按独立主题提炼和合并，最后为每个主题选择一个主类别。禁止按类别逐个生成，禁止同一主题换类别重复输出。总计最多 5 条，允许 0 条，不凑类别或数量；多个独立主题可以使用相同类别。
 类别边界：${JSON.stringify(definitions)}

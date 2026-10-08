@@ -70,7 +70,8 @@ test('production window routing restores the account in any window, isolates fai
   const login = (window: FakeWindow, username: string, password = 'test-password') => call(window, 'remote.connect', { profile: server.profile(username), password, localPath: '' });
   const first = opened[0]; assert.deepEqual((await snapshot(first)).sessions.map(s => s.id), [session.id]);
   await login(first, 'alice');
-  await call(first, 'window.new'); await until(() => !!opened[1]?.entry); const second = opened[1];
+  app.emit('second-instance'); await until(() => !!opened[1]?.entry); const second = opened[1];
+  assert.equal((await snapshot(second)).settings.workspaceSnapshot?.profile.username, 'bob', 'relaunch restores an unopened account first');
   assert.equal((await snapshot(second)).sessions.length, 0);
   await login(second, 'alice'); assert.deepEqual((await snapshot(second)).sessions.map(s => s.id), [session.id]);
   await call(first, 'layout.sidebar', { height: 320 }); await call(second, 'layout.sidebar', { height: 640 });
@@ -97,11 +98,33 @@ test('production window routing restores the account in any window, isolates fai
   assert.equal((await snapshot(second)).sessions.length, 0);
   assert.equal((await snapshot(first)).sessions[0].id, session.id); assert.equal((await snapshot(first)).connection?.connected, true);
   await assert.rejects(call(second, 'session.rename', { id: session.id, title: '不能修改' }), /不属于当前账号/);
-  await login(second, 'alice'); first.close(); await until(() => first.destroyed);
+  await login(second, 'alice');
+  // A duplicate stored slot is not another dormant account. Once the two
+  // existing windows are open, relaunching must still create a login window.
+  await fs.writeFile(path.join(base, 'window-state', '3.json'), JSON.stringify({ profile }));
+  const extraStart = opened.length;
+  app.emit('second-instance');
+  await until(() => !!opened[extraStart]?.entry);
+  assert.equal(opened.filter(window => !window.destroyed).length, 3);
+  // Requests made while the previous window is opening must not be discarded.
+  app.emit('second-instance'); app.emit('second-instance');
+  await until(() => !!opened[extraStart + 2]?.entry);
+  const additional = opened.slice(extraStart);
+  for (const window of additional) {
+    const state = await snapshot(window);
+    assert.equal(state.settings.workspaceSnapshot, undefined);
+    assert.deepEqual(state.sessions, []);
+  }
+  assert.equal((await snapshot(first)).connection?.profile.username, 'alice');
+  assert.equal((await snapshot(second)).connection?.profile.username, 'alice');
+  for (const window of additional) window.close();
+  await until(() => additional.every(window => window.destroyed));
+  first.close(); await until(() => first.destroyed);
   assert.equal((await snapshot(second)).connection?.connected, true);
   await call(second, 'session.rename', { id: session.id, title: '原窗口关闭后继续' });
   // Closing during password verification must not attach a context to a dead window.
-  await call(second, 'window.new'); await until(() => !!opened[2]?.entry); const third = opened[2];
+  const nextIndex = opened.length;
+  await call(second, 'window.new'); await until(() => !!opened[nextIndex]?.entry); const third = opened[nextIndex];
   const connect = SharedFiles.prototype.connect;
   let resumeLogin!: () => void, entered = false;
   SharedFiles.prototype.connect = async function (...args) { entered = true; await new Promise<void>(resolve => { resumeLogin = resolve; }); return connect.apply(this, args); };
@@ -120,9 +143,10 @@ test('production window routing restores the account in any window, isolates fai
   } finally { Workbench.prototype.requireAuth = requireAuth; }
   // Repeated launcher invocations must create a window for every request,
   // including bursts after all stored account slots are already in use.
+  const burstStart = opened.length;
   app.emit('second-instance'); app.emit('second-instance'); app.emit('second-instance');
-  await until(() => !!opened[5]?.entry);
-  for (const window of opened.slice(3, 6)) {
+  await until(() => !!opened[burstStart + 2]?.entry);
+  for (const window of opened.slice(burstStart, burstStart + 3)) {
     assert.equal(window.destroyed, false);
     assert(Array.isArray((await snapshot(window)).sessions));
   }

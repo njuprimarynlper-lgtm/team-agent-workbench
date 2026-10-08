@@ -52,7 +52,7 @@ export async function discoverDestinations(remote: SharedFiles, binding: RemoteB
   return { destinations, note: incomplete || queue.length ? '部分目录未能读取，AI 将在已读取的目录中识别；无法匹配时使用默认成果目录。' : undefined };
 }
 
-const fieldLabels: Record<string, string> = { objective: '目标', change: '本次变化', environment: '环境与口径', baseline: '对照基线', result: '结果', evidence: '依据', scope: '适用范围', limitations: '限制', nextSteps: '下一步', approach: '尝试方法', failure: '未奏效表现', likelyCause: '可能原因', avoidWhen: '不建议使用的条件', reusableInsight: '可复用经验', statement: '结论', uncertainty: '不确定项', problem: '问题', trigger: '触发条件', impact: '影响', reproduction: '复现方式', workaround: '临时处理', nextAction: '建议动作', baselineItem: '拟变更项目项', currentValue: '当前内容', proposedValue: '建议内容', rationale: '理由', validationNeeded: '采纳前验证' };
+const fieldLabels: Record<string, string> = { objective: '目标', subject: '资料', location: '位置或链接', usage: '用途', change: '本次变化', environment: '环境与口径', baseline: '对照基线', result: '结果', evidence: '依据', scope: '适用范围', limitations: '限制', nextSteps: '下一步', approach: '尝试方法', failure: '未奏效表现', likelyCause: '可能原因', avoidWhen: '不建议使用的条件', reusableInsight: '可复用经验', statement: '结论', uncertainty: '不确定项', problem: '问题', trigger: '触发条件', impact: '影响', reproduction: '复现方式', workaround: '临时处理', nextAction: '建议动作', baselineItem: '拟变更项目项', currentValue: '当前内容', proposedValue: '建议内容', rationale: '理由', validationNeeded: '采纳前验证' };
 const artifactSchema = z.object({ category: contributionCategorySchema, title: z.string().trim().min(1).max(120), fields: z.record(z.string(), z.string().trim().max(200000)).default({}), repoUrl: z.string().max(2048).nullable().optional(), attachmentIds: z.array(z.string().max(100)).max(30).optional(), sourceDetails: z.string().max(8000).optional() });
 const batchResultSchema = z.object({ artifacts: z.array(artifactSchema).max(8) });
 const legacyResultSchema = z.object({ title: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(200000), repoUrl: z.string().max(2048).nullable().optional(), destinationId: z.string().max(200).nullable().optional() });
@@ -64,7 +64,7 @@ export function artifactMarkdown(category: ContributionCategory, fields: Record<
 export function preparationFieldContract(categories: readonly ContributionCategory[] = contributionCategories) {
   // Keep the full field whitelist for old results; new summaries use three sections at most.
   const fields: Record<ContributionCategory, readonly string[]> = {
-    project_goal: ['objective', 'acceptance', 'constraints'], capability: ['statement', 'scope', 'limitations'], exploration: ['approach', 'result', 'evidence'], todo: ['action', 'acceptance', 'impact'],
+    project_goal: ['objective', 'acceptance', 'constraints'], project_material: ['subject', 'location', 'usage'], capability: ['statement', 'scope', 'limitations'], exploration: ['approach', 'result', 'evidence'], todo: ['action', 'acceptance', 'impact'],
     experiment_result: ['change', 'result', 'nextSteps'],
     failed_direction: ['approach', 'failure', 'reusableInsight'],
     finding: ['statement', 'evidence', 'nextSteps'],

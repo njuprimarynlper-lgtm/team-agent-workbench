@@ -13,11 +13,13 @@ import { materialCategories, contributionCategoryInfo } from '../src/shared/cont
 import { assertTodoMerge, effectiveResultStatus, resultStateLabel, resultCategory, orderedResults, sameResultCategory } from '../src/shared/result-model';
 import type { Draft, RemoteBinding } from '../src/shared/types';
 
-test('four independent categories keep legacy data readable without guessing implemented capabilities', () => {
-  assert.deepEqual(materialCategories, ['project_goal', 'capability', 'exploration', 'todo']);
+test('five independent categories keep legacy data readable without guessing implemented capabilities', () => {
+  assert.deepEqual(materialCategories, ['project_goal', 'project_material', 'capability', 'exploration', 'todo']);
   assert(materialCategories.every(category => contributionCategoryInfo[category].label.length === 4));
   assert.equal(resultCategory({ title: '【已有能力】 title', category: 'issue' }), 'todo');
   assert.equal(resultCategory({ title: '【项目标准】 title' }), 'project_goal');
+  assert.equal(resultCategory({ title: '【调研发现】 文献', category: 'research' }), 'project_material');
+  assert.equal(resultCategory({ title: '【项目资料】 协作文档' }), 'project_material');
   assert.equal(resultCategory({ title: 'test', category: 'design' }), 'exploration');
   assert.equal(resultCategory({ title: '【已有能力】 file', kind: 'file' }), undefined);
   assert.throws(() => sameResultCategory([{ title: '', category: 'todo' }, { title: '', category: 'exploration' }]), /同一分类/);

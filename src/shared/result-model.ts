@@ -2,17 +2,17 @@ import type { ResultStatus } from './result-status';
 export { resultStatusSchema, type ResultStatus } from './result-status';
 import { contributionCategoryInfo, type ContributionCategory } from './content';
 
-export const resultCategories = ['project_goal', 'capability', 'exploration', 'todo'] as const;
+export const resultCategories = ['project_goal', 'project_material', 'capability', 'exploration', 'todo'] as const;
 export type ResultCategory = typeof resultCategories[number];
 export const legacyResultCategories: Record<string, ResultCategory> = {
-  project_standard: 'project_goal', requirement: 'project_goal', issue: 'todo', baseline_change_proposal: 'todo',
+  project_standard: 'project_goal', requirement: 'project_goal', research: 'project_material', issue: 'todo', baseline_change_proposal: 'todo',
   finding: 'exploration', experiment_result: 'exploration', failed_direction: 'exploration', design: 'exploration',
-  method_exploration: 'exploration', verification: 'exploration', troubleshooting: 'exploration', guide: 'exploration', research: 'exploration', comparison: 'exploration'
+  method_exploration: 'exploration', verification: 'exploration', troubleshooting: 'exploration', guide: 'exploration', comparison: 'exploration'
 };
 const legacyLabels: Record<string, ResultCategory> = {
-  项目标准: 'project_goal', 需求说明: 'project_goal', 问题与风险: 'todo', 改进建议: 'todo',
+  项目标准: 'project_goal', 需求说明: 'project_goal', 调研发现: 'project_material', 问题与风险: 'todo', 改进建议: 'todo',
   项目经验: 'exploration', 项目结论: 'exploration', 结论与发现: 'exploration', 方法探索: 'exploration',
-  设计方案: 'exploration', 验证结果: 'exploration', 排障经验: 'exploration', 操作指南: 'exploration', 调研发现: 'exploration', 方案对比: 'exploration', 综合整理: 'exploration'
+  设计方案: 'exploration', 验证结果: 'exploration', 排障经验: 'exploration', 操作指南: 'exploration', 方案对比: 'exploration', 综合整理: 'exploration'
 };
 export function canonicalCategory(category?: string): ResultCategory | undefined {
   return resultCategories.includes(category as ResultCategory) ? category as ResultCategory : legacyResultCategories[category || ''];
@@ -24,7 +24,7 @@ export function resultCategory(item: { category?: string; title: string; kind?: 
   return resultCategories.find(category => contributionCategoryInfo[category].label === label) || legacyLabels[label || ''] || 'exploration';
 }
 export const resultStatusLabels: Record<ResultStatus, string> = { pending: '待处理', confirmed: '已确认', available: '可使用', limited: '有限可用', in_progress: '进行中', pending_review: '待验收', completed: '已完成', cancelled: '已取消' };
-export const categoryStatuses: Record<ResultCategory, ResultStatus[]> = { project_goal: ['pending', 'confirmed'], capability: ['available', 'limited'], exploration: [], todo: ['pending', 'in_progress', 'completed', 'cancelled'] };
+export const categoryStatuses: Record<ResultCategory, ResultStatus[]> = { project_goal: ['pending', 'confirmed'], project_material: [], capability: ['available', 'limited'], exploration: [], todo: ['pending', 'in_progress', 'completed', 'cancelled'] };
 export const resultDefaultStatus = (category?: string): ResultStatus | undefined => ({ project_goal: 'pending', capability: 'limited', todo: 'pending' } as const)[canonicalCategory(category) as 'project_goal' | 'capability' | 'todo'];
 type ResultState = { title: string; category?: string; resultStatus?: ResultStatus; linkedAssignments?: { status: string }[] };
 export function effectiveResultStatus(item: ResultState): ResultStatus | undefined {

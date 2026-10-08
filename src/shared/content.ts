@@ -4,12 +4,13 @@ import { resultStatusSchema } from './result-status';
 export const gitRevisionSchema = z.object({ commit: z.string().regex(/^[a-f0-9]{40,64}$/).optional(), branch: z.string().max(256), dirty: z.boolean(), capturedAt: z.string() });
 export type GitRevision = z.infer<typeof gitRevisionSchema>;
 export const legacyMaterialCategories = ['finding', 'project_standard', 'requirement', 'design', 'method_exploration', 'verification', 'issue', 'troubleshooting', 'guide', 'research', 'comparison', 'baseline_change_proposal'] as const;
-export const materialCategories = ['project_goal', 'capability', 'exploration', 'todo'] as const;
+export const materialCategories = ['project_goal', 'project_material', 'capability', 'exploration', 'todo'] as const;
 export const contributionCategories = ['experiment_result', 'failed_direction', ...legacyMaterialCategories, ...materialCategories] as const;
 export const contributionCategorySchema = z.enum(contributionCategories);
 export type ContributionCategory = z.infer<typeof contributionCategorySchema>;
 export const contributionCategoryInfo: Record<ContributionCategory, { label: string; folder: string; description: string }> = {
-  project_goal: { label: '项目目标', folder: 'project-goals', description: '要达成的目标、验收标准和约束；尚未确认的调整单独标记。' },
+  project_goal: { label: '项目目标', folder: 'project-goals', description: '要达成的目标、验收标准和约束；尚未确认的调整单独标记。资料和链接不写在这里。' },
+  project_material: { label: '项目资料', folder: 'project-materials', description: '参考资料、项目文档、样例和协作文本链接，写清位置、用途和适用范围。' },
   capability: { label: '已有能力', folder: 'capabilities', description: '当前已经实现的能力、使用范围和限制；只展示当前版本。' },
   exploration: { label: '探索记录', folder: 'explorations', description: '尝试的方案、观察到的结果及依据；保留失败经验和未验证范围。' },
   todo: { label: '待办事项', folder: 'todos', description: '接下来要做或解决的事情，包括任务、缺陷、风险和待确认问题。' },
@@ -46,6 +47,7 @@ export function projectResultTitle(item: { title: string; category?: Contributio
 export function contentAliasKey(projectId: string, contentId: string) { return `${projectId}:${contentId}`; }
 export const contributionCategoryFields: Record<ContributionCategory, readonly string[]> = {
   project_goal: ['objective', 'acceptance', 'scope', 'constraints', 'evidence'],
+  project_material: ['subject', 'location', 'usage', 'scope'],
   capability: ['statement', 'scope', 'verification', 'limitations', 'usage'],
   exploration: ['approach', 'result', 'evidence', 'scope', 'uncertainty'],
   todo: ['action', 'acceptance', 'trigger', 'impact', 'evidence'],
@@ -66,7 +68,7 @@ export const contentMetadataSchema = z.object({ submission: submissionRecordSche
 export type ContentMetadata = z.infer<typeof contentMetadataSchema>;
 export const resultReferenceSchema = z.object({ scope: z.enum(['personal', 'team']), projectId: z.string().min(1), id: z.string().uuid(), version: z.number().int().positive() });
 export type ResultReference = z.infer<typeof resultReferenceSchema>;
-export const contentMergeSchema = z.object({ confirmDuplicateTodos: z.boolean().optional(), requestId: z.string().uuid().optional(), sources: z.array(z.object({ id: z.string().uuid(), revision: z.number().int().positive() })).min(2).max(20).refine(items => new Set(items.map(item => item.id)).size === items.length, '不能重复选择同一成果'), replaceIds: z.array(z.string().uuid()).max(20).refine(items => new Set(items).size === items.length, '不能重复选择替代来源').default([]), title: z.string().trim().min(1).max(200), description: z.string().trim().min(1).max(2 * 1024 * 1024), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional(), sourceDetails: z.string().max(8000).optional(), sourceSessionTitle: z.string().max(120).optional() }).refine(change => change.replaceIds.every(id => change.sources.some(source => source.id === id)), { message: '替代来源必须属于本次整理的来源', path: ['replaceIds'] });
+export const contentMergeSchema = z.object({ confirmDuplicateTodos: z.boolean().optional(), requestId: z.string().uuid().optional(), attachments: z.array(contentAttachmentSchema).max(30).optional(), sources: z.array(z.object({ id: z.string().uuid(), revision: z.number().int().positive() })).min(2).max(20).refine(items => new Set(items.map(item => item.id)).size === items.length, '不能重复选择同一成果'), replaceIds: z.array(z.string().uuid()).max(20).refine(items => new Set(items).size === items.length, '不能重复选择替代来源').default([]), title: z.string().trim().min(1).max(200), description: z.string().trim().min(1).max(2 * 1024 * 1024), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional(), sourceDetails: z.string().max(8000).optional(), sourceSessionTitle: z.string().max(120).optional() }).refine(change => change.replaceIds.every(id => change.sources.some(source => source.id === id)), { message: '替代来源必须属于本次整理的来源', path: ['replaceIds'] });
 export type ContentMerge = z.input<typeof contentMergeSchema>;
 export interface ContentProvenance { id: string; revision: number; title: string; author: string; updatedAt: string }
 export interface SharedContent extends ContentMetadata { linkedAssignments?: { id: string; title: string; status: string; assignee: string }[]; id: string; path: string; author: string; revision: number; state: 'submitted' | 'curated'; createdAt: string; updatedAt: string; updatedBy: string; sha256: string; size: number; sources?: string[]; provenance?: ContentProvenance[]; derivedFrom?: ResultReference[]; replaces?: ResultReference[]; supersededBy?: ResultReference; supersededAt?: string; deletedAt?: string; deletedBy?: string; mergeRequestId?: string; }

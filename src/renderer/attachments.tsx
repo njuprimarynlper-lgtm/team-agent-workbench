@@ -1,6 +1,10 @@
 import { resultLabelTitle } from '../shared/result-labels';
 import React, { useState } from 'react';
-import type { Draft, DraftArtifact, FilePreview } from '../shared/types';
+import type { ConclusionFile, Draft, DraftArtifact, FilePreview } from '../shared/types';
+
+export function draftLevelArtifact(draft: Draft): DraftArtifact {
+  return { id: draft.id, category: draft.resultCategory || 'exploration', title: draft.title || '整理结果', fields: {}, body: draft.body, target: draft.target || '', selected: true, attachments: draft.attachments || [] };
+}
 import type { SharedContent } from '../shared/content';
 
 const api = window.workbench;
@@ -11,7 +15,11 @@ function Preview({ file, close }: { file: FilePreview; close: () => void }) {
 export function DraftAttachments({ draft, artifact, locked, run }: { draft: Draft; artifact: DraftArtifact; locked: boolean; run: <T>(fn: () => Promise<T>) => Promise<T | undefined> }) {
   const [preview, setPreview] = useState<FilePreview>();
   const entries = (artifact.attachments || []).map(entry => ({ ...entry, file: draft.files.find(file => file.id === entry.fileId) }));
-  return <section className="artifact-attachments" aria-label={`成果附件：${resultLabelTitle(artifact.title)}`}><b>附件（已选 {entries.filter(entry => entry.selected).length} 个）</b>{entries.map(entry => <div className="row" key={entry.fileId}><label className="check-row"><input type="checkbox" aria-label={`上传附件：${entry.file?.name || '文件不可用'}`} checked={entry.selected} disabled={locked || !entry.file} onChange={event => void run(() => api.call('draft.attachment.select', { id: draft.id, artifactId: artifact.id, fileId: entry.fileId, selected: event.target.checked }))}/>{entry.file?.name || '文件不可用'} <small className="muted">{entry.file && fileSize(entry.file.size)}</small></label><button className="text-button" disabled={!entry.file} onClick={() => void run(async () => setPreview(await api.call<FilePreview>('draft.attachment.preview', { id: draft.id, fileId: entry.fileId })))}>预览</button></div>)}{!locked && <button className="text-button" onClick={() => void run(() => api.call('draft.attach', { id: draft.id, artifactId: artifact.id }))}>＋ 添加本地文件</button>}{preview && <Preview file={preview} close={() => setPreview(undefined)}/>}</section>;
+  return <section className="artifact-attachments" aria-label={`成果附件：${resultLabelTitle(artifact.title)}`}><b>附件（已选 {entries.filter(entry => entry.selected).length} 个）</b>{entries.map(entry => <div className="row" key={entry.fileId}><label className="check-row"><input type="checkbox" aria-label={`上传附件：${entry.file?.name || '文件不可用'}`} checked={entry.selected} disabled={locked || !entry.file} onChange={event => void run(() => api.call('draft.attachment.select', { id: draft.id, artifactId: artifact.id, fileId: entry.fileId, selected: event.target.checked }))}/>{entry.file?.name || '文件不可用'} <small className="muted">{entry.file && fileSize(entry.file.size)}</small></label><button className="text-button" disabled={!entry.file} onClick={() => void run(async () => setPreview(await api.call<FilePreview>('draft.attachment.preview', { id: draft.id, fileId: entry.fileId })))}>预览</button></div>)}{!locked && <button className="text-button" onClick={() => void run(() => api.call('draft.attach', { id: draft.id, artifactId: draft.artifacts?.some(item => item.id === artifact.id) ? artifact.id : undefined }))}>＋ 添加本地文件</button>}{preview && <Preview file={preview} close={() => setPreview(undefined)}/>}</section>;
+}
+export function ConclusionAttachments({ files, locked, add, remove, preview }: { files: Pick<ConclusionFile, 'id' | 'name' | 'size'>[]; locked: boolean; add?: () => void; remove?: (id: string) => void; preview: (id: string) => Promise<FilePreview | undefined> }) {
+  const [open, setOpen] = useState<FilePreview>();
+  return <section className="artifact-attachments" aria-label="成果附件"><b>附件（{files.length} 个）</b>{files.map(file => <div className="row" key={file.id}><span>{file.name} <small className="muted">{fileSize(file.size)}</small></span><button className="text-button" disabled={locked} onClick={() => void preview(file.id).then(value => value && setOpen(value))}>预览</button>{remove && <button className="text-button" disabled={locked} onClick={() => remove(file.id)}>移除</button>}</div>)}{add && <button className="text-button" disabled={locked} onClick={add}>＋ 添加本地文件</button>}{open && <Preview file={open} close={() => setOpen(undefined)}/>}</section>;
 }
 export function SharedAttachments({ item, projectId }: { item: SharedContent; projectId: string }) {
   const [preview, setPreview] = useState<FilePreview>(), [error, setError] = useState(''), [busy, setBusy] = useState(false);

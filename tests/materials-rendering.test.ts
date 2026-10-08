@@ -34,6 +34,14 @@ test('result rows keep summary and actions together above the inline details', a
   assert.doesNotMatch(toggleButton, /type="checkbox"|存入个人成果库/, 'selection and actions must be siblings of the expansion button');
 });
 
+test('result actions keep archive and delete outside a more menu', async () => {
+  const { ResultMoreMenu } = await import('../src/renderer/result-card');
+  const html = renderToStaticMarkup(createElement(ResultMoreMenu, { children: createElement('div', {}, createElement('button', {}, '修改分类'), createElement('button', {}, '编辑')) }));
+  assert.match(html, /<summary[^>]*>更多<\/summary>/);
+  assert.match(html, /修改分类/);
+  assert.match(html, /class="result-more-menu"/);
+});
+
 test('attachment review renders explicit unchecked suggestions and no conclusion-download control without opening windows', async () => {
   (globalThis as any).window = { workbench: { call: async () => true } };
   const { DraftAttachments, SharedAttachments } = await import('../src/renderer/attachments');
@@ -62,7 +70,7 @@ test('local project results use consistent navigation and actions without renami
     assert.match(library, /aria-label="个人成果类别"/);
     assert.match(library, /class="content-library result-library conclusion-library"/);
     assert.doesNotMatch(library, /class="content-detail/);
-    for (const category of ['项目目标', '已有能力', '探索记录', '待办事项']) assert(library.includes(category + '<span>0</span>'));
+    for (const category of ['项目目标', '项目资料', '已有能力', '探索记录', '待办事项']) assert(library.includes(category + '<span>0</span>'));
     for (const category of ['项目结论', '项目经验', '项目标准', '方法探索', '问题与风险', '改进建议']) assert(!library.includes(category), 'an empty library must not offer project preset categories');
     assert.match(library, />新建成果<\/button>/);
     const unified = renderToStaticMarkup(createElement(ProjectResults, { projectName: project.name, scope: 'personal', changeScope: () => {}, children: createElement(ConclusionLibrary, { project, sessions: [], notice: () => {}, mergeStarted: () => {}, embedded: true }) }));
@@ -99,7 +107,7 @@ test('team project results have one name for both roles while administrative con
     assert.match(html, /aria-label="团队成果类别"/);
     assert.match(html, /class="content-library result-library"/);
     assert.doesNotMatch(html, /class="content-detail/);
-    for (const category of ['项目目标', '已有能力', '探索记录', '待办事项']) assert(html.includes(category + '<span>0</span>'));
+    for (const category of ['项目目标', '项目资料', '已有能力', '探索记录', '待办事项']) assert(html.includes(category + '<span>0</span>'));
     assert(html.includes('仅看与个人库的差异'));
     assert.doesNotMatch(html, /维护全部成果|返回差异列表|全部类型|全部标签/);
     assert.doesNotMatch(html, /团队成果操作状态|未操作|已操作|待整理|已整理/);

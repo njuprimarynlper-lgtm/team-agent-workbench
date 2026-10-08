@@ -13,6 +13,7 @@ import { memberProfile } from './fixtures/member-profile';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import { TransferQueue } from '../src/core/transfers';
+import { hashFile } from '../src/core/artifacts';
 import type { SharedFiles } from '../src/core/shared-files';
 import type { AgentSession, Transfer, RemoteBinding } from '../src/shared/types';
 import { SubmissionDetails } from '../src/renderer/submission-details';
@@ -160,4 +161,45 @@ test('queue captures origin and destination before async hashing; later caller m
     assert.equal(transfer.submission!.destination.projectName, '原项目'); assert.equal(transfer.metadata!.title, '原成果');
     await store.save(); const restored = new Store(root); await restored.init(); assert.deepEqual(restored.transfers[0].submission, transfer.submission);
   } finally { assert(root.startsWith(path.join(os.tmpdir(), 'wb-submission-freeze-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
+test('merged project-material workflows preserve attached files and exact origins through session, personal and team publication', async () => {
+  const x = await fixture();
+  try {
+    const session = await x.bob.createSession('codex', x.root, x.first.id); session.title = '比赛资料整理';
+    session.messages.push({ id: randomUUID(), role: 'user', text: '整理样例与说明', createdAt: new Date().toISOString() });
+    (x.bob as any).runPreparation = async (draft: any) => { draft.generation = 'ready'; };
+    const draft = await x.bob.prepare(session.id, [], ['project_material'], 'full', true);
+    const artifactId = randomUUID();
+    draft.artifacts = [{ id: artifactId, title: '竞赛样例说明', category: 'project_material', fields: { subject: '样例', usage: '验证输入格式' }, body: '样例用于验证输入格式', target: contributionCategoryDirectory(draft.binding!, 'project_material'), selected: true }];
+    const file = path.join(x.root, 'samples.csv'); await fs.writeFile(file, 'sample,label\n1,A');
+    await x.bob.addDraftFiles(draft.id, [file], artifactId);
+    const [personal] = await x.bob.saveDraftPersonal(draft.id, [artifactId]);
+    assert.equal(personal.localFiles!.length, 1);
+    session.title = '另一阶段的会话名';
+    const sessionUpload = await x.bob.submitDraft(draft.id); await completed(sessionUpload);
+    assert.equal(sessionUpload.submission!.sources[0].title, '比赛资料整理');
+    assert.equal(sessionUpload.metadata!.category, 'project_material'); assert.equal(sessionUpload.metadata!.attachments!.length, 1);
+    const sharedPersonal = await x.bob.publishConclusion(personal.id, [], personal.version); await completed(sharedPersonal);
+    assert.equal(sharedPersonal.submission!.sources[0].kind, 'personal_result'); assert.equal(sharedPersonal.submission!.sources[0].version, personal.version);
+    assert.equal(sharedPersonal.metadata!.attachments!.length, 1);
+
+    const second = await x.bob.createConclusion(x.first.id, '样例用途补充', '覆盖边界说明', 'project_material');
+    const mergedDraft = await x.bob.prepareConclusionMerge(x.first.id, session.id, [personal.id, second.id], '合并资料说明');
+    mergedDraft.title = '合并样例资料'; mergedDraft.body = '样例用于检查格式，完整性能仍需验证。';
+    await x.bob.addDraftFiles(mergedDraft.id, [file]);
+    const personalMerge = await x.bob.submitConclusionMerge(mergedDraft.id); await completed(personalMerge);
+    assert.deepEqual(personalMerge.submission!.sources.map(source => [source.kind, source.id, source.version]), [['personal_result', personal.id, personal.version], ['personal_result', second.id, second.version]]);
+    assert.equal(personalMerge.metadata!.attachments!.length, 1);
+    assert(!personalMerge.submission!.sources.some(source => source.id === session.id));
+
+    const binding = x.bob.remote.binding(x.first.id), items = await x.bob.remote.contentList(binding);
+    const originals = [sessionUpload, sharedPersonal].map(task => items.find(item => item.path === task.target)!);
+    const adminBinding = x.alice.remote.binding(x.first.id), extra = path.join(x.root, 'scope.txt'); await fs.writeFile(extra, '覆盖范围');
+    const extraFile = await x.alice.remote.uploadAttachment(adminBinding, extra, await hashFile(extra), () => {});
+    const team = await x.alice.remote.contentMerge(adminBinding, { sources: originals.map(item => ({ id: item.id, revision: item.revision })), replaceIds: [], title: '团队比赛资料', description: '统一资料入口', category: 'project_material', attachments: [{ name: 'scope.txt', ...extraFile }] });
+    assert.equal(team.category, 'project_material'); assert.equal(team.attachments!.length, 2);
+    assert.deepEqual(team.submission!.sources.map(source => [source.kind, source.id, source.version]), originals.map(item => ['team_result', item.id, item.revision]));
+    assert.equal(team.submission!.submittedBy, 'alice');
+  } finally { await x.close(); }
 });

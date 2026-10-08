@@ -102,6 +102,7 @@ try {
 
   await page.goto(url+'?mode=personal');
   await page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:/探索记录/}).click();
+  await page.locator('.result-more > summary').click();
   await page.getByRole('button',{name:'分享至团队',exact:true}).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button',{name:'提交到 竞赛组 / 优化项目',exact:true}).click();

@@ -25,19 +25,20 @@ test('label counts are per result and a disappearing active filter stays at zero
   assert.deepEqual(resultLabelOptions([], 'untagged'), [{ value: 'untagged', label: '未分类', count: 0 }]);
 });
 
-test('both libraries expose four stable categories and metadata takes precedence over title labels', () => {
+test('both libraries expose five stable categories and metadata takes precedence over title labels', () => {
   const items = [{ title: '【已有能力】A', category: 'finding' }, { title: '【部署约束】B', category: 'todo' }, { title: '【项目标准】C' }, { title: '无类别的记录' }];
   const original = structuredClone(items);
   for (const label of ['团队成果类别', '个人成果类别']) {
     const html = renderToStaticMarkup(createElement(ResultCategoryFilter, { items, value: 'exploration', label, onChange: () => {} }));
     assert.match(html, /aria-pressed="true">探索记录<span>2<\/span>/);
     assert.match(html, /项目目标<span>1<\/span>/);
+    assert.match(html, /项目资料<span>0<\/span>/);
     assert.match(html, /已有能力<span>0<\/span>/);
     assert.match(html, /待办事项<span>1<\/span>/);
     assert.doesNotMatch(html, /项目结论|项目经验|方法探索|全部类型|全部标签/);
-    assert.equal((html.match(/<button /g) || []).length, 5);
+    assert.equal((html.match(/<button /g) || []).length, 6);
     const empty = renderToStaticMarkup(createElement(ResultCategoryFilter, { items: [], value: 'all', label, onChange: () => {} }));
-    assert.equal((empty.match(/<span>0<\/span>/g) || []).length, 4);
+    assert.equal((empty.match(/<span>0<\/span>/g) || []).length, 5);
     assert.match(empty, /aria-pressed="true">全部<\/button>/);
   }
   assert.deepEqual(items, original);

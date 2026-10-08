@@ -54,11 +54,11 @@ export class AccountSync {
     if (this.store.settings.resultPreferences?.[key]) records['result-rules:preferences'] = this.store.settings.resultPreferences[key];
     // Losing group access must never mean deleting the account's existing private records.
     for (const [id, value] of Object.entries(this.base)) if (id.startsWith('draft:') && value && !projectIds.has(value.projectId)) records[id] = value;
-    for (const item of this.store.conclusions) if (item.accountOwner === key) { const safeSource = (source: typeof item.sources[number]) => ({ ...source, path: source.path && !/^[A-Za-z]:|^file:/.test(source.path) ? source.path : undefined }); records['material:' + item.id] = { ...item, sources: item.sources.map(safeSource), versions: item.versions?.map(version => ({ ...version, sources: version.sources.map(safeSource) })) }; }
+    for (const item of this.store.conclusions) if (item.accountOwner === key) { const safeSource = (source: typeof item.sources[number]) => ({ ...source, path: source.path && !/^[A-Za-z]:|^file:/.test(source.path) ? source.path : undefined }); const { localFiles, ...material } = item; const files = localFiles?.map(({ id, name, sha256, size }) => ({ id, name, sha256, size })); records['material:' + item.id] = { ...material, ...(files?.length ? { localFiles: files } : {}), sources: item.sources.map(safeSource), versions: item.versions?.map(version => ({ ...version, sources: version.sources.map(safeSource) })) }; }
     for (const draft of this.store.drafts) if (this.owns(draft, profile)) {
-      const selectedFiles = new Set(draft.artifacts?.flatMap(item => (item.attachments || []).filter(entry => entry.selected).map(entry => entry.fileId)));
+      const selectedFiles = new Set([...(draft.artifacts?.flatMap(item => (item.attachments || []).filter(entry => entry.selected).map(entry => entry.fileId)) || []), ...((draft.attachments || []).filter(entry => entry.selected).map(entry => entry.fileId))]);
       // Account restoration contains reviewed results, never conversations, CLI state or local code paths.
-      records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, evidenceIds: undefined, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), personalSavedIds: draft.personalSavedIds, files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, emptyResult: draft.emptyResult, resultRules: draft.resultRules, preparationDirections: draft.preparationDirections, resultCategory: draft.resultCategory, resultSourceDetails: draft.resultSourceDetails, mergeProjectId: draft.mergeProjectId, conclusionMergeProjectId: draft.conclusionMergeProjectId, conclusionMergeInstruction: draft.conclusionMergeInstruction, mergeSources: draft.mergeSources, mergeCompletedAt: draft.mergeCompletedAt, mergeResultId: draft.mergeResultId, mergeResultPath: draft.mergeResultPath, submitted: draft.submitted ? 'restored' : undefined };
+      records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, evidenceIds: undefined, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), attachments: draft.attachments?.filter(entry => entry.selected), personalSavedIds: draft.personalSavedIds, files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, emptyResult: draft.emptyResult, resultRules: draft.resultRules, preparationDirections: draft.preparationDirections, resultCategory: draft.resultCategory, resultSourceDetails: draft.resultSourceDetails, mergeProjectId: draft.mergeProjectId, conclusionMergeProjectId: draft.conclusionMergeProjectId, conclusionMergeInstruction: draft.conclusionMergeInstruction, mergeSources: draft.mergeSources, mergeCompletedAt: draft.mergeCompletedAt, mergeResultId: draft.mergeResultId, mergeResultPath: draft.mergeResultPath, submitted: draft.submitted ? 'restored' : undefined };
     }
     for (const [id, alias] of Object.entries(this.store.settings.contentAliases || {})) records['alias:' + id] = alias;
     const prefix = `${profile.id}:${profile.username}:`;
@@ -76,7 +76,11 @@ export class AccountSync {
     for (const session of this.store.sessions) rememberPreparationProgress(session, this.store.drafts);
     const materials: ProjectConclusion[] = [];
     for (const [key, value] of Object.entries(records)) {
-      if (key.startsWith('material:') && value && typeof value.projectId === 'string' && value.id === key.slice(9) && typeof value.title === 'string' && typeof value.content === 'string' && Array.isArray(value.sources)) materials.push({ ...value, accountOwner: owner });
+      if (key.startsWith('material:') && value && typeof value.projectId === 'string' && value.id === key.slice(9) && typeof value.title === 'string' && typeof value.content === 'string' && Array.isArray(value.sources)) {
+        const { localFiles: rawFiles, ...rest } = value;
+        const localFiles = Array.isArray(rawFiles) ? rawFiles.flatMap((file: { id?: string; name?: string; sha256?: string; size?: number }) => file && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.sha256 === 'string' && typeof file.size === 'number' ? [{ id: file.id, name: file.name, sha256: file.sha256, size: file.size, localPath: this.blobPath(file as { name: string; sha256: string; size: number }) }] : []) : [];
+        materials.push({ ...rest, accountOwner: owner, ...(localFiles.length ? { localFiles } : {}) });
+      }
       if (key.startsWith('draft:') && value && projectIds.has(value.projectId) && /^[a-f0-9-]{36}$/.test(value.id) && value.id === key.slice(6) && typeof value.body === 'string') {
         const project = profile.projects.find(project => project.id === value.projectId)!;
         const existing = this.store.drafts.find(draft => draft.id === value.id), inputDir = path.join(this.store.root, 'drafts', value.id, 'input');
@@ -84,7 +88,7 @@ export class AccountSync {
         if (!existing) this.store.drafts.push(restored);
         else if (!['running'].includes(existing.generation || '')) {
           const artifacts = restored.artifacts?.map(item => { const prior = existing.artifacts?.find(prior => prior.id === item.id); return { ...item, evidenceIds: prior?.evidenceIds || item.evidenceIds, submitted: prior?.submitted || item.submitted, attachments: [...(item.attachments || []), ...(prior?.attachments || []).filter(entry => !entry.selected && !item.attachments?.some(other => other.fileId === entry.fileId))] }; });
-          Object.assign(existing, { title: value.title, titleAlias: value.titleAlias, body: value.body, supplement: value.supplement, artifacts, personalSavedIds: [...new Set([...(existing.personalSavedIds || []), ...(value.personalSavedIds || [])])], emptyResult: value.emptyResult, resultRules: value.resultRules, preparationDirections: value.preparationDirections, resultCategory: value.resultCategory, resultSourceDetails: value.resultSourceDetails });
+          Object.assign(existing, { title: value.title, titleAlias: value.titleAlias, body: value.body, supplement: value.supplement, artifacts, attachments: value.attachments || existing.attachments, personalSavedIds: [...new Set([...(existing.personalSavedIds || []), ...(value.personalSavedIds || [])])], emptyResult: value.emptyResult, resultRules: value.resultRules, preparationDirections: value.preparationDirections, resultCategory: value.resultCategory, resultSourceDetails: value.resultSourceDetails });
         }
       }
     }
@@ -97,21 +101,28 @@ export class AccountSync {
     this.store.drafts = this.store.drafts.filter(draft => !this.owns(draft, profile) || records['draft:' + draft.id] !== null || draft.generation === 'running');
   }
   private blobPath(file: { name: string; sha256: string; size: number }) { contentAttachmentSchema.parse({ ...file, path: '' }); return path.join(this.store.root, 'accounts', 'files', createHash('sha256').update(accountIdentity(this.profile!)).digest('hex'), file.sha256, safeFilename(file.name)); }
+  private recordFiles(records: AccountRecords) {
+    return Object.entries(records).flatMap(([key, value]) => !value ? [] : key.startsWith('draft:') ? value.files || [] : key.startsWith('material:') && Array.isArray(value.localFiles) ? value.localFiles : []);
+  }
+  private ownedFile(profile: ConnectionProfile, sha256: string) {
+    return this.store.drafts.filter(draft => this.owns(draft, profile)).flatMap(draft => draft.files).find(file => file.sha256 === sha256)?.localPath
+      || this.store.conclusions.filter(item => item.accountOwner === accountIdentity(profile)).flatMap(item => item.localFiles || []).find(file => file.sha256 === sha256)?.localPath;
+  }
   private async files(records: AccountRecords, remoteRecords: AccountRecords, profile: ConnectionProfile, valid: () => void) {
-    const known = new Set(Object.entries(remoteRecords).filter(([key]) => key.startsWith('draft:')).flatMap(([, value]) => value?.files || []).map((file: any) => file.sha256));
+    const known = new Set(this.recordFiles(remoteRecords).map((file: { sha256: string }) => file.sha256));
     const done = new Set<string>();
-    for (const [key, value] of Object.entries(records)) if (key.startsWith('draft:') && value) for (const file of value.files || []) {
+    for (const file of this.recordFiles(records)) {
       const local = this.blobPath(file); if (done.has(local)) continue; done.add(local);
-      const source = this.store.drafts.filter(draft => this.owns(draft, profile)).flatMap(draft => draft.files).find(source => source.sha256 === file.sha256);
+      const source = this.ownedFile(profile, file.sha256);
       if (!known.has(file.sha256)) {
-        if (!source || await hashFile(source.localPath) !== file.sha256) throw new Error('待同步附件不存在或已变化：' + file.name);
-        valid(); await this.remote.accountFile(file.sha256, source.localPath, true); valid(); known.add(file.sha256);
+        if (!source || await hashFile(source) !== file.sha256) throw new Error('待同步附件不存在或已变化：' + file.name);
+        valid(); await this.remote.accountFile(file.sha256, source, true); valid(); known.add(file.sha256);
       }
       if (await hashFile(local).catch(() => '') === file.sha256) continue;
       await fs.mkdir(path.dirname(local), { recursive: true });
       const temporary = local + '.' + randomUUID() + '.partial';
       try {
-        if (source && await hashFile(source.localPath).catch(() => '') === file.sha256) await fs.copyFile(source.localPath, temporary, fs.constants.COPYFILE_EXCL);
+        if (source && await hashFile(source).catch(() => '') === file.sha256) await fs.copyFile(source, temporary, fs.constants.COPYFILE_EXCL);
         else { valid(); await this.remote.accountFile(file.sha256, temporary, false); valid(); }
         await fs.rename(temporary, local);
       } finally { await fs.rm(temporary, { force: true }).catch(() => {}); }

@@ -79,6 +79,17 @@ class ResultClassification(unittest.TestCase):
         self.assertEqual(merged['resultStatus'], 'pending')
         self.assertEqual(len(merged['replaces']), 2)
 
+    def test_project_material_is_separate_from_goal_confirmation(self):
+        item = self.publish('project_material', '协作文档')
+        self.assertIn('/project-materials/', item['path'])
+        self.assertIsNone(item.get('resultStatus'))
+        with self.assertRaises(ValueError):
+            self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], resultStatus='confirmed'))
+        goal = self.publish('project_goal', '提升召回')
+        self.assertEqual(goal['resultStatus'], 'pending')
+        self.assertIn('/project-goals/', goal['path'])
+        self.assertEqual(content.result_category({'category': 'research', 'title': '【调研发现】 文献'}), 'project_material')
+
     def test_task_links_reveal_private_details_only_to_owner_and_admin(self):
         item = self.publish('todo', '公共事项')
         file = self.root / '.workbench/admin/assignments' / (self.project + '.json')

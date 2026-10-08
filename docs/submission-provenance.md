@@ -47,10 +47,10 @@
 
 ### 2026-10-08 验证结果
 
-- 提交前后台全量回归 378 项全部通过，包括补齐合法项目数据的分类夹具。
-- 来源专项 5 项全部通过，覆盖重启后恢复队列重试及上传开始前修改来源对象的并发情况。
-- 存储 Worker 测试 112 项，108 项通过；4 项 Linux 专用用例在 Windows 跳过。
+- 合并远端 `37f4421` 后，后台全量回归 381 项全部通过，包括项目资料分类及整理结果携带文件的改动。
+- 来源专项 6 项全部通过，覆盖重启后恢复队列重试、上传开始前修改来源对象，以及带附件的会话、个人成果和团队成果合并。
+- 存储 Worker 测试 113 项，109 项通过；4 项 Linux 专用用例在 Windows 跳过。
 - 新页面交互 7 项及既有分类页面交互 12 项通过，已检查截图。
 - TypeScript 检查、用户版和管理版构建、Git 空白检查通过。
 
-提交前的日志保存在 `artifacts/submission-publish-check.log`、`artifacts/submission-publish-server.log`、`artifacts/submission-publish-ui.log` 和 `artifacts/submission-publish-classification-ui.log`。这些是本地验证结果，未执行实际服务器部署或真实模型调用。
+合并后的日志保存在 `artifacts/submission-merged-check.log`、`artifacts/submission-merge-server.log`、`artifacts/submission-merge-ui.log` 和 `artifacts/submission-merge-classification-ui.log`。这些是本地验证结果，未执行实际服务器部署或真实模型调用。

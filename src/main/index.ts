@@ -175,7 +175,15 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.updateAssignment(p.projectId, p.change); }
     case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); if ((p.networkRoute || (workbench.store.settings.egress?.enabled ? 'management' : 'direct')) === 'management') await workbench.requireAuth(p.provider, p.cwd.trim() || await workbench.researchWorkspace(), 'management'); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief, p.networkRoute); }
     case 'conclusion.match': { const p = z.object({ projectId: z.string(), query: text.min(1) }).parse(raw); return workbench.matchConclusions(p.projectId, p.query); }
-    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category, p.resultStatus, p.resultOwner); }
+    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional(), fileIds: z.array(id).max(30).optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category, p.resultStatus, p.resultOwner, p.fileIds); }
+    case 'conclusion.files.stage': return workbench.stageConclusionFiles(await chooseFiles(owner));
+    case 'conclusion.files.add': { const p = z.object({ id }).parse(raw); return workbench.addConclusionFiles(p.id, await chooseFiles(owner)); }
+    case 'conclusion.files.remove': { const p = z.object({ id: id.optional(), fileId: id }).parse(raw); return workbench.removeConclusionFile(p.id, p.fileId); }
+    case 'conclusion.file.preview': {
+      const p = z.object({ id: id.optional(), fileId: id }).parse(raw), file = workbench.conclusionFile(p.id, p.fileId);
+      const { previewSessionFile } = await import('../core/session-files');
+      return { ...await previewSessionFile({ cwd: path.dirname(file.localPath), outputFiles: [], messages: [] } as any, file.localPath), name: file.name };
+    }
     case 'conclusion.save': { const p = z.object({ id, title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), version: z.number().int().positive().optional(), resultOwner: z.string().max(160).optional() }).parse(raw); return workbench.saveConclusion(p.id, p.title, p.content, p.category, p.resultStatus, p.version, p.resultOwner); }
     case 'conclusion.alias.save': { const p = z.object({ id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveConclusionAlias(p.id, p.alias); }
     case 'content.deletion.conclusions': return workbench.deletedContentConclusions(z.object({ eventId: z.string() }).parse(raw).eventId);
@@ -482,8 +490,13 @@ function drainAdditionalWindows() {
       while (pendingWindowRequests.length && !quitting && !closing) {
         const reuseStored = pendingWindowRequests.shift()!;
         try {
-          const storedSlot = reuseStored ? (await storedDatasetSlots()).find(slot => !activeSlots.has(slot)) : undefined;
-          await routeAccount(() => createWindow(storedSlot, !reuseStored));
+          await routeAccount(async () => {
+            if (quitting || closing) return;
+            const storedSlot = reuseStored ? (await storedDatasetSlots()).find(slot => !activeSlots.has(slot)) : undefined;
+            // Each launch opens a window. When all accounts are already open,
+            // start at login instead of reusing an unrelated old slot's identity.
+            await createWindow(storedSlot, storedSlot === undefined);
+          });
         } catch (error: any) { dialog.showErrorBox('工作台窗口启动失败', error.message); }
       }
     }

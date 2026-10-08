@@ -50,7 +50,7 @@ else if (command === 'login') {
         ...(!artifacts.length ? { emptyReason: { code: 'no_reusable_content', explanation: '本次材料没有可单独保留的新内容。', existingResultIds: [] } } : {})
       } : {};
       return JSON.stringify({ ...reviewed, artifacts: artifacts.map(item => ({ ...item,
-        category: /preparationContractVersion:4/.test(promptText) ? ({finding:'exploration', verification:'exploration', design:'exploration', method_exploration:'exploration', project_standard:'project_goal', requirement:'project_goal', issue:'todo', baseline_change_proposal:'todo'}[item.category] || item.category || (categories.includes('exploration') ? 'exploration' : categories[0])) : item.category || (categories.includes('finding') ? 'finding' : categories[0]),
+        category: /preparationContractVersion:4/.test(promptText) ? ({finding:'exploration', verification:'exploration', design:'exploration', method_exploration:'exploration', project_standard:'project_goal', requirement:'project_goal', research:'project_material', issue:'todo', baseline_change_proposal:'todo'}[item.category] || item.category || (categories.includes('exploration') ? 'exploration' : categories[0])) : item.category || (categories.includes('finding') ? 'finding' : categories[0]),
         topic: item.topic || item.title, origin: item.origin || 'project',
         body: item.body || Object.values(item.fields || {}).join(' '),
         evidenceIds: item.evidenceIds || evidenceIds.slice(0, 1) })) });
