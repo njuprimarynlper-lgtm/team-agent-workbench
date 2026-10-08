@@ -103,7 +103,7 @@ test('a current personal result with the same title and text is saved, and an ar
   const saved = { id: 'local', projectId: offlineProjectId, title: team.title, content: 'test', sources: [], updatedAt: now, version: 1, archived: false };
   const authority = remoteResult();
   authority.title = '【项目结论】 权威接口要求是NVFP4转HiF4';
-  const archived = { id: 'old', projectId: offlineProjectId, title: authority.title, content: authority.description, sources: [{ kind: 'remote' as const, id: authority.id, revision: authority.revision, title: authority.title, sha256: authority.sha256 }], updatedAt: now, version: 1, archived: true };
+  const archived = { id: 'old', projectId: offlineProjectId, title: authority.title, content: authority.description, sources: [{ kind: 'remote' as const, id: authority.id, revision: authority.revision, title: authority.title, sha256: authority.sha256, updatedAt: now }], updatedAt: now, version: 1, archived: true };
   assert.equal(teamResultDifference(team, [saved, archived]), undefined);
   assert.equal(teamResultDifference(authority, [saved, archived]), 'missing');
 });
