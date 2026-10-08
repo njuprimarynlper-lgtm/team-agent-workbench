@@ -32,7 +32,7 @@ test('unreadable new AI responses never replace a prior draft body', () => {
 });
 
 test('the current preparation and merge contracts both reject JSON disguised as human prose', () => {
-  const draft = { title: '原结果', body: '原正文', binding: {}, resultRules: { contract: 2, combinationId: 'research', name: '研究', categories: ['finding'] }, preparationEvidenceIds: ['message:m'] } as unknown as Draft;
+  const draft = { title: '原结果', body: '原正文', binding: {}, resultRules: { contract: 2, categories: ['finding'] }, preparationEvidenceIds: ['message:m'] } as unknown as Draft;
   const response = JSON.stringify({ artifacts: [{ category: 'finding', origin: 'project', topic: '接口结论', title: '接口约束', body: '{"result":"ok"}', evidenceIds: ['message:m'] }] });
   for (const apply of [applyPreparation, applyContentMerge]) {
     assert.throws(() => apply(draft, response), /可直接阅读/); assert.equal(draft.body, '原正文');

@@ -81,7 +81,8 @@ export async function inspectCatalog(provider: Provider, executable: string, cwd
       })(),
       (async () => {
         try {
-          result.quota.windows = codexQuota(await rpc.request('account/rateLimits/read', {}, timeout));
+          // A slow optional quota response must not hold a ready model list for 20 seconds.
+          result.quota.windows = codexQuota(await rpc.request('account/rateLimits/read', {}, Math.min(timeout, 3000)));
           if (result.quota.windows.length) result.quota.detail = '这是账号共享额度，按服务端返回的用量池展示；不是当前会话或单个模型的独立额度。';
         } catch { /* Quota availability must not invalidate a usable model list or login. */ }
       })(),

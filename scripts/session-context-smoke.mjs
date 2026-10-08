@@ -114,12 +114,12 @@ try {
   await expect(page.getByRole('button', { name: /处理选中的/ })).toHaveCount(0);
   await page.getByLabel('选择成果：单条启动约束', { exact: true }).check();
   await expect(page.getByRole('button', { name: '处理选中的 1 条成果', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: '显示历史成果', exact: true }).click();
+  await page.getByRole('combobox', { name: '成果范围', exact: true }).selectOption('all');
   await expect(page.getByRole('button', { name: /处理选中的/ })).toHaveCount(0);
   await page.getByLabel('选择成果：单条启动约束', { exact: true }).check();
   await page.getByRole('button', { name: '处理选中的 1 条成果', exact: true }).click();
   const processDialog = page.getByRole('dialog', { name: '处理所选成果', exact: true });
-  await expect(processDialog).toContainText('所选原成果才会移入历史');
+  await expect(processDialog).toContainText('可选择将哪些来源移入历史');
   await processDialog.getByRole('button', { name: '返回选择', exact: true }).click();
   assert.equal((await call('snapshot')).drafts.length, 0, 'canceling creates no task');
   await page.getByRole('button', { name: '处理选中的 1 条成果', exact: true }).click();
@@ -130,7 +130,7 @@ try {
   await fixture.write({ status: 'ready', turn: 'success', turnDelay: 3000, mergeResult: { title: '新人启动检查', overview: '1. 检查终端窗口是否隐藏。\n2. 记录实际验收范围。' } });
   await page.getByRole('button', { name: '生成预处理结果', exact: true }).click();
   await expect(page.getByLabel('整理状态', { exact: true })).toContainText('正在按要求处理');
-  await expect(page.getByLabel('整理状态', { exact: true })).toContainText('预处理结果已生成，请审阅后保存');
+  await expect(page.getByLabel('整理状态', { exact: true })).toContainText('处理草稿已生成，可保存个人或提交团队');
   await expect(page.getByLabel('预处理结果', { exact: true })).toContainText(direction);
   const processingPrompt = (await fs.readFile(path.join(data, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(m => m.method === 'turn/start').at(-1).params.input[0].text;
   assert(processingPrompt.includes(direction)); assert(!processingPrompt.includes('这不是拼接或摘要任务'));
@@ -140,7 +140,7 @@ try {
   await page.getByLabel('预处理结果内容', { exact: true }).fill('人工核对后的检查步骤。');
   await page.screenshot({ path: path.join(data, 'conclusion-processing-preview.png') });
   await page.locator('.merge-replacement-choice input[type="checkbox"]').check();
-  await page.getByRole('button', { name: '保存新成果，1 条来源移入历史', exact: true }).click();
+  await page.getByRole('button', { name: '保存到个人成果库', exact: true }).click();
   await expect(page.locator('.result-card.is-expanded .result-card-heading b')).toHaveText(/新人检查清单$/);
   const savedConclusions = await call('conclusion.list', { projectId: profile.projects[0].id, includeArchived: true });
   assert.equal(savedConclusions.find(item => item.id === processSource.id).archived, true);

@@ -1,6 +1,5 @@
-import { canonicalCategory } from './result-model';
 import { z } from 'zod';
-import { contributionCategoryInfo, materialCategories, contributionCategorySchema, legacyMaterialCategories, type ContributionCategory } from './content';
+import { contributionCategoryInfo, materialCategories, legacyMaterialCategories, type ContributionCategory } from './content';
 
 export type MaterialCategory = typeof materialCategories[number] | typeof legacyMaterialCategories[number];
 export const materialCategorySchema = z.enum([...materialCategories, ...legacyMaterialCategories]);
@@ -24,29 +23,16 @@ export const resultCategoryBoundaries: Record<MaterialCategory, { question: stri
   baseline_change_proposal: { question: '已有做法值得怎样改进？', include: '针对现有做法、带依据但尚未采纳的改进建议，写清预期作用和待验证项。', exclude: '已确认的规则归项目标准；明确的实现安排归设计方案；没有项目依据的通用建议不保留。' }
 };
 
-const categoriesSchema = z.array(materialCategorySchema).min(1, '至少启用一个类别').max(materialCategories.length + legacyMaterialCategories.length).refine(values => new Set(values).size === values.length, '类别不能重复');
-export const resultCombinationSchema = z.object({ id: z.string().uuid(), name: z.string().trim().min(1).max(30), categories: categoriesSchema });
-export interface ResultCombination { id: string; name: string; categories: MaterialCategory[] }
-export const temporaryCombinationId = 'temporary';
-export function temporaryResultCombination(categories: unknown): ResultCombination {
-  return { id: temporaryCombinationId, name: '临时组合', categories: categoriesSchema.parse(categories) };
-}
-export const resultPresets: ResultCombination[] = [
-  { id: 'research', name: '算法研究', categories: [...materialCategories] },
-  { id: 'development', name: '软件开发', categories: [...materialCategories] },
-  { id: 'investigation', name: '调研分析', categories: [...materialCategories] }
-];
-export const resultPreferencesSchema = z.object({ combinations: z.array(resultCombinationSchema).max(50), projects: z.record(z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), z.string().max(80)) }).superRefine((value, context) => {
-  const all = [...resultPresets, ...value.combinations], ids = new Set(all.map(item => item.id)), names = all.map(item => item.name.normalize('NFKC').toLocaleLowerCase());
-  if (ids.size !== all.length || new Set(names).size !== names.length) context.addIssue({ code: 'custom', message: '组合名称和标识不能重复' });
-  if (Object.values(value.projects).some(id => !ids.has(id))) context.addIssue({ code: 'custom', message: '请先为使用该组合的项目选择其他组合，再删除组合' });
-});
-export type ResultPreferences = z.infer<typeof resultPreferencesSchema>;
-export interface ResultRuleSnapshot { contract: 2 | 3 | 4; combinationId: string; name: string; categories: ContributionCategory[] }
-export interface ResultRulesState { owner: string; version: string; preferences: ResultPreferences; combination: ResultCombination }
-export function activeResultCombination(preferences: ResultPreferences, projectId: string): ResultCombination {
-  const item = [...resultPresets, ...preferences.combinations].find(item => item.id === preferences.projects[projectId]) || resultPresets[0];
-  return { ...item, categories: [...new Set(item.categories.map(category => canonicalCategory(category)!))] };
+export const preparationCategories = ['capability', 'exploration', 'todo'] as const;
+export type PreparationCategory = typeof preparationCategories[number];
+export const preparationCategorySchema = z.enum(preparationCategories, { error: '整理方面仅支持已有能力、探索记录、待办事项，请重新选择' });
+export const preparationCategoriesSchema = z.array(preparationCategorySchema).min(1, '请至少选择一个整理方面').max(3).refine(values => new Set(values).size === values.length, '整理方面不能重复');
+// Older contracts are retained for reading previously reviewed results.
+export interface ResultRuleSnapshot { contract: 2 | 3 | 4; categories: ContributionCategory[] }
+export function preparationRuleSnapshot(categories: unknown = preparationCategories): ResultRuleSnapshot {
+  const selection = preparationCategoriesSchema.safeParse(categories);
+  if (!selection.success) throw new Error(selection.error.issues[0].message);
+  return { contract: 4, categories: selection.data };
 }
 export function resultRulesPrompt(categories: readonly ContributionCategory[]) {
   const definitions = categories.map(category => {
@@ -54,10 +40,9 @@ export function resultRulesPrompt(categories: readonly ContributionCategory[]) {
     return { category, name: contributionCategoryInfo[category].label, ...(boundary || { include: contributionCategoryInfo[category].description }) };
   });
   if (categories.every(category => materialCategories.includes(category as any))) return `先识别内容的用途，再按启用类别分别提炼。类别边界：${JSON.stringify(definitions)}。
-允许同一主题分别形成项目资料、已有能力、探索记录和待办事项，但各自回答不同问题，不能复制相同正文。探索记录可关联待办；跨类引用不等于跨类合并。
-项目资料只记录可查阅的参考资料、项目文档、样例和协作文本链接，写清位置、用途和适用范围。这些内容不是项目目标，不能写入目标、验收标准或约束。
+允许同一主题在用户选中的类别分别形成成果，但各自回答不同问题，不能复制相同正文。已有能力描述当前实现，探索记录描述尝试及依据，待办事项描述独立后续动作；跨类引用不等于跨类合并。
 独立待办逐条输出；只有确属同一事项的重复描述才合并。最多 50 条，超过时返回 sourceReview.status="incomplete" 并说明需缩小范围，不得静默截断。允许 0 条，不凑齐分类。
-项目目标默认待确认，由用户确认后生效；项目资料不设确认状态；已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。
+已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。显式处理项目目标时保持待确认，不能据 AI 建议自动确认；项目资料保持参考性质，不能写成目标。
 过滤与项目无关的操作流水、凭据和本机临时故障。项目自身的缺陷、交付环境限制和网络适配任务可以保留。不要因正文出现权限或网络就过滤整个项目任务。只从启用类别选择，不为迁就分类夸大事实。`;
   return `整理顺序：先过滤不应保留的信息，再按独立主题提炼和合并，最后为每个主题选择一个主类别。禁止按类别逐个生成，禁止同一主题换类别重复输出。总计最多 5 条，允许 0 条，不凑类别或数量；多个独立主题可以使用相同类别。
 类别边界：${JSON.stringify(definitions)}

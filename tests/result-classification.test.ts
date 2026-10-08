@@ -30,7 +30,7 @@ test('five independent categories keep legacy data readable without guessing imp
 });
 
 function reviewedDraft(binding: RemoteBinding): Draft {
-  return { id: randomUUID(), sessionId: randomUUID(), binding, title: '', body: '', files: [], inputDir: '', outputPath: '', createdAt: new Date().toISOString(), generation: 'ready', resultRules: { contract: 4, combinationId: 'research', name: '算法研究', categories: [...materialCategories] }, preparationEvidenceIds: ['message:m'], snapshot: { capturedAt: '', messageCount: 1, conversationHash: 'a'.repeat(64) } };
+  return { id: randomUUID(), sessionId: randomUUID(), binding, title: '', body: '', files: [], inputDir: '', outputPath: '', createdAt: new Date().toISOString(), generation: 'ready', resultRules: { contract: 4, categories: [...materialCategories] }, preparationEvidenceIds: ['message:m'], snapshot: { capturedAt: '', messageCount: 1, conversationHash: 'a'.repeat(64) } };
 }
 const result = (category: string, title: string, topic = '同一主题') => ({ category, topic, title, body: title + '的具体内容与验证边界。', origin: 'project', evidenceIds: ['message:m'] });
 const output = (artifacts: unknown[]) => JSON.stringify({ artifacts, sourceReview: { status: 'complete', inputCount: 1, conversationHash: 'a'.repeat(64) } });
@@ -43,7 +43,7 @@ test('extraction preserves more than five todos, separates actions from discover
   assert.throws(() => applyPreparation(draft, output([artifacts[0], artifacts[0]])), /重复/);
   assert.throws(() => applyPreparation(draft, output(Array.from({ length: 51 }, (_, i) => result('todo', '动作' + i)))), /条数超限/);
   assert.throws(() => applyPreparation(draft, JSON.stringify({ artifacts, sourceReview: { status: 'incomplete', explanation: '只读取了部分对话' } })), /完整读取/);
-  assert.throws(() => applyPreparation(draft, output([{ ...result('capability', '批处理'), updateId: randomUUID() }])), /已有能力版本/);
+  assert.throws(() => applyPreparation(draft, output([{ ...result('capability', '批处理'), updateId: randomUUID() }])), /当前个人能力版本/);
   applyPreparation(draft, output([result('todo', '修复产品的代理连接失败问题')])); assert.equal(draft.artifacts!.length, 1, 'project defects are not dropped by environment keywords');
 });
 

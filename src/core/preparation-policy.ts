@@ -43,9 +43,10 @@ export function reviewPreparedResults(draft: Draft, raw: unknown) {
   const results: z.infer<typeof preparedResultSchema>[] = [];
   for (const item of parsed.data.artifacts) {
     if (item.origin === 'local_environment' || !modern && containsLocalEnvironmentError([item.topic, item.title, item.body, item.sourceDetails].filter(Boolean).join('\n'))) continue;
-    if (!categories.has(item.category)) throw new Error('整理结果使用了当前组合未启用的类别，请重试整理');
+    if (!categories.has(item.category)) throw new Error('整理结果使用了本次未选择的类别，请重试整理');
     if (item.evidenceIds.some(id => !evidence.has(id))) throw new Error('整理结果引用了本次冻结材料中不存在的来源，请重试整理');
-    if (item.updateId && (item.category !== 'capability' || !draft.preparationExistingResults?.some(existing => existing.id === item.updateId && existing.category === 'capability' && existing.version))) throw new Error('更新建议没有对应的已有能力版本，请重试整理');
+    if (item.updateId && (item.category !== 'capability' || !draft.preparationExistingResults?.some(existing => existing.id === item.updateId && existing.category === 'capability' && existing.version && existing.scope !== 'team' && existing.state !== 'history'))) throw new Error('更新建议没有对应的当前个人能力版本，请重试整理');
+    if (modern && !draft.mergeSources?.length && !item.evidenceIds.some(id => /^(message:|file:)/.test(id) || id === 'handoff')) throw new Error('新成果必须有本次对话或材料的依据，不能只重写历史参考，请重试整理');
     assertReadableResultText(item.title, '标题'); assertReadableResultText(item.body);
     if (item.body.split(/\n\s*\n/).length > 3) throw new Error('成果正文超过三段，请重新精简整理');
     const topic = (modern ? item.category + ':' : '') + normalized(item.topic) + (modern && item.category === 'todo' ? ':' + normalized(item.title) : ''), title = (modern ? item.category + ':' : '') + normalized(item.title), body = normalized(item.body);

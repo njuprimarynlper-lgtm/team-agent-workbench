@@ -62,7 +62,7 @@ export async function cursorPluginCapabilities(cwd: string): Promise<AgentCapabi
 
 export function emptyCapabilityCatalog(provider: Provider): AgentCapabilityCatalog { return { provider, skills: [], plugins: [], checkedAt: new Date().toISOString() }; }
 
-async function claudeLocalSkills(cwd: string): Promise<AgentCapabilityOption[]> {
+export async function claudeLocalSkills(cwd: string): Promise<AgentCapabilityOption[]> {
   const roots = [path.join(os.homedir(), '.claude'), ...ancestors(cwd).map(dir => path.join(dir, '.claude'))];
   const result = new Map<string, AgentCapabilityOption>();
   for (const root of roots) for (const kind of ['skills', 'commands'] as const) {
@@ -83,8 +83,11 @@ async function claudeLocalSkills(cwd: string): Promise<AgentCapabilityOption[]> 
 }
 
 export async function claudeCapabilities(cwd: string, executable: string, env: NodeJS.ProcessEnv = {}): Promise<AgentCapabilityCatalog> {
+  const [skills, plugins] = await Promise.all([claudeLocalSkills(cwd), claudePluginCapabilities(cwd, executable, env)]);
+  return { ...plugins, skills };
+}
+export async function claudePluginCapabilities(cwd: string, executable: string, env: NodeJS.ProcessEnv = {}): Promise<AgentCapabilityCatalog> {
   const catalog = emptyCapabilityCatalog('claude');
-  catalog.skills = await claudeLocalSkills(cwd);
   try {
     const output = await new Promise<string>((resolve, reject) => {
       const child = spawnCLI(executable, ['plugin', 'list', '--json'], cwd, env); let value = '', settled = false;

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentCapabilityCatalog, AgentCapabilityOption, AgentSession, Approval, Message, MessageContext } from '../shared/types';
+import type { AgentCapabilityCatalog, AgentCapabilityKind, AgentCapabilityOption, AgentSession, Approval, Message, MessageContext } from '../shared/types';
+import { CapabilityCache } from './capability-cache';
 import { JsonRpc, type RpcMessage } from './rpc';
 import { codexPermissionParams, codexPermissions, cursorPermissionArgs, cursorPermissions, permissionIssue, probeCodexCommand } from './permissions';
 import { validateCodexStorage, type CodexStorage } from './codex-storage';
@@ -24,9 +25,14 @@ export class AgentRuntime {
   private authBridge?: CodexAuthBridge;
   private cursorCommands: any[] = [];
   private cursorCommandWaiters = new Set<() => void>();
-  private codexCapabilityCatalog?: AgentCapabilityCatalog;
+  private cursorCommandsKnown = false;
+  private capabilityCache: CapabilityCache;
+  private starting?: Promise<void>;
+  private codexConnected = false;
+  private connecting?: Promise<void>;
   private connection: CliConnectionTracker;
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}) {
+    this.capabilityCache = new CapabilityCache(session.provider);
     // Preparation has its own execution policy, including helpers saved by older builds.
     if (session.purpose === 'prepare') session.permissionMode = 'full';
     this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged);
@@ -34,7 +40,7 @@ export class AgentRuntime {
     if (session.provider === 'codex' && storage) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
     this.rpc.on('diagnostic', (value: string) => { if (!this.closing) this.connection.diagnostic(value); });
-    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) this.finish(e.message); });
+    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) this.finish(e.message); });
   }
   private message(id: string, role: Message['role'], text: string, append = false, metadata: Pick<Message, 'userText' | 'context'> = {}) {
     const existing = this.session.messages.find(x => x.id === id);
@@ -42,15 +48,36 @@ export class AgentRuntime {
     else this.session.messages.push({ id, role, text, createdAt: now(), ...metadata });
     this.hooks.changed();
   }
-  async start() {
-    if (this.initialized) return;
-    const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
-    this.connection.begin();
-    if (s.provider === 'codex') {
+  private async connectCodex() {
+    if (this.closing) throw new Error('CLI 连接已关闭');
+    if (this.codexConnected) return;
+    if (this.connecting) return this.connecting;
+    const job = (async () => {
       await this.rpc.request('initialize', { clientInfo: { name: 'team_agent_workbench', title: 'Team Agent Workbench', version: '0.7.0' }, capabilities: { experimentalApi: true } });
       this.rpc.notify('initialized');
       if (this.storage) await validateCodexStorage(this.rpc, this.storage);
       await this.authBridge?.login(this.rpc);
+      if (this.closing) throw new Error('CLI 连接已关闭');
+      this.codexConnected = true;
+    })();
+    this.connecting = job;
+    try { await job; }
+    catch (error) { await this.rpc.close(); throw error; }
+    finally { if (this.connecting === job) this.connecting = undefined; }
+  }
+  async start() {
+    if (this.initialized) return;
+    if (this.closing) throw new Error('CLI 连接已关闭');
+    if (this.starting) return this.starting;
+    const job = this.startSession(); this.starting = job;
+    try { await job; } finally { if (this.starting === job) this.starting = undefined; }
+  }
+  private async startSession() {
+    if (this.initialized) return;
+    const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
+    this.connection.begin();
+    if (s.provider === 'codex') {
+      await this.connectCodex();
       if (this.closing) return;
       const params = { cwd: s.cwd, ...(s.model ? { model: s.model } : {}), ...codexPermissionParams(s) };
       const result = s.nativeId ? await this.rpc.request('thread/resume', { ...params, threadId: s.nativeId, ...(this.storage?.resumePath ? { path: this.storage.resumePath } : {}) }) : await this.rpc.request('thread/start', params);
@@ -82,28 +109,34 @@ export class AgentRuntime {
   async ensureStarted() {
     try { await this.start(); } catch (error) { this.connection.error(error, false); const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else this.hooks.authFailed?.(error); throw error; }
   }
-  async capabilities(forceRefresh = false): Promise<AgentCapabilityCatalog> {
-    await this.ensureStarted();
-    if (this.session.provider === 'cursor') {
-      if (!this.cursorCommands.length) await new Promise<void>(resolve => {
-        let timer: NodeJS.Timeout;
-        const done = () => { clearTimeout(timer); this.cursorCommandWaiters.delete(done); resolve(); };
-        this.cursorCommandWaiters.add(done); timer = setTimeout(done, 1500);
-      });
-      return { ...emptyCapabilityCatalog('cursor'), skills: cursorCommandCapabilities(this.cursorCommands), plugins: await cursorPluginCapabilities(this.session.cwd) };
-    }
-    if (!forceRefresh && this.codexCapabilityCatalog) return this.codexCapabilityCatalog;
-    let skillsResult: any = { data: [] }, installedPlugins: any = { marketplaces: [] }, skillError: string | undefined, pluginError: string | undefined;
-    try { skillsResult = await this.rpc.request('skills/list', { cwds: [this.session.cwd], forceReload: forceRefresh }, 20000); }
-    catch { skillError = 'Skill 列表读取失败，请检查 Codex 版本后重试。'; }
-    try { installedPlugins = await this.rpc.request('plugin/installed', { cwds: [this.session.cwd] }, 20000); }
-    catch { pluginError = '已安装插件读取失败，请更新 Codex 后重试；Skill 仍可使用。'; }
-    this.codexCapabilityCatalog = { ...codexCapabilities(skillsResult, installedPlugins), skillError, pluginError };
-    return this.codexCapabilityCatalog;
+  async capabilities(forceRefresh = false, kind?: AgentCapabilityKind): Promise<AgentCapabilityCatalog> {
+    if (this.closing) throw new Error('CLI 连接已关闭');
+    if (this.session.provider === 'codex') {
+      try { await this.connectCodex(); }
+      catch (error) { this.connection.error(error, false); this.hooks.authFailed?.(error); throw error; }
+    } else if (kind !== 'plugin') await this.ensureStarted();
+    return this.capabilityCache.get(forceRefresh, kind, async section => {
+      if (this.session.provider === 'cursor') {
+        if (section === 'plugin') return { ...emptyCapabilityCatalog('cursor'), plugins: await cursorPluginCapabilities(this.session.cwd) };
+        if (!this.cursorCommandsKnown) await new Promise<void>(resolve => {
+          let timer: NodeJS.Timeout;
+          const done = () => { clearTimeout(timer); this.cursorCommandWaiters.delete(done); resolve(); };
+          this.cursorCommandWaiters.add(done); timer = setTimeout(done, 1500);
+        });
+        return { ...emptyCapabilityCatalog('cursor'), skills: cursorCommandCapabilities(this.cursorCommands) };
+      }
+      const catalog = emptyCapabilityCatalog('codex');
+      try {
+        if (section === 'skill') catalog.skills = codexCapabilities(await this.rpc.request('skills/list', { cwds: [this.session.cwd], forceReload: forceRefresh }, 20000), {}).skills;
+        else catalog.plugins = codexCapabilities({}, await this.rpc.request('plugin/installed', { cwds: [this.session.cwd] }, 20000)).plugins;
+      } catch { if (section === 'skill') catalog.skillError = 'Skill 列表尚未读取成功，可刷新重试。'; else catalog.pluginError = '插件列表尚未读取成功，可刷新重试；Skill 仍可使用。'; }
+      return catalog;
+    });
   }
   async resolveCapabilities(selections: { id: string; kind: 'skill' | 'plugin' }[]): Promise<AgentCapabilityOption[]> {
     if (!selections.length) return [];
-    const catalog = await this.capabilities(false), available = new Map([...catalog.skills, ...catalog.plugins].map(item => [item.id, item]));
+    const kinds = new Set(selections.map(item => item.kind));
+    const catalog = await this.capabilities(false, kinds.size === 1 ? selections[0].kind : undefined), available = new Map([...catalog.skills, ...catalog.plugins].map(item => [item.id, item]));
     const resolved = selections.map(selection => {
       const item = available.get(selection.id);
       if (!item || item.kind !== selection.kind) throw new Error(`所选 ${selection.kind === 'skill' ? 'Skill' : '插件'} 已不可用，请重新选择`);
@@ -204,7 +237,7 @@ export class AgentRuntime {
     } else if (method === 'session/update') {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
       const u = p.update || {};
-      if (u.sessionUpdate === 'available_commands_update') { this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
+      if (u.sessionUpdate === 'available_commands_update') { this.cursorCommandsKnown = true; this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; this.capabilityCache.invalidate('skill'); for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
       if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') { this.connection.responded(); this.message(this.cursorMessageId, 'assistant', u.content.text, true); }
       if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
         if (u.status !== 'failed' && Array.isArray(u.locations)) s.outputFiles = [...new Set([...(s.outputFiles || []), ...u.locations.map((location: any) => location.path).filter((value: unknown): value is string => typeof value === 'string')])];

@@ -5,17 +5,17 @@ import type { Provider, ProviderCatalog, SessionNetworkRoute } from '../shared/t
 export function ModelPicker({ provider, cwd, ready, model, changed, initialCatalog, networkRoute }: { provider: Provider; cwd: string; ready: boolean; model: string; changed: (model: string) => void; initialCatalog?: ProviderCatalog; networkRoute?: SessionNetworkRoute }) {
   const [catalog, setCatalog] = useState<ProviderCatalog>(), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const sequence = useRef(0);
-  const refresh = async () => {
+  const refresh = async (forceRefresh = false) => {
     const n = ++sequence.current; setBusy(true); setError('');
-    try { const value = await window.workbench.call<ProviderCatalog>('provider.catalog', { provider, cwd, ...(networkRoute ? { networkRoute } : {}) }); if (n === sequence.current) setCatalog(value); }
+    try { const value = await window.workbench.call<ProviderCatalog>('provider.catalog', { provider, cwd, forceRefresh, ...(networkRoute ? { networkRoute } : {}) }); if (n === sequence.current) setCatalog(value); }
     catch { if (n === sequence.current) setError('模型与额度读取失败，请检查 CLI 和网络后重试。'); }
     finally { if (n === sequence.current) setBusy(false); }
   };
   useEffect(() => { setCatalog(ready ? initialCatalog : undefined); setError(''); if (ready && !initialCatalog) void refresh(); else setBusy(false); return () => { sequence.current++; }; }, [provider, cwd, networkRoute, ready, initialCatalog]);
   const url = provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : provider === 'claude' ? 'https://claude.ai/settings/usage' : 'https://cursor.com/dashboard/spending';
   return <section className="model-picker" aria-label="模型与额度">
-    <div className="row"><b>模型与额度</b><span className="spacer"/><button className="text-button" disabled={!ready || busy} onClick={() => void refresh()}><RefreshCw size={13} className={busy ? 'spin' : ''}/>{busy ? '读取中…' : '刷新模型与额度'}</button></div>
-    <label className="field">会话模型<select aria-label="会话模型" value={model} disabled={!ready || busy} onChange={e => changed(e.target.value)}><option value="">沿用 CLI 默认模型</option>{model && !catalog?.models.some(m => m.id === model) && <option value={model}>{model}（上次选择）</option>}{catalog?.models.map(m => <option key={m.id} value={m.id}>{m.name}{m.isDefault ? ' · 默认' : ''}</option>)}</select></label>
+    <div className="row"><b>模型与额度</b><span className="spacer"/><button className="text-button" disabled={!ready || busy} onClick={() => void refresh(true)}><RefreshCw size={13} className={busy ? 'spin' : ''}/>{busy ? '读取中…' : '刷新模型与额度'}</button></div>
+    <label className="field">会话模型<select aria-label="会话模型" value={model} disabled={!ready || busy && !catalog?.models.length} onChange={e => changed(e.target.value)}><option value="">沿用 CLI 默认模型</option>{model && !catalog?.models.some(m => m.id === model) && <option value={model}>{model}（上次选择）</option>}{catalog?.models.map(m => <option key={m.id} value={m.id}>{m.name}{m.isDefault ? ' · 默认' : ''}</option>)}</select></label>
     {!ready && <p className="muted small">暂时无法读取模型列表；仍可创建会话并沿用 CLI 默认模型。</p>}
     {(error || catalog?.modelError) && <p role="alert" className="inline-error">{error || catalog?.modelError}</p>}
     <div className="quota-panel">

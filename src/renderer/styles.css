@@ -188,12 +188,13 @@
 .preparation-classification>header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .preparation-section-label{display:flex;align-items:center;gap:7px;color:#617969;font-size:12px}
 .preparation-classification h3{font-size:17px;color:#2b563b;margin:7px 0 0}
-.preparation-classification .classification-adjust{border-color:#729f81;background:#fff;color:#28613f;font-size:13px;font-weight:600;padding:10px 13px;box-shadow:0 1px 2px #2449340a}
 .preparation-classification>p{font-size:12px;line-height:1.7;color:#617969;margin:14px 0}
 .preparation-category-choices{display:flex;flex-direction:column;gap:10px}
 .preparation-category-choice{min-width:0;border:1px solid #d4e0d8;background:#fff;border-radius:9px;color:#617567;font-size:13px;overflow:hidden}
 .preparation-category-choice.selected{border-color:#9fbea9;color:#2c6441;background:#edf5ef}
 .preparation-category-toggle{display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-weight:600}.preparation-category-toggle input{margin:0;accent-color:#397552}
+.preparation-category-toggle span{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px}.preparation-category-toggle small{font-size:12px;font-weight:400;color:#617567}
+.preparation-direction>summary{padding-bottom:10px;cursor:pointer;color:#526e5c;font-size:12px}
 .preparation-direction{padding:0 14px 14px}.preparation-direction>label{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#526e5c;margin-bottom:8px}.preparation-direction>label span{font-size:11px;font-weight:400;color:#74867a}.preparation-direction textarea{display:block;width:100%;min-height:96px;resize:vertical;line-height:1.7;font-size:13px}.preparation-direction textarea::placeholder{color:#7f8e84}
 .empty-preparation-review{border:1px solid #cfded4;background:#f8fbf9;border-radius:12px;padding:24px;margin:20px 0}
 .empty-preparation-heading{display:flex;gap:13px;align-items:center;color:#487456}.empty-preparation-heading h2{font-size:17px;margin:0 0 7px;color:#30563e}.empty-preparation-heading p{font-size:12px;color:#647b6c;margin:0}

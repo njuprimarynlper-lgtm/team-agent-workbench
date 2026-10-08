@@ -36,6 +36,7 @@ else if (command === 'login') {
 } else {
   readline.createInterface({ input: process.stdin }).on('line', line => {
     const m = JSON.parse(line), current = read(), turnId = current.turnId || 'fake-turn';
+    const respond = value => current.rpcDelays?.[m.method] ? setTimeout(() => send(value), current.rpcDelays[m.method]) : send(value);
     const requestText = JSON.stringify(m.params || {});
     const semanticMerge = /semanticMerge|conclusionProcessing/.test(requestText);
     const preparation = semanticMerge || /destinationId|artifacts/.test(requestText);
@@ -43,7 +44,7 @@ else if (command === 'login') {
     const strictResult = raw => {
       if (!/preparationContractVersion:[234]/.test(promptText)) return JSON.stringify(raw);
       const evidenceIds = JSON.parse(promptText.match(/合法来源清单：(\[[^\n]*?\])。/)?.[1] || '[]');
-      const categories = JSON.parse(promptText.match(/启用类别清单：(\[[^\n]*?\])。/)?.[1] || '["finding"]');
+      const categories = JSON.parse(promptText.match(/本次用户选择的整理方面：(\[[^\n]*?\])。/)?.[1] || '["exploration"]');
       const artifacts = raw.artifacts || [{ ...raw, body: raw.body || [raw.overview, ...(raw.consensus || []), ...(raw.unresolved || [])].filter(Boolean).join(' ') }];
       const reviewed = /preparationContractVersion:[34]/.test(promptText) ? {
         sourceReview: { status: 'complete', inputCount: Number(promptText.match(/本次输入条数：(\d+)。/)?.[1] || 0), conversationHash: promptText.match(/冻结对话哈希：([^。]*)。/)?.[1] || '' },
@@ -60,7 +61,7 @@ else if (command === 'login') {
       : preparation ? current.preparationRaw ?? strictResult(current.preparationResult || { title: '模型验证结果', body: '已根据阶段摘要整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' })
         : provider === 'codex' ? '# 模型验证结果\n已根据阶段摘要整理。测试已通过。' : '# Cursor 验证结果\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m.method === 'account/login/start' ? { ...m, params: { type: m.params.type } } : m) + '\n');
-    if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
+    if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model' || m.method === 'session/set_mode') respond({ id: m.id, result: {} });
     else if (m.method === 'getAuthStatus') send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', authMethod: 'chatgpt', authToken: current.status === 'ready' ? 'fixture.' + Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: current.accountId || 'fixture-account', chatgpt_plan_type: 'pro' } })).toString('base64url') + '.PRIVATE_FIXTURE_TOKEN' : null } });
     else if (m.method === 'account/login/start') send({ id: m.id, result: { type: m.params.type } });
     else if (m.method === 'config/read') send({ id: m.id, result: { config: { sandbox_mode: current.permissionConfig?.sandbox || 'workspace-write', approval_policy: current.permissionConfig?.approval || 'on-request', approvals_reviewer: current.permissionConfig?.reviewer || 'user', api_key: 'DO_NOT_FORWARD_THIS_SECRET' } } });
@@ -68,14 +69,15 @@ else if (command === 'login') {
     else if (m.method === 'command/exec') send(current.probeBlocked ? { id: m.id, error: { code: -32000, message: 'Windows sandbox: CreateProcessAsUser failed' } } : { id: m.id, result: { exitCode: 0, stdout: 'WORKBENCH_PERMISSION_OK', stderr: '' } });
     else if (m.method === 'model/list') {
       if (current.catalog === 'hang') return;
-      if (current.catalog === 'error') send({ id: m.id, error: { code: -32000, message: 'fetch failed DO_NOT_FORWARD_THIS_SECRET' } });
-      else send({ id: m.id, result: m.params.cursor ? { data: [{ id: 'id-2', model: 'gpt-fixture-2', displayName: 'GPT Fixture 2' }], nextCursor: null } : { data: [{ id: 'id-1', model: 'gpt-fixture', displayName: 'GPT Fixture', isDefault: true }], nextCursor: 'next' } });
+      if (current.catalog === 'error') respond({ id: m.id, error: { code: -32000, message: 'fetch failed DO_NOT_FORWARD_THIS_SECRET' } });
+      else respond({ id: m.id, result: m.params.cursor ? { data: [{ id: 'id-2', model: 'gpt-fixture-2', displayName: 'GPT Fixture 2' }], nextCursor: null } : { data: [{ id: 'id-1', model: 'gpt-fixture', displayName: 'GPT Fixture', isDefault: true }], nextCursor: 'next' } });
     } else if (m.method === 'account/rateLimits/read') {
-      if (current.quota === 'error') send({ id: m.id, error: { code: -32000, message: 'quota network failure DO_NOT_FORWARD_THIS_SECRET' } });
-      else send({ id: m.id, result: { rateLimitsByLimitId: { codex: { primary: { usedPercent: 23, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: { usedPercent: 48, windowDurationMins: 10080, resetsAt: 1800600000 } } } } });
+      if (current.quota === 'hang') return;
+      if (current.quota === 'error') respond({ id: m.id, error: { code: -32000, message: 'quota network failure DO_NOT_FORWARD_THIS_SECRET' } });
+      else respond({ id: m.id, result: { rateLimitsByLimitId: { codex: { primary: { usedPercent: 23, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: { usedPercent: 48, windowDurationMins: 10080, resetsAt: 1800600000 } } } } });
     }
-    else if (m.method === 'skills/list') send({ id: m.id, result: { data: [{ cwd: process.cwd(), skills: [{ name: 'codex-fixture-skill', description: 'Codex fixture skill', enabled: true, path: path.join(root, 'skills', 'codex-fixture-skill', 'SKILL.md'), scope: 'user' }], errors: [] }] } });
-    else if (m.method === 'plugin/installed') send({ id: m.id, result: { marketplaces: [{ name: 'fixture-marketplace', interface: { displayName: 'Fixture Marketplace' }, plugins: [{ id: 'fixture-plugin@fixture-marketplace', name: 'fixture-plugin', installed: true, enabled: true, availability: 'AVAILABLE', interface: { displayName: 'Fixture Plugin', shortDescription: 'Codex fixture plugin', enabled: true, capabilities: ['skills', 'mcp'] } }] }], marketplaceLoadErrors: [] } });
+    else if (m.method === 'skills/list') respond({ id: m.id, result: { data: [{ cwd: process.cwd(), skills: [{ name: 'codex-fixture-skill', description: 'Codex fixture skill', enabled: true, path: path.join(root, 'skills', 'codex-fixture-skill', 'SKILL.md'), scope: 'user' }], errors: [] }] } });
+    else if (m.method === 'plugin/installed') respond({ id: m.id, result: { marketplaces: [{ name: 'fixture-marketplace', interface: { displayName: 'Fixture Marketplace' }, plugins: [{ id: 'fixture-plugin@fixture-marketplace', name: 'fixture-plugin', installed: true, enabled: true, availability: 'AVAILABLE', interface: { displayName: 'Fixture Plugin', shortDescription: 'Codex fixture plugin', enabled: true, capabilities: ['skills', 'mcp'] } }] }], marketplaceLoadErrors: [] } });
     else if (m.method === 'account/read') {
       log('account/read');
       if (current.status === 'hang') return;
@@ -90,7 +92,7 @@ else if (command === 'login') {
       if (current.rejectPermissionMode) send({ id: m.id, error: { code: -32000, message: 'sandbox mode not allowed by administrator policy' } });
       else send({ id: m.id, result: { thread: { id: 'fake-thread' }, ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: m.params.approvalsReviewer || current.permissionConfig?.reviewer || 'user', ...current.permissionRuntimeOverride } : {}) } });
     }
-    else if (m.method === 'session/new' || m.method === 'session/load') { send({ id: m.id, result: { sessionId: 'fake-session' } }); send({ method: 'session/update', params: { sessionId: 'fake-session', update: { sessionUpdate: 'available_commands_update', availableCommands: [{ name: 'copy-request-id', description: 'internal' }, { name: 'cursor-fixture-skill', description: 'Cursor fixture skill' }] } } }); }
+    else if (m.method === 'session/new' || m.method === 'session/load') { send({ id: m.id, result: { sessionId: 'fake-session' } }); send({ method: 'session/update', params: { sessionId: 'fake-session', update: { sessionUpdate: 'available_commands_update', availableCommands: current.cursorCommands ?? [{ name: 'copy-request-id', description: 'internal' }, { name: 'cursor-fixture-skill', description: 'Cursor fixture skill' }] } } }); }
     else if (m.method === 'turn/start') {
       log('turn/start');
       if (current.rejectTurn) { send({ id: m.id, error: { code: -32000, message: 'Request rejected before acceptance' } }); return; }

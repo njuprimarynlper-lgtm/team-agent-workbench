@@ -54,7 +54,7 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
   const seed = sameAccount[0] || sources.find(source => source.directory === seedRoot) || (extraSeed ? { directory: seedRoot!, settings: extraSeed } : undefined);
   const settings: Settings = settingsSchema.parse({ providerPaths: seed?.settings?.providerPaths || { codex: '', cursor: '', claude: '' }, lastWorkspace: '', autoUploadMinutes: seed?.settings?.autoUploadMinutes, sidebarProjectHeight: seed?.settings?.sidebarProjectHeight, trustedServerIdentities: seed?.settings?.trustedServerIdentities || {}, egress: seed?.settings?.egress, connections: [profile], workspaceSnapshot: sameAccount[0]?.settings?.workspaceSnapshot });
   if (settings.workspaceSnapshot) Object.assign(settings.workspaceSnapshot.profile, { id: profile.id, host: profile.host });
-  settings.projectDirectories = {}; settings.resultPreferences = {}; settings.contentAliases = {}; settings.contentSeen = {}; settings.contentUpdates = []; settings.dismissedContentUpdateIds = [];
+  settings.projectDirectories = {}; settings.contentAliases = {}; settings.contentSeen = {}; settings.contentUpdates = []; settings.dismissedContentUpdateIds = [];
   const hash = path.basename(destination), prefix = `${profile.id}:${profile.username}:`;
   // Only the last verified owner can claim unlabelled settings or old personal results.
   for (const source of [...sources].reverse()) {
@@ -66,7 +66,6 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
         else if (key.startsWith('seen:') && value) settings.contentSeen[prefix + key.slice(5)] = value;
         else if (key.startsWith('update:') && value) { const eventId = prefix + key.slice(7); settings.contentUpdates = [...settings.contentUpdates.filter(item => item.eventId !== eventId), { ...value, eventId }]; }
         else if (key.startsWith('dismissed:') && value) settings.dismissedContentUpdateIds.push(prefix + key.slice(10));
-        else if (key === 'result-rules:preferences' && value) settings.resultPreferences[owner] = value;
       }
       continue;
     }
@@ -78,7 +77,6 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
     settings.localWorkspace = old.localWorkspace; settings.verifiedLocalWorkspace = old.verifiedLocalWorkspace; settings.lastWorkspace = old.lastWorkspace;
   }
   for (const source of [...sources].reverse()) {
-    if (source.settings?.resultPreferences?.[owner]) settings.resultPreferences[owner] = source.settings.resultPreferences[owner];
     for (const project of profile.projects) {
       const key = projectDirectoryKey(profile, project.id), directory = source.settings?.projectDirectories?.[key];
       if (directory !== undefined) settings.projectDirectories[key] = directory;

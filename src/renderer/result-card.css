@@ -1,5 +1,7 @@
 .content-library.result-library { display: block; min-height: 0; }
 .result-library .content-cards { gap: 10px; min-width: 0; }
+.result-history-filter { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #657c70; white-space: nowrap; }
+.result-history-filter select { width: auto; min-width: 104px; font-size: 12px; }
 .result-card { min-width: 0; border-color: #dfe7e1; overflow: visible; }
 .result-category-tabs { display: flex; align-items: center; gap: 18px; border-bottom: 1px solid #dce7e0; width: 100%; order: -1; margin-bottom: 10px; }
 .result-category-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: #657c70; padding: 14px 4px; font-size: 14px; white-space: nowrap; }
