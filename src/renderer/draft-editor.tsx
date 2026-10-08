@@ -1,3 +1,4 @@
+import { destinationLabel as projectDestinationLabel } from '../shared/submission';
 import { canonicalCategory } from '../shared/result-model';
 import { PreparationReview, type PreparationReviewHandle } from './preparation-review';
 import { resultLabelTitle } from '../shared/result-labels';
@@ -5,7 +6,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Upload, Check, LoaderCircle, ArrowLeft, Square, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { AgentSession, Draft, Transfer } from '../shared/types';
+import type { AgentSession, Draft, Transfer, Project } from '../shared/types';
 import { contributionCategoryInfo, materialCategories, titleSubject, type ContributionCategory } from '../shared/content';
 import { useAutosave } from './autosave';
 import { DraftAttachments } from './attachments';
@@ -20,7 +21,8 @@ import { EmptyPreparationReview } from './preparation-empty';
 import { DraftDeleteDialog } from './draft-delete';
 import { RequestCard, isQuestionRequest } from './request-card';
 import { CliConnectionNotice } from './cli-connection-notice';
-export function DraftEditor({ draft, session, sourceTitle, sourceSession, transfers, run, notice, close, reorganized, returnToList = false, viewShared, viewConclusion }: { draft: Draft; session?: AgentSession; sourceTitle?: string; sourceSession?: AgentSession; transfers: Transfer[]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notice: (s: string) => void; close: () => void; reorganized: (draft: Draft) => void; returnToList?: boolean; viewShared: (projectId: string, path: string) => void; viewConclusion: (projectId: string, id: string) => void }) {
+export function DraftEditor({ draft, projects = [], session, sourceTitle, sourceSession, transfers, run, notice, close, reorganized, returnToList = false, viewShared, viewConclusion }: { draft: Draft; projects?: Project[]; session?: AgentSession; sourceTitle?: string; sourceSession?: AgentSession; transfers: Transfer[]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notice: (s: string) => void; close: () => void; reorganized: (draft: Draft) => void; returnToList?: boolean; viewShared: (projectId: string, path: string) => void; viewConclusion: (projectId: string, id: string) => void }) {
+  const uploadLabel = draft.binding ? `提交到 ${projectDestinationLabel(draft.binding.project, projects)}` : '提交到团队';
   const reviewRef = useRef<PreparationReviewHandle>(null);
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [expanded, setExpanded] = useState(false);
   const [editingMerge, setEditingMerge] = useState(false);
@@ -134,7 +136,7 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
             setSubmitted(true);
             notice('已开始提交团队成果；个人来源保持原状，上传完成后项目组成员可见');
           } finally { setBusy(false); }
-        })}>提交为团队成果</button>}
+        })}>{uploadLabel}</button>}
         {draft.mergeCompletedAt && draft.mergeResultId && isLocalMerge ? <button className="primary" onClick={() => viewConclusion(draft.conclusionMergeProjectId!, draft.mergeResultId!)}>查看个人成果</button> :
           draft.mergeCompletedAt && isLocalMerge && draft.mergeResultPath && transfer?.status === 'done' ? <button className="primary" onClick={() => viewShared(draft.binding!.project.id, draft.mergeResultPath!)}>查看团队成果</button> :
           draft.mergeCompletedAt && draft.mergeProjectId && draft.mergeResultPath ? <button className="primary" onClick={() => viewShared(draft.mergeProjectId!, draft.mergeResultPath!)}>查看团队成果</button> :
@@ -154,7 +156,7 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
                 viewShared(draft.mergeProjectId!, result.path);
               }
             } finally { setBusy(false); }
-          })}><Check size={15}/>{busy ? '正在保存…' : isLocalMerge ? '保存到个人成果库' : '提交为团队成果'}</button>}
+          })}><Check size={15}/>{busy ? '正在保存…' : isLocalMerge ? '保存到个人成果库' : uploadLabel}</button>}
       </div>
       {isLocalMerge && draft.mergeResultPath && transfer?.status === 'error' && <div className="inline-error" role="alert">团队成果上传失败：{transfer.error}<button className="secondary compact" onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>重试上传</button></div>}
       </>
@@ -178,7 +180,7 @@ export function DraftEditor({ draft, session, sourceTitle, sourceSession, transf
             setSubmitted(true);
             notice(`已开始提交 ${selectedIds.length} 项成果到团队`);
           } finally { setBusy(false); }
-        })}><Upload size={15}/>{busy ? '正在提交…' : `提交 ${selectedIds.length} 项到团队${attachmentCount ? `（含 ${attachmentCount} 个附件）` : ''}`}</button> :
+        })}><Upload size={15}/>{busy ? '正在提交…' : `${uploadLabel}${selectedIds.length > 1 ? `（${selectedIds.length} 项）` : ''}`}</button> :
           <span className="green row"><Check size={17}/>{transfers.some(item => item.status === 'error') ? '部分上传失败，可在对应成果中重试' : transfers.length && transfers.every(item => item.status === 'done') ? '团队提交已完成，可查看团队成果' : '正在提交团队成果'}</span>}
         {!artifacts.length && transfer?.status === 'done' && <button className="primary compact" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看团队成果</button>}
       </div>

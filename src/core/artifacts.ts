@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { ZipArchive } from 'archiver';
+import type { SubmissionRecord } from '../shared/submission';
 import type { AgentSession, Draft, DraftArtifact, SourceFile } from '../shared/types';
 import { safeFilename, localWithin } from './paths';
 export async function hashFile(file: string) {
@@ -54,7 +55,7 @@ export async function packageDraft(draft: Draft, root: string): Promise<string> 
   // Local preparation inputs and legacy attachments are deliberately never included.
   const zip = path.join(dir, safeFilename(draft.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
 }
-export async function packageDraftArtifact(draft: Draft, artifact: DraftArtifact, root: string): Promise<string> {
+export async function packageDraftArtifact(draft: Draft, artifact: DraftArtifact, root: string, submission?: SubmissionRecord): Promise<string> {
   const repository = draft.repoUrlOverride?.trim() || artifact.repoUrl?.trim() || '';
   const repoUrl = repository ? githubRepository(repository) : undefined;
   const description = artifactContributionBody(draft, artifact);
@@ -62,7 +63,7 @@ export async function packageDraftArtifact(draft: Draft, artifact: DraftArtifact
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const entries = [
     { name: 'README.md', text: `# ${artifact.title}\n\n${repoUrl ? `GitHub 仓库：${repoUrl}\n\n` : ''}${description}` },
-    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 4, kind: 'project-contribution', category: artifact.category, fields: artifact.fields, title: artifact.title, repoUrl, git: draft.includeGit ? draft.git : undefined, description, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, snapshotHash: draft.snapshot?.conversationHash, projectId: draft.binding?.project.id }, null, 2) }
+    { name: 'manifest.json', text: JSON.stringify({ schemaVersion: 4, submission, kind: 'project-contribution', category: artifact.category, fields: artifact.fields, title: artifact.title, repoUrl, git: draft.includeGit ? draft.git : undefined, description, createdAt: new Date().toISOString(), sourceSessionId: draft.sessionId, snapshotHash: draft.snapshot?.conversationHash, projectId: draft.binding?.project.id }, null, 2) }
   ];
   const zip = path.join(dir, safeFilename(artifact.title || '成果') + '.zip'); await zipEntries(zip, entries); return zip;
 }

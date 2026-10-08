@@ -127,7 +127,7 @@ test('linked todos follow visible task acceptance and never infer hidden task co
 test('disk storage enforces same-category merges, version races, author permissions and linked-task approval boundaries', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-four-disk-'));
   let actor = { username: 'alice', admin: true };
-  const files = new ContentFiles(root, async () => actor), binding = { connectionId: 'c', username: 'alice', project: { id: offlineProjectId, remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } } as RemoteBinding;
+  const files = new ContentFiles(root, async () => actor), binding = { connectionId: 'c', host: 'local', port: 22, fingerprint: 'SHA256:fixture', username: 'alice', project: { id: offlineProjectId, name: '分类验证项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } } as RemoteBinding;
   const source = path.join(root, 'source.md'); await fs.writeFile(source, 'evidence');
   try {
     const publish = (category: typeof materialCategories[number], n: string) => files.publish(binding, source, `/p/submissions/alice/${contributionCategoryInfo[category].folder}/${n}.md`, { title: n, description: '内容' + n, kind: 'contribution', category });

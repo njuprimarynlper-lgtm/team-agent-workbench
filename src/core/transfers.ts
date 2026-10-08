@@ -1,5 +1,6 @@
+import { submissionRecord, submissionRecordSchema } from '../shared/submission';
 import { hashFile } from './artifacts';
-import type { ContentMetadata } from '../shared/content';
+import { contentMetadataSchema, type ContentMetadata } from '../shared/content';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -25,12 +26,13 @@ export class TransferQueue {
     return (await this.enqueueMany([{ local: localPath, binding, folder: remotePath, kind: 'download' }]))[0];
   }
   async enqueueMany(inputs: TransferInput[]): Promise<Transfer[]> {
-    const transfers: Transfer[] = await Promise.all(inputs.map(async input => {
+    const transfers: Transfer[] = await Promise.all(structuredClone(inputs).map(async input => {
       assertRemote(input.binding.project.remoteRoot, input.folder);
       const id = input.id || randomUUID();
+      const metadata = input.kind === 'upload' && !input.attachment ? contentMetadataSchema.parse({ title: (input.name || path.basename(input.local)).slice(0, 200), description: '', kind: 'file', ...structuredClone(input.metadata), submission: input.metadata?.submission ? structuredClone(input.metadata.submission) : submissionRecord(input.binding, input.metadata?.sourceSessionTitle ? [{ kind: 'session', id: input.metadata.sourceSessionId, title: input.metadata.sourceSessionTitle, snapshotHash: input.metadata.snapshotHash }] : [{ kind: 'unknown' }]) }) : structuredClone(input.metadata);
       const fingerprint = input.kind === 'download' ? undefined : { sha256: await hashFile(input.local), size: (await fsp.stat(input.local)).size };
       const target = input.kind === 'download' ? input.folder : input.attachment ? attachmentPath(input.binding, fingerprint!.sha256) : childRemote(input.folder, `${new Date().toISOString().replace(/[:.]/g, '-')}-${id.slice(0, 8)}-${safeFilename(path.basename(input.local))}`);
-      return { id, requestId: input.kind === 'download' ? undefined : id, phase: 'queued' as const, sha256: fingerprint?.sha256, conclusionSourceId: input.conclusionSourceId, attachment: input.attachment, dependsOn: input.dependsOn, metadata: input.metadata, trajectoryHash: input.trajectoryHash, kind: input.kind, name: input.name || path.basename(input.kind === 'download' ? input.folder : input.local), status: 'queued' as const, bytes: 0, total: fingerprint?.size || 0, target, projectName: input.binding.project.name, createdAt: new Date().toISOString(), sessionId: input.sessionId, localPath: input.local, binding: structuredClone(input.binding) };
+      return { id, requestId: input.kind === 'download' ? undefined : id, phase: 'queued' as const, sha256: fingerprint?.sha256, conclusionSourceId: input.conclusionSourceId, attachment: input.attachment, dependsOn: input.dependsOn, metadata, trajectoryHash: input.trajectoryHash, kind: input.kind, name: input.name || path.basename(input.kind === 'download' ? input.folder : input.local), status: 'queued' as const, bytes: 0, total: fingerprint?.size || 0, target, projectName: input.binding.project.name, createdAt: new Date().toISOString(), sessionId: input.sessionId, localPath: input.local, binding: structuredClone(input.binding) };
     }));
     transfers.forEach(item => this.persisting.add(item.id));
     this.store.transfers.unshift(...transfers.slice().reverse());
@@ -90,6 +92,11 @@ export class TransferQueue {
             await this.remote.ensurePersonalFolder(task.binding, path.posix.dirname(task.target));
             const receipt = await this.remote.upload(task.binding, task.localPath, task.target, progress, task.metadata, task.sha256, task.requestId || task.id, phase);
             if (receipt?.path !== task.target || receipt.sha256 !== task.sha256 || receipt.size !== task.total || receipt.author !== task.binding.username) throw new Error('上传回执与原账号、目标或内容不一致；已保留失败记录');
+            if (receipt.submission) {
+              const accepted = submissionRecordSchema.parse(receipt.submission);
+              if (accepted.submittedBy !== task.binding.username || accepted.destination.projectId !== task.binding.project.id || accepted.destination.groupName !== task.binding.project.groupName) throw new Error('上传回执的提交账号或项目不一致');
+              task.submission = accepted; if (task.metadata) task.metadata.submission = structuredClone(accepted);
+            }
             if (task.metadata?.attachments?.length && JSON.stringify(receipt?.attachments) !== JSON.stringify(task.metadata.attachments)) throw new Error('服务端未保留附件信息，请先更新服务端再重试');
           }
           task.status = 'done'; task.phase = 'completed'; task.completedAt = new Date().toISOString(); task.bytes = task.total;

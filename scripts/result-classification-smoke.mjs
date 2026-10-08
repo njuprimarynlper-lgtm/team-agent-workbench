@@ -115,10 +115,10 @@ try {
     window.fixture.draft = {...window.fixture.draft,id:'10000000-0000-4000-8000-000000000002',artifacts:[],mergeProjectId:window.fixture.project.id,resultCategory:'todo',title:'统一验证集版本',body:'核对验证集版本，保留唯一的执行事项。',mergeSources:window.fixture.items.slice(4,6).map(item=>({id:item.id,revision:item.revision,title:item.title,category:'todo',author:item.author,updatedAt:item.updatedAt}))};
     window.refreshDraft();
   });
-  await expect(page.getByRole('button',{name:'提交为团队成果',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'提交到 实体抽取优化',exact:true})).toBeDisabled();
   await expect(page.getByLabel('合并成果类别')).toBeDisabled();
   await page.getByRole('checkbox',{name:/这些待办是同一事项的重复记录/}).check();
-  await expect(page.getByRole('button',{name:'提交为团队成果',exact:true})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'提交到 实体抽取优化',exact:true})).toBeEnabled();
   await page.screenshot({path:path.join(out,'todo-merge-preview.png')});
   checks.push('待办合并必须人工确认是重复事项，预览禁止更换合并分类');
   if(errors.length)throw Error(errors.join('\n'));
