@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { inspectPermissions, setCursorManualReview } from './permissions';
 import type { PermissionMode } from '../shared/types';
 import { projectBriefSchema, projectSetupIdentity, type ProjectBrief } from '../shared/project-brief';
-import type { AgentCapabilitySelection, AgentSession, BetaFeature, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SessionNetworkRoute, SubsessionReport, SubsessionReportPreview } from '../shared/types';
+import type { AgentCapabilitySelection, AgentSession, BetaFeature, ConclusionFile, ConclusionOrganization, ConclusionSource, ContentMergeSource, ContentSeenState, ContentUpdate, Draft, PreparationScope, ProjectConclusion, Provider, ProviderInfo, RemoteBinding, Snapshot, Transfer, SourceFile, ConnectionProfile, SessionInput, SessionNetworkRoute, SubsessionReport, SubsessionReportPreview } from '../shared/types';
 import { Store, atomicJson } from './store';
 import { preparationSnapshot, prepareReadableInputs } from './preparation-snapshot';
 import { preparationPrompt } from './preparation-prompt';
@@ -32,7 +32,7 @@ import { isProtectedSessionSource, isRemovableSessionReference, sessionWithAvail
 import { reconcileTeamResultReferences } from './session-result-references';
 import { resolveProvider, inspectProvider } from './providers';
 import { freezeFile, packageDraftArtifact, packageHistory, hashFile, contributionBody, artifactContributionBody } from './artifacts';
-import { editableArtifact, freezeDraftAttachments } from './draft-attachments';
+import { attachmentList, freezeDraftAttachments } from './draft-attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
 import { ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
@@ -67,6 +67,7 @@ export class Workbench {
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
   private submittingDrafts = new Set<string>();
   private catalogJobs = new Map<Provider, { controller: AbortController; promise: ReturnType<typeof inspectCatalog> }>();
+  private stagedConclusionFiles: SourceFile[] = [];
   private preparing = new Map<string, Promise<Draft>>();
   private reorganizing = new Map<string, Promise<Draft>>();
   private preparingMerges = new Map<string, Promise<Draft>>();
@@ -88,7 +89,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'window.new'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'result.rules', 'session.history', 'session.files', 'session.file.preview', 'handoff.read', 'handoff.list', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'result.rules', 'session.history', 'session.files', 'session.file.preview', 'handoff.read', 'handoff.list', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -234,7 +235,7 @@ export class Workbench {
     return { contract: categories?.some(category => !materialCategories.includes(category as any)) ? 3 : 4, combinationId: combination.id, name: combination.name, categories: categories ? [...categories] : [...combination.categories] };
   }
   matchConclusions(projectId: string, query: string) { return rankConclusions(this.conclusions(projectId), query); }
-  async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, resultOwner?: string) {
+  async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, resultOwner?: string, fileIds: string[] = []) {
     validateResultStatus(category, resultStatus);
     if (category) { if (!this.resultRules(projectId).combination.categories.some(value => canonicalCategory(value) === canonicalCategory(category))) throw new Error('请选择当前分类组合中启用的类别'); title = contributionTitle(category, title); }
     const profile = this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile;
@@ -242,8 +243,12 @@ export class Workbench {
     if (!conclusion.title || !conclusion.content) throw new Error('请填写结论标题和内容');
     if (category) { conclusion.category = category; const status = resultStatus ?? resultDefaultStatus(category); if (status) conclusion.resultStatus = status; }
     if (resultOwner !== undefined) conclusion.resultOwner = resultOwner;
+    const staged = fileIds.map(fileId => this.stagedConclusionFiles.find(file => file.id === fileId));
+    if (staged.some(file => !file)) throw new Error('有附件已失效，请重新选择');
+    if (staged.length) conclusion.localFiles = staged.map(file => ({ id: file!.id, name: file!.name, sha256: file!.sha256, size: file!.size, localPath: file!.localPath }));
+    this.stagedConclusionFiles = this.stagedConclusionFiles.filter(file => !fileIds.includes(file.id));
     this.store.conclusions.unshift(conclusion);
-    try { await this.store.save(); } catch (error) { this.store.conclusions = this.store.conclusions.filter(item => item.id !== conclusion.id); throw error; }
+    try { await this.store.save(); } catch (error) { this.store.conclusions = this.store.conclusions.filter(item => item.id !== conclusion.id); this.stagedConclusionFiles.push(...staged.filter((file): file is SourceFile => !!file)); throw error; }
     this.broadcast(); return conclusion;
   }
   async saveConclusion(id: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, expectedVersion?: number, resultOwner?: string) {
@@ -279,7 +284,13 @@ export class Workbench {
     const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
     await fs.mkdir(path.dirname(local), { recursive: true });
     await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
-    return this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, sourceSessionTitle: '个人成果库', ...(disclose.length ? { disclosedSources: disclose } : {}) });
+    const attachments = [];
+    for (const file of conclusion.localFiles || []) {
+      if (await hashFile(file.localPath) !== file.sha256) throw new Error('附件已变化，请移除后重新添加：' + file.name);
+      const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
+      attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
+    }
+    return this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, sourceSessionTitle: '个人成果库', ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
   }
   async archiveConclusion(id: string, archived: boolean) {
     const conclusion = this.conclusion(id);
@@ -442,6 +453,7 @@ export class Workbench {
         if (target.projectId !== projectId || target.archived || target.version !== artifact.updateTarget.version || resultCategory(target) !== 'capability' || resultCategory(artifact) !== 'capability') throw new Error('要更新的已有能力已变化，请重新选择目标版本');
         (target.versions ||= []).push({ version: target.version, title: target.title, content: target.content, category: target.category, resultStatus: target.resultStatus, updatedAt: target.updatedAt, sources: structuredClone(target.sources), derivedFrom: structuredClone(target.derivedFrom) });
         Object.assign(target, { title, content, category: artifact.category, resultStatus: artifact.resultStatus ?? resultDefaultStatus(artifact.category), sources: [...target.sources, source], version: target.version + 1, updatedAt: now, automatic: false });
+        this.attachConclusionFiles(target, this.selectedConclusionFiles(draft, artifact.id));
         results.push({ conclusion: target, action: 'updated' });
       } else {
         const result = this.organizeConclusion(projectId, title, content, source, artifact.category, owner);
@@ -449,12 +461,15 @@ export class Workbench {
           const status = artifact.resultStatus ?? resultDefaultStatus(artifact.category);
           if (status) result.conclusion.resultStatus = status; else delete result.conclusion.resultStatus;
         }
+        this.attachConclusionFiles(result.conclusion, this.selectedConclusionFiles(draft, artifact.id));
         results.push(result);
       }
     }
     if (!draft.artifacts?.length && selectedIds.has(draft.id) && !alreadyStored(draft.id)) {
       const title = draft.titleAlias || titleSubject(draft.title) || draft.title, content = contributionBody(draft);
-      results.push(this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }, undefined, owner));
+      const result = this.organizeConclusion(projectId, title, content, { id: draft.id, kind: 'session', title: `${sourceSessionTitle} · 本地整理`, content, updatedAt: now }, undefined, owner);
+      this.attachConclusionFiles(result.conclusion, this.selectedConclusionFiles(draft, draft.id));
+      results.push(result);
     }
     linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     return results;
@@ -1526,6 +1541,7 @@ export class Workbench {
         derivedFrom: draft.mergeSources.map(source => ({ scope: 'team' as const, projectId: draft.mergeProjectId!, id: source.id, version: source.revision })),
         updatedAt: now, version: 1, automatic: false
       };
+      this.attachConclusionFiles(conclusion, this.selectedConclusionFiles(draft, draft.id));
       this.store.conclusions.unshift(conclusion);
       const previous = draft.personalSavedIds;
       draft.personalSavedIds = [...new Set([...(previous || []), draft.id])];
@@ -1551,7 +1567,8 @@ export class Workbench {
         try { await this.store.save(); }
         catch (error) { delete d.mergeReplacementIds; throw error; }
       }
-      const result = await this.remote.contentMerge(d.binding, { requestId: d.id, confirmDuplicateTodos, sources: d.mergeSources.map(source => ({ id: source.id, revision: source.revision })), replaceIds, title: d.title, description: d.body, category: d.resultCategory, sourceDetails: d.resultSourceDetails, sourceSessionTitle: this.session(d.sessionId).title });
+      const added = await this.uploadedDraftAttachments(d);
+      const result = await this.remote.contentMerge(d.binding, { requestId: d.id, confirmDuplicateTodos, sources: d.mergeSources.map(source => ({ id: source.id, revision: source.revision })), replaceIds, title: d.title, description: d.body, category: d.resultCategory, sourceDetails: d.resultSourceDetails, sourceSessionTitle: this.session(d.sessionId).title, ...(added.length ? { attachments: added } : {}) });
       if (!result) throw new Error('服务端未返回合并结果');
       d.mergeCompletedAt = new Date().toISOString(); d.mergeResultId = result.id; d.mergeResultPath = result.path; d.submitted = 'merge:' + result.id;
       await this.store.save(); this.broadcast(); return result;
@@ -1575,6 +1592,7 @@ export class Workbench {
       const now = new Date().toISOString(), refs = current.map(item => ({ scope: 'personal' as const, projectId: d.conclusionMergeProjectId!, id: item!.id, version: item!.version }));
       const replaced = refs.filter(ref => replaceIds.includes(ref.id));
       const conclusion: ProjectConclusion = { id: randomUUID(), projectId: d.conclusionMergeProjectId, title: d.title, category: d.resultCategory, resultStatus: resultDefaultStatus(d.resultCategory), content: d.body, sources: current.map(item => ({ id: item!.id, kind: 'conclusion' as const, title: item!.title, content: item!.content, revision: item!.version, updatedAt: item!.updatedAt, details: item!.id === d.mergeSources![0].id ? d.resultSourceDetails : undefined })), derivedFrom: refs, replaces: replaced, updatedAt: now, version: 1, automatic: false };
+      this.attachConclusionFiles(conclusion, this.selectedConclusionFiles(d, d.id));
       for (const source of current.filter(item => replaceIds.includes(item!.id))) { source!.archived = true; source!.supersededBy = { scope: 'personal', projectId: d.conclusionMergeProjectId!, id: conclusion.id, version: 1 }; }
       if (d.binding) conclusion.accountOwner = accountIdentity(d.binding);
       this.store.conclusions.unshift(conclusion); d.mergeCompletedAt = now; d.mergeResultId = conclusion.id; d.submitted = 'conclusion:' + conclusion.id;
@@ -1607,32 +1625,91 @@ export class Workbench {
       await fs.mkdir(path.dirname(local), { recursive: true });
       await fs.writeFile(local, `# ${draft.title}\n\n${draft.body}`, 'utf8');
       const category = draft.resultCategory || 'finding';
-      const transfer = await this.queue.enqueue(local, draft.binding, contributionCategoryDirectory(draft.binding, category), 'upload', draft.sessionId, {
-        kind: 'contribution', category, title: draft.title, description: draft.body,
-        sourceSessionTitle: this.store.sessions.find(item => item.id === draft.sessionId)?.title || draft.sourceSessionTitle || '个人成果处理'
-      });
+      const carrier = { id: draft.id, category, title: draft.title, fields: {}, body: draft.body, target: contributionCategoryDirectory(draft.binding, category), selected: true, attachments: draft.attachments };
+      const attachments = await freezeDraftAttachments(draft, [carrier], this.store.root);
+      const metadata = { kind: 'contribution' as const, category, title: draft.title, description: draft.body, sourceSessionTitle: this.store.sessions.find(item => item.id === draft.sessionId)?.title || draft.sourceSessionTitle || '个人成果处理', ...(attachments.byArtifact.get(draft.id)!.files.length ? { attachments: attachments.byArtifact.get(draft.id)!.files } : {}) };
+      const transfer = attachments.transfers.length
+        ? (await this.queue.enqueueMany([...attachments.transfers, { local, binding: draft.binding, folder: carrier.target, kind: 'upload' as const, sessionId: draft.sessionId, dependsOn: attachments.byArtifact.get(draft.id)!.dependsOn, metadata }])).at(-1)!
+        : await this.queue.enqueue(local, draft.binding, carrier.target, 'upload', draft.sessionId, metadata);
       draft.mergeCompletedAt = new Date().toISOString(); draft.mergeResultPath = transfer.target; draft.submitted = transfer.id;
       await this.store.save(); this.broadcast(); return transfer;
     } finally { this.submittingDrafts.delete(id); }
   }
+  private selectedConclusionFiles(draft: Draft, sourceId: string) {
+    const artifact = draft.artifacts?.find(item => item.id === sourceId);
+    const entries = artifact ? artifact.attachments : sourceId === draft.id ? draft.attachments : undefined;
+    const files: ConclusionFile[] = [];
+    for (const entry of entries || []) {
+      if (!entry.selected) continue;
+      const source = draft.files.find(file => file.id === entry.fileId);
+      if (!source) throw new Error('附件已不存在，请重新选择');
+      if (files.some(file => file.sha256 === source.sha256)) continue;
+      files.push({ id: source.id, name: source.name, sha256: source.sha256, size: source.size, localPath: source.localPath });
+    }
+    return files;
+  }
+  private attachConclusionFiles(conclusion: ProjectConclusion, files: ConclusionFile[]) {
+    const existing = conclusion.localFiles || [];
+    const added = files.filter(file => !existing.some(item => item.sha256 === file.sha256));
+    if (!added.length) return;
+    if (existing.length + added.length > 30) throw new Error('每项成果最多附带 30 个文件');
+    conclusion.localFiles = [...existing, ...added];
+  }
+  conclusionFile(conclusionId: string | undefined, fileId: string) {
+    const file = conclusionId ? this.conclusion(conclusionId).localFiles?.find(item => item.id === fileId) : this.stagedConclusionFiles.find(item => item.id === fileId);
+    if (!file) throw new Error('附件不存在');
+    return file;
+  }
+  async stageConclusionFiles(files: string[]) {
+    if (this.stagedConclusionFiles.length + files.length > 30) throw new Error('每项成果最多附带 30 个文件');
+    const copies = await Promise.all(files.map(file => freezeFile(file, path.join(this.store.root, 'conclusion-files', 'staging'))));
+    this.stagedConclusionFiles.push(...copies);
+    return copies.map(file => ({ id: file.id, name: file.name, size: file.size }));
+  }
+  async addConclusionFiles(id: string, files: string[]) {
+    const conclusion = this.conclusion(id);
+    if ((conclusion.localFiles?.length || 0) + files.length > 30) throw new Error('每项成果最多附带 30 个文件');
+    const copies = await Promise.all(files.map(file => freezeFile(file, path.join(this.store.root, 'conclusion-files', id))));
+    conclusion.localFiles = [...(conclusion.localFiles || []), ...copies.map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, localPath: file.localPath }))];
+    await this.store.save(); this.broadcast(); return conclusion;
+  }
+  async removeConclusionFile(id: string | undefined, fileId: string) {
+    if (!id) { this.stagedConclusionFiles = this.stagedConclusionFiles.filter(file => file.id !== fileId); return true; }
+    const conclusion = this.conclusion(id);
+    conclusion.localFiles = conclusion.localFiles?.filter(file => file.id !== fileId);
+    if (!conclusion.localFiles?.length) delete conclusion.localFiles;
+    await this.store.save(); this.broadcast(); return conclusion;
+  }
+  private async uploadedDraftAttachments(draft: Draft) {
+    if (!draft.binding || !draft.attachments?.some(entry => entry.selected)) return [];
+    const carrier = { id: draft.id, category: draft.resultCategory || 'exploration' as const, title: draft.title, fields: {}, body: draft.body, target: '', selected: true, attachments: draft.attachments };
+    const frozen = await freezeDraftAttachments(draft, [carrier], this.store.root);
+    const files = frozen.byArtifact.get(draft.id)?.files || [];
+    for (const file of files) {
+      const source = draft.files.find(item => item.sha256 === file.sha256 && item.name === file.name);
+      if (!source) throw new Error('附件已不存在，请重新选择');
+      const stored = await this.remote.uploadAttachment(draft.binding, source.localPath, file.sha256, () => {});
+      if (stored.sha256 !== file.sha256 || stored.path !== file.path) throw new Error('附件上传回执与本地快照不一致');
+    }
+    return files;
+  }
   async addDraftFiles(id: string, files: string[], artifactId?: string) {
     const d = this.draft(id); if (this.submittingDrafts.has(id)) throw new Error('正在提交，不能修改附件');
-    const artifact = editableArtifact(d, artifactId || d.artifacts?.[0]?.id);
-    if ((artifact.attachments?.length || 0) + files.length > 30) throw new Error('每项成果最多附带 30 个文件');
+    const list = attachmentList(d, artifactId);
+    if (list.length + files.length > 30) throw new Error('每项成果最多附带 30 个文件');
     const copies = await Promise.all(files.map(file => freezeFile(file, path.join(d.inputDir, 'attachments'))));
-    editableArtifact(d, artifact.id); if (this.submittingDrafts.has(id)) throw new Error('正在提交，不能修改附件');
-    artifact.attachments ||= [];
+    const current = attachmentList(d, artifactId); if (this.submittingDrafts.has(id)) throw new Error('正在提交，不能修改附件');
     for (const copy of copies) {
       const source = d.files.find(file => file.sha256 === copy.sha256 && file.name === copy.name) || copy;
       if (source === copy) d.files.push(copy);
-      if (!artifact.attachments.some(entry => entry.fileId === source.id)) artifact.attachments.push({ fileId: source.id, selected: true });
+      if (!current.some(entry => entry.fileId === source.id)) current.push({ fileId: source.id, selected: true });
     }
     await this.store.save(); this.broadcast(); return d;
   }
   async selectDraftAttachment(id: string, artifactId: string, fileId: string, selected: boolean) {
     if (this.submittingDrafts.has(id)) throw new Error('正在提交，不能修改附件');
-    const d = this.draft(id), artifact = editableArtifact(d, artifactId);
-    const entry = artifact.attachments?.find(item => item.fileId === fileId);
+    const d = this.draft(id), list = attachmentList(d, artifactId === d.id && !d.artifacts?.some(item => item.id === artifactId) ? undefined : artifactId);
+    const entry = list.find(item => item.fileId === fileId);
     if (!entry || !d.files.some(file => file.id === fileId)) throw new Error('附件不存在');
     entry.selected = selected; await this.store.save(); this.broadcast();
   }
@@ -1660,9 +1737,13 @@ export class Workbench {
         d.submitted = transfers[0].id; await this.store.save(); this.broadcast(); return transfers[0];
       }
       if (!d.body.trim()) throw new Error('请先填写成果说明');
-      this.remote.channel(d.binding); const artifact = { id: d.id, category: 'finding' as const, title: d.title, fields: { statement: d.body }, body: d.body, repoUrl: d.repoUrl, target: target || d.target || d.binding.project.uploadPath, selected: true };
+      this.remote.channel(d.binding); const artifact = { id: d.id, category: 'finding' as const, title: d.title, fields: { statement: d.body }, body: d.body, repoUrl: d.repoUrl, target: target || d.target || d.binding.project.uploadPath, selected: true, attachments: d.attachments };
+      const attachments = await freezeDraftAttachments(d, [artifact], this.store.root);
       const zip = await packageDraftArtifact(d, artifact, this.store.root);
-      const transfer = await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, { kind: 'contribution', title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle }, undefined, d.id);
+      const metadata = { kind: 'contribution' as const, title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, ...(attachments.byArtifact.get(d.id)!.files.length ? { attachments: attachments.byArtifact.get(d.id)!.files } : {}) };
+      const transfer = attachments.transfers.length
+        ? (await this.queue.enqueueMany([...attachments.transfers, { conclusionSourceId: d.id, local: zip, binding: d.binding, folder: artifact.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(d.id)!.dependsOn, metadata }])).at(-1)!
+        : await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, metadata, undefined, d.id);
       d.submitted = transfer.id; await this.store.save(); this.broadcast(); return transfer;
     } finally { this.submittingDrafts.delete(id); }
   }

@@ -1,6 +1,13 @@
 import React, { useId } from 'react';
 import { ChevronDown } from 'lucide-react';
 
+export function ResultMoreMenu({ children }: { children: React.ReactNode }) {
+  return <details className="result-more" onClick={event => { const menu = event.currentTarget; if ((event.target as HTMLElement).closest('.result-more-menu')) menu.open = false; }}>
+    <summary className="secondary compact">更多</summary>
+    <div className="result-more-menu" role="menu">{children}</div>
+  </details>;
+}
+
 export function ResultCard({ id, title, badges, metadata, preview, expanded, selected, disabled, toggle, selection, children, actions, completed = false }: {
   id: string; title: string; badges: React.ReactNode; metadata: React.ReactNode; preview: string;
   expanded: boolean; selected?: boolean; disabled?: boolean; completed?: boolean; toggle: () => void;

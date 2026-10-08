@@ -5,11 +5,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Archive, Check, Sparkles, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import type { AgentSession, Draft, Project, ProjectConclusion } from '../shared/types';
+import type { AgentSession, Draft, FilePreview, Project, ProjectConclusion } from '../shared/types';
 import { attachedConclusion } from '../shared/conclusion-context';
 import { matchesResultLabel, resultLabels, resultLabelTitle } from '../shared/result-labels';
 import { ResultCategoryFilter } from './result-category-filter';
-import { ResultCard } from './result-card';
+import { ResultCard, ResultMoreMenu } from './result-card';
+import { ConclusionAttachments } from './attachments';
 import { newerTeamSources, resultLineage } from '../shared/result-lineage';
 import { materialCategories, contributionCategoryInfo, contributionTitle, titleSubject, type ContributionCategory, type ResultReference, type SharedContent } from '../shared/content';
 
@@ -21,6 +22,8 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
   const [teamRevisions, setTeamRevisions] = useState<Record<string, number>>({});
   const teamRevisionRequest = useRef(0);
   const [editing, setEditing] = useState(false), [creating, setCreating] = useState(false), [title, setTitle] = useState(''), [content, setContent] = useState('');
+  const [stagedFiles, setStagedFiles] = useState<{ id: string; name: string; size: number }[]>([]);
+  const stagedRef = useRef(stagedFiles); stagedRef.current = stagedFiles;
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [mergeSelection, setMergeSelection] = useState<string[]>([]);
   const [confirmingMerge, setConfirmingMerge] = useState(false), [instruction, setInstruction] = useState(''), [mergeSessionId, setMergeSessionId] = useState('');
   const [attaching, setAttaching] = useState<ProjectConclusion>(), [attachSelection, setAttachSelection] = useState<string[]>([]), [attachedIds, setAttachedIds] = useState<string[]>([]);
@@ -64,7 +67,7 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
   const load = async () => { setBusy(true); try { setItems(await api.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true })); setError(''); const request = ++teamRevisionRequest.current; void api.call<SharedContent[]>('content.list', { projectId: project.id }).then(shared => { if (request === teamRevisionRequest.current) setTeamRevisions(Object.fromEntries(shared.map(value => [value.id, value.revision]))); }).catch(() => {}); } catch (e: any) { setError(e.message); } finally { setBusy(false); } };
-  useEffect(() => { setClassifying(undefined); setHistoryItem(undefined); setItems([]); setSelected(''); setCreating(false); setEditing(false); setCategoryFilter('all'); setQuery(''); setShowArchived(false); setAliasItem(undefined); setPendingDelete([]); setSelectingDelete(false); setDeleteSelection([]); setMergeSelection([]); setConfirmingMerge(false); setInstruction(''); void load(); }, [project.id]);
+  useEffect(() => { const pending = stagedRef.current; stagedRef.current = []; setStagedFiles([]); for (const file of pending) void api.call('conclusion.files.remove', { fileId: file.id }); setClassifying(undefined); setHistoryItem(undefined); setItems([]); setSelected(''); setCreating(false); setEditing(false); setCategoryFilter('all'); setQuery(''); setShowArchived(false); setAliasItem(undefined); setPendingDelete([]); setSelectingDelete(false); setDeleteSelection([]); setMergeSelection([]); setConfirmingMerge(false); setInstruction(''); void load(); }, [project.id]);
   useEffect(() => { if (!sessions.some(session => session.id === mergeSessionId)) setMergeSessionId(sessions[0]?.id || ''); }, [sessions, mergeSessionId]);
   useEffect(() => { if (refreshToken && !editing) void load(); }, [refreshToken]);
   useEffect(() => { if (!focusId || !items.some(item => item.id === focusId)) return; setShowArchived(true); setCategoryFilter('all'); setQuery(''); open(items.find(item => item.id === focusId)!); focusHandled?.(); }, [focusId, items]);
@@ -78,10 +81,15 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
   const mergeReady = selectedMergeItems.length > 0 && selectedMergeItems.length <= 20 && selectedMergeItems.every(value => resultCategory(value) === mergeCategory);
   const sourceSummary = (value: ProjectConclusion) => !value.sources.length ? '手工记录' : [...new Set(value.sources.map(source => ({ session: '本地整理', remote: '共享区', conclusion: '项目成果', manual: '手工记录' })[source.kind]))].join('、');
   const open = (value: ProjectConclusion) => { setSelected(value.id); setCreating(false); setEditing(false); setTitle(titleSubject(value.title)); setCategory(resultCategory(value) || 'exploration'); setEditStatus(value.resultStatus || resultDefaultStatus(resultCategory(value))); setEditOwner(value.resultOwner || ''); setContent(value.content); };
-  const beginCreate = () => { setSelected(''); setCreating(true); setEditing(true); setTitle(''); setCategory(categories.includes(categoryFilter as ContributionCategory) ? categoryFilter as ContributionCategory : categories[0]); setContent(''); setCategoryFilter('all'); setQuery(''); };
+  const discardStaged = async () => { const pending = stagedRef.current; stagedRef.current = []; setStagedFiles([]); for (const file of pending) await api.call('conclusion.files.remove', { fileId: file.id }); };
+  const beginCreate = () => { void discardStaged(); const next = categories.includes(categoryFilter as ContributionCategory) ? categoryFilter as ContributionCategory : categories[0]; setSelected(''); setCreating(true); setEditing(true); setTitle(''); setCategory(next); setEditStatus(resultDefaultStatus(next)); setEditOwner(''); setContent(''); setCategoryFilter('all'); setQuery(''); };
+  const remember = (saved: ProjectConclusion) => setItems(current => current.map(value => value.id === saved.id ? saved : value));
+  const addFiles = async () => { if (creating) { const added = await api.call<{ id: string; name: string; size: number }[]>('conclusion.files.stage'); setStagedFiles(current => [...current, ...added]); return; } if (!item) return; remember(await api.call<ProjectConclusion>('conclusion.files.add', { id: item.id })); };
+  const removeFile = async (fileId: string) => { if (creating) { await api.call('conclusion.files.remove', { fileId }); setStagedFiles(current => current.filter(file => file.id !== fileId)); return; } if (!item) return; remember(await api.call<ProjectConclusion>('conclusion.files.remove', { id: item.id, fileId })); };
+  const previewFile = (id: string | undefined, fileId: string) => api.call<FilePreview>('conclusion.file.preview', { id, fileId });
   const save = async () => {
     if (!title.trim() || !content.trim()) return; setBusy(true); setError('');
-    try { const saved = creating ? await api.call<ProjectConclusion>('conclusion.create', { projectId: project.id, title: contributionTitle(category, title), content, category, resultStatus: editStatus, resultOwner: editOwner }) : await api.call<ProjectConclusion>('conclusion.save', { id: item!.id, title: contributionTitle(category, title), content, category, resultStatus: editStatus, resultOwner: editOwner, version: item!.version }); setCreating(false); setEditing(false); setCategoryFilter('all'); setQuery(''); await load(); setSelected(saved.id); notice(creating ? '项目成果已创建' : '项目成果已保存为新版本'); }
+    try { const saved = creating ? await api.call<ProjectConclusion>('conclusion.create', { projectId: project.id, title: contributionTitle(category, title), content, category, resultStatus: editStatus, resultOwner: editOwner, fileIds: stagedFiles.map(file => file.id) }) : await api.call<ProjectConclusion>('conclusion.save', { id: item!.id, title: contributionTitle(category, title), content, category, resultStatus: editStatus, resultOwner: editOwner, version: item!.version }); if (creating) { stagedRef.current = []; setStagedFiles([]); } setCreating(false); setEditing(false); setCategoryFilter('all'); setQuery(''); await load(); setSelected(saved.id); notice(creating ? '项目成果已创建' : '项目成果已保存为新版本'); }
     catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
   const archive = async (value: ProjectConclusion, archived: boolean) => { setBusy(true); try { await api.call('conclusion.archive', { id: value.id, archived }); await load(); if (archived) { setSelected(current => current === value.id ? '' : current); setMergeSelection(current => current.filter(id => id !== value.id)); } notice(archived ? '成果已移入历史，不再推荐给新会话' : '成果已恢复使用'); } catch (e: any) { setError(e.message); } finally { setBusy(false); } };
@@ -97,9 +105,10 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
     <ResultStatusSelect category={canonicalCategory(category)!} value={editStatus} change={setEditStatus}/>{canonicalCategory(category) === 'todo' && <label className="field">负责人<input value={editOwner} aria-label="待办负责人" onChange={event => setEditOwner(event.target.value)}/></label>}
     <label className="field">标题<input aria-label="项目成果标题" value={title} maxLength={200} onChange={event => setTitle(event.target.value)}/></label>
     <label className="field">内容<textarea aria-label="项目成果内容" rows={16} value={content} onChange={event => setContent(event.target.value)}/></label>
+    <ConclusionAttachments files={creating ? stagedFiles : item?.localFiles || []} locked={busy} add={() => void addFiles().catch((reason: any) => setError(reason.message))} remove={fileId => void removeFile(fileId).catch((reason: any) => setError(reason.message))} preview={fileId => previewFile(creating ? undefined : item?.id, fileId)}/>
   </>;
   const renderEditActions = () => <>
-    <button className="secondary compact" disabled={busy} onClick={() => { setCreating(false); setEditing(false); if (item) open(item); }}>取消</button>
+    <button className="secondary compact" disabled={busy} onClick={() => { if (creating) void discardStaged(); setCreating(false); setEditing(false); if (item) open(item); }}>取消</button>
     <button className="primary compact" disabled={busy || !title.trim() || !content.trim()} onClick={() => void save()}><Check size={14}/>保存成果</button>
   </>;
   const updateMetadata = async (value: ProjectConclusion, category?: ContributionCategory, status?: ResultStatus) => {
@@ -111,16 +120,18 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
     if (editing && selected === value.id) return renderEditActions();
     const disabled = busy || editing || selectingDelete || !!selectedMergeItems.length;
     return <>
-      {!value.archived && resultCategory(value) === 'todo' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'todo', ['completed', 'cancelled'].includes(value.resultStatus || '') ? 'pending' : 'completed')}>{['completed', 'cancelled'].includes(value.resultStatus || '') ? '重新打开' : '标记完成'}</button>}
-      {!value.archived && resultCategory(value) === 'project_goal' && value.resultStatus !== 'confirmed' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'project_goal', 'confirmed')}>确认目标</button>}
-      {!value.archived && <button className="secondary compact" disabled={disabled} onClick={() => { setClassifying(value); setError(''); }}>修改分类</button>}
-      {!!value.versions?.length && <button className="secondary compact" onClick={() => setHistoryItem(value)}>历史版本 · {value.versions.length}</button>}
-      {!value.archived && <button className="primary compact" disabled={disabled} onClick={() => { open(value); setEditing(true); }}>编辑</button>}
-      {!value.archived && <button className="secondary compact" disabled={disabled} onClick={() => { setPublishing(value); setDisclosed([]); setError(''); }}>分享至团队</button>}
-      <button className="secondary compact" disabled={disabled || value.archived || !attachSessions.length} title={value.archived ? '请先恢复此成果' : !attachSessions.length ? '请先为此项目创建工作会话' : '选择会话使用这份成果'} onClick={() => { setAttaching(value); setAttachSelection([]); setAttachedIds([]); setError(''); }}>加入会话</button>
-      <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(value.titleAlias || ''); setAliasError(''); }}>设置本地别名</button>
       {value.archived ? value.supersededBy ? <span className="muted small" title="已被新成果替代，可在历史中查看">已由新成果替代</span> : <button className="secondary compact" disabled={disabled} onClick={() => void archive(value, false)}><RotateCcw size={14}/>恢复使用</button> : <button className="secondary compact" disabled={disabled} title="暂时停用，保留内容，可随时恢复" onClick={() => void archive(value, true)}><Archive size={14}/>移入历史</button>}
       <button className="secondary compact danger" disabled={disabled} onClick={() => { setPendingDelete([value]); setDeleteError(''); }}><Trash2 size={14}/>删除成果</button>
+      <ResultMoreMenu>
+        {!value.archived && resultCategory(value) === 'todo' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'todo', ['completed', 'cancelled'].includes(value.resultStatus || '') ? 'pending' : 'completed')}>{['completed', 'cancelled'].includes(value.resultStatus || '') ? '重新打开' : '标记完成'}</button>}
+        {!value.archived && resultCategory(value) === 'project_goal' && value.resultStatus !== 'confirmed' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'project_goal', 'confirmed')}>确认目标</button>}
+        {!value.archived && <button className="secondary compact" disabled={disabled} onClick={() => { setClassifying(value); setError(''); }}>修改分类</button>}
+        {!!value.versions?.length && <button className="secondary compact" onClick={() => setHistoryItem(value)}>历史版本 · {value.versions.length}</button>}
+        {!value.archived && <button className="secondary compact" disabled={disabled} onClick={() => { open(value); setEditing(true); }}>编辑</button>}
+        {!value.archived && <button className="secondary compact" disabled={disabled} onClick={() => { setPublishing(value); setDisclosed([]); setError(''); }}>分享至团队</button>}
+        <button className="secondary compact" disabled={disabled || value.archived || !attachSessions.length} title={value.archived ? '请先恢复此成果' : !attachSessions.length ? '请先为此项目创建工作会话' : '选择会话使用这份成果'} onClick={() => { setAttaching(value); setAttachSelection([]); setAttachedIds([]); setError(''); }}>加入会话</button>
+        <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(value.titleAlias || ''); setAliasError(''); }}>设置本地别名</button>
+      </ResultMoreMenu>
     </>;
   };
   return <div className={(embedded ? 'results-library-pane' : 'workspace-page') + ' conclusion-page'}>
@@ -138,7 +149,7 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
       </section>}
       {visible.map(value => <ResultCard key={value.id} id={value.id} completed={value.resultStatus === 'completed' || value.resultStatus === 'cancelled'} title={titleSubject(conclusionTitle(value))}
         badges={<><span className="content-category-badge">{contributionCategoryInfo[resultCategory(value)!].label}</span>{resultStateLabel(value) && <span className="result-state-badge">{resultStateLabel(value)}</span>}{value.archived && <span className="result-history-badge">历史成果</span>}</>}
-        metadata={<>{value.resultOwner ? `负责人：${value.resultOwner} · ` : ''}v{value.version} · {sourceSummary(value)}{value.sources.length > 1 ? ` · ${value.sources.length} 个来源` : ''} · {new Date(value.updatedAt).toLocaleString()}</>}
+        metadata={<>{value.resultOwner ? `负责人：${value.resultOwner} · ` : ''}v{value.version} · {sourceSummary(value)}{value.sources.length > 1 ? ` · ${value.sources.length} 个来源` : ''}{!!value.localFiles?.length && ` · ${value.localFiles.length} 个附件`} · {new Date(value.updatedAt).toLocaleString()}</>}
         preview={resultPreview(value.content)} expanded={value.id === selected}
         selected={mergeSelection.includes(value.id) || selectingDelete && deleteSelection.includes(value.id)} disabled={editing}
         toggle={() => value.id === selected ? setSelected('') : open(value)}
@@ -148,6 +159,7 @@ export function ConclusionLibrary({ project, sessions, notice, mergeStarted, foc
           {value.titleAlias && <p className="muted small">本地别名 · 原名：{titleSubject(value.title) || value.title}</p>}
           <p className="muted small">成果 ID：<code>{value.id}</code> · v{value.version} <button className="text-button" onClick={() => void api.call('copy', value.id).then(() => notice('成果 ID 已复制')).catch(error => setError(error.message))}>复制 ID</button>{value.supersededBy && <> · 已由 {value.supersededBy.id} 替代</>}</p>
           <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{value.content}</ReactMarkdown></div>
+          {!!value.localFiles?.length && <ConclusionAttachments files={value.localFiles} locked={busy} preview={fileId => previewFile(value.id, fileId)}/>}
           {hasNewerTeamSource(value) && <p className="muted small">上游团队成果已有新版本；这条个人成果继续使用保存时的来源版本。</p>}
           {value.derivedFrom?.length ? <details className="content-provenance"><summary>直接来源（{value.derivedFrom.length}）</summary>{value.derivedFrom.map(ref => { const local = items.find(entry => entry.id === ref.id), frozen = local?.version === ref.version ? local : local?.versions?.find(entry => entry.version === ref.version); const team = value.sources.find(source => source.kind === 'remote' && source.id === ref.id && source.revision === ref.version); return <details key={ref.scope + ':' + ref.id + ':' + ref.version}><summary>{ref.scope === 'personal' ? '个人' : '团队'} · {local?.title || team?.title || ref.id} · v{ref.version}{local && local.version > ref.version ? `（已有 v${local.version}）` : ''}</summary><p>ID：<code>{ref.id}</code></p>{frozen ? <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{frozen.content}</ReactMarkdown></div> : team?.content ? <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{team.content}</ReactMarkdown></div> : <p>历史正文不可用</p>}</details>; })}</details> : null}
           {value.derivedFrom?.length ? <details className="content-provenance"><summary>完整来源链</summary>{resultLineage(value.derivedFrom, ref => { const local = items.find(entry => ref.scope === 'personal' && entry.id === ref.id); return local?.version === ref.version ? local : local?.versions?.find(version => version.version === ref.version); }).map(ref => <p key={`${ref.scope}:${ref.id}:${ref.version}`}>{ref.scope === 'personal' ? '个人' : '团队'} · <code>{ref.id}</code> · v{ref.version}</p>)}</details> : null}

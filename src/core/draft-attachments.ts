@@ -6,11 +6,22 @@ import { attachmentPath } from '../shared/attachments';
 import { freezeFile, hashFile } from './artifacts';
 import type { TransferInput } from './transfers';
 
+export function assertAttachmentEditable(draft: Draft) {
+  if (draft.submitted || draft.mergeCompletedAt || draft.artifacts?.some(item => item.submitted) || draft.generation !== 'ready') throw new Error('请在整理完成、提交前选择附件');
+}
+export function attachmentList(draft: Draft, artifactId?: string) {
+  assertAttachmentEditable(draft);
+  const artifact = artifactId ? draft.artifacts?.find(item => item.id === artifactId) : undefined;
+  if (artifact) return artifact.attachments ||= [];
+  if (draft.mergeSources?.length || !draft.artifacts?.length) return draft.attachments ||= [];
+  throw new Error('请选择附件所属的成果');
+}
 export function editableArtifact(draft: Draft, artifactId?: string) {
-  if (draft.submitted || draft.artifacts?.some(item => item.submitted) || draft.generation !== 'ready' || draft.mergeSources?.length) throw new Error('请在整理完成、提交前选择附件');
+  assertAttachmentEditable(draft);
   const artifact = draft.artifacts?.find(item => item.id === artifactId);
-  if (!artifact) throw new Error('请选择附件所属的成果');
-  return artifact;
+  if (artifact) return artifact;
+  if (draft.mergeSources?.length || !draft.artifacts?.length) return { id: draft.id, category: draft.resultCategory || 'exploration', title: draft.title, fields: {}, body: draft.body, target: draft.target || '', selected: true, attachments: draft.attachments ||= [] } as DraftArtifact;
+  throw new Error('请选择附件所属的成果');
 }
 
 export async function freezeDraftAttachments(draft: Draft, selected: DraftArtifact[], root: string) {

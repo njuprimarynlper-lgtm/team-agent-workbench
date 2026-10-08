@@ -3,7 +3,7 @@ import { ResultCategoryDialog, ResultHistoryDrawer, ResultStatusSelect } from '.
 import { resultPreview } from '../shared/result-reading';
 import { matchesResultLabel, resultLabels, resultLabelTitle } from '../shared/result-labels';
 import { ResultCategoryFilter } from './result-category-filter';
-import { ResultCard } from './result-card';
+import { ResultCard, ResultMoreMenu } from './result-card';
 import { resultLineage } from '../shared/result-lineage';
 import { teamResultDifference, teamResultDifferenceLabels } from '../shared/team-result-difference';
 import React, { useEffect, useRef, useState } from 'react';
@@ -173,21 +173,20 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     const disabled = busy || editing || !!savingId || selectingMerge || selectingDelete;
     const keepSaveAppearance = backgroundRefreshing && !editing && !savingId && !selectingMerge && !selectingDelete && !!differences[value.id];
     const writable = admin || value.author === username && value.state === 'submitted';
-    const maintenance = <>
-      {value.kind === 'contribution' && <button className="secondary compact" disabled={disabled || !!value.linkedAssignments?.length} onClick={() => { setClassifying(value); setError(''); }}>修改分类</button>}
-      <button className="secondary compact" disabled={disabled} onClick={() => edit(value)}>{admin ? '编辑成果' : '修改自己的提交'}</button>
-      <button className="secondary compact danger" aria-label={resultId ? undefined : `从共享区移除：${displayTitle(value)}`} disabled={disabled} onClick={() => setPendingDelete(value)}>从共享区移除</button>
-    </>;
     return <>
-      {writable && resultCategory(value) === 'todo' && !value.linkedAssignments?.length && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'todo', value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? 'pending' : 'completed')}>{value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? '重新打开' : '标记完成'}</button>}
-      {writable && resultCategory(value) === 'project_goal' && value.resultStatus !== 'confirmed' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'project_goal', 'confirmed')}>确认目标</button>}
       {value.linkedAssignments?.length ? <span className="muted small">已关联项目任务 · {value.linkedAssignments.map(task => task.status === 'pending_review' ? '待验收' : task.status === 'completed' ? '已完成' : '按任务进度处理').join('、')}</span> : null}
-      {!!history.filter(entry => entry.id === value.id && entry.revision < value.revision).length && <button className="secondary compact" disabled={disabled} onClick={() => setHistoryItem(value)}>历史版本 · {history.filter(entry => entry.id === value.id && entry.revision < value.revision).length}</button>}
       {!activity && <button className={'primary compact' + (keepSaveAppearance ? ' result-save-refreshing' : '')} aria-label={resultId ? undefined : `存入个人成果库：${displayTitle(value)}`} disabled={disabled || !differences[value.id]} onClick={() => void storePersonal(value)}>{savingId === value.id ? '正在存入…' : differences[value.id] ? '存入个人成果库' : resultId ? '个人库已有此版本' : '个人库已有'}</button>}
-      {value.kind !== 'contribution' && <button className="secondary compact" disabled={disabled} onClick={() => void window.workbench.call('remote.download', { projectId: project.id, path: value.path }).catch(e => setError(e.message))}>下载</button>}
-      <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(alias(value)); }}>设置本地别名</button>
-      <button className="secondary compact" disabled={disabled || !attachSessions.length} title={attachSessions.length ? '选择一个或多个会话作为参考资料' : '请先为此项目创建工作会话'} onClick={() => { setAttachItem(value); setAttachSelection([]); }}>加入会话</button>
-      {writable && (resultId && !admin ? <details className="activity-own-actions"><summary>管理我的提交</summary><div className="row">{maintenance}</div></details> : maintenance)}
+      {writable && <button className="secondary compact danger" aria-label={resultId ? undefined : `从共享区移除：${displayTitle(value)}`} disabled={disabled} onClick={() => setPendingDelete(value)}>从共享区移除</button>}
+      <ResultMoreMenu>
+        {writable && resultCategory(value) === 'todo' && !value.linkedAssignments?.length && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'todo', value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? 'pending' : 'completed')}>{value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? '重新打开' : '标记完成'}</button>}
+        {writable && resultCategory(value) === 'project_goal' && value.resultStatus !== 'confirmed' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'project_goal', 'confirmed')}>确认目标</button>}
+        {!!history.filter(entry => entry.id === value.id && entry.revision < value.revision).length && <button className="secondary compact" disabled={disabled} onClick={() => setHistoryItem(value)}>历史版本 · {history.filter(entry => entry.id === value.id && entry.revision < value.revision).length}</button>}
+        {value.kind !== 'contribution' && <button className="secondary compact" disabled={disabled} onClick={() => void window.workbench.call('remote.download', { projectId: project.id, path: value.path }).catch(e => setError(e.message))}>下载</button>}
+        <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(alias(value)); }}>设置本地别名</button>
+        <button className="secondary compact" disabled={disabled || !attachSessions.length} title={attachSessions.length ? '选择一个或多个会话作为参考资料' : '请先为此项目创建工作会话'} onClick={() => { setAttachItem(value); setAttachSelection([]); }}>加入会话</button>
+        {writable && value.kind === 'contribution' && <button className="secondary compact" disabled={disabled || !!value.linkedAssignments?.length} onClick={() => { setClassifying(value); setError(''); }}>修改分类</button>}
+        {writable && <button className="secondary compact" disabled={disabled} onClick={() => edit(value)}>{admin ? '编辑成果' : '修改自己的提交'}</button>}
+      </ResultMoreMenu>
     </>;
   };
   return <div className={(embedded ? 'results-library-pane' : 'workspace-page') + ' team-results' + (resultId ? ' activity-result-page' : '')}>

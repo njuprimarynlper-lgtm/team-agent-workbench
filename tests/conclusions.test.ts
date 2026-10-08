@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { applyPreparation } from '../src/core/preparation';
 import { rankConclusions } from '../src/core/conclusion-matcher';
 import { Workbench } from '../src/core/workbench';
 import { sessionContext } from '../src/core/session-context';
 import { attachedConclusion, conclusionTitle } from '../src/shared/conclusion-context';
-import type { ProjectConclusion } from '../src/shared/types';
+import type { Draft, ProjectConclusion } from '../src/shared/types';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 // @ts-expect-error Shared fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -230,5 +232,29 @@ test('an unsent personal result can be removed without deleting the result; a de
     session.nativeId = 'native-2';
     await assert.rejects(wb.detachPendingSource(session.id, second.id), /已发送给模型/);
     assert.equal(session.sources[0].id, second.id); assert(await fs.stat(second.localPath));
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('selected files stay with a new result, an organized result and a processed result', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-conclusion-files-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const evidence = path.join(root, 'evidence.txt'); await fs.writeFile(evidence, 'frozen evidence');
+    const staged = await wb.stageConclusionFiles([evidence]);
+    const created = await wb.createConclusion(offlineProjectId, '手工资料', '见附件。', 'project_material', undefined, undefined, staged.map(file => file.id));
+    assert.equal(created.localFiles?.map(file => file.name).join(), 'evidence.txt');
+    assert.equal(await fs.readFile(created.localFiles![0].localPath, 'utf8'), 'frozen evidence');
+    const session = await wb.createSession('codex', root, offlineProjectId);
+    const id = randomUUID(), draft: Draft = { id, sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(wb.store.root, 'drafts', id, 'input'), outputPath: path.join(wb.store.root, 'drafts', id, 'draft.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3 };
+    applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', title: '整理资料', fields: { statement: '附件中的证据。' } }] }));
+    wb.store.drafts.push(draft); await wb.addDraftFiles(draft.id, [evidence], draft.artifacts![0].id);
+    const saved = await wb.saveDraftPersonal(draft.id, [draft.artifacts![0].id]);
+    assert.equal(await fs.readFile(saved[0].localFiles![0].localPath, 'utf8'), 'frozen evidence');
+    const source = await wb.createConclusion(offlineProjectId, '待处理来源', '原文保留。', 'exploration');
+    const mergeId = randomUUID(), merge: Draft = { id: mergeId, sessionId: session.id, binding: session.binding, title: '处理结果', body: '合并后的正文。', files: [], inputDir: path.join(wb.store.root, 'drafts', mergeId, 'input'), outputPath: path.join(wb.store.root, 'drafts', mergeId, 'draft.md'), createdAt: new Date().toISOString(), generation: 'ready', conclusionMergeProjectId: offlineProjectId, resultCategory: 'exploration', mergeSources: [{ id: source.id, revision: source.version, title: source.title, author: 'me', updatedAt: source.updatedAt }] };
+    wb.store.drafts.push(merge); await wb.addDraftFiles(merge.id, [evidence]);
+    const processed = await wb.commitConclusionMerge(merge.id);
+    assert.equal(processed.localFiles?.length, 1);
+    assert.equal(await fs.readFile(processed.localFiles![0].localPath, 'utf8'), 'frozen evidence');
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
