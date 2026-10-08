@@ -1,3 +1,5 @@
+import { conclusionUploadState, uploadBlocked } from '../shared/conclusion-upload';
+import { submissionRecord } from '../shared/submission';
 import { assertTodoMerge, canonicalCategory, resultCategory, resultDefaultStatus, sameResultCategory, validateResultStatus, type ResultStatus } from '../shared/result-model';
 import { humanReadableWritingGuide } from '../shared/result-reading';
 import type { ContentUpdateAction } from '../shared/types';
@@ -63,6 +65,7 @@ export class Workbench {
   private deletingDrafts = new Set<string>();
   private deletingSharedContent = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
+  private publishingConclusions = new Set<string>();
   private edits: Promise<unknown> = Promise.resolve();
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
   private submittingDrafts = new Set<string>();
@@ -210,6 +213,10 @@ export class Workbench {
     const profile = this.localProfile();
     return this.store.conclusions.filter(item => !item.deletedAt && (!item.accountOwner || profile && item.accountOwner === accountIdentity(profile)) && item.projectId === projectId && (includeArchived || !item.archived)).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
+  conclusionUploadState(id: string) {
+    const item = this.conclusion(id);
+    return this.publishingConclusions.has(id) ? { status: 'running' as const } : conclusionUploadState(item, this.store.transfers);
+  }
   resultRules(projectId: string): ResultRulesState {
     const profile = this.localProfile();
     if (!profile?.projects.some(project => project.id === projectId)) throw new Error('当前账号无法访问此项目');
@@ -274,23 +281,31 @@ export class Workbench {
     if (value) conclusion.titleAlias = value; else delete conclusion.titleAlias;
     await this.store.save(); this.broadcast(); return conclusion;
   }
-  async publishConclusion(id: string, disclose: { scope: 'personal' | 'team'; projectId: string; id: string; version: number }[] = []) {
-    const conclusion = this.conclusion(id);
-    if (conclusion.archived) throw new Error('请先恢复这条个人成果再分享');
-    const allowed = conclusion.derivedFrom || [];
-    if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
-    const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
-    const category = resultCategory(conclusion) || 'exploration';
-    const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
-    await fs.mkdir(path.dirname(local), { recursive: true });
-    await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
-    const attachments = [];
-    for (const file of conclusion.localFiles || []) {
-      if (await hashFile(file.localPath) !== file.sha256) throw new Error('附件已变化，请移除后重新添加：' + file.name);
-      const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
-      attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
-    }
-    return this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, sourceSessionTitle: '个人成果库', ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+  async publishConclusion(id: string, disclose: { scope: 'personal' | 'team'; projectId: string; id: string; version: number }[] = [], expectedVersion?: number) {
+    if (this.publishingConclusions.has(id)) throw new Error('这条成果正在上传，请等待完成');
+    this.publishingConclusions.add(id); this.broadcast();
+    try {
+      const conclusion = structuredClone(this.conclusion(id));
+      if (expectedVersion !== undefined && conclusion.version !== expectedVersion) throw new Error('个人成果已更新，请刷新后重新确认提交');
+      if (conclusion.archived) throw new Error('请先恢复这条个人成果再分享');
+      const state = conclusionUploadState(conclusion, this.store.transfers);
+      if (uploadBlocked(state)) throw new Error(state.status === 'done' ? '这条成果的当前版本已上传' : '这条成果正在上传，请等待完成');
+      if (state.status === 'error' && state.transferId) { await this.queue.retry(state.transferId); return this.store.transfers.find(task => task.id === state.transferId)!; }
+      const allowed = conclusion.derivedFrom || [];
+      if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
+      const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
+      const category = resultCategory(conclusion) || 'exploration';
+      const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
+      await fs.mkdir(path.dirname(local), { recursive: true });
+      await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
+      const attachments = [];
+      for (const file of conclusion.localFiles || []) {
+        if (await hashFile(file.localPath) !== file.sha256) throw new Error('附件已变化，请移除后重新添加：' + file.name);
+        const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
+        attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
+      }
+      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+    } finally { this.publishingConclusions.delete(id); this.broadcast(); }
   }
   async archiveConclusion(id: string, archived: boolean) {
     const conclusion = this.conclusion(id);
@@ -414,6 +429,7 @@ export class Workbench {
       if (status) result.conclusion.resultStatus = status; else delete result.conclusion.resultStatus;
       if (item.resultOwner !== undefined) result.conclusion.resultOwner = item.resultOwner; else delete result.conclusion.resultOwner;
     }
+    if ((result.action === 'created' || result.conclusion.automatic) && !result.conclusion.localFiles?.length && !teamResultDifference(item, [result.conclusion])) result.conclusion.publication = { version: result.conclusion.version, files: '[]', path: item.path, sha256: item.sha256, at: item.updatedAt };
     result.conclusion.derivedFrom = [{ scope: 'team', projectId, id: item.id, version: item.revision }];
     return result;
   }
@@ -518,7 +534,7 @@ export class Workbench {
     }, false);
   }
   private contentSeenState(item: SharedContent): ContentSeenState {
-    return { revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
+    return { submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
   }
   async editSharedContent(projectId: string, change: ContentEdit) {
     const binding = this.remote.binding(projectId), before = await this.remote.contentList(binding), target = before.find(item => item.id === change.id);
@@ -538,7 +554,7 @@ export class Workbench {
     }
     const hasLocalCopy = this.localCopiesOfRemovedContent(projectId, target.id, target.path).length > 0;
     const eventId = `${key}:deleted:${target.id}:${target.revision}`;
-    if (!inbox.some(item => item.eventId === eventId)) inbox.unshift({ eventId, projectId, projectName: binding.project.name, id: target.id, removedPath: target.path, title: target.title, author: target.author, updatedBy: binding.username, revision: target.revision, category: target.category, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
+    if (!inbox.some(item => item.eventId === eventId)) inbox.unshift({ eventId, projectId, projectName: binding.project.name, id: target.id, removedPath: target.path, title: target.title, author: target.author, updatedBy: binding.username, revision: target.revision, category: target.category, submission: target.submission, sourceSessionTitle: target.sourceSessionTitle, change: 'deleted', occurredAt: now, detectedAt: now, ...(!hasLocalCopy ? { readAt: now, archiveReason: 'own_change' as const } : {}) });
     reconcileTeamResultReferences(this.store.sessions, binding, before.filter(item => item.id !== target.id), false, [target]);
     await this.store.save(); this.broadcast();
   }
@@ -612,7 +628,7 @@ export class Workbench {
         const detectedAt = new Date().toISOString();
         if (prior) {
           const removed = Object.entries(prior).filter(([id]) => !current[id]).map(([id, value]) => ({ id, ...value }));
-          for (const source of removed) {
+          for (const source of removed.filter(item => item.kind !== 'trajectory')) {
             const superseded = history.find(item => item.id === source.id && item.revision === source.revision && item.supersededBy) || items.find(item => (!prior[item.id] || item.revision > prior[item.id].revision) && (item.replaces || []).some(ref => ref.id === source.id && ref.version === source.revision));
             if (superseded) continue;
             for (let index = inbox.length - 1; index >= 0; index--) if (inbox[index].eventId.startsWith(key + ':') && inbox[index].id === source.id) {
@@ -621,27 +637,27 @@ export class Workbench {
             }
             // A shared deletion is a notification, never permission to remove local knowledge or names.
           }
-          for (const item of items) {
+          for (const item of items.filter(item => item.kind !== 'trajectory')) {
             const before = prior[item.id], contentChanged = !before ? 'new' as const : item.revision > before.revision ? 'updated' as const : undefined;
             if (!contentChanged) continue;
             const sourceIds = new Set((item.replaces || []).map(ref => ref.id));
             const mergedSources = removed.filter(source => sourceIds.has(source.id));
             const change = mergedSources.length ? 'merged' as const : contentChanged;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
-          for (const source of removed) {
+          for (const source of removed.filter(item => item.kind !== 'trajectory')) {
             // Several revisions can happen between polls. A newer replacement still
             // supersedes the last version this member saw; it is not a deletion.
             const historic = history.find(item => item.id === source.id && item.revision >= source.revision && item.supersededBy);
             const replacement = historic?.supersededBy ? items.find(item => item.id === historic.supersededBy!.id) : items.find(item => (!prior[item.id] || item.revision > prior[item.id].revision) && (item.replaces || []).some(ref => ref.id === source.id && ref.version >= source.revision));
             const superseded = !!historic || !!replacement;
-            add({ eventId: `${key}:${superseded ? 'superseded' : 'deleted'}:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, sourceSessionTitle: source.sourceSessionTitle, change: superseded ? 'superseded' : 'deleted', ...(superseded ? { replacedBy: { id: historic?.supersededBy?.id || replacement!.id, title: replacement?.title || '新成果' } } : {}), occurredAt: historic?.supersededAt || detectedAt, detectedAt });
+            add({ eventId: `${key}:${superseded ? 'superseded' : 'deleted'}:${source.id}:${source.revision}`, projectId: project.id, projectName: project.name, id: source.id, removedPath: source.path, title: source.title || source.path || `远端内容 ${source.id}`, author: source.author, revision: source.revision, category: source.category, submission: source.submission, updatedBy: replacement?.updatedBy || history.find(item => item.id === source.id && item.deletedAt)?.deletedBy, sourceSessionTitle: source.sourceSessionTitle, change: superseded ? 'superseded' : 'deleted', ...(superseded ? { replacedBy: { id: historic?.supersededBy?.id || replacement!.id, title: replacement?.title || '新成果' } } : {}), occurredAt: historic?.supersededAt || detectedAt, detectedAt });
           }
         } else {
           const recent = Date.now() - 24 * 60 * 60 * 1000;
-          for (const item of items.filter(item => Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
+          for (const item of items.filter(item => item.kind !== 'trajectory' && Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
             const change = item.sources?.length || item.provenance?.length ? 'merged' as const : 'new' as const;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
         }
         if (JSON.stringify(priorRaw || {}) !== JSON.stringify(current)) { seen[key] = current; changed = true; }
@@ -668,7 +684,7 @@ export class Workbench {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { return !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -744,7 +760,7 @@ export class Workbench {
   }
   assertCanLeaveAccount() {
     this.assertAccountReady();
-    if (this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
+    if (this.publishingConclusions.size || this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
   }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>, verified?: SharedFiles) {
     if (this.configuring) throw new Error('正在登录，请等待结果');
@@ -1243,7 +1259,7 @@ export class Workbench {
     this.assertCanWork(parent.binding);
     const sources = sourceIds.map(id => this.conclusions(projectId).find(item => item.id === id));
     if (sources.some(item => !item)) throw new Error('待处理结论已变化，请刷新后重新选择');
-    const selected = sources as ProjectConclusion[];
+    const selected = structuredClone(sources as ProjectConclusion[]);
     const mergeCategory = sameResultCategory(selected);
     const draftId = randomUUID(), base = path.join(this.store.root, 'drafts', draftId), inputDir = path.join(base, 'input');
     await fs.mkdir(inputDir, { recursive: true });
@@ -1257,6 +1273,7 @@ export class Workbench {
     const parent = this.session(id); if (parent.purpose !== 'work') throw new Error('请从工作会话创建整理结果');
     this.assertCanWork(parent.binding);
     if (!parent.binding) throw new Error('请先绑定项目');
+    const sourceSessionTitle = parent.title, binding = structuredClone(parent.binding);
     const resultRules = this.preparationRules(parent.binding.project.id, requestedCategories, temporary);
     const preparationDirections = selectedPreparationDirections(resultRules.categories, directions);
     const checkpoint = preparationCheckpoint(parent, this.store.drafts);
@@ -1266,7 +1283,7 @@ export class Workbench {
     const git = await gitRevision(parent.cwd);
     const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', id, parent.model);
     prepared.binding = parent.binding ? structuredClone(parent.binding) : undefined;
-    const draft: Draft = { id: draftId, sessionId: id, snapshot, preparationScope: scope, baseDraftId: checkpoint?.draftId, git, includeGit: source?.includeGit ?? !!git, prepareSessionId: prepared.id, preparationVersion: 3, concise: true, requestedCategories, supplement: source?.supplement || '', repoUrlOverride: source?.repoUrlOverride || '', title: parent.title + (scope === 'incremental' ? ' · 增量成果' : ' · 成果'), body: '', files, binding: parent.binding ? structuredClone(parent.binding) : undefined, inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
+    const draft: Draft = { sourceSessionTitle, id: draftId, sessionId: id, snapshot, preparationScope: scope, baseDraftId: checkpoint?.draftId, git, includeGit: source?.includeGit ?? !!git, prepareSessionId: prepared.id, preparationVersion: 3, concise: true, requestedCategories, supplement: source?.supplement || '', repoUrlOverride: source?.repoUrlOverride || '', title: sourceSessionTitle + (scope === 'incremental' ? ' · 增量成果' : ' · 成果'), body: '', files, binding, inputDir, outputPath: path.join(base, 'draft.md'), createdAt: new Date().toISOString() };
     draft.resultRules = resultRules;
     draft.preparationDirections = preparationDirections;
     this.store.drafts.unshift(draft); await this.runPreparation(draft); return draft;
@@ -1365,10 +1382,10 @@ export class Workbench {
       const parent = this.session(d.sessionId), base = path.join(path.dirname(d.inputDir), 'attempt-' + randomUUID());
       await fs.mkdir(base, { recursive: true });
       if (refreshInputs && !d.mergeSources?.length) {
-        const inputDir = path.join(base, 'input');
+        const inputDir = path.join(base, 'input'), sourceSessionTitle = parent.title;
         const { files, snapshot } = await preparationSnapshot(sessionWithAvailableReferences(parent, this.store.conclusions), inputDir);
         if (d.generation !== 'running') return d;
-        d.inputDir = inputDir; d.files = files; d.snapshot = snapshot; d.preparationScope = 'full'; d.baseDraftId = undefined; d.git = await gitRevision(parent.cwd);
+        d.inputDir = inputDir; d.files = files; d.snapshot = snapshot; d.sourceSessionTitle = sourceSessionTitle; d.preparationScope = 'full'; d.baseDraftId = undefined; d.git = await gitRevision(parent.cwd);
       }
       const prepared = await this.createSession(parent.provider, base, undefined, 'prepare', parent.id, parent.model);
       if (d.mergeSources?.length) prepared.title = d.conclusionMergeProjectId ? '本地结论预处理' : '项目文档语义合并';
@@ -1627,7 +1644,7 @@ export class Workbench {
       const category = draft.resultCategory || 'finding';
       const carrier = { id: draft.id, category, title: draft.title, fields: {}, body: draft.body, target: contributionCategoryDirectory(draft.binding, category), selected: true, attachments: draft.attachments };
       const attachments = await freezeDraftAttachments(draft, [carrier], this.store.root);
-      const metadata = { kind: 'contribution' as const, category, title: draft.title, description: draft.body, sourceSessionTitle: this.store.sessions.find(item => item.id === draft.sessionId)?.title || draft.sourceSessionTitle || '个人成果处理', ...(attachments.byArtifact.get(draft.id)!.files.length ? { attachments: attachments.byArtifact.get(draft.id)!.files } : {}) };
+      const metadata = { kind: 'contribution' as const, category, title: draft.title, description: draft.body, submission: submissionRecord(draft.binding, draft.mergeSources!.map(source => ({ kind: 'personal_result' as const, id: source.id, title: source.title, version: source.revision, projectId: draft.conclusionMergeProjectId }))), ...(attachments.byArtifact.get(draft.id)!.files.length ? { attachments: attachments.byArtifact.get(draft.id)!.files } : {}) };
       const transfer = attachments.transfers.length
         ? (await this.queue.enqueueMany([...attachments.transfers, { local, binding: draft.binding, folder: carrier.target, kind: 'upload' as const, sessionId: draft.sessionId, dependsOn: attachments.byArtifact.get(draft.id)!.dependsOn, metadata }])).at(-1)!
         : await this.queue.enqueue(local, draft.binding, carrier.target, 'upload', draft.sessionId, metadata);
@@ -1718,7 +1735,8 @@ export class Workbench {
     this.submittingDrafts.add(id);
     try {
       await this.edits; const d = this.draft(id); if (d.submitted) throw new Error('该批成果已提交'); if (!d.binding) throw new Error('此会话没有绑定远端项目，可导出文件后从团队文件区手动上传');
-      const sourceSessionTitle = this.store.sessions.find(session => session.id === d.sessionId)?.title || d.sourceSessionTitle;
+      const sourceSessionTitle = d.sourceSessionTitle;
+      const submission = submissionRecord(d.binding, sourceSessionTitle ? [{ kind: 'session', id: d.sessionId, title: sourceSessionTitle, capturedAt: d.snapshot?.capturedAt, snapshotHash: d.snapshot?.conversationHash }] : [{ kind: 'unknown' }]);
       if (d.preparationVersion === 3) {
         if (d.generation !== 'ready') throw new Error('请等待成果整理完成后确认上传');
         if (target) throw new Error('上传位置由成果类别确定，不能在提交时改变');
@@ -1730,8 +1748,8 @@ export class Workbench {
         }
         this.remote.channel(d.binding);
         const attachments = await freezeDraftAttachments(d, selected, this.store.root);
-        const packages = await Promise.all(selected.map(item => packageDraftArtifact(d, item, this.store.root)));
-        const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ conclusionSourceId: item.id, local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { kind: 'contribution' as const, category: item.category, resultStatus: item.resultStatus, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
+        const packages = await Promise.all(selected.map(item => packageDraftArtifact(d, item, this.store.root, submission)));
+        const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ conclusionSourceId: item.id, local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { submission, kind: 'contribution' as const, category: item.category, resultStatus: item.resultStatus, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
         const transfers = batch.slice(attachments.transfers.length);
         selected.forEach((item, index) => { item.submitted = transfers[index].id; });
         d.submitted = transfers[0].id; await this.store.save(); this.broadcast(); return transfers[0];
@@ -1739,8 +1757,8 @@ export class Workbench {
       if (!d.body.trim()) throw new Error('请先填写成果说明');
       this.remote.channel(d.binding); const artifact = { id: d.id, category: 'finding' as const, title: d.title, fields: { statement: d.body }, body: d.body, repoUrl: d.repoUrl, target: target || d.target || d.binding.project.uploadPath, selected: true, attachments: d.attachments };
       const attachments = await freezeDraftAttachments(d, [artifact], this.store.root);
-      const zip = await packageDraftArtifact(d, artifact, this.store.root);
-      const metadata = { kind: 'contribution' as const, title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, ...(attachments.byArtifact.get(d.id)!.files.length ? { attachments: attachments.byArtifact.get(d.id)!.files } : {}) };
+      const zip = await packageDraftArtifact(d, artifact, this.store.root, submission);
+      const metadata = { submission, kind: 'contribution' as const, title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, ...(attachments.byArtifact.get(d.id)!.files.length ? { attachments: attachments.byArtifact.get(d.id)!.files } : {}) };
       const transfer = attachments.transfers.length
         ? (await this.queue.enqueueMany([...attachments.transfers, { conclusionSourceId: d.id, local: zip, binding: d.binding, folder: artifact.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(d.id)!.dependsOn, metadata }])).at(-1)!
         : await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, metadata, undefined, d.id);
@@ -1815,7 +1833,7 @@ export class Workbench {
   }
   async uploadFiles(binding: RemoteBinding, folder: string, files: string[]) {
     this.remote.channel(binding);
-    for (const file of files) { const frozen = await freezeFile(file, path.join(this.store.root, 'uploads', randomUUID())); await this.queue.enqueue(frozen.localPath, binding, folder, 'upload'); }
+    for (const file of files) { const frozen = await freezeFile(file, path.join(this.store.root, 'uploads', randomUUID())); await this.queue.enqueueMany([{ name: frozen.name, local: frozen.localPath, binding, folder, kind: 'upload', metadata: { kind: 'file', title: frozen.name.slice(0, 200), description: '', submission: submissionRecord(binding, [{ kind: 'file', title: frozen.name }]) } }]); }
   }
   async forkSubsession(parentId: string, focus: string) {
     if (!this.betaFeatureEnabled('subsessions')) throw new Error('请先在 Beta 功能中开启 Subsession');

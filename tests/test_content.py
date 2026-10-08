@@ -4,6 +4,7 @@ Windows mocks ownership/chmod only. It is not a substitute for the Linux case.
 """
 import copy
 import importlib.util
+import json
 import os
 import pathlib
 import shutil
@@ -42,6 +43,59 @@ class ContentRules(unittest.TestCase):
 
     def publish(self, actor='bob', name='result.zip', kind='contribution'):
         return self.call(actor, op='publish', target='/projects/relation/实体抽取/submissions/' + actor + '/' + name, sha256=content.digest(self.incoming), metadata={'title': '方案结论', 'description': '已验证内容', 'kind': kind})
+
+    def origin(self, actor='bob', **changes):
+        value = dict(version=1, submittedBy=actor, submittedAt='2000-01-01T00:00:00Z', destination=dict(projectId=self.project, projectName='客户端旧名字', groupName='relation', groupLabel='客户端旧组名'), sources=[dict(kind='session', id=str(uuid.uuid4()), title='量化误差分析', capturedAt='2026-10-08T01:00:00Z', snapshotHash='a' * 64)])
+        value.update(changes)
+        return value
+
+    def test_submission_canonical_actor_and_destination_reject_mismatch_before_file_write(self):
+        target = '/projects/relation/实体抽取/submissions/bob/origin.md'
+        meta = dict(kind='contribution', title='误差评估', description='对照评测', submission=self.origin())
+        for wrong in [dict(meta['submission'], submittedBy='alice'), dict(meta['submission'], destination=dict(projectId=self.project, groupName='ocr')), dict(meta['submission'], sources=[dict(kind='team_result', id=str(uuid.uuid4()), version=1, projectId=self.project)])]:
+            with self.assertRaises((PermissionError, ValueError)):
+                self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata=dict(meta, submission=wrong))
+            self.assertFalse((self.directory / 'submissions/bob/origin.md').exists())
+        item = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata=meta)
+        record = item['submission']
+        self.assertEqual(record['submittedBy'], 'bob')
+        self.assertEqual(record['destination'], dict(projectId=self.project, projectName='实体抽取', groupName='relation', groupLabel='relation'))
+        self.assertNotEqual(record['submittedAt'], meta['submission']['submittedAt'])
+        self.assertEqual(record['sources'], meta['submission']['sources'])
+
+    def test_submission_receipt_keeps_first_snapshot_on_retry_and_admin_edit(self):
+        target = '/projects/relation/实体抽取/submissions/bob/origin.md'
+        meta = dict(kind='contribution', title='误差评估', description='对照评测', submission=self.origin())
+        item = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata=meta)
+        first = copy.deepcopy(item['submission'])
+        meta['submission']['sources'][0]['title'] = '后来更名'
+        self.state['groups']['relation']['label'] = '新组名'
+        again = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata=meta)
+        self.assertEqual(again['submission'], first)
+        updated = self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='管理员整理', description='补充证据', sourceSessionTitle='维护会话'))
+        self.assertEqual(updated['submission'], first)
+        self.assertEqual(updated['author'], 'bob')
+        self.assertEqual(updated['updatedBy'], 'alice')
+        self.call('alice', op='edit_content', change=dict(id=item['id'], revision=2, action='delete'))
+        tombstone = content.read_json(self.directory / '.workbench-content-history.json')[0]
+        self.assertEqual(tombstone['submission'], first)
+        self.assertEqual(tombstone['deletedBy'], 'alice')
+
+    def test_merged_submission_uses_exact_public_sources_instead_of_helper_session(self):
+        sources = [self.publish(name=f'origin-{index}.zip') for index in range(2)]
+        result = self.call('alice', op='merge_content', change=dict(sources=[dict(id=item['id'], revision=1) for item in sources], replaceIds=[], title='统一发现', description='整理依据', sourceSessionTitle='仅用于执行的会话'))
+        self.assertEqual(result['submission']['submittedBy'], 'alice')
+        self.assertEqual(result['submission']['sources'], [dict(kind='team_result', id=item['id'], version=1, projectId=self.project, title=item['title'], author='bob') for item in sources])
+        self.assertNotIn('仅用于执行的会话', json.dumps(result['submission'], ensure_ascii=False))
+
+    def test_missing_origin_is_explicitly_unknown_and_existing_legacy_records_are_not_invented(self):
+        item = self.publish()
+        self.assertEqual(item['submission']['sources'], [dict(kind='unknown')])
+        items = content.read_json(self.directory / '.workbench-content.json')
+        del items[0]['submission']
+        content.atom(self.directory / '.workbench-content.json', items, 100)
+        updated = self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='旧记录补充', description='只更新正文'))
+        self.assertNotIn('submission', updated)
 
     def test_team_merge_creates_new_identity_and_readable_history(self):
         sources = [self.publish(name=f'source-{index}.zip') for index in range(3)]

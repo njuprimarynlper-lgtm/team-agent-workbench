@@ -138,6 +138,48 @@ def text(value, maximum=2 * 1024 * 1024):
         raise ValueError('无效文本或内容过长')
     return value
 
+def submission_value(value, username, project, group_name, group, items, history):
+    destination = dict(projectId=project['id'], projectName=project['name'], groupName=group_name, groupLabel=group.get('label') or group_name)
+    if value is None:
+        return dict(version=1, submittedBy=username, submittedAt=now(), destination=destination, sources=[dict(kind='unknown')])
+    if not isinstance(value, dict) or type(value.get('version')) is not int or value['version'] != 1:
+        raise ValueError('提交记录格式无效')
+    claimed = value.get('destination')
+    if value.get('submittedBy') != username or not isinstance(claimed, dict) or claimed.get('projectId') != project['id'] or claimed.get('groupName') != group_name:
+        raise PermissionError('提交账号或目标与当前授权项目不一致')
+    sources = value.get('sources')
+    if not isinstance(sources, list) or not 1 <= len(sources) <= 30:
+        raise ValueError('提交来源格式无效')
+    normalized = []
+    for source in sources:
+        if not isinstance(source, dict) or source.get('kind') not in ('session', 'personal_result', 'team_result', 'manual', 'file', 'unknown'):
+            raise ValueError('提交来源格式无效')
+        result = dict(kind=source['kind'])
+        for key in ('id', 'title', 'projectId', 'author'):
+            if key in source:
+                result[key] = text(source[key], 240 if key == 'title' else 200)
+                if not result[key] or re.search(r'[\x00-\x1f]', result[key]):
+                    raise ValueError('提交来源文本无效')
+        if 'version' in source:
+            if type(source['version']) is not int or source['version'] < 1:
+                raise ValueError('提交来源版本无效')
+            result['version'] = source['version']
+        if 'capturedAt' in source:
+            result['capturedAt'] = text(source['capturedAt'], 64)
+        if 'snapshotHash' in source:
+            if not isinstance(source['snapshotHash'], str) or not re.fullmatch(r'[a-f0-9]{64}', source['snapshotHash']):
+                raise ValueError('提交快照标识无效')
+            result['snapshotHash'] = source['snapshotHash']
+        if result.get('projectId', project['id']) != project['id']:
+            raise ValueError('提交来源不属于当前项目')
+        if result['kind'] == 'team_result':
+            original = next((item for item in items + history if item['id'] == result.get('id') and item['revision'] == result.get('version')), None)
+            if not original:
+                raise ValueError('提交的团队来源版本不存在')
+            result.update(title=original['title'], author=original['author'])
+        normalized.append(result)
+    return dict(version=1, submittedBy=username, submittedAt=now(), destination=destination, sources=normalized)
+
 def brief_value(value):
     if not isinstance(value, dict):
         raise ValueError('请填写项目资料')
@@ -716,6 +758,7 @@ def handle(root, state, username, request, incoming=None):
         payload = ('# ' + title + '\n\n' + description).encode()
         refs = [dict(scope='team', projectId=project['id'], id=source['id'], version=source['revision']) for source in sources]
         result = dict(id=result_id, title=title, description=description, kind='contribution', path='/' + file.relative_to(root).as_posix(), author=username, state='curated', revision=1, createdAt=timestamp, updatedAt=timestamp, updatedBy=username, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload), attachments=attachments, derivedFrom=refs, replaces=[ref for ref in refs if ref['id'] in replace_ids], sources=[source['id'] for source in sources], provenance=[dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt']) for source in sources])
+        result['submission'] = submission_value(dict(version=1, submittedBy=username, destination=dict(projectId=project['id'], groupName=group_name), sources=[dict(kind='team_result', id=source['id'], version=source['revision'], projectId=project['id']) for source in sources]), username, project, group_name, group, sources, [])
         if request_id:
             result['mergeRequestId'] = request_id
         if category is not None:
@@ -758,6 +801,13 @@ def handle(root, state, username, request, incoming=None):
     if op == 'publish':
         target = text(request.get('target'), 4096)
         meta = request.get('metadata') or {}
+        origin = meta.get('submission')
+        if origin is None and meta.get('sourceSessionTitle'):
+            source = dict(kind='session', title=text(meta['sourceSessionTitle'], 120))
+            if meta.get('sourceSessionId'): source['id'] = meta['sourceSessionId']
+            if meta.get('snapshotHash'): source['snapshotHash'] = meta['snapshotHash']
+            origin = dict(version=1, submittedBy=username, destination=dict(projectId=project['id'], groupName=group_name), sources=[source])
+        submission = submission_value(origin, username, project, group_name, group, items, read_json(history_index, []))
         attachments = meta.get('attachments', [])
         if not isinstance(attachments, list) or len(attachments) > 30 or (attachments and meta.get('kind') != 'contribution'):
             raise ValueError('附件列表无效')
@@ -818,7 +868,7 @@ def handle(root, state, username, request, incoming=None):
             os.replace(temp, file)
         finally:
             temp.unlink(missing_ok=True)
-        item = {'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'category': category, 'fields': meta.get('fields'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'sourceSessionTitle': text(meta.get('sourceSessionTitle'), 120) if meta.get('sourceSessionTitle') else None, 'snapshotHash': meta.get('snapshotHash'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
+        item = {'submission': submission, 'id': str(uuid.uuid4()), 'title': text(meta.get('title') or file.name, 200), 'description': text(meta.get('description', '')), 'kind': meta.get('kind', 'file'), 'category': category, 'fields': meta.get('fields'), 'repoUrl': text(meta.get('repoUrl', ''), 2048), 'git': meta.get('git'), 'sourceSessionId': meta.get('sourceSessionId'), 'sourceSessionTitle': text(meta.get('sourceSessionTitle'), 120) if meta.get('sourceSessionTitle') else None, 'snapshotHash': meta.get('snapshotHash'), 'path': target, 'author': username, 'revision': 1, 'state': 'submitted', 'createdAt': now(), 'updatedAt': now(), 'updatedBy': username, 'sha256': request['sha256'], 'size': file.stat().st_size}
         if attachments:
             item['attachments'] = [{k: a[k] for k in ('name', 'path', 'sha256', 'size')} for a in attachments]
         if meta.get('sourceDetails'):
@@ -923,7 +973,7 @@ def handle(root, state, username, request, incoming=None):
     items = [i for i in items if i not in merged and (change['action'] != 'delete' or i is not item)]
     if change['action'] == 'save' and attachments:
         item['attachments'] = attachments
-    archived = [dict(previous, **({'description': '', 'attachments': [], 'fields': None, 'sourceDetails': None, 'deletedAt': now()} if change['action'] == 'delete' else {}))]
+    archived = [dict(previous, **({'description': '', 'attachments': [], 'fields': None, 'sourceDetails': None, 'deletedAt': now(), 'deletedBy': username} if change['action'] == 'delete' else {}))]
     archived += [dict(source, supersededBy=dict(scope='team', projectId=project['id'], id=item['id'], version=item['revision']), supersededAt=now()) for source in merged]
     atom(history_index, archived + [entry for entry in history if change['action'] != 'delete' or entry['id'] != item['id']], gid)
     try:

@@ -1,4 +1,5 @@
 import { assertTodoMerge, canonicalCategory, resultCategory, resultDefaultStatus, sameResultCategory, validateResultStatus } from '../shared/result-model';
+import { acceptedSubmission, type SubmissionDestination } from '../shared/submission';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -12,7 +13,7 @@ import type { RemoteBinding } from '../shared/types';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
 export class ContentFiles {
-  constructor(private root: string, private authorize: (binding: RemoteBinding) => Promise<{ username: string; admin: boolean }>) {}
+  constructor(private root: string, private authorize: (binding: RemoteBinding) => Promise<{ username: string; admin: boolean; destination?: SubmissionDestination }>) {}
   private index(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content.json'), true); }
   private historyIndex(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content-history.json'), true); }
   private async read(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.index(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
@@ -55,7 +56,8 @@ export class ContentFiles {
       const file = await diskPath(this.root, target, true), body = `# ${change.title}\n\n${change.description}`;
       const refs = sources.map(source => ({ scope: 'team' as const, projectId: binding.project.id, id: source.id, version: source.revision }));
       const replacedSources = sources.filter(source => change.replaceIds.includes(source.id));
-      const result: SharedContent = { id, title: change.title, description: change.description, kind: 'contribution', category, resultStatus: resultDefaultStatus(category), sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
+      const submission = acceptedSubmission(undefined, binding, actor.username, actor.destination, sources.map(source => ({ kind: 'team_result' as const, id: source.id, title: source.title, version: source.revision, projectId: binding.project.id, author: source.author })));
+      const result: SharedContent = { submission, id, title: change.title, description: change.description, kind: 'contribution', category, resultStatus: resultDefaultStatus(category), sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
       const archived = replacedSources.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id, version: 1 }, supersededAt: now }));
       await this.authorize(binding);
       await fs.mkdir(path.dirname(file), { recursive: true });
@@ -122,10 +124,16 @@ export class ContentFiles {
         if (existing.sha256 === sha256 && existing.author === actor.username) return existing;
         throw new Error('目标已有内容，请从团队项目成果库中修改，并核对最新版本');
       }
+      const submission = acceptedSubmission(metadata.submission, binding, actor.username, actor.destination, metadata.submission?.sources || (metadata.sourceSessionTitle ? [{ kind: 'session', id: metadata.sourceSessionId, title: metadata.sourceSessionTitle, snapshotHash: metadata.snapshotHash }] : undefined));
+      for (const ref of submission.sources.filter(source => source.kind === 'team_result')) {
+        const source = [...items, ...await this.historyRead(binding)].find(item => item.id === ref.id && item.revision === ref.version);
+        if (ref.projectId !== project.id || !source) throw new Error('提交的团队来源版本不存在');
+        Object.assign(ref, { title: source.title, author: source.author });
+      }
       const file = await diskPath(this.root, target, true); await fs.mkdir(path.dirname(file), { recursive: true });
       try { await fs.copyFile(source, file, fs.constants.COPYFILE_EXCL); }
       catch (e: any) { if (e.code !== 'EEXIST' || await hashFile(file) !== sha256) throw e; }
-      const now = new Date().toISOString(), item: SharedContent = { ...metadata, id: randomUUID(), path: target, author: actor.username, revision: 1, state: 'submitted', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256, size: (await fs.stat(file)).size };
+      const now = new Date().toISOString(), item: SharedContent = { ...metadata, submission, id: randomUUID(), path: target, author: actor.username, revision: 1, state: 'submitted', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256, size: (await fs.stat(file)).size };
       items.unshift(item); await atomicJson(await this.index(binding), items); receipts[requestKey] = item; await atomicJson(receiptFile, receipts); return item;
     });
   }
@@ -168,7 +176,7 @@ export class ContentFiles {
       }
       await this.authorize(binding);
       if (change.action === 'save' && attachments.length) item.attachments = attachments;
-      const tombstone = { ...previous, description: '', attachments: undefined, fields: undefined, sourceDetails: undefined, deletedAt: new Date().toISOString() };
+      const tombstone = { ...previous, description: '', attachments: undefined, fields: undefined, sourceDetails: undefined, deletedAt: new Date().toISOString(), deletedBy: actor.username };
       const archived = [change.action === 'delete' ? tombstone : previous, ...merged.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id: item.id, version: item.revision }, supersededAt: new Date().toISOString() }))];
       await atomicJson(await this.historyIndex(binding), [...archived, ...history.filter(entry => change.action !== 'delete' || entry.id !== item.id)]);
       try { await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id))); }

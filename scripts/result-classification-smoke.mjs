@@ -53,27 +53,32 @@ await page.addInitScript(() => {
   }};
 });
 const url = pathToFileURL(path.join(out, 'index.html')).href, checks=[];
+async function resultAction(name, scope = page) {
+  const button = scope.getByRole('button', { name, exact: true, includeHidden: true }).first();
+  if (!(await button.isVisible())) await button.locator('xpath=ancestor::details[contains(@class,"result-more")]').locator('summary').click();
+  return button;
+}
 try {
   await page.goto(url);
   await expect(page.getByRole('navigation',{name:'团队成果类别'})).toBeVisible();
   await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/已有能力/}).click();
   await expect(page.locator('.result-card')).toHaveCount(1);
   await page.screenshot({path:path.join(out,'team-capabilities.png')});
-  await page.getByRole('button',{name:'历史版本 · 2'}).click();
+  await (await resultAction('历史版本 · 2')).click();
   await expect(page.getByRole('dialog',{name:'历史版本'})).toBeVisible();
   await page.screenshot({path:path.join(out,'capability-history.png')});
   await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);
   checks.push('当前能力只显示当前版本；历史侧栏可打开并用 Escape 关闭');
   await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/待办事项/}).click();
   await expect(page.locator('.result-completed')).toHaveCount(1);await page.screenshot({path:path.join(out,'team-todos.png')});
-  await page.getByRole('button',{name:'重新打开',exact:true}).click();await expect(page.locator('.result-completed')).toHaveCount(0);
+  await (await resultAction('重新打开')).click();await expect(page.locator('.result-completed')).toHaveCount(0);
   checks.push('已完成待办仍显示且可以重新打开');
   await page.evaluate(() => { window.fixture.items[5].linkedAssignments=[{id:'task',title:'验证固定集',status:'pending_review',assignee:'alice'}]; });
   await page.getByRole('button',{name:'刷新',exact:true}).click();
   const linkedTodo = page.locator('.result-card').filter({hasText:'统一验证集版本'});
   await expect(linkedTodo.locator('.result-state-badge')).toHaveText('待验收');
   await expect(linkedTodo.getByRole('button',{name:'标记完成',exact:true})).toHaveCount(0);
-  await expect(linkedTodo.getByRole('button',{name:'修改分类',exact:true})).toBeDisabled();
+  await expect(linkedTodo.getByRole('button',{name:'修改分类',exact:true,includeHidden:true})).toBeDisabled();
   await page.evaluate(() => { window.fixture.items[5].linkedAssignments[0].status='completed'; });
   await page.getByRole('button',{name:'刷新',exact:true}).click();
   await expect(linkedTodo).toHaveClass(/result-completed/);
@@ -87,7 +92,7 @@ try {
   await page.getByRole('button',{name:'退出多选'}).click();
   checks.push('合并选择锁定同一类别，跨分类条目和切换入口禁用');
   await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/探索记录/}).click();
-  await page.getByRole('button',{name:'修改分类',exact:true}).first().click();
+  await (await resultAction('修改分类')).click();
   await expect(page.getByRole('dialog',{name:'修改分类'})).toBeVisible();await page.screenshot({path:path.join(out,'reclassify.png')});
   await page.getByRole('dialog').getByRole('radio',{name:/待办事项/}).check();await page.getByRole('button',{name:'确认修改',exact:true}).click();
   await expect(page.locator('.result-card')).toHaveCount(1);checks.push('分类修改使用独立窗口，保存后条目移到对应分类');
@@ -115,10 +120,10 @@ try {
     window.fixture.draft = {...window.fixture.draft,id:'10000000-0000-4000-8000-000000000002',artifacts:[],mergeProjectId:window.fixture.project.id,resultCategory:'todo',title:'统一验证集版本',body:'核对验证集版本，保留唯一的执行事项。',mergeSources:window.fixture.items.slice(4,6).map(item=>({id:item.id,revision:item.revision,title:item.title,category:'todo',author:item.author,updatedAt:item.updatedAt}))};
     window.refreshDraft();
   });
-  await expect(page.getByRole('button',{name:'提交为团队成果',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'提交到 实体抽取优化',exact:true})).toBeDisabled();
   await expect(page.getByLabel('合并成果类别')).toBeDisabled();
   await page.getByRole('checkbox',{name:/这些待办是同一事项的重复记录/}).check();
-  await expect(page.getByRole('button',{name:'提交为团队成果',exact:true})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'提交到 实体抽取优化',exact:true})).toBeEnabled();
   await page.screenshot({path:path.join(out,'todo-merge-preview.png')});
   checks.push('待办合并必须人工确认是重复事项，预览禁止更换合并分类');
   if(errors.length)throw Error(errors.join('\n'));
