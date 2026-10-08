@@ -221,6 +221,31 @@ class ContentRules(unittest.TestCase):
         self.edit('alice', second, action='delete')
         self.assertFalse(blob_file.exists())
 
+    def test_attachment_cleanup_respects_other_results_historical_references(self):
+        sha = content.digest(self.incoming)
+        blob = self.call('bob', op='publish_attachment', sha256=sha)
+        attachment = dict(blob, name='evidence.csv')
+        metadata = dict(kind='contribution', title='evidence', description='text', attachments=[attachment])
+        base = '/projects/relation/实体抽取/submissions/bob/'
+        owner = self.call('bob', op='publish', target=base + 'owner.md', sha256=sha, metadata=metadata)
+        other = self.call('bob', op='publish', target=base + 'other.md', sha256=sha, metadata=metadata)
+        edited = self.edit('alice', other)
+        index = self.directory / '.workbench-content.json'
+        items = content.read_json(index)
+        next(item for item in items if item['id'] == other['id'])['attachments'] = []
+        index.write_text(json.dumps(items), encoding='utf-8')
+        self.edit('alice', owner, action='delete')
+        self.assertTrue(content.safe(self.root, blob['path']).is_file())
+        self.edit('alice', edited, action='delete')
+        self.assertFalse(content.safe(self.root, blob['path']).exists())
+
+    def test_missing_source_file_cannot_be_adopted_into_a_new_task(self):
+        item = self.publish()
+        content.safe(self.root, item['path']).unlink()
+        with self.assertRaisesRegex(ValueError, '关联成果文件'):
+            content.assignment_snapshot(self.root, self.directory, self.project, 'bob', str(uuid.uuid4()), 'alice', [dict(id=item['id'], revision=item['revision'])], [], '派发人上传')
+        self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
+
     def test_account_files_are_private_and_downloads_are_independent(self):
         self.state['users']['bob']['uid'] = 1001
         sha = content.digest(self.incoming)

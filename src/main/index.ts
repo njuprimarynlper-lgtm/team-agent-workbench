@@ -271,6 +271,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       const p = z.object({ projectId: z.string(), contentId: id, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw), binding = workbench.remote.binding(p.projectId);
       const item = (await workbench.remote.contentList(binding)).find(item => item.id === p.contentId), file = item?.attachments?.find(file => file.sha256 === p.sha256);
       if (!file) throw new Error('附件所属成果已更新或删除，请刷新');
+      if (item?.files?.attachments[file.sha256] && item.files.attachments[file.sha256] !== 'ok') throw new Error('此附件缺失或暂不可访问，请刷新后检查');
       if (action === 'content.attachment.preview') return workbench.remote.preview(binding, file.path, file.name);
       const name = safeFilename(file.name);
       const result = await dialog.showSaveDialog(owner, { defaultPath: name }); if (!result.filePath) return false;

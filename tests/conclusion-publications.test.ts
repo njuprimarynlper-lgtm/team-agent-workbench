@@ -32,7 +32,8 @@ async function fixture(run: (wb: Workbench, personal: ProjectConclusion, team: S
 }
 
 test('legacy session preparation and upload link the same result despite different local and team IDs', async () => fixture(async (wb, personal, team, transfer, draft) => {
-  assert.equal(teamResultDifference(team, [personal]), 'missing');
+  assert.equal(teamResultDifference(team, [personal]), undefined, 'equal current text can be shown as already saved before migration');
+  assert.equal(personal.sources[0].publication, undefined, 'display matching does not invent provenance');
   assert.equal(linkConclusionPublications([personal], [draft], [transfer]), true);
   assert.equal(teamResultDifference(team, [personal]), undefined);
   assert.equal(linkConclusionPublications([personal], [draft], [transfer]), false, 'linking is idempotent');
@@ -60,7 +61,7 @@ test('startup backfills old uploads, including one-result drafts, without changi
 
 test('publication links respect deletion, history, team revisions, body edits and independent origins', async () => fixture(async (wb, personal, team, transfer, draft) => {
   linkConclusionPublications([personal], [draft], [transfer]);
-  personal.archived = true; assert.equal(teamResultDifference(team, [personal]), undefined);
+  personal.archived = true; assert.equal(teamResultDifference(team, [personal]), 'missing');
   personal.deletedAt = new Date().toISOString(); assert.equal(teamResultDifference(team, [personal]), 'missing');
   delete personal.deletedAt; delete personal.archived;
   assert.equal(teamResultDifference({ ...team, path: '/unrelated-result.zip' }, [personal]), 'missing');
@@ -83,7 +84,8 @@ test('migration never guesses from a title or adopts failed uploads, other accou
     { ...transfer, binding: { ...transfer.binding, username: 'bob' } },
     { ...transfer, binding: { ...transfer.binding, project: { ...transfer.binding.project, id: 'other-project' } } },
   ]) assert.equal(linkConclusionPublications([personal], [draft], [variant]), false);
-  assert.equal(teamResultDifference(team, [personal]), 'missing');
+  assert.equal(teamResultDifference(team, [personal]), undefined, 'the current title and text match is independent of upload migration');
+  assert.equal(personal.sources[0].publication, undefined);
   personal.deletedAt = new Date().toISOString(); assert.equal(linkConclusionPublications([personal], [draft], [transfer]), false);
 }));
 

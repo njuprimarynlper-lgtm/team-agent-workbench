@@ -17,9 +17,9 @@ export function reconcileTeamResultReferences(sessions: AgentSession[], binding:
         const revision = Number(source.name.match(/ · v(\d+)$/)?.[1]);
         source.contentRef = { projectId: binding.project.id, id: found.id, revision: revision || found.revision }; changed = true;
       }
-      const unavailable = !found && (complete || deleted.some(matches) || items.some(item => !!item.deletedAt && matches(item)));
+      const unavailable = found?.files?.body === 'missing' || !found && (complete || deleted.some(matches) || items.some(item => !!item.deletedAt && matches(item)));
       if (unavailable && !source.resultUnavailable) { source.resultUnavailable = true; changed = true; }
-      else if (found && source.resultUnavailable) { delete source.resultUnavailable; changed = true; }
+      else if (!unavailable && found && found.files?.body !== 'unverified' && source.resultUnavailable) { delete source.resultUnavailable; changed = true; }
     }
   }
   return changed;

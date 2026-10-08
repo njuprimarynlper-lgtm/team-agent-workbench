@@ -3,6 +3,7 @@ import { forwardEgress } from './ssh-egress';
 import type { AssignmentCreate, AssignmentMember, AssignmentStatusChange, ProjectAssignment, AssignmentUpload, AssignmentFile } from '../shared/assignments';
 import { hashFile } from './artifacts';
 import type { ContentEdit, ContentMerge, ContentMetadata, SharedContent } from '../shared/content';
+import { inspectContentFiles } from './content-files-state';
 import { Client, type SFTPWrapper, type Stats } from 'ssh2';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -196,14 +197,34 @@ export class SftpConnection {
   async ensurePersonalFolder(binding: RemoteBinding, _target: string) { this.channel(binding); this.requireStorage(); }
   async contentList(binding: RemoteBinding): Promise<SharedContent[]> {
     const s = this.channel(binding); await this.checked(binding, binding.project.remoteRoot);
-    const items = await new Promise<SharedContent[]>((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) resolve([]); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
-    if (this.storageVersion === 1 && items.some(item => ['todo', 'issue', 'baseline_change_proposal'].includes(item.category || ''))) {
+    const items = await new Promise<SharedContent[]>((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) reject(new Error('团队成果登记文件缺失，暂无法确认成果状态，请联系组管理员')); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
+    const directories = new Map<string, Promise<any[] | 'missing' | 'unverified'>>();
+    const checked = await inspectContentFiles(items, async target => {
+      try { assertRemote(binding.project.remoteRoot, target); } catch { return 'unverified'; }
+      const parent = path.posix.dirname(target);
+      let listing = directories.get(parent);
+      if (!listing) {
+        listing = new Promise((resolve, reject) => s.readdir(parent, (error, entries) => {
+          if (!error) resolve(entries);
+          else if ((error as any).code === 2) resolve('missing');
+          else if ((error as any).code === 3) resolve('unverified');
+          else reject(friendlySftp(error));
+        }));
+        directories.set(parent, listing);
+      }
+      const entries = await listing;
+      if (this.channel(binding) !== s) throw new Error('共享连接已改变，请刷新');
+      if (typeof entries === 'string') return entries;
+      const file = entries.find(entry => entry.filename === path.posix.basename(target));
+      return !file ? 'missing' : file.attrs.isFile() ? 'ok' : 'unverified';
+    });
+    if (this.storageVersion === 1 && checked.some(item => ['todo', 'issue', 'baseline_change_proposal'].includes(item.category || ''))) {
       try {
         const links = await this.request({ op: 'content_task_links', projectId: binding.project.id }, binding);
-        return items.map(item => ({ ...item, linkedAssignments: links[item.id] || [] }));
+        return checked.map(item => ({ ...item, linkedAssignments: links[item.id] || [] }));
       } catch (error: any) { if (!/不支持的内容操作/.test(error.message || '')) throw error; }
     }
-    return items;
+    return checked;
   }
   contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false): Promise<SharedContent[]> { return this.request({ op: 'content_history', projectId: binding.project.id, id, revision, summary }, binding); }
   contentMerge(binding: RemoteBinding, change: ContentMerge): Promise<SharedContent> { return this.request({ op: 'merge_content', projectId: binding.project.id, change }, binding); }

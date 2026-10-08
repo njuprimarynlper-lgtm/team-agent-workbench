@@ -151,6 +151,7 @@ export class LocalFileConnection {
     try {
       await fs.mkdir(root); directories.push(root);
       for (const name of ['trajectories', 'submissions']) { const dir = path.join(root, name); await fs.mkdir(dir); directories.push(dir); }
+      await write(path.join(root, '.workbench-content.json'), '[]');
       if (brief) await write(path.join(root, PROJECT_BRIEF_FILE), projectBriefMarkdown(project.name, brief, this.profile!.username, createdAt));
       await this.access(base, true);
       const marker = path.join(root, '.workbench-project.json');
