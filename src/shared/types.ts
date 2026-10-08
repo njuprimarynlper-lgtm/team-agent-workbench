@@ -40,7 +40,7 @@ export interface AgentSession {
   messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
   permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue; settingsPending?: boolean;
   cliConnection?: import('./cli-connection').CliConnection;
-  projectBrief?: { revision: number; sourceId: string; capturedAt: string }; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;
+  projectBrief?: { revision: number; sourceId: string; capturedAt: string }; followProjectBrief?: boolean; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;
   assignment?: { id: string; revision: number; title: string; sourceIds: string[] };
   outputFiles?: string[];
   preparationCheckpoint?: PreparationCheckpoint;

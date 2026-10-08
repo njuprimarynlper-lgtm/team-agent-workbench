@@ -248,6 +248,15 @@ test('attachments are explicit, frozen, deduplicated, dependency-gated and retry
     const updated = await wb.remote.contentList(session.binding!);
     const combined = await wb.remote.contentMerge(session.binding!, { requestId: randomUUID(), sources: updated.map(item => ({ id: item.id, revision: item.revision })), title: '合并结果', description: '保留证据' });
     assert.equal(combined!.attachments!.length, 1);
+    const attachmentFile = await diskPath(env.shared, shared[0].attachments![0].path);
+    let listed = await wb.remote.contentList(session.binding!);
+    const holders = () => listed.filter(item => item.attachments?.some(entry => entry.path === shared[0].attachments![0].path));
+    const firstHolder = holders()[0];
+    await wb.remote.contentEdit(session.binding!, { id: firstHolder.id, revision: firstHolder.revision, action: 'delete', curate: true, merge: [] });
+    assert.equal(await fs.readFile(attachmentFile, 'utf8'), 'frozen evidence');
+    listed = await wb.remote.contentList(session.binding!);
+    for (const item of holders()) await wb.remote.contentEdit(session.binding!, { id: item.id, revision: item.revision, action: 'delete', curate: true, merge: [] });
+    await assert.rejects(() => fs.stat(attachmentFile));
     await assert.rejects(wb.addDraftFiles(draft.id, [file], draft.artifacts![0].id), /提交前/);
   } finally { await env.close(); }
 });

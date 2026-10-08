@@ -263,7 +263,7 @@ test('concurrent revisions have one winner; lost upload acknowledgement retries 
   } finally { await x.close(); }
 });
 
-test('project briefs are independently versioned; adopted session context stays frozen until explicit refresh', async () => {
+test('project briefs are independently versioned; a newer brief is adopted on the next send', async () => {
   const x = await fixture();
   try {
     const second = await x.alice.createProject('另一个项目', 'local_relation'); const a = x.alice.remote.binding(second.id);
@@ -274,7 +274,8 @@ test('project briefs are independently versioned; adopted session context stays 
     assert.equal(s.projectBrief?.revision, 1); const snapshot = s.sources.find(f => f.id === s.projectBrief?.sourceId)!; const old = await fs.readFile(snapshot.localPath, 'utf8');
     await x.alice.remote.saveProjectBrief(a, { ...brief, objectives: '第二版目标' }, 1);
     assert.equal(await fs.readFile(snapshot.localPath, 'utf8'), old); assert.equal(s.projectBrief?.revision, 1);
-    await x.bob.refreshProjectContext(s.id); assert.equal(s.projectBrief?.revision, 2);
+    s.followProjectBrief = false; await x.bob.adoptLatestProjectBrief(s); assert.equal(s.projectBrief?.revision, 1);
+    s.followProjectBrief = true; await x.bob.adoptLatestProjectBrief(s); assert.equal(s.projectBrief?.revision, 2);
     assert((await fs.readFile(s.sources.find(f => f.id === s.projectBrief?.sourceId)!.localPath, 'utf8')).includes('第二版目标'));
     x.bob.remote.disconnect(); const offline = await x.bob.createSession('codex', x.root, second.id); assert(offline.binding);
     // Disconnected work carries no time limit: the same project keeps accepting new offline sessions.
@@ -340,6 +341,23 @@ test('file replacement respects author/admin revisions and reusable text snapsho
     await assert.rejects(x.bob.remote.contentAdopt(b, b.project.remoteRoot + '/legacy.txt'), /组管理员/);
     const adopted = await x.alice.remote.contentAdopt(x.alice.remote.binding(x.project.id), b.project.remoteRoot + '/legacy.txt');
     assert.equal(adopted?.state, 'curated'); assert.match(adopted?.description || '', /旧版共享资料/);
+  } finally { await x.close(); }
+});
+
+test('trajectory upload also sends current session files and skips unchanged copies', async () => {
+  const x = await fixture();
+  try {
+    const s = await x.bob.createSession('codex', x.root, x.project.id);
+    const report = path.join(x.root, 'notes.md'); await fs.writeFile(report, 'session evidence');
+    s.messages.push({ id: randomUUID(), role: 'assistant', text: '结果写在 `notes.md`。', createdAt: new Date().toISOString() });
+    const trajectory = await x.bob.archive(s.id);
+    const uploaded = x.bob.store.transfers.find(item => item.kind === 'upload' && item.sessionId === s.id);
+    assert.ok(uploaded); await done(trajectory); await done(uploaded);
+    assert.equal(uploaded.metadata?.kind, 'file'); assert.equal(uploaded.metadata?.title, 'notes.md');
+    assert.equal(uploaded.status, 'done'); assert.ok(uploaded.target.startsWith(s.binding!.project.historyPath + '/'));
+    assert.equal(x.bob.store.transfers.filter(item => item.kind === 'upload').length, 1);
+    await x.bob.archive(s.id);
+    assert.equal(x.bob.store.transfers.filter(item => item.kind === 'upload').length, 1);
   } finally { await x.close(); }
 });
 

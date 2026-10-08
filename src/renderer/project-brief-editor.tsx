@@ -5,7 +5,13 @@ import { briefFields, type ProjectBrief } from '../shared/project-brief';
 const blank = () => Object.fromEntries(briefFields.map(field => [field.key, ''])) as ProjectBrief;
 
 function BriefFields({ brief, setBrief, busy, readOnly }: { brief: ProjectBrief; setBrief: React.Dispatch<React.SetStateAction<ProjectBrief>>; busy: boolean; readOnly: boolean }) {
-  return <>{briefFields.map(field => <label className="field" key={field.key}>{field.label}{field.required ? ' *' : '（可选）'}<textarea aria-label={field.label} rows={field.required ? 3 : 2} maxLength={6000} disabled={busy} readOnly={readOnly} value={brief[field.key]} placeholder={field.placeholder} onChange={event => { const value = event.target.value; setBrief(previous => ({ ...previous, [field.key]: value })); }}/></label>)}</>;
+  if (readOnly) {
+    if (busy && briefFields.every(field => !brief[field.key].trim())) return <p className="muted">正在读取项目说明…</p>;
+    const visible = briefFields.filter(field => field.required || brief[field.key].trim());
+    if (!visible.length) return <p className="muted">项目说明尚未填写。</p>;
+    return <>{visible.map(field => <section className="brief-reading" key={field.key} aria-label={field.label}><h3>{field.label}</h3><p>{brief[field.key].trim() || '尚未填写'}</p></section>)}</>;
+  }
+  return <>{briefFields.map(field => <label className="field" key={field.key}>{field.label}{field.required ? ' *' : '（可选）'}<textarea aria-label={field.label} rows={field.required ? 3 : 2} maxLength={6000} disabled={busy} value={brief[field.key]} placeholder={field.placeholder} onChange={event => { const value = event.target.value; setBrief(previous => ({ ...previous, [field.key]: value })); }}/></label>)}</>;
 }
 
 export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel = '保存新版本', localSettings }: { project: Project; admin: boolean; cancel?: () => void; saved: (revision: number) => Promise<void>; saveLabel?: string; localSettings?: React.ReactNode }) {
@@ -22,7 +28,7 @@ export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel 
   const invalid = briefFields.filter(field => field.required).some(field => !brief[field.key].trim());
   return <><div className="modal-body project-settings-form">
     {localSettings}
-    <div className="callout"><span className="project-file-icon" aria-hidden="true">MD</span><div><b>{project.name}</b><small>下列字段与共享项目根目录中的“项目说明.md”一一对应；保存后会生成新版本并立即刷新该文件。</small></div></div>
+    <div className="callout"><span className="project-file-icon" aria-hidden="true">MD</span><div><b>{project.name}</b><small>{admin ? '下列字段与共享项目根目录中的“项目说明.md”一一对应；保存后会生成新版本并立即刷新该文件。' : '这是本组当前的项目说明，对应共享目录中的“项目说明.md”，由组管理员维护。'}</small></div></div>
     {error && <div className="inline-error" role="alert">{error}</div>}
     <p className="muted small">资料版本：{revision ? 'v' + revision : '待完善'}{!admin && ' · 只读（仅本组组管理员可修改）'}</p>
     <BriefFields brief={brief} setBrief={setBrief} busy={busy} readOnly={!admin}/>

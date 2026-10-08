@@ -178,10 +178,15 @@ export class ContentFiles {
       if (change.action === 'save' && attachments.length) item.attachments = attachments;
       const tombstone = { ...previous, description: '', attachments: undefined, fields: undefined, sourceDetails: undefined, deletedAt: new Date().toISOString(), deletedBy: actor.username };
       const archived = [change.action === 'delete' ? tombstone : previous, ...merged.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id: item.id, version: item.revision }, supersededAt: new Date().toISOString() }))];
+      const remaining = items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id));
       await atomicJson(await this.historyIndex(binding), [...archived, ...history.filter(entry => change.action !== 'delete' || entry.id !== item.id)]);
-      try { await atomicJson(await this.index(binding), items.filter(i => !merged.includes(i) && (change.action !== 'delete' || i.id !== item.id))); }
+      try { await atomicJson(await this.index(binding), remaining); }
       catch (error) { await atomicJson(await this.historyIndex(binding), history); throw error; }
       for (const target of oldPaths.filter(target => change.action === 'delete' || target !== item.path)) await fs.unlink(await diskPath(this.root, target)).catch(() => {});
+      if (change.action === 'delete') {
+        const retained = new Set(remaining.flatMap(entry => (entry.attachments || []).map(file => file.path)));
+        for (const file of previous.attachments || []) if (!retained.has(file.path) && file.path.includes('/.workbench-attachments/')) await fs.unlink(await diskPath(this.root, file.path)).catch(() => {});
+      }
       return change.action === 'delete' ? undefined : item;
     });
   }

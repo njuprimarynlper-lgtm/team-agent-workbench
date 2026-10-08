@@ -202,7 +202,14 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(PermissionError): self.call('alice', op='publish', target=target + '2', sha256=sha, metadata=metadata)
         with self.assertRaises(ValueError): self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, attachments=[dict(attachment, size=999)]))
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
-        self.assertEqual(self.edit('alice', item)['attachments'], [attachment])
+        edited = self.edit('alice', item)
+        self.assertEqual(edited['attachments'], [attachment])
+        blob_file = content.safe(self.root, attachment['path'])
+        second = self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, title='second'))
+        self.edit('alice', edited, action='delete')
+        self.assertTrue(blob_file.is_file())
+        self.edit('alice', second, action='delete')
+        self.assertFalse(blob_file.exists())
 
     def test_account_files_are_private_and_downloads_are_independent(self):
         self.state['users']['bob']['uid'] = 1001

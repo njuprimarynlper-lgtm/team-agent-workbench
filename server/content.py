@@ -984,6 +984,12 @@ def handle(root, state, username, request, incoming=None):
     for old in paths:
         if change['action'] == 'delete' or old != item['path']:
             safe(root, old).unlink(missing_ok=True)
+    if change['action'] == 'delete':
+        kept = {attachment.get('path') for entry in items for attachment in entry.get('attachments') or [] if isinstance(attachment, dict)}
+        for attachment in previous.get('attachments') or []:
+            target = attachment.get('path') if isinstance(attachment, dict) else None
+            if isinstance(target, str) and target not in kept and '/.workbench-attachments/' in target:
+                safe(root, target).unlink(missing_ok=True)
     return item if change['action'] == 'save' else None
 
 def save_brief_file(directory, project, brief, username, gid):
