@@ -194,10 +194,10 @@ async function main() {
     await page.getByRole('button', { name: '批量删除成果', exact: true }).click();
     await expect(page.getByRole('button', { name: '删除选中的 0 条成果', exact: true })).toBeDisabled();
     await page.getByLabel('全选当前成果', { exact: true }).check();
-    await page.getByRole('button', { name: '显示历史成果', exact: true }).click();
+    await page.getByRole('combobox', { name: '成果范围', exact: true }).selectOption('all');
     await expect(page.locator('.content-card')).toHaveCount(3);
     await expect(page.getByLabel('全选当前成果', { exact: true })).not.toBeChecked();
-    await page.getByRole('button', { name: '隐藏历史成果', exact: true }).click();
+    await page.getByRole('combobox', { name: '成果范围', exact: true }).selectOption('current');
     await page.getByLabel('全选当前成果', { exact: true }).check();
     await page.getByRole('button', { name: '删除选中的 2 条成果', exact: true }).click();
     let confirmLocal = page.getByRole('dialog', { name: '删除项目成果？', exact: true });
@@ -209,7 +209,7 @@ async function main() {
     await confirmLocal.getByRole('button', { name: '确认删除 2 条项目成果', exact: true }).click();
     await expect(confirmLocal).toHaveCount(0); await expect(page.locator('.content-card')).toHaveCount(0);
     assert.deepEqual((await call(page, 'conclusion.list', { projectId: project.id, includeArchived: true })).map((item: any) => item.id), [history.id]);
-    await page.getByRole('button', { name: '显示历史成果', exact: true }).click();
+    await page.getByRole('combobox', { name: '成果范围', exact: true }).selectOption('all');
     await page.locator('.content-card-summary').click();
     await expect(page.getByRole('button', { name: '恢复使用', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '删除成果', exact: true }).click();

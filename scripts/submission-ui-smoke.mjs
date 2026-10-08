@@ -19,7 +19,7 @@ await build({ stdin: { resolveDir: root, loader: 'tsx', contents: `
       {mode==='review'?<DraftEditor draft={f.draft} sourceTitle={f.draft.sourceSessionTitle} sourceSession={f.session} projects={f.projects} transfers={[]} run={run} notice={notice} close={()=>{}} reorganized={()=>{}} viewShared={()=>{}} viewConclusion={()=>{}}/>:
        mode==='activity'?<ContentUpdatesPanel updates={f.updates} aliases={{}} view={()=>{}} changed={async()=>{}}/>:
        mode==='shared'?<ProjectResults projectName={f.project.name} scope="team" changeScope={()=>{}}><SharedContentLibrary embedded project={f.project} username="bob" admin={false} aliases={{}} aliasSaved={async()=>{}} attach={async()=>{}} notice={notice} mergeSessions={[]} mergeStarted={()=>{}} attachSessions={[]}/></ProjectResults>:
-       mode==='personal'?<ProjectResults projectName={f.project.name} scope="personal" changeScope={()=>{}}><ConclusionLibrary embedded project={f.project} projects={f.projects} sessions={[]} notice={notice} mergeStarted={()=>{}} refreshToken={String(revision)}/></ProjectResults>:
+       mode==='personal'?<ProjectResults projectName={f.project.name} scope="personal" changeScope={()=>{}}><ConclusionLibrary embedded project={f.project} projects={f.projects} sessions={[]} notice={notice} mergeStarted={()=>{}} refreshToken={String(revision)} focusId={f.focusId} focusHandled={()=>{f.focusId=undefined;window.refresh();}}/></ProjectResults>:
        <><h2>传输记录</h2><TransferRecords transfers={f.transfers} retry={id=>window.calls.push({action:'transfer.retry',id})}/></>}
     </div>;
   }createRoot(document.getElementById('root')).render(<App/>);
@@ -44,9 +44,11 @@ await page.addInitScript(() => {
     window.calls.push({action,p:structuredClone(p)});
     if(action==='content.list')return structuredClone(window.fixture.items);
     if(action==='content.history')return [];
-    if(action==='conclusion.list')return structuredClone(window.fixture.personal);
+    if(action==='conclusion.list')return structuredClone(window.fixture.personal.filter(item=>item.projectId===p.projectId));
     if(action==='conclusion.publish'){window.fixture.personal[0].uploadState={status:'queued',transferId:'upload'};window.refresh();return {id:'upload'};}
     if(action==='conclusion.alias.save'){const item=window.fixture.personal.find(value=>value.id===p.id);item.titleAlias=p.alias;const result=structuredClone(item);delete result.uploadState;return result;}
+    if(action==='conclusion.archive'){const item=window.fixture.personal.find(value=>value.id===p.id);item.archived=p.archived;return structuredClone(item);}
+    if(action==='conclusion.create'){const item={id:'created-result',projectId:p.projectId,title:p.title,content:p.content,category:p.category,resultStatus:p.resultStatus,version:1,updatedAt:now,sources:[]};window.fixture.personal.push(item);return structuredClone(item);}
     if(action==='draft.submit'){window.fixture.draft.submitted='upload';window.refresh();return {id:'upload'};}
     if(action==='draft.supplement')return window.fixture.draft;
     throw Error('Unexpected fixture API '+action);
@@ -162,6 +164,86 @@ try {
   await openMore();
   await expect(page.getByRole('button',{name:'分享至团队',exact:true})).toBeEnabled();
   checks.push('新版本允许分享');
+  await page.evaluate(()=>{
+    const f=window.fixture,base=f.personal[0];
+    f.personal.push(
+      {...base,id:'history-result',title:'历史探索资料',titleAlias:undefined,archived:true},
+      {...base,id:'superseded-result',title:'被替代的探索资料',titleAlias:undefined,archived:true,supersededBy:{scope:'personal',projectId:f.project.id,id:base.id,version:base.version}},
+      {...base,id:'completed-todo',title:'已完成的验证任务',titleAlias:undefined,category:'todo',resultStatus:'completed'},
+      {...base,id:'other-project-result',projectId:f.other.id,title:'OCR 当前资料',titleAlias:undefined}
+    );window.refresh();
+  });
+  const range=page.getByRole('combobox',{name:'成果范围',exact:true});
+  const card=id=>page.locator(`[data-result-id="${id}"]`);
+  await page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:'全部',exact:true}).click();
+  await expect(range).toHaveValue('current');
+  await expect(page.locator('.result-card')).toHaveCount(2);
+  await expect(card('completed-todo')).toHaveClass(/result-completed/);
+  await expect(card('history-result')).toHaveCount(0);
+  await range.selectOption('all');
+  await expect(page.locator('.result-card')).toHaveCount(4);
+  await expect(card('history-result')).toContainText('历史成果');
+  await range.selectOption('history');
+  await expect(page.locator('.result-card')).toHaveCount(2);
+  await expect(card('completed-todo')).toHaveCount(0);
+  await expect(card('history-result').getByRole('button',{name:'恢复使用',exact:true})).toBeVisible();
+  await expect(card('superseded-result')).toContainText('已由新成果替代');
+  await expect(page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:/探索记录/}).locator('span')).toHaveText('2');
+  checks.push('成果范围默认当前；全部包含当前和历史；历史仅显示已移入历史的成果，已完成待办仍属当前');
+  await page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:/探索记录/}).click();
+  await page.getByRole('textbox',{name:'搜索个人成果',exact:true}).fill('历史探索资料');
+  await expect(page.locator('.result-card')).toHaveCount(1);
+  await page.getByRole('textbox',{name:'搜索个人成果',exact:true}).fill('');
+  await page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:'全部',exact:true}).click();
+  await page.getByRole('button',{name:'批量删除成果',exact:true}).click();
+  await page.getByRole('checkbox',{name:'选择删除成果：历史探索资料',exact:true}).check();
+  await range.selectOption('current');
+  await expect(page.locator('.result-card-selection input:checked')).toHaveCount(0);
+  await page.getByRole('button',{name:'取消多选',exact:true}).click();
+  await card('00000000-0000-4000-8000-000000000001').locator('.result-card-selection input').check();
+  await range.selectOption('history');
+  await expect(page.locator('.semantic-merge-bar')).toHaveCount(0);
+  checks.push('范围与搜索、类别筛选组合生效；切换范围清空删除和合并多选');
+  await card('history-result').getByRole('button',{name:'恢复使用',exact:true}).click();
+  await expect(card('history-result')).toHaveCount(0);
+  await expect(page.locator('.result-card')).toHaveCount(1);
+  await range.selectOption('current');
+  await expect(card('history-result')).toBeVisible();
+  await card('history-result').getByRole('button',{name:'移入历史',exact:true}).click();
+  await expect(card('history-result')).toHaveCount(0);
+  await range.selectOption('history');
+  await expect(card('history-result')).toBeVisible();
+  checks.push('恢复使用后移出历史列表；移入历史后移出当前列表');
+  await range.selectOption('current');
+  await page.evaluate(()=>{window.fixture.focusId='history-result';window.refresh();});
+  await expect(range).toHaveValue('history');
+  await expect(card('history-result').locator('.result-card-details')).toBeVisible();
+  await page.evaluate(()=>{window.fixture.project=window.fixture.other;window.refresh();});
+  await expect(range).toHaveValue('current');
+  await expect(card('other-project-result')).toBeVisible();
+  await expect(card('history-result')).toHaveCount(0);
+  await range.selectOption('history');
+  await expect(page.getByRole('heading',{name:'暂无历史成果',exact:true})).toBeVisible();
+  await page.evaluate(()=>{window.fixture.project=window.fixture.projects[0];window.refresh();});
+  await expect(range).toHaveValue('current');
+  checks.push('从外部定位历史成果会自动显示并展开；切换项目恢复当前范围，空历史列表提示准确');
+  await range.selectOption('history');
+  await page.getByRole('button',{name:'新建成果',exact:true}).click();
+  await expect(range).toHaveValue('current');
+  await expect(range).toBeDisabled();
+  await page.getByRole('combobox',{name:'成果类别',exact:true}).selectOption('exploration');
+  await page.getByRole('textbox',{name:'项目成果标题',exact:true}).fill('新增成果');
+  await page.getByRole('textbox',{name:'项目成果内容',exact:true}).fill('本次新的探索观察。');
+  await page.getByRole('button',{name:'保存成果',exact:true}).click();
+  await expect(card('created-result')).toBeVisible();
+  await expect(range).toBeEnabled();
+  checks.push('历史范围中新建成果会切回当前；编辑期间禁止切换，保存后新成果可见');
+  await range.selectOption('all');
+  await page.setViewportSize({width:900,height:980});
+  await expect(range).toBeVisible();
+  await expect(range).toHaveValue('all');
+  await page.screenshot({path:path.join(out,'personal-result-ranges.png')});
+  checks.push('较窄窗口中成果范围仍然可见可用');
   await page.goto(url+'?mode=shared');
   await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/探索记录/}).click();
   await checkMoreStyle(1440,'team');
