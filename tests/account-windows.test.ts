@@ -113,6 +113,8 @@ test('production window routing restores the account in any window, isolates fai
   for (const window of additional) {
     const state = await snapshot(window);
     assert.equal(state.settings.workspaceSnapshot, undefined);
+    assert.equal(state.settings.defaultServer?.host, profile.host);
+    assert.equal(state.settings.defaultServer?.port, profile.port);
     assert.deepEqual(state.sessions, []);
   }
   assert.equal((await snapshot(first)).connection?.profile.username, 'alice');

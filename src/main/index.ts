@@ -37,6 +37,7 @@ const switchingWindows = new Set<BrowserWindow>();
 let accountRouting: Promise<unknown> = Promise.resolve();
 function routeAccount<T>(operation: () => Promise<T>): Promise<T> { const next = accountRouting.catch(() => {}).then(operation); accountRouting = next; return next; }
 let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false;
+let sharedServerEndpoint: { host: string; port: number } | undefined;
 const pendingWindowRequests: boolean[] = [];
 const entry = path.join(__dirname, runtimeAssets, 'index.html');
 app.setName('Team Agent User');
@@ -69,7 +70,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
   switch (action) {
     case 'snapshot': {
       const snapshot = switchingWindows.has(owner) ? scopeAccountSnapshot({ ...workbench.snapshot(), accountChanging: true }) : workbench.snapshot();
-      return { ...snapshot, settings: { ...snapshot.settings, sidebarProjectHeight: context.sidebarProjectHeight, sidebarPanes: context.sidebarPanes }, egress: egress.status() };
+      return { ...snapshot, settings: { ...snapshot.settings, sidebarProjectHeight: context.sidebarProjectHeight, sidebarPanes: context.sidebarPanes, defaultServer: sharedServerEndpoint }, egress: egress.status() };
     }
     case 'window.new': openAdditionalWindow(false); return true;
     case 'egress.configure': {
@@ -324,6 +325,36 @@ function latestWindow() {
 function claimSlot(preferred?: number) { let slot = preferred && !activeSlots.has(preferred) ? preferred : 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
 function instanceRoot(slot: number) { return slot === 1 ? app.getPath('userData') : path.join(app.getPath('userData'), 'instances', String(slot)); }
 function windowStateFile(slot: number) { return path.join(app.getPath('userData'), 'window-state', slot + '.json'); }
+const serverEndpointSchema = z.object({ host: z.string().min(1), port: z.number().int().min(1).max(65535) });
+function serverEndpointFile() { return path.join(app.getPath('userData'), 'server-endpoint.json'); }
+function usableServer(profile: { mode?: string; host?: string; port?: number } | undefined) { return profile && profile.mode !== 'local' && profile.host && profile.port ? { host: profile.host, port: profile.port } : undefined; }
+async function loadSharedServerEndpoint() {
+  try { return serverEndpointSchema.parse(JSON.parse(await fs.readFile(serverEndpointFile(), 'utf8'))); }
+  catch (error: any) { if (error.code !== 'ENOENT') { /* Keep looking through saved connections. */ } }
+  const found: { host: string; port: number }[] = [];
+  const consider = (profile: { mode?: string; host?: string; port?: number } | undefined) => { const endpoint = usableServer(profile); if (endpoint) found.push(endpoint); };
+  try {
+    const settings = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'settings.json'), 'utf8'));
+    for (const connection of settings.connections || []) consider(connection);
+    consider(settings.workspaceSnapshot?.profile);
+  } catch { /* A new installation has no saved server yet. */ }
+  try {
+    const directory = path.join(app.getPath('userData'), 'window-state');
+    for (const name of await fs.readdir(directory)) {
+      if (!/^[1-9]\d*\.json$/.test(name)) continue;
+      try { consider(JSON.parse(await fs.readFile(path.join(directory, name), 'utf8')).profile); } catch { /* Skip an unreadable window record. */ }
+    }
+  } catch { /* No window records yet. */ }
+  const endpoint = found.at(-1);
+  if (endpoint) await atomicJson(serverEndpointFile(), endpoint);
+  return endpoint;
+}
+async function rememberServerEndpoint(host: string, port: number) {
+  const endpoint = serverEndpointSchema.parse({ host, port });
+  if (sharedServerEndpoint?.host === endpoint.host && sharedServerEndpoint.port === endpoint.port) return;
+  sharedServerEndpoint = endpoint;
+  await atomicJson(serverEndpointFile(), endpoint);
+}
 async function storedWindowState(slot: number): Promise<{ profile?: import('../shared/types').ConnectionProfile; sidebarProjectHeight?: number; sidebarPanes?: SidebarPanes }> {
   try { const state = JSON.parse(await fs.readFile(windowStateFile(slot), 'utf8')); return { profile: state.profile ? profileSchema.parse(state.profile) : undefined, sidebarProjectHeight: state.sidebarProjectHeight, sidebarPanes: state.sidebarPanes }; }
   catch (error: any) { if (error.code !== 'ENOENT') throw error; }
@@ -362,8 +393,10 @@ async function loginWindow(window: BrowserWindow, profile: import('../shared/typ
       try { await previous.release(); }
       catch (error) { await atomicJson(windowStateFile(previous.slot), { profile: currentProfile, sidebarProjectHeight: previous.sidebarProjectHeight, sidebarPanes: previous.sidebarPanes }); throw error; }
       contexts.set(window, { ...target, slot: previous.slot, sidebarProjectHeight: previous.sidebarProjectHeight, sidebarPanes: previous.sidebarPanes, release: acquired.release }); acquired = undefined;
+      const signedIn = target.workbench.remote.profile || result;
+      if (signedIn.mode !== 'local' && signedIn.host) await rememberServerEndpoint(signedIn.host, signedIn.port);
       target.broadcast();
-      return target.workbench.remote.profile || result;
+      return signedIn;
     });
   } finally {
     verified.disconnect();
@@ -524,6 +557,7 @@ if (ownDataDirectory(latestWindow, () => openAdditionalWindow(true))) app.whenRe
   });
   const legacySettings = await fs.readFile(path.join(app.getPath('userData'), 'settings.json'), 'utf8').then(value => JSON.parse(value)).catch((error: any) => { if (error.code === 'ENOENT') return {}; throw error; });
   await serverIdentities.init(legacySettings.trustedServerIdentities || {});
+  sharedServerEndpoint = await loadSharedServerEndpoint();
   await routeAccount(() => createWindow());
   windowsReady = true;
   void drainAdditionalWindows();
