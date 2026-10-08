@@ -30,7 +30,8 @@ import { ServerIdentityStore } from '../core/server-identities';
 import { EgressClientProxy } from '../core/egress';
 import { decodeEgressInvite, userEgressInputSchema } from '../core/egress-config';
 type DataContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; broadcast: () => void; notice: (message: string) => void };
-type WindowContext = DataContext & { slot: number; sidebarProjectHeight?: number; release: () => Promise<void> };
+type SidebarPanes = { workgroups?: number; files?: number; sessions?: number };
+type WindowContext = DataContext & { slot: number; sidebarProjectHeight?: number; sidebarPanes?: SidebarPanes; release: () => Promise<void> };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
 const switchingWindows = new Set<BrowserWindow>();
 let accountRouting: Promise<unknown> = Promise.resolve();
@@ -68,7 +69,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
   switch (action) {
     case 'snapshot': {
       const snapshot = switchingWindows.has(owner) ? scopeAccountSnapshot({ ...workbench.snapshot(), accountChanging: true }) : workbench.snapshot();
-      return { ...snapshot, settings: { ...snapshot.settings, sidebarProjectHeight: context.sidebarProjectHeight }, egress: egress.status() };
+      return { ...snapshot, settings: { ...snapshot.settings, sidebarProjectHeight: context.sidebarProjectHeight, sidebarPanes: context.sidebarPanes }, egress: egress.status() };
     }
     case 'window.new': openAdditionalWindow(false); return true;
     case 'egress.configure': {
@@ -88,7 +89,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       for (const p of ['codex', 'cursor', 'claude'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
-    case 'layout.sidebar': { const p = z.object({ height: z.number().int().min(180).max(4000) }).parse(raw); await atomicJson(windowStateFile(context.slot), { profile: workbench.store.settings.workspaceSnapshot?.profile, sidebarProjectHeight: p.height }); context.sidebarProjectHeight = p.height; return true; }
+    case 'layout.sidebar': {
+      const pane = z.number().int().min(80).max(2000);
+      const p = z.object({ height: z.number().int().min(180).max(4000).optional(), workgroups: pane.optional(), files: pane.optional(), sessions: pane.optional() }).refine(value => value.height !== undefined || value.workgroups !== undefined || value.files !== undefined || value.sessions !== undefined).parse(raw);
+      if (p.height !== undefined) context.sidebarProjectHeight = p.height;
+      context.sidebarPanes = { ...context.sidebarPanes, ...(p.workgroups !== undefined ? { workgroups: p.workgroups } : {}), ...(p.files !== undefined ? { files: p.files } : {}), ...(p.sessions !== undefined ? { sessions: p.sessions } : {}) };
+      await atomicJson(windowStateFile(context.slot), { profile: workbench.store.settings.workspaceSnapshot?.profile, sidebarProjectHeight: context.sidebarProjectHeight, sidebarPanes: context.sidebarPanes });
+      return true;
+    }
     case 'beta.set': { const p = z.object({ feature: z.enum(['sessionHandoff', 'subsessions']), enabled: z.boolean() }).parse(raw); return workbench.setBetaFeature(p.feature, p.enabled); }
     case 'providers.detect': return workbench.detect();
     case 'account.sync': await workbench.accountSync.sync(); return workbench.accountSync.state;
@@ -316,8 +324,8 @@ function latestWindow() {
 function claimSlot(preferred?: number) { let slot = preferred && !activeSlots.has(preferred) ? preferred : 1; while (activeSlots.has(slot)) slot += 1; activeSlots.add(slot); return slot; }
 function instanceRoot(slot: number) { return slot === 1 ? app.getPath('userData') : path.join(app.getPath('userData'), 'instances', String(slot)); }
 function windowStateFile(slot: number) { return path.join(app.getPath('userData'), 'window-state', slot + '.json'); }
-async function storedWindowState(slot: number): Promise<{ profile?: import('../shared/types').ConnectionProfile; sidebarProjectHeight?: number }> {
-  try { const state = JSON.parse(await fs.readFile(windowStateFile(slot), 'utf8')); return { profile: state.profile ? profileSchema.parse(state.profile) : undefined, sidebarProjectHeight: state.sidebarProjectHeight }; }
+async function storedWindowState(slot: number): Promise<{ profile?: import('../shared/types').ConnectionProfile; sidebarProjectHeight?: number; sidebarPanes?: SidebarPanes }> {
+  try { const state = JSON.parse(await fs.readFile(windowStateFile(slot), 'utf8')); return { profile: state.profile ? profileSchema.parse(state.profile) : undefined, sidebarProjectHeight: state.sidebarProjectHeight, sidebarPanes: state.sidebarPanes }; }
   catch (error: any) { if (error.code !== 'ENOENT') throw error; }
   try { const settings = JSON.parse(await fs.readFile(path.join(instanceRoot(slot), 'settings.json'), 'utf8')); const snapshot = settings.workspaceSnapshot || settings.offlineAuthorization; return { profile: snapshot?.profile ? profileSchema.parse(snapshot.profile) : undefined, sidebarProjectHeight: settings.sidebarProjectHeight }; }
   catch (error: any) { if (error.code !== 'ENOENT') throw error; return {}; }
@@ -350,10 +358,10 @@ async function loginWindow(window: BrowserWindow, profile: import('../shared/typ
       target.egress.setUsername(result.username);
       if (target.workbench.store.settings.egress?.enabled) void target.egress.probe().catch(() => {});
       if (window.isDestroyed() || closingWindows.has(window) || closing) throw new Error('窗口正在关闭，请重新登录');
-      await atomicJson(windowStateFile(previous.slot), { profile: target.workbench.remote.profile || result, sidebarProjectHeight: previous.sidebarProjectHeight });
+      await atomicJson(windowStateFile(previous.slot), { profile: target.workbench.remote.profile || result, sidebarProjectHeight: previous.sidebarProjectHeight, sidebarPanes: previous.sidebarPanes });
       try { await previous.release(); }
-      catch (error) { await atomicJson(windowStateFile(previous.slot), { profile: currentProfile, sidebarProjectHeight: previous.sidebarProjectHeight }); throw error; }
-      contexts.set(window, { ...target, slot: previous.slot, sidebarProjectHeight: previous.sidebarProjectHeight, release: acquired.release }); acquired = undefined;
+      catch (error) { await atomicJson(windowStateFile(previous.slot), { profile: currentProfile, sidebarProjectHeight: previous.sidebarProjectHeight, sidebarPanes: previous.sidebarPanes }); throw error; }
+      contexts.set(window, { ...target, slot: previous.slot, sidebarProjectHeight: previous.sidebarProjectHeight, sidebarPanes: previous.sidebarPanes, release: acquired.release }); acquired = undefined;
       target.broadcast();
       return target.workbench.remote.profile || result;
     });
@@ -448,13 +456,13 @@ async function createWindow(preferredSlot?: number, fresh = false) {
   const window = new BrowserWindow({ width: 1520, height: 980, minWidth: 1100, minHeight: 720, backgroundColor: '#f5f6f8', show: process.env.WORKBENCH_TEST !== '1', title: '团队工作台 · 用户版', webPreferences: { preload: path.join(__dirname, runtimeAssets, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   windows.add(window);
   try {
-    const { profile, sidebarProjectHeight } = fresh ? {} : await storedWindowState(slot);
+    const { profile, sidebarProjectHeight, sidebarPanes } = fresh ? {} : await storedWindowState(slot);
     if (profile) {
       const acquired = await accountWorkspaces.acquire(profile, instanceRoot(slot));
-      contexts.set(window, { ...acquired.value, slot, sidebarProjectHeight, release: acquired.release });
+      contexts.set(window, { ...acquired.value, slot, sidebarProjectHeight, sidebarPanes, release: acquired.release });
     } else {
       const context = await createDataContext(path.join(app.getPath('userData'), 'window-state', String(slot)));
-      contexts.set(window, { ...context, slot, sidebarProjectHeight, release: async () => { await context.workbench.close(); await context.egress.stop(); } });
+      contexts.set(window, { ...context, slot, sidebarProjectHeight, sidebarPanes, release: async () => { await context.workbench.close(); await context.egress.stop(); } });
       await atomicJson(windowStateFile(slot), {});
     }
   } catch (error) { await contexts.get(window)?.release().catch(() => {}); contexts.delete(window); windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }

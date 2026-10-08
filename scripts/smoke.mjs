@@ -82,10 +82,12 @@ try {
   assert.equal((await secondUser.evaluate(() => window.workbench.call('snapshot'))).connection.profile.username, 'bob');
   assert.equal(await app.evaluate(() => globalThis.__serverIdentityPrompts), 1);
   await secondUser.close(); await expect.poll(() => app.windows().length).toBe(1);
-  const splitter = page.getByRole('separator', { name: '调整项目与会话区域高度', exact: true });
-  const splitterBox = await splitter.boundingBox(), sessionBefore = await page.locator('.session-list').boundingBox();
-  await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y + splitterBox.height / 2); await page.mouse.down(); await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y - 60); await page.mouse.up();
-  const sessionAfter = await page.locator('.session-list').boundingBox(); assert(sessionAfter.height > sessionBefore.height + 40);
+  const splitter = page.getByRole('separator', { name: '调整工作组高度', exact: true });
+  const splitterBox = await splitter.boundingBox(), workgroupBefore = await page.locator('.workgroup-list').boundingBox(), sessionBefore = await page.locator('.session-list').boundingBox();
+  await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y + splitterBox.height / 2); await page.mouse.down(); await page.mouse.move(splitterBox.x + splitterBox.width / 2, splitterBox.y + 70); await page.mouse.up();
+  const workgroupAfter = await page.locator('.workgroup-list').boundingBox(), sessionAfter = await page.locator('.session-list').boundingBox();
+  assert(workgroupAfter.height > workgroupBefore.height + 40);
+  assert(Math.abs(sessionAfter.height - sessionBefore.height) < 3);
   await splitter.dblclick();
   await page.locator('.workgroup-project').filter({ hasText: '实体抽取' }).click();
   assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
