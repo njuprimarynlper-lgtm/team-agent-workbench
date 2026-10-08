@@ -79,7 +79,7 @@ test('lost acknowledgement is reconciled once; an unverifiable deletion is repor
     const edit = x.alice.remote.contentEdit.bind(x.alice.remote), list = x.alice.remote.contentList.bind(x.alice.remote); let calls = 0;
     x.alice.remote.contentEdit = async (binding, change) => { calls++; await edit(binding, change); throw new Error('连接已断开'); };
     const result = await x.alice.deleteSharedContents(x.project.id, selection([a, b]));
-    assert.deepEqual(result.deletedIds, [a.id]); assert.deepEqual(result.remaining, selection([b])); assert.match(result.error!, /已从共享区移除/); assert.equal(calls, 1);
+    assert.deepEqual(result.deletedIds, [a.id]); assert.deepEqual(result.remaining, selection([b])); assert.match(result.error!, /该团队成果已删除/); assert.equal(calls, 1);
     assert.equal(x.alice.contentUpdates().filter(event => event.id === a.id && event.change === 'deleted').length, 1);
     x.alice.remote.contentEdit = async () => { calls++; x.alice.remote.contentList = async () => { throw new Error('无法连接'); }; throw new Error('请求超时'); };
     const unknown = await x.alice.deleteSharedContents(x.project.id, selection([b]));
@@ -131,7 +131,7 @@ test('bulk selection excludes hidden and unauthorized entries; confirmation name
   let deleted = false, canceled = false;
   const props = { items: [a, b], title: (item: SharedContent) => item.title, busy: false, error: '', close: () => { canceled = true; }, confirm: () => { deleted = true; } };
   const html = renderToStaticMarkup(createElement(SharedContentDeleteDialog, props));
-  assert.match(html, /确认批量删除团队成果/); assert.match(html, /自己的成果/); assert.match(html, /他人成果/); assert.match(html, /v1/); assert.match(html, /确认删除 2 项团队成果/); assert.match(html, /本地成果、会话引用和整理记录保留/); assert.equal(deleted, false);
+  assert.match(html, /确认批量删除团队成果/); assert.match(html, /自己的成果/); assert.match(html, /他人成果/); assert.match(html, /v1/); assert.match(html, /确认删除 2 项团队成果/); assert.match(html, /正文和历史版本无法从库中恢复/); assert.match(html, /个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留/); assert.match(html, /其他尚未发送的成果引用，在检测到删除后不再发送给模型/); assert.equal(deleted, false);
   const tree = SharedContentDeleteDialog(props), footer = tree.props.children.props.children.at(-1);
   footer.props.children[0].props.onClick(); assert.equal(canceled, true); assert.equal(deleted, false);
 });
