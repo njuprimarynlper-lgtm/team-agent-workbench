@@ -11,14 +11,15 @@ await build({ stdin: { resolveDir: root, loader: 'tsx', contents: `
   import {DraftEditor} from './src/renderer/draft-editor'; import {TransferRecords} from './src/renderer/transfer-records';
   import {ContentUpdatesPanel} from './src/renderer/content-updates'; import {SharedContentLibrary} from './src/renderer/shared-content';
   import {ConclusionLibrary} from './src/renderer/conclusions'; import './src/renderer/styles.css'; import './src/renderer/result-card.css';
+  import {ProjectResults} from './src/renderer/project-results';
   function App(){const [revision,refresh]=useState(0);window.refresh=()=>refresh(value=>value+1);const f=window.fixture;
     const mode=new URLSearchParams(location.search).get('mode');
     const run=async fn=>fn(), notice=()=>{};
-    return <div style={{overflow:'auto',height:'100vh',padding:30,background:'#f7faf8'}}><h1>团队工作台 · {f.project.name}</h1>
+    return <div style={{overflow:'auto',height:'100vh',padding:30,background:'#f7faf8',display:'flex',flexDirection:'column'}}><h1>团队工作台 · {f.project.name}</h1>
       {mode==='review'?<DraftEditor draft={f.draft} sourceTitle={f.draft.sourceSessionTitle} sourceSession={f.session} projects={f.projects} transfers={[]} run={run} notice={notice} close={()=>{}} reorganized={()=>{}} viewShared={()=>{}} viewConclusion={()=>{}}/>:
        mode==='activity'?<ContentUpdatesPanel updates={f.updates} aliases={{}} view={()=>{}} changed={async()=>{}}/>:
-       mode==='shared'?<SharedContentLibrary project={f.project} username="bob" admin={false} aliases={{}} aliasSaved={async()=>{}} attach={async()=>{}} notice={notice} mergeSessions={[]} mergeStarted={()=>{}} attachSessions={[]}/>:
-       mode==='personal'?<ConclusionLibrary project={f.project} projects={f.projects} sessions={[]} notice={notice} mergeStarted={()=>{}}/>:
+       mode==='shared'?<ProjectResults projectName={f.project.name} scope="team" changeScope={()=>{}}><SharedContentLibrary embedded project={f.project} username="bob" admin={false} aliases={{}} aliasSaved={async()=>{}} attach={async()=>{}} notice={notice} mergeSessions={[]} mergeStarted={()=>{}} attachSessions={[]}/></ProjectResults>:
+       mode==='personal'?<ProjectResults projectName={f.project.name} scope="personal" changeScope={()=>{}}><ConclusionLibrary embedded project={f.project} projects={f.projects} sessions={[]} notice={notice} mergeStarted={()=>{}} refreshToken={String(revision)}/></ProjectResults>:
        <><h2>传输记录</h2><TransferRecords transfers={f.transfers} retry={id=>window.calls.push({action:'transfer.retry',id})}/></>}
     </div>;
   }createRoot(document.getElementById('root')).render(<App/>);
@@ -44,7 +45,8 @@ await page.addInitScript(() => {
     if(action==='content.list')return structuredClone(window.fixture.items);
     if(action==='content.history')return [];
     if(action==='conclusion.list')return structuredClone(window.fixture.personal);
-    if(action==='conclusion.publish')return {id:'upload'};
+    if(action==='conclusion.publish'){window.fixture.personal[0].uploadState={status:'queued',transferId:'upload'};window.refresh();return {id:'upload'};}
+    if(action==='conclusion.alias.save'){const item=window.fixture.personal.find(value=>value.id===p.id);item.titleAlias=p.alias;const result=structuredClone(item);delete result.uploadState;return result;}
     if(action==='draft.submit'){window.fixture.draft.submitted='upload';window.refresh();return {id:'upload'};}
     if(action==='draft.supplement')return window.fixture.draft;
     throw Error('Unexpected fixture API '+action);
@@ -108,6 +110,64 @@ try {
   await page.getByRole('button',{name:'提交到 竞赛组 / 优化项目',exact:true}).click();
   expect(await page.evaluate(()=>window.calls.find(call=>call.action==='conclusion.publish').p)).toEqual({id:'00000000-0000-4000-8000-000000000001',version:3,disclose:[]});
   checks.push('个人分享使用同一目标按钮，提交审阅版本，私人祖先来源不默认公开');
+  const more = page.locator('.result-more > summary').first();
+  const openMore = async () => { if (!await more.evaluate(node => node.parentElement.open)) await more.click(); };
+  const publishCalls = () => page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish').length);
+  const checkMoreStyle = async (width, mode) => {
+    await page.setViewportSize({width,height:980});
+    await page.mouse.move(0,0);
+    await page.waitForTimeout(180);
+    const styles = await page.locator('.result-card-actions').first().evaluate(node => {
+      const read = element => { const style = getComputedStyle(element);return {fontSize:style.fontSize,fontFamily:style.fontFamily,lineHeight:style.lineHeight,padding:style.padding,border:style.border,borderRadius:style.borderRadius,backgroundColor:style.backgroundColor,height:element.getBoundingClientRect().height,y:element.getBoundingClientRect().y}; };
+      const button=node.querySelector(':scope > button.secondary') || node.querySelector(':scope > button');
+      return {more:read(node.querySelector(':scope > details > summary')),button:read(button),secondary:button.classList.contains('secondary')};
+    });
+    await fs.writeFile(path.join(out,`more-style-${mode}-${width}.json`),JSON.stringify(styles,null,2));
+    for (const key of ['fontSize','fontFamily','lineHeight','padding','borderRadius',...(styles.secondary?['border','backgroundColor']:[])]) expect(styles.more[key],key).toBe(styles.button[key]);
+    expect(Math.abs(styles.more.height-styles.button.height)).toBeLessThan(1);
+    expect(Math.abs(styles.more.y-styles.button.y)).toBeLessThan(1);
+  };
+  await openMore();
+  await expect(page.getByRole('button',{name:'等待上传',exact:true})).toBeDisabled();
+  const once = await publishCalls();
+  await page.getByRole('button',{name:'等待上传',exact:true}).evaluate(node=>node.click());
+  expect(await publishCalls()).toBe(once);
+  checks.push('确认上传后立即显示置灰的等待上传按钮，重复点击不再提交');
+  for(const status of ['running','done']) {
+    await page.evaluate(status=>{window.fixture.personal[0].uploadState={status,transferId:'upload'};window.refresh();},status);
+    await openMore();
+    await expect(page.getByRole('button',{name:status==='done'?'已上传':'上传中',exact:true})).toBeDisabled();
+  }
+  await checkMoreStyle(1440,'personal');
+  await checkMoreStyle(900,'personal');
+  await page.setViewportSize({width:1440,height:980});
+  await page.screenshot({path:path.join(out,'personal-uploaded.png')});
+  checks.push('上传中与已上传均不可重复提交；更多与相邻按钮的字号、间距、边框和高度一致');
+  await page.getByRole('button',{name:'设置本地别名',exact:true}).click();
+  await page.getByRole('dialog').locator('input').fill('仅自己看的别名');
+  await page.getByRole('dialog').getByRole('button',{name:'保存本地别名',exact:true}).click();
+  await openMore();
+  await expect(page.getByRole('button',{name:'已上传',exact:true})).toBeDisabled();
+  checks.push('设置本地别名后仍为已上传，不会误开放再次上传');
+  await page.evaluate(()=>{window.fixture.personal[0].uploadState={status:'error',transferId:'upload'};window.refresh();});
+  await openMore();
+  await expect(page.getByRole('button',{name:'重试上传',exact:true})).toBeEnabled();
+  await page.getByRole('button',{name:'重试上传',exact:true}).click();
+  await openMore();
+  await expect(page.getByRole('button',{name:'等待上传',exact:true})).toBeDisabled();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  expect(await publishCalls()).toBe(once+1);
+  checks.push('失败保留重试入口，重试原成果后立即置灰，无需新建分享确认');
+  await page.evaluate(()=>{window.fixture.personal[0].version++;window.fixture.personal[0].uploadState={status:'ready'};window.refresh();});
+  await openMore();
+  await expect(page.getByRole('button',{name:'分享至团队',exact:true})).toBeEnabled();
+  checks.push('新版本允许分享');
+  await page.goto(url+'?mode=shared');
+  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/探索记录/}).click();
+  await checkMoreStyle(1440,'team');
+  await checkMoreStyle(900,'team');
+  await page.screenshot({path:path.join(out,'team-more.png')});
+  checks.push('团队成果的更多使用相同按钮样式，在宽窄窗口都与相邻操作对齐');
   if(errors.length)throw Error(errors.join('\n'));
   await fs.writeFile(path.join(out,'checks.json'),JSON.stringify({checks,errors},null,2));console.log(checks.join('\n'));
 } finally { await browser.close(); }

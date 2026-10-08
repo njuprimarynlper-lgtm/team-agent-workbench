@@ -1,9 +1,9 @@
 import React, { useId } from 'react';
 import { ChevronDown } from 'lucide-react';
 
-export function ResultMoreMenu({ children }: { children: React.ReactNode }) {
+export function ResultMoreMenu({ children, disabled = false }: { children: React.ReactNode; disabled?: boolean }) {
   return <details className="result-more" onClick={event => { const menu = event.currentTarget; if ((event.target as HTMLElement).closest('.result-more-menu')) menu.open = false; }}>
-    <summary className="secondary compact">更多</summary>
+    <summary className="secondary compact" aria-disabled={disabled || undefined} onClick={event => { if (disabled) event.preventDefault(); }}>更多</summary>
     <div className="result-more-menu" role="menu">{children}</div>
   </details>;
 }

@@ -157,7 +157,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.updates.read': { const p = z.object({ eventIds: z.array(z.string()).max(10000).optional(), processed: z.boolean().optional() }).parse(raw || {}); return workbench.markContentUpdates(p.eventIds, p.processed); }
     case 'content.updates.clear': return workbench.clearReadContentUpdates();
     case 'content.updates.dismiss': return workbench.dismissContentUpdates(z.object({ eventIds: z.array(z.string()) }).parse(raw).eventIds);
-    case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived); }
+    case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived).map(item => ({ ...item, uploadState: workbench.conclusionUploadState(item.id) })); }
     case 'assignment.list': return workbench.remote.assignmentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
     case 'assignment.members': return workbench.remote.assignmentMembers(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
     case 'assignment.create': { const p = z.object({ projectId: z.string(), task: assignmentCreateSchema }).parse(raw); return workbench.createAssignment(p.projectId, p.task); }

@@ -1,3 +1,4 @@
+import { conclusionUploadState, uploadBlocked } from '../shared/conclusion-upload';
 import { submissionRecord } from '../shared/submission';
 import { assertTodoMerge, canonicalCategory, resultCategory, resultDefaultStatus, sameResultCategory, validateResultStatus, type ResultStatus } from '../shared/result-model';
 import { humanReadableWritingGuide } from '../shared/result-reading';
@@ -64,6 +65,7 @@ export class Workbench {
   private deletingDrafts = new Set<string>();
   private deletingSharedContent = new Set<string>();
   private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
+  private publishingConclusions = new Set<string>();
   private edits: Promise<unknown> = Promise.resolve();
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
   private submittingDrafts = new Set<string>();
@@ -211,6 +213,10 @@ export class Workbench {
     const profile = this.localProfile();
     return this.store.conclusions.filter(item => !item.deletedAt && (!item.accountOwner || profile && item.accountOwner === accountIdentity(profile)) && item.projectId === projectId && (includeArchived || !item.archived)).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
+  conclusionUploadState(id: string) {
+    const item = this.conclusion(id);
+    return this.publishingConclusions.has(id) ? { status: 'running' as const } : conclusionUploadState(item, this.store.transfers);
+  }
   resultRules(projectId: string): ResultRulesState {
     const profile = this.localProfile();
     if (!profile?.projects.some(project => project.id === projectId)) throw new Error('当前账号无法访问此项目');
@@ -276,23 +282,30 @@ export class Workbench {
     await this.store.save(); this.broadcast(); return conclusion;
   }
   async publishConclusion(id: string, disclose: { scope: 'personal' | 'team'; projectId: string; id: string; version: number }[] = [], expectedVersion?: number) {
-    const conclusion = structuredClone(this.conclusion(id));
-    if (expectedVersion !== undefined && conclusion.version !== expectedVersion) throw new Error('个人成果已更新，请刷新后重新确认提交');
-    if (conclusion.archived) throw new Error('请先恢复这条个人成果再分享');
-    const allowed = conclusion.derivedFrom || [];
-    if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
-    const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
-    const category = resultCategory(conclusion) || 'exploration';
-    const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
-    await fs.mkdir(path.dirname(local), { recursive: true });
-    await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
-    const attachments = [];
-    for (const file of conclusion.localFiles || []) {
-      if (await hashFile(file.localPath) !== file.sha256) throw new Error('附件已变化，请移除后重新添加：' + file.name);
-      const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
-      attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
-    }
-    return this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+    if (this.publishingConclusions.has(id)) throw new Error('这条成果正在上传，请等待完成');
+    this.publishingConclusions.add(id); this.broadcast();
+    try {
+      const conclusion = structuredClone(this.conclusion(id));
+      if (expectedVersion !== undefined && conclusion.version !== expectedVersion) throw new Error('个人成果已更新，请刷新后重新确认提交');
+      if (conclusion.archived) throw new Error('请先恢复这条个人成果再分享');
+      const state = conclusionUploadState(conclusion, this.store.transfers);
+      if (uploadBlocked(state)) throw new Error(state.status === 'done' ? '这条成果的当前版本已上传' : '这条成果正在上传，请等待完成');
+      if (state.status === 'error' && state.transferId) { await this.queue.retry(state.transferId); return this.store.transfers.find(task => task.id === state.transferId)!; }
+      const allowed = conclusion.derivedFrom || [];
+      if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
+      const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
+      const category = resultCategory(conclusion) || 'exploration';
+      const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
+      await fs.mkdir(path.dirname(local), { recursive: true });
+      await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
+      const attachments = [];
+      for (const file of conclusion.localFiles || []) {
+        if (await hashFile(file.localPath) !== file.sha256) throw new Error('附件已变化，请移除后重新添加：' + file.name);
+        const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
+        attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
+      }
+      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+    } finally { this.publishingConclusions.delete(id); this.broadcast(); }
   }
   async archiveConclusion(id: string, archived: boolean) {
     const conclusion = this.conclusion(id);
@@ -416,6 +429,7 @@ export class Workbench {
       if (status) result.conclusion.resultStatus = status; else delete result.conclusion.resultStatus;
       if (item.resultOwner !== undefined) result.conclusion.resultOwner = item.resultOwner; else delete result.conclusion.resultOwner;
     }
+    if ((result.action === 'created' || result.conclusion.automatic) && !result.conclusion.localFiles?.length && !teamResultDifference(item, [result.conclusion])) result.conclusion.publication = { version: result.conclusion.version, files: '[]', path: item.path, sha256: item.sha256, at: item.updatedAt };
     result.conclusion.derivedFrom = [{ scope: 'team', projectId, id: item.id, version: item.revision }];
     return result;
   }
@@ -670,7 +684,7 @@ export class Workbench {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), accountSync: this.accountSync.state, settings: this.store.settings, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.remote.profile, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { return !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -746,7 +760,7 @@ export class Workbench {
   }
   assertCanLeaveAccount() {
     this.assertAccountReady();
-    if (this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
+    if (this.publishingConclusions.size || this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换团队账号');
   }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>, verified?: SharedFiles) {
     if (this.configuring) throw new Error('正在登录，请等待结果');

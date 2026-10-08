@@ -1,3 +1,4 @@
+import { directPersonalUpload, sameUploadedConclusion, uploadFilesKey } from '../shared/conclusion-upload';
 import { accountIdentity } from '../shared/account-data';
 import type { Draft, ProjectConclusion, Transfer } from '../shared/types';
 
@@ -17,15 +18,27 @@ export function linkConclusionPublications(conclusions: ProjectConclusion[], dra
         if (sourceId) break;
       }
     }
+    for (const item of conclusions) {
+      const direct = directPersonalUpload(item, transfer);
+      if (item.deletedAt || !direct?.version) continue;
+      const publication = { version: direct.version, files: uploadFilesKey(transfer.metadata?.attachments), path: transfer.target, sha256: transfer.sha256, at: transfer.completedAt || transfer.createdAt };
+      if (item.publication && (item.publication.version > publication.version || item.publication.version === publication.version && item.publication.at >= publication.at)) continue;
+      item.publication = publication; changed = true;
+    }
     if (!sourceId) continue;
     for (const conclusion of conclusions) {
       if (conclusion.deletedAt || conclusion.projectId !== projectId || conclusion.accountOwner && conclusion.accountOwner !== owner) continue;
       for (const source of conclusion.sources) {
-        if (source.kind !== 'session' || source.id !== sourceId || source.publication) continue;
+        if (source.kind !== 'session' || source.id !== sourceId) continue;
         // Publishing a new artifact creates revision 1 on both sharing backends.
         // Never adopt a later team revision just because the upload path matches.
-        source.publication = { path: transfer.target, sha256: transfer.sha256, revision: 1 };
-        changed = true;
+        if (!source.publication) { source.publication = { path: transfer.target, sha256: transfer.sha256, revision: 1 }; changed = true; }
+        if (source.publication.path === transfer.target && source.publication.sha256 === transfer.sha256 && sameUploadedConclusion(conclusion, transfer)) {
+          const publication = { version: conclusion.version, files: uploadFilesKey(transfer.metadata.attachments), path: transfer.target, sha256: transfer.sha256, at: transfer.completedAt || transfer.createdAt };
+          if (!conclusion.publication || conclusion.publication.version < publication.version || conclusion.publication.version === publication.version && conclusion.publication.at < publication.at) {
+            conclusion.publication = publication; changed = true;
+          }
+        }
       }
     }
   }

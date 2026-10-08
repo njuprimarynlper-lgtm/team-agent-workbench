@@ -98,6 +98,80 @@ test('personal sharing publishes only the selected result version; private ances
   } finally { await x.close(); }
 });
 
+test('personal upload blocks double clicks, persists success and allows a genuinely updated version', async () => {
+  const x = await fixture(); let release = () => {};
+  try {
+    const result = await x.bob.createConclusion(x.first.id, '并发分享验证', '固定版本内容', 'exploration');
+    const original = x.bob.queue.enqueue.bind(x.bob.queue);
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let entered = () => {}; const reached = new Promise<void>(resolve => { entered = resolve; });
+    x.bob.queue.enqueue = async (...args) => { entered(); await held; return original(...args); };
+    const pending = x.bob.publishConclusion(result.id, [], result.version); await reached;
+    assert.equal(x.bob.conclusionUploadState(result.id).status, 'running');
+    await assert.rejects(x.bob.publishConclusion(result.id), /正在上传/);
+    release(); const task = await pending; await completed(task);
+    assert.equal(x.bob.conclusionUploadState(result.id).status, 'done');
+    await assert.rejects(x.bob.publishConclusion(result.id), /当前版本已上传/);
+    await x.bob.saveConclusionAlias(result.id, '本地别名');
+    assert.equal(x.bob.conclusionUploadState(result.id).status, 'done');
+    await x.bob.store.save(); const restored = new Store(x.bob.store.root); await restored.init();
+    assert.equal(restored.conclusions.find(item => item.id === result.id)!.publication!.version, 1);
+    const records = (x.bob.accountSync as any).collect(x.bob.remote.profile);
+    assert.equal(records['material:' + result.id].publication.version, 1, 'account synchronization keeps the success marker');
+    const updated = await x.bob.saveConclusion(result.id, result.title, '有新的验证依据', result.category, undefined, result.version);
+    assert.equal(x.bob.conclusionUploadState(result.id).status, 'ready');
+    const next = await x.bob.publishConclusion(result.id, [], updated.version); await completed(next);
+    assert.equal(next.submission!.sources[0].version, 2);
+    assert.equal((await x.bob.remote.contentList(task.binding)).length, 2);
+    const imported = await x.alice.importContentConclusion(x.first.id, (await x.alice.remote.contentList(x.alice.remote.binding(x.first.id)))[0].id);
+    assert.equal(x.alice.conclusionUploadState(imported.conclusion.id).status, 'done');
+    await assert.rejects(x.alice.publishConclusion(imported.conclusion.id), /当前版本已上传/);
+    await x.alice.saveConclusion(imported.conclusion.id, imported.conclusion.title, '加入管理员自己的新分析', imported.conclusion.category);
+    assert.equal(x.alice.conclusionUploadState(imported.conclusion.id).status, 'ready');
+  } finally { release(); await x.close(); }
+});
+
+test('failed personal upload retries the original receipt instead of generating a second public result', async () => {
+  const x = await fixture();
+  try {
+    const result = await x.bob.createConclusion(x.first.id, '失败重试验证', '已冻结的正文', 'exploration');
+    const original = x.bob.remote.upload.bind(x.bob.remote); let lost = true;
+    x.bob.remote.upload = async (...args) => { const receipt = await original(...args); if (lost) { lost = false; throw Error('模拟丢失回执'); } return receipt; };
+    const task = await x.bob.publishConclusion(result.id); const deadline = Date.now() + 6000;
+    while (task.status !== 'error') { if (Date.now() > deadline) throw Error('未收到失败'); await new Promise(resolve => setTimeout(resolve, 10)); }
+    assert.deepEqual(x.bob.conclusionUploadState(result.id), { status: 'error', transferId: task.id });
+    const target = task.target, requestId = task.requestId, source = structuredClone(task.metadata!.submission);
+    const accepted = (await x.bob.remote.contentList(task.binding))[0].submission;
+    await x.bob.createSession('codex', x.root, x.second.id);
+    const retried = await x.bob.publishConclusion(result.id, [], result.version); assert.equal(retried, task); await completed(retried);
+    assert.equal(task.target, target); assert.equal(task.requestId, requestId); assert.deepEqual(task.metadata!.submission!.sources, source!.sources);
+    assert.deepEqual(task.submission, accepted, 'retry keeps the original server-accepted record and timestamp');
+    assert.equal(x.bob.store.transfers.filter(value => !value.attachment).length, 1);
+    assert.equal((await x.bob.remote.contentList(task.binding)).length, 1);
+    assert.equal((await x.bob.remote.contentList(x.bob.remote.binding(x.second.id))).length, 0);
+    assert.equal(x.bob.conclusionUploadState(result.id).status, 'done');
+    await assert.rejects(x.bob.publishConclusion(result.id), /当前版本已上传/);
+  } finally { await x.close(); }
+});
+
+test('a failed success-record save leaves the personal result retryable and never creates another remote copy', async () => {
+  const x = await fixture();
+  try {
+    const result = await x.bob.createConclusion(x.first.id, '成功记录保存失败', '固定正文', 'exploration');
+    const original = x.bob.store.save.bind(x.bob.store); let failOnce = true;
+    x.bob.store.save = async () => {
+      if (failOnce && x.bob.store.transfers.some(task => task.phase === 'completed')) { failOnce = false; throw Error('模拟本机保存失败'); }
+      return original();
+    };
+    const task = await x.bob.publishConclusion(result.id); const deadline = Date.now() + 6000;
+    while (task.status !== 'error') { if (Date.now() > deadline) throw Error('未收到保存失败'); await new Promise(resolve => setTimeout(resolve, 10)); }
+    assert(result.publication); assert.equal(x.bob.conclusionUploadState(result.id).status, 'error');
+    const retried = await x.bob.publishConclusion(result.id); assert.equal(retried, task); await completed(retried);
+    assert.equal(x.bob.conclusionUploadState(result.id).status, 'done');
+    assert.equal((await x.bob.remote.contentList(task.binding)).length, 1);
+  } finally { await x.close(); }
+});
+
 test('server authority rejects identity/target mismatches, retains original submitter on curation, and derives exact public merge versions', async () => {
   const x = await fixture();
   try {
@@ -177,11 +251,17 @@ test('merged project-material workflows preserve attached files and exact origin
     const [personal] = await x.bob.saveDraftPersonal(draft.id, [artifactId]);
     assert.equal(personal.localFiles!.length, 1);
     session.title = '另一阶段的会话名';
-    const sessionUpload = await x.bob.submitDraft(draft.id); await completed(sessionUpload);
+    const sessionUpload = await x.bob.submitDraft(draft.id);
+    assert.notEqual(x.bob.conclusionUploadState(personal.id).status, 'ready', 'saving personally then sharing the same draft cannot create a second upload');
+    await completed(sessionUpload);
     assert.equal(sessionUpload.submission!.sources[0].title, '比赛资料整理');
     assert.equal(sessionUpload.metadata!.category, 'project_material'); assert.equal(sessionUpload.metadata!.attachments!.length, 1);
-    const sharedPersonal = await x.bob.publishConclusion(personal.id, [], personal.version); await completed(sharedPersonal);
-    assert.equal(sharedPersonal.submission!.sources[0].kind, 'personal_result'); assert.equal(sharedPersonal.submission!.sources[0].version, personal.version);
+    assert.equal(x.bob.conclusionUploadState(personal.id).status, 'done');
+    await assert.rejects(x.bob.publishConclusion(personal.id, [], personal.version), /当前版本已上传/);
+    const independent = await x.bob.createConclusion(x.first.id, '独立样例复盘', '本次额外验证的格式边界', 'project_material');
+    await x.bob.addConclusionFiles(independent.id, [file]);
+    const sharedPersonal = await x.bob.publishConclusion(independent.id, [], independent.version); await completed(sharedPersonal);
+    assert.equal(sharedPersonal.submission!.sources[0].kind, 'personal_result'); assert.equal(sharedPersonal.submission!.sources[0].version, independent.version);
     assert.equal(sharedPersonal.metadata!.attachments!.length, 1);
 
     const second = await x.bob.createConclusion(x.first.id, '样例用途补充', '覆盖边界说明', 'project_material');
