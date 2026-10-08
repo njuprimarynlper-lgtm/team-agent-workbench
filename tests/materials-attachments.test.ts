@@ -10,6 +10,7 @@ import { memberProfile } from './fixtures/member-profile';
 import { applyPreparation } from '../src/core/preparation';
 import { diskPath } from '../src/core/local-space';
 import { mergeAccountRecords } from '../src/core/account-sync';
+import { settingsSchema } from '../src/core/config';
 import type { Draft } from '../src/shared/types';
 
 async function setup() {
@@ -28,6 +29,46 @@ async function setup() {
   return { root, shared, admin, first, project, client, close: async () => { await Promise.all(clients.map(wb => wb.close())); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } };
 }
 async function settled(wb: Workbench) { const deadline = Date.now() + 15000; while (wb.store.transfers.some(item => ['running', 'queued'].includes(item.status))) { if (Date.now() > deadline) throw Error('queue timed out'); await new Promise(resolve => setTimeout(resolve, 20)); } }
+
+test('retired classification settings are discarded and removed from remote account data without losing results or producing conflicts', async () => {
+  const env = await setup();
+  try {
+    const wb = env.first, result = await wb.createConclusion(env.project.id, '已有探索', '已保存的探索不受配置删除影响。', 'exploration');
+    await wb.accountSync.sync();
+    const data = await wb.remote.accountData();
+    await wb.remote.accountData({ revision: data.revision, records: { ...data.records, 'result-rules:preferences': { obsolete: true } } });
+    assert(!Object.hasOwn(settingsSchema.parse({ ...wb.store.settings, resultPreferences: { obsolete: true } }), 'resultPreferences'));
+    await wb.accountSync.sync(); assert.equal(wb.accountSync.state.status, 'synced');
+    const cleaned = await wb.remote.accountData();
+    assert(!Object.hasOwn(cleaned.records, 'result-rules:preferences')); assert(Object.hasOwn(cleaned.records, 'material:' + result.id));
+    const second = await env.client('cleaned-copy'); assert.equal(second.conclusions(env.project.id)[0].content, result.content);
+  } finally { await env.close(); }
+});
+
+test('preparation reads authorized project brief and current/history team results while excluding trajectories and another account private results', async () => {
+  const env = await setup();
+  try {
+    const wb = env.first, binding = wb.remote.binding(env.project.id);
+    const brief = { background: '比赛格式转换', objectives: '降低量化误差', acceptance: '固定样例误差评估', scope: '', constraints: '公开样例', deliverables: '', resources: '', collaboration: '' };
+    const initial = await wb.remote.projectBrief(binding);
+    await wb.remote.saveProjectBrief(binding, brief, initial.revision);
+    const source = path.join(env.root, 'team-source.md'); await fs.writeFile(source, '团队探索');
+    const item = await wb.remote.upload(binding, source, binding.project.uploadPath + '/explorations/team-source.md', () => {}, { kind: 'contribution', category: 'exploration', title: '量化误差分析', description: '首轮误差只覆盖均值。' });
+    await wb.editSharedContent(env.project.id, { id: item.id, revision: item.revision, action: 'save', title: item.title, description: '第二轮增加长尾误差。', category: 'exploration', curate: true, merge: [] });
+    await wb.remote.upload(binding, source, binding.project.historyPath + '/trajectory.md', () => {}, { kind: 'trajectory', title: '量化误差分析', description: 'PRIVATE_TRAJECTORY_TEXT' });
+    const bob = await env.client('private-history', 'bob');
+    await bob.createConclusion(env.project.id, '量化误差分析', 'PRIVATE_OTHER_ACCOUNT_TEXT', 'exploration');
+    await wb.accountSync.sync();
+    const inputDir = path.join(wb.store.root, 'context-input'); await fs.mkdir(inputDir);
+    const draft: Draft = { id: randomUUID(), sessionId: 'fixture', binding, title: '量化误差分析', body: '', files: [], inputDir, outputPath: path.join(inputDir, 'draft.md'), createdAt: new Date().toISOString() };
+    const context = await (wb as any).freezePreparationContext(draft, [{ text: '量化误差分析' }]);
+    assert.equal(context.brief.objectives, brief.objectives);
+    assert(context.results.some((result: any) => result.scope === 'team' && result.id === item.id && result.state === 'current' && result.version === 2));
+    assert(context.results.some((result: any) => result.scope === 'team' && result.id === item.id && result.state === 'history' && result.version === 1));
+    assert(!JSON.stringify(context).includes('PRIVATE_TRAJECTORY_TEXT')); assert(!JSON.stringify(context).includes('PRIVATE_OTHER_ACCOUNT_TEXT'));
+    assert(JSON.stringify(context).length <= 6000);
+  } finally { await env.close(); }
+});
 
 test('sharing a personal result creates an independent team ID and discloses only selected direct references', async () => {
   const env = await setup();
@@ -81,56 +122,15 @@ test('a later team revision does not rewrite a personal copy or an already attac
   } finally { await env.close(); }
 });
 
-test('personal combinations synchronize across computers with explicit conflicts, remain account-private and restore frozen review categories', async () => {
-  const env = await setup();
-  try {
-    const a = env.first, projectId = env.project.id, combo = { id: randomUUID(), name: '算法比赛', categories: ['finding', 'verification'] };
-    const firstRules = a.resultRules(projectId);
-    await a.saveResultRules(projectId, firstRules.owner, firstRules.version, { combinations: [combo], projects: { [projectId]: combo.id } });
-    const session = await a.createSession('codex', '', projectId), now = new Date().toISOString();
-    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, files: [], title: '', body: '', inputDir: path.join(a.store.root, 'input'), outputPath: path.join(a.store.root, 'draft.md'), createdAt: now, generation: 'ready', resultRules: { contract: 2, combinationId: combo.id, name: combo.name, categories: ['finding', 'verification'] }, preparationEvidenceIds: ['message:LOCAL_ONLY'] };
-    draft.preparationDirections = { verification: '保留测试覆盖范围及尚未验证的条件' };
-    applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'verification', topic: '真实测试', title: '验证覆盖范围', origin: 'project', body: '只在当前样本上验证。', evidenceIds: ['message:LOCAL_ONLY'] }] })); a.store.drafts.push(draft); await a.accountSync.sync();
-    assert.equal(a.accountSync.state.status, 'synced', a.accountSync.state.detail || '');
-    const raw = JSON.stringify(await a.remote.accountData()); assert(!raw.includes('message:LOCAL_ONLY')); assert(!raw.includes(session.cwd));
-    const b = await env.client('rules-second'), bob = await env.client('rules-bob', 'bob');
-    assert.equal(b.resultRules(projectId).combination.name, '算法比赛'); assert.equal(bob.resultRules(projectId).combination.id, 'research'); assert.equal(b.store.sessions.length, 0);
-    assert.deepEqual(b.store.drafts[0].resultRules, draft.resultRules); assert.equal(b.store.drafts[0].artifacts![0].category, 'verification');
-    assert.deepEqual(b.store.drafts[0].preparationDirections, draft.preparationDirections);
-    const empty: Draft = { ...draft, id: randomUUID(), artifacts: [], body: '', emptyResult: { code: 'already_saved', explanation: '已有成果保留了本次验证边界。', existingResults: [{ id: 'existing', title: '验证覆盖范围' }] } };
-    a.store.drafts.push(empty); await a.accountSync.sync(); await b.accountSync.sync();
-    assert.equal(b.store.drafts.find(item => item.id === empty.id)?.emptyResult?.code, 'already_saved');
-    await b.confirmEmptyPreparation(empty.id); await b.accountSync.sync(); await a.accountSync.sync();
-    assert(a.store.drafts.find(item => item.id === empty.id)?.emptyResult?.confirmedAt);
-    assert.deepEqual(a.store.drafts.find(item => item.id === empty.id)?.preparationDirections, draft.preparationDirections);
-    assert.deepEqual(b.store.drafts.find(item => item.id === empty.id)?.preparationDirections, draft.preparationDirections);
-    assert.equal(b.store.sessions.length, 0, 'confirmation synchronizes without restoring the source Session');
-    await env.admin.operation({ op: 'group_member', group: 'local_research', username: 'bob', role: 'member' }); await bob.refreshGroups();
-    const bobRules = bob.resultRules(projectId); await bob.saveResultRules(projectId, bobRules.owner, bobRules.version, { combinations: [], projects: { [projectId]: 'development' } }); await bob.accountSync.sync();
-    assert.equal(bob.accountSync.state.status, 'synced', 'ordinary members maintain their own configuration'); assert(!JSON.stringify(await bob.remote.accountData()).includes('算法比赛'));
-    const aRules = a.resultRules(projectId), bRules = b.resultRules(projectId);
-    await a.saveResultRules(projectId, aRules.owner, aRules.version, { ...aRules.preferences, projects: { [projectId]: 'development' } }); await a.accountSync.sync();
-    await b.saveResultRules(projectId, bRules.owner, bRules.version, { ...bRules.preferences, projects: { [projectId]: 'investigation' } }); await b.accountSync.sync();
-    assert.equal(b.accountSync.state.status, 'conflict'); assert(b.accountSync.state.conflicts?.some(item => item.key === 'result-rules:preferences'));
-    await b.accountSync.resolve('result-rules:preferences', 'local'); await a.accountSync.sync(); assert.equal(a.resultRules(projectId).combination.id, 'investigation');
-    assert.deepEqual(draft.resultRules?.categories, ['finding', 'verification']);
-    const profile = memberProfile(env.admin.snapshot.profile!, env.admin.snapshot.state!, 'bob'); await a.configureWorkspace(profile, '1', '', async () => false);
-    assert.equal(a.resultRules(projectId).combination.id, 'development'); assert(!JSON.stringify(await a.remote.accountData()).includes('算法比赛'));
-    await a.configureWorkspace(memberProfile(env.admin.snapshot.profile!, env.admin.snapshot.state!, 'alice'), '1', '', async () => false);
-    assert.equal(a.resultRules(projectId).combination.id, 'investigation');
-  } finally { await env.close(); }
-});
 
-test('new category publishes to its fixed folder and recipients keep the category regardless of their personal combination', async () => {
+test('a reviewed legacy category publishes to its fixed folder and preserves metadata across computers', async () => {
   const env = await setup();
   try {
-    const a = env.first, session = await a.createSession('codex', '', env.project.id), current = a.resultRules(env.project.id);
-    await a.saveResultRules(env.project.id, current.owner, current.version, { combinations: [], projects: { [env.project.id]: 'development' } });
-    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'input'), outputPath: path.join(a.store.root, 'draft.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, combinationId: 'development', name: '软件开发', categories: ['design'] }, preparationEvidenceIds: ['handoff'] };
+    const a = env.first, bob = await env.client('recipient', 'bob'), session = await a.createSession('codex', '', env.project.id);
+    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'input'), outputPath: path.join(a.store.root, 'draft.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, categories: ['design'] }, preparationEvidenceIds: ['handoff'] };
     applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'design', topic: '版本化更新', title: '编辑时按版本号检查冲突', body: '以版本号保护并发写入，避免静默覆盖。', origin: 'project', evidenceIds: ['handoff'] }] })); a.store.drafts.push(draft);
     await a.submitDraft(draft.id); await settled(a); assert(a.store.transfers.every(item => item.status === 'done'));
     const shared = (await a.remote.contentList(session.binding!))[0]; assert.equal(shared.category, 'design'); assert.match(shared.path, /\/designs\//);
-    const bob = await env.client('recipient', 'bob'); assert(!bob.resultRules(env.project.id).combination.categories.includes('design'));
     const local = await bob.importContentConclusion(env.project.id, shared.id); assert.equal(local.conclusion.category, 'design');
     const merged = await a.remote.contentEdit(session.binding!, { id: shared.id, revision: shared.revision, action: 'save', title: '【验证结果】 版本保护回归通过', description: '回归结果。', category: 'verification', sourceDetails: '指定来源的验证记录。', curate: true, merge: [] });
     assert.equal(merged!.category, 'verification'); assert.deepEqual(merged!.fields, {}); assert.equal(merged!.sourceDetails, '指定来源的验证记录。');
@@ -167,7 +167,7 @@ test('a second computer repairs a reviewed preparation whose personal result is 
   const env = await setup();
   try {
     const a = env.first, projectId = env.project.id, session = await a.createSession('codex', '', projectId);
-    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'legacy-input'), outputPath: path.join(a.store.root, 'legacy-result.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, combinationId: 'research', name: '调研分析', categories: ['finding'] }, preparationEvidenceIds: ['handoff'] };
+    const draft: Draft = { id: randomUUID(), sessionId: session.id, binding: session.binding, title: '', body: '', files: [], inputDir: path.join(a.store.root, 'legacy-input'), outputPath: path.join(a.store.root, 'legacy-result.md'), createdAt: new Date().toISOString(), generation: 'ready', preparationVersion: 3, resultRules: { contract: 2, categories: ['finding'] }, preparationEvidenceIds: ['handoff'] };
     applyPreparation(draft, JSON.stringify({ artifacts: [{ category: 'finding', topic: '换机恢复', title: '已确认成果应跟随账号', body: '新电脑应同时恢复整理记录和已确认的个人成果。', origin: 'project', evidenceIds: ['handoff'] }] }));
     a.store.drafts.push(draft); await a.saveDraftPersonal(draft.id, [draft.artifacts![0].id]); await a.accountSync.sync();
     const complete = await a.remote.accountData();

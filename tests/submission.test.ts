@@ -49,7 +49,7 @@ test('session snapshot provenance stays fixed through later turns, renaming, upl
     session.messages.push({ id: randomUUID(), role: 'user', text: '比较不同量化方案', createdAt: new Date().toISOString() });
     // Exercise snapshot/queue/storage without running a real model.
     (x.bob as any).runPreparation = async (draft: any) => { draft.generation = 'ready'; };
-    const draft = await x.bob.prepare(session.id, [], ['exploration'], 'full', true);
+    const draft = await x.bob.prepare(session.id, [], ['exploration'], 'full');
     session.title = '后来更名'; session.messages.push({ id: randomUUID(), role: 'user', text: '继续讨论，但不加入这次提交', createdAt: new Date().toISOString() });
     const folder = contributionCategoryDirectory(draft.binding!, 'exploration');
     draft.artifacts = [{ id: randomUUID(), title: '误差比较', category: 'exploration', fields: { result: '误差下降' }, body: '误差下降', target: folder, selected: true }];
@@ -243,7 +243,9 @@ test('merged project-material workflows preserve attached files and exact origin
     const session = await x.bob.createSession('codex', x.root, x.first.id); session.title = '比赛资料整理';
     session.messages.push({ id: randomUUID(), role: 'user', text: '整理样例与说明', createdAt: new Date().toISOString() });
     (x.bob as any).runPreparation = async (draft: any) => { draft.generation = 'ready'; };
-    const draft = await x.bob.prepare(session.id, [], ['project_material'], 'full', true);
+    // Reviewed material records from older clients still retain attachment and provenance support.
+    const draft = await x.bob.prepare(session.id, [], ['exploration'], 'full');
+    draft.resultRules = { contract: 3, categories: ['project_material'] };
     const artifactId = randomUUID();
     draft.artifacts = [{ id: artifactId, title: '竞赛样例说明', category: 'project_material', fields: { subject: '样例', usage: '验证输入格式' }, body: '样例用于验证输入格式', target: contributionCategoryDirectory(draft.binding!, 'project_material'), selected: true }];
     const file = path.join(x.root, 'samples.csv'); await fs.writeFile(file, 'sample,label\n1,A');

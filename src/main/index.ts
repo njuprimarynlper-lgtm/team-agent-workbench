@@ -1,3 +1,4 @@
+import { preparationCategoriesSchema } from '../shared/result-rules';
 import { resultStatusSchema } from '../shared/result-model';
 import { ownDataDirectory } from '../shared/single-instance';
 import { runtimeAssets } from '../shared/runtime-assets';
@@ -83,7 +84,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);
       // Settings forms must not overwrite newer local inbox/alias changes with a stale snapshot.
-      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'resultPreferences', 'projectDirectories', 'betaFeatures'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
+      for (const key of ['contentSeen', 'contentUpdates', 'contentAliases', 'dismissedContentUpdateIds', 'egress', 'projectDirectories', 'betaFeatures'] as const) Object.assign(next, { [key]: workbench.store.settings[key] });
       for (const p of ['codex', 'cursor', 'claude'] as const) if (next.providerPaths[p] !== workbench.store.settings.providerPaths[p]) workbench.accounts.invalidate(p);
       next.verifiedLocalWorkspace = workbench.store.settings.verifiedLocalWorkspace; next.workspaceSnapshot = workbench.store.settings.workspaceSnapshot; workbench.store.settings = next; await workbench.store.save(); broadcast(); return true;
     }
@@ -244,16 +245,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'handoff.list': return workbench.listSessionHandoffs(sessionInput.parse(raw).id);
     case 'handoff.attach': { const p = z.object({ id, sourceId: id, sha256: z.string().regex(/^[a-f0-9]{64}$/) }).parse(raw); return workbench.attachSessionHandoff(p.id, p.sourceId, p.sha256); }
     case 'handoff.save': { const p = z.object({ id, text }).parse(raw); return workbench.saveHandoff(p.id, p.text); }
-    case 'draft.prepare': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']).optional(), temporary: z.boolean().optional(), directions: preparationDirectionsSchema.optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.temporary, p.directions); }
-    case 'draft.reorganize': { const p = z.object({ id, categories: z.array(contributionCategorySchema).min(1).optional(), scope: z.enum(['incremental', 'full']), temporary: z.boolean().optional(), directions: preparationDirectionsSchema.optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.temporary, p.directions); }
+    case 'draft.prepare': { const p = z.object({ id, categories: preparationCategoriesSchema.optional(), scope: z.enum(['incremental', 'full']).optional(), directions: preparationDirectionsSchema.optional() }).parse(raw); return workbench.prepare(p.id, [], p.categories, p.scope, p.directions); }
+    case 'draft.reorganize': { const p = z.object({ id, categories: preparationCategoriesSchema.optional(), scope: z.enum(['incremental', 'full']), directions: preparationDirectionsSchema.optional() }).parse(raw); return workbench.reorganizePreparation(p.id, p.scope, p.categories, p.directions); }
     case 'draft.confirmEmpty': return workbench.confirmEmptyPreparation(sessionInput.parse(raw).id);
     case 'draft.retry': return workbench.retryPreparation(sessionInput.parse(raw).id);
     case 'draft.cancel': return workbench.cancelPreparation(sessionInput.parse(raw).id);
     case 'draft.delete': return workbench.deleteDraft(sessionInput.parse(raw).id);
     case 'draft.deleteMany': return workbench.deleteDrafts(z.object({ ids: draftDeleteIdsSchema }).parse(raw).ids);
     case 'draft.supplement': { const p = z.object({ id, supplement: text, repoUrlOverride: z.string().max(2048) }).parse(raw); return workbench.saveDraftSupplement(p.id, p.supplement, p.repoUrlOverride); }
-    case 'result.rules': return workbench.resultRules(z.object({ projectId: z.string() }).parse(raw).projectId);
-    case 'result.rules.save': { const p = z.object({ projectId: z.string(), owner: z.string(), version: z.string(), preferences: z.unknown() }).parse(raw); return workbench.saveResultRules(p.projectId, p.owner, p.version, p.preferences); }
     case 'draft.artifact.edit': { const p = z.object({ id, artifactId: z.string(), title: z.string().trim().min(1).max(120), body: text.min(1), updateTarget: resultReferenceSchema.nullable().optional() }).parse(raw); return workbench.editDraftArtifact(p.id, p.artifactId, p.title, p.body, p.updateTarget); }
     case 'draft.category': { const p = z.object({ id, category: contributionCategorySchema, artifactId: z.string().optional() }).parse(raw); return workbench.changeDraftCategory(p.id, p.category, p.artifactId); }
     case 'draft.artifactSelection': { const p = z.object({ id, artifactId: z.string(), selected: z.boolean() }).parse(raw); return workbench.selectDraftArtifact(p.id, p.artifactId, p.selected); }

@@ -9,7 +9,6 @@ import { contentAttachmentSchema } from '../shared/content';
 import { hashFile } from './artifacts';
 import { safeFilename } from './paths';
 import { rememberPreparationProgress } from '../shared/preparation-progress';
-import { resultPreferencesSchema } from '../shared/result-rules';
 
 const canonical = (value: any): string => JSON.stringify(value === undefined ? null : value, (_key, entry) => entry && typeof entry === 'object' && !Array.isArray(entry) ? Object.fromEntries(Object.keys(entry).sort().map(key => [key, entry[key]])) : entry);
 export function mergeAccountRecords(base: AccountRecords, local: AccountRecords, remote: AccountRecords, choices: Record<string, { local: string; remote: string; choice: 'local' | 'remote' }> = {}) {
@@ -51,7 +50,6 @@ export class AccountSync {
   private owns(draft: Draft, profile: ConnectionProfile) { return !!draft.binding && accountIdentity(draft.binding) === accountIdentity(profile); }
   private collect(profile = this.profile!): AccountRecords {
     const records: AccountRecords = {}, key = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
-    if (this.store.settings.resultPreferences?.[key]) records['result-rules:preferences'] = this.store.settings.resultPreferences[key];
     // Losing group access must never mean deleting the account's existing private records.
     for (const [id, value] of Object.entries(this.base)) if (id.startsWith('draft:') && value && !projectIds.has(value.projectId)) records[id] = value;
     for (const item of this.store.conclusions) if (item.accountOwner === key) { const safeSource = (source: typeof item.sources[number]) => ({ ...source, path: source.path && !/^[A-Za-z]:|^file:/.test(source.path) ? source.path : undefined }); const { localFiles, ...material } = item; const files = localFiles?.map(({ id, name, sha256, size }) => ({ id, name, sha256, size })); records['material:' + item.id] = { ...material, ...(files?.length ? { localFiles: files } : {}), sources: item.sources.map(safeSource), versions: item.versions?.map(version => ({ ...version, sources: version.sources.map(safeSource) })) }; }
@@ -69,9 +67,6 @@ export class AccountSync {
   }
   private apply(records: AccountRecords, profile: ConnectionProfile) {
     const owner = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
-    const preferences = records['result-rules:preferences'];
-    if (preferences) (this.store.settings.resultPreferences ||= {})[owner] = resultPreferencesSchema.parse(preferences);
-    else if (preferences === null && this.store.settings.resultPreferences) delete this.store.settings.resultPreferences[owner];
     // A deletion received from another computer must not erase local progress.
     for (const session of this.store.sessions) rememberPreparationProgress(session, this.store.drafts);
     const materials: ProjectConclusion[] = [];
@@ -171,11 +166,15 @@ export class AccountSync {
       try {
         for (let attempt = 0; attempt < 5; attempt++) {
           const snapshot = await this.remote.accountData(); valid();
+          // Drop retired configuration records before conflict resolution and restoration.
+          const retiredPreferences = Object.hasOwn(snapshot.records, 'result-rules:preferences');
+          delete snapshot.records['result-rules:preferences'];
+          delete this.base['result-rules:preferences'];
           accountRecordsSchema.parse(snapshot.records);
           const before = this.collect(), merged = mergeAccountRecords(this.base, before, snapshot.records, this.choices);
           if (merged.conflicts.length) { this.state = { ...this.state, status: 'conflict', conflicts: merged.conflicts, detail: '两台电脑修改了同一份资料，请选择保留版本' }; return; }
           await this.files(merged.records, snapshot.records, profile, valid); valid();
-          const result = canonical(merged.records) === canonical(snapshot.records) ? snapshot : await this.remote.accountData({ revision: snapshot.revision, records: accountRecordsSchema.parse(merged.records) }); valid();
+          const result = !retiredPreferences && canonical(merged.records) === canonical(snapshot.records) ? snapshot : await this.remote.accountData({ revision: snapshot.revision, records: accountRecordsSchema.parse(merged.records) }); valid();
           if (result.conflict) continue;
           // Edits made while the request was in flight remain pending, never overwritten.
           const after = mergeAccountRecords(before, this.collect(), result.records);

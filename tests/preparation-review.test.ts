@@ -13,7 +13,6 @@ import { applyPreparation } from '../src/core/preparation';
 import { preparationCheckpoint, preparationDelta } from '../src/shared/preparation-progress';
 import { contributionStatus } from '../src/shared/contribution-status';
 import { needsPreparationConfirmation } from '../src/shared/preparation-review';
-import { resultPresets } from '../src/shared/result-rules';
 import { PreparationOptionsModal } from '../src/renderer/preparation-options';
 import { EmptyPreparationReview } from '../src/renderer/preparation-empty';
 import type { AgentSession, Draft } from '../src/shared/types';
@@ -23,7 +22,7 @@ const message = { id: '中文消息', role: 'assistant' as const, text: '候选�
 const snapshot = { capturedAt: '2026-09-22', messageCount: 1, totalMessageCount: 1, lastMessageId: message.id, lastMessageLength: message.text.length, conversationHash: 'frozen-hash' };
 const ready = (): Draft => ({ id: randomUUID(), sessionId: 'session', title: '整理', body: '', files: [], generation: 'ready', inputDir: '', outputPath: '', createdAt: '2026-09-22', snapshot,
   binding: { connectionId: 'c', username: 'alice', host: 'local', port: 22, fingerprint: 'local', project: { id: 'p', name: '项目', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/history' } },
-  resultRules: { contract: 3, combinationId: 'research', name: '算法研究', categories: ['finding', 'method_exploration'] }, preparationEvidenceIds: ['message:' + message.id], preparationExistingResults: [{ id: 'existing', title: '已有方法探索' }] });
+  resultRules: { contract: 3, categories: ['finding', 'method_exploration'] }, preparationEvidenceIds: ['message:' + message.id], preparationExistingResults: [{ id: 'existing', title: '已有方法探索' }] });
 const reviewed = (patch: Record<string, unknown> = {}) => JSON.stringify({ artifacts: [], sourceReview: { status: 'complete', inputCount: 1, conversationHash: snapshot.conversationHash }, emptyReason: { code: 'already_saved', explanation: '本次方法及验证边界已在已有成果中保留，没有新增证据。', existingResultIds: ['existing'] }, ...patch });
 
 test('application normalizes legacy Chinese snapshots and material chunks without changing source bytes or content', async () => {
@@ -136,8 +135,9 @@ test('initial and repeated preparation show the same category choices; empty rev
   const draft = ready(); applyPreparation(draft, reviewed());
   const session = { id: 'session', title: '工作会话', messages: [message], binding: draft.binding } as AgentSession;
   for (const again of [false, true]) {
-    const html = renderToStaticMarkup(React.createElement(PreparationOptionsModal, { session, combination: resultPresets[0], again, close: () => {}, started: async () => {} }));
-    for (const caption of ['本次成果分类', '调整分类组合', '项目目标', '项目资料', '已有能力', '探索记录', '待办事项', 'type="checkbox"']) assert(html.includes(caption), caption);
+    const html = renderToStaticMarkup(React.createElement(PreparationOptionsModal, { session, again, close: () => {}, started: async () => {} }));
+    for (const caption of ['整理哪些方面', '已有能力', '探索记录', '待办事项', 'type="checkbox"']) assert(html.includes(caption), caption);
+    assert(!html.includes('调整分类组合')); assert(!html.includes('项目目标')); assert(!html.includes('项目资料'));
     if (again) { assert(html.includes('aria-label="整理对话"')); assert(html.includes('只看新增内容')); assert(!html.includes('重新整理整个会话')); }
   }
   let calls = 0;

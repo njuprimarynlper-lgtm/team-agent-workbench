@@ -43,7 +43,7 @@ else if (command === 'login') {
     const strictResult = raw => {
       if (!/preparationContractVersion:[234]/.test(promptText)) return JSON.stringify(raw);
       const evidenceIds = JSON.parse(promptText.match(/合法来源清单：(\[[^\n]*?\])。/)?.[1] || '[]');
-      const categories = JSON.parse(promptText.match(/启用类别清单：(\[[^\n]*?\])。/)?.[1] || '["finding"]');
+      const categories = JSON.parse(promptText.match(/本次用户选择的整理方面：(\[[^\n]*?\])。/)?.[1] || '["exploration"]');
       const artifacts = raw.artifacts || [{ ...raw, body: raw.body || [raw.overview, ...(raw.consensus || []), ...(raw.unresolved || [])].filter(Boolean).join(' ') }];
       const reviewed = /preparationContractVersion:[34]/.test(promptText) ? {
         sourceReview: { status: 'complete', inputCount: Number(promptText.match(/本次输入条数：(\d+)。/)?.[1] || 0), conversationHash: promptText.match(/冻结对话哈希：([^。]*)。/)?.[1] || '' },

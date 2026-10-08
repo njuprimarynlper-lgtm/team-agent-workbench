@@ -13,7 +13,7 @@ import { isPersonalHandoffSource } from '../shared/session-context';
 // Normalize legacy and new frozen inputs in the application, before invoking
 // the model. Every generated reading file is ASCII JSON: decoding it does not
 // depend on the shell's locale. Original attachment bytes/hashes stay intact.
-export async function prepareReadableInputs(inputDir: string, active = () => true) {
+export async function prepareReadableInputs(inputDir: string, active = () => true, projectBriefPaths = new Set<string>()) {
   const index = JSON.parse(await fs.readFile(path.join(inputDir, 'source-index.json'), 'utf8'));
   const conversation = JSON.parse(await fs.readFile(path.join(inputDir, 'conversation.json'), 'utf8'));
   await atomicJson(path.join(inputDir, 'conversation.json'), conversation, true);
@@ -41,6 +41,9 @@ export async function prepareReadableInputs(inputDir: string, active = () => tru
   const root = await fs.realpath(inputDir);
   const sources = [index.handoff, ...(index.files || [])].filter(Boolean);
   for (const [position, source] of sources.entries()) {
+    // Automatically attached project briefs are represented once in the bounded
+    // reference context. Explicitly selected user documents remain full inputs.
+    if (projectBriefPaths.has(source.sourcePath)) { source.contextOnly = 'project-brief'; source.readPaths = []; continue; }
     if (!/\.(?:md|txt|json|jsonl|csv|log|py|js|mjs|cjs|ts|tsx|jsx|html|css|yaml|yml|toml|ini|xml|sql|sh|ps1|c|h|cpp|hpp|rs|go|java)$/i.test(source.localPath)) continue;
     const filename = await fs.realpath(source.localPath);
     if (!localWithin(root, filename)) throw new Error('冻结资料不在本次整理目录内，请重新整理');
