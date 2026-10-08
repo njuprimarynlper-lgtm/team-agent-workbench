@@ -4,7 +4,8 @@ import path from 'node:path';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AgentCapabilityCatalog, AgentCapabilityOption, AgentSession, Approval, Message, MessageContext, PermissionMode } from '../shared/types';
 import type { AgentHooks } from './agents';
-import { claudeCapabilities } from './provider-capabilities';
+import { claudeLocalSkills, claudePluginCapabilities, emptyCapabilityCatalog } from './provider-capabilities';
+import { CapabilityCache } from './capability-cache';
 import { spawnCLI, stopCLI } from './rpc';
 import { CliConnectionTracker } from './cli-connection';
 
@@ -25,6 +26,7 @@ export class ClaudeRuntime {
   private currentContext?: MessageContext;
   onClosed?: () => void;
   private connection: CliConnectionTracker;
+  private capabilityCache = new CapabilityCache('claude');
   constructor(readonly session: AgentSession, private executable: string, private hooks: AgentHooks, private networkEnv: NodeJS.ProcessEnv = {}) { this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged); }
   get activeTurnId() { return undefined; }
   async start() {
@@ -36,10 +38,16 @@ export class ClaudeRuntime {
     this.session.status = 'idle'; this.session.error = undefined; this.hooks.changed();
   }
   async ensureStarted() { await this.start(); }
-  async capabilities(_forceRefresh = false): Promise<AgentCapabilityCatalog> { return claudeCapabilities(this.session.cwd, this.executable, this.networkEnv); }
+  async capabilities(forceRefresh = false, kind?: 'skill' | 'plugin'): Promise<AgentCapabilityCatalog> {
+    if (this.closed) throw new Error('CLI 连接已关闭');
+    return this.capabilityCache.get(forceRefresh, kind, async section => section === 'skill'
+      ? { ...emptyCapabilityCatalog('claude'), skills: await claudeLocalSkills(this.session.cwd) }
+      : claudePluginCapabilities(this.session.cwd, this.executable, this.networkEnv));
+  }
   async resolveCapabilities(selections: { id: string; kind: 'skill' | 'plugin' }[]): Promise<AgentCapabilityOption[]> {
     if (!selections.length) return [];
-    const catalog = await this.capabilities();
+    const kinds = new Set(selections.map(item => item.kind));
+    const catalog = await this.capabilities(false, kinds.size === 1 ? selections[0].kind : undefined);
     const available = new Map([...catalog.skills, ...catalog.plugins].map(item => [item.id, item]));
     return selections.map(selection => {
       const item = available.get(selection.id);

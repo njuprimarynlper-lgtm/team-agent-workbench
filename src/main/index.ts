@@ -100,8 +100,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
       return workbench.accounts.check(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'), p.networkRoute);
     }
     case 'provider.login.cancel': workbench.accounts.cancel(z.object({ provider }).parse(raw).provider); return true;
-    case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); return workbench.catalog(p.provider, p.cwd, p.networkRoute); }
-    case 'session.capabilities': { const p = z.object({ id, forceRefresh: z.boolean().optional() }).parse(raw); return workbench.capabilities(p.id, p.forceRefresh); }
+    case 'provider.catalog': { const p = z.object({ provider, cwd: text.min(1), networkRoute: z.enum(['direct', 'management']).optional(), forceRefresh: z.boolean().optional() }).parse(raw); return workbench.catalog(p.provider, p.cwd, p.networkRoute, p.forceRefresh); }
+    case 'session.capabilities': { const p = z.object({ id, forceRefresh: z.boolean().optional(), kind: z.enum(['skill', 'plugin']).optional() }).parse(raw); return workbench.capabilities(p.id, p.forceRefresh, p.kind); }
     case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd); }
     case 'provider.cursorReview': return workbench.configureCursorReview(z.object({ cwd: text.min(1) }).parse(raw).cwd);
     case 'session.permissions': { const p = z.object({ id, mode: z.enum(['inherit', 'review', 'auto', 'full']), stop: z.boolean().optional() }).parse(raw); return workbench.changePermissions(p.id, p.mode, p.stop); }

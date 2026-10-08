@@ -115,9 +115,13 @@ try {
     await call('session.stop', { id: session.id });
     assert.equal((await current()).status, 'idle'); assert.equal((await current()).nativeId, native);
     await expect(input).toHaveValue('下一条草稿');
-    // Failed catalog queries can be retried without changing the chosen model.
+    // Reopening uses the valid cache; explicit refresh still detects a failure and can retry.
     await fixture.write({ status: 'ready', catalog: 'error' });
-    await page.getByLabel('选择模型').click(); await expect(menu.getByRole('alert')).toBeVisible();
+    await page.getByLabel('选择模型').click();
+    await expect(menu.getByRole('group', { name: '可用模型' }).getByRole('button')).toHaveCount(2);
+    await expect(menu.getByRole('button', { name: '刷新选项', exact: true })).toBeEnabled();
+    await menu.getByRole('button', { name: '刷新选项', exact: true }).click();
+    await expect(menu.getByRole('alert')).toBeVisible();
     await fixture.write({ status: 'ready', turn: 'success' });
     await menu.getByRole('button', { name: '刷新选项', exact: true }).click();
     await expect(menu.getByRole('group', { name: '可用模型' }).getByRole('button')).toHaveCount(2);

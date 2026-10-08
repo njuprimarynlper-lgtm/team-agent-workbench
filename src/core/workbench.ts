@@ -70,7 +70,9 @@ export class Workbench {
   private edits: Promise<unknown> = Promise.resolve();
   private unsavedEdits = new Map<string, () => Promise<unknown>>();
   private submittingDrafts = new Set<string>();
-  private catalogJobs = new Map<Provider, { controller: AbortController; promise: ReturnType<typeof inspectCatalog> }>();
+  private catalogJobs = new Map<string, { provider: Provider; controller: AbortController; promise: ReturnType<typeof inspectCatalog> }>();
+  private catalogCache = new Map<string, { provider: Provider; value: import('../shared/types').ProviderCatalog; expires: number }>();
+  private runtimeJobs = new Map<string, Promise<AgentRuntime | ClaudeRuntime>>();
   private stagedConclusionFiles: SourceFile[] = [];
   private preparing = new Map<string, Promise<Draft>>();
   private reorganizing = new Map<string, Promise<Draft>>();
@@ -120,6 +122,7 @@ export class Workbench {
       }
     });
     this.accounts = new ProviderAccounts(p => this.store.settings.providerPaths[p], broadcast, provider => {
+      this.clearCatalogCache(provider);
       for (const [id, runtime] of this.runtimes) if (runtime.session.provider === provider && !['running', 'approval', 'starting'].includes(runtime.session.status)) { runtime.close(); this.runtimes.delete(id); }
     }, this.providerEnvironment);
   }
@@ -688,21 +691,48 @@ export class Workbench {
   assertAccountReady() { if (this.configuring) throw new Error('正在登录，请等待账号切换完成'); }
   async requireAuth(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
     const prior = this.accounts.states[provider];
-    const auth = !route && authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd, route);
+    const auth = prior.networkRoute === route && authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd, route);
     if (!authReady(auth)) throw new Error(auth.detail);
   }
-  async catalog(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
-    this.catalogJobs.get(provider)?.controller.abort();
+  private clearCatalogCache(provider?: Provider) {
+    for (const [key, job] of this.catalogJobs) if (!provider || job.provider === provider) { job.controller.abort(); this.catalogJobs.delete(key); }
+    for (const [key, entry] of this.catalogCache) if (!provider || entry.provider === provider) this.catalogCache.delete(key);
+  }
+  async catalog(provider: Provider, cwd: string, route?: SessionNetworkRoute, forceRefresh = false) {
+    if (this.closing) throw new Error('工作台正在关闭');
+    const env = this.providerEnvironment(route), auth = this.accounts.states[provider];
+    const environmentKey = createHash('sha256').update(JSON.stringify(Object.entries(env).sort(([a], [b]) => a.localeCompare(b)))).digest('hex');
+    const configured = this.store.settings.providerPaths[provider];
+    const key = JSON.stringify([this.accountRevision, provider, configured, path.resolve(cwd), route, environmentKey, auth.status, auth.identity, auth.plan]);
+    const pending = this.catalogJobs.get(key);
+    if (pending) { const value = await pending.promise; if (pending.controller.signal.aborted) throw new Error('查询范围已改变，请重新读取'); return structuredClone(value); }
+    const cached = this.catalogCache.get(key);
+    if (!forceRefresh && cached && cached.expires > Date.now()) return structuredClone(cached.value);
     const controller = new AbortController();
-    const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, controller.signal, 20000, this.providerEnvironment(route)))();
-    const job = { controller, promise }; this.catalogJobs.set(provider, job);
-    try { return await promise; } finally { if (this.catalogJobs.get(provider) === job) this.catalogJobs.delete(provider); }
+    const promise = (async () => inspectCatalog(provider, await resolveProvider(provider, configured), cwd, controller.signal, 20000, env))();
+    const job = { provider, controller, promise }; this.catalogJobs.set(key, job);
+    try {
+      const value = await promise;
+      if (controller.signal.aborted || configured !== this.store.settings.providerPaths[provider]) { controller.abort(); throw new Error('查询范围已改变，请重新读取'); }
+      this.catalogCache.set(key, { provider, value: structuredClone(value), expires: Date.now() + (value.modelError ? 1000 : 120000) });
+      // Keep only a bounded number of directory/account-specific display snapshots.
+      while (this.catalogCache.size > 32) this.catalogCache.delete(this.catalogCache.keys().next().value!);
+      return structuredClone(value);
+    } finally { if (this.catalogJobs.get(key) === job) this.catalogJobs.delete(key); }
   }
   private async runtime(s: AgentSession) {
+    const pending = this.runtimeJobs.get(s.id); if (pending) return pending;
+    const existing = this.runtimes.get(s.id); if (existing) return existing;
+    const job = this.createRuntime(s); this.runtimeJobs.set(s.id, job);
+    try { return await job; } finally { if (this.runtimeJobs.get(s.id) === job) this.runtimeJobs.delete(s.id); }
+  }
+  private async createRuntime(s: AgentSession) {
     let runtime = this.runtimes.get(s.id);
     if (runtime) return runtime;
+    const epoch = this.accountRevision;
     const executable = await resolveProvider(s.provider, this.store.settings.providerPaths[s.provider]);
     const storage = s.provider === 'codex' ? await prepareCodexStorage(this.store.root, s) : undefined;
+    if (this.closing || s.closedAt || epoch !== this.accountRevision) throw new Error('会话或账号已改变，未启动 CLI');
     const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => this.accounts.failed(s.provider, error, s.cwd, s.networkRoute), needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => { if (!this.configuring && this.ownsLocal(s.binding)) this.connectionReport?.(s, value); } });
     runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute));
@@ -711,11 +741,11 @@ export class Workbench {
     else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };
     return runtime;
   }
-  async capabilities(id: string, forceRefresh = false) {
+  async capabilities(id: string, forceRefresh = false, kind?: 'skill' | 'plugin') {
     const s = this.session(id); this.assertCanWork(s.binding);
     if (s.closedAt || s.purpose !== 'work') throw new Error('此会话不能选择 Skill 或插件');
     await this.requireAuth(s.provider, s.cwd, s.networkRoute);
-    return (await this.runtime(s)).capabilities(forceRefresh);
+    return (await this.runtime(s)).capabilities(forceRefresh, kind);
   }
   assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先验证团队账号'); }
   async saveProjectDirectory(projectId: string, directory: string, contextKey: string) {
@@ -769,7 +799,7 @@ export class Workbench {
       await this.remote.loadManifest();
       await this.accountSync.activate(result, previous);
       if (switching) {
-        for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
+        this.clearCatalogCache();
         const runtimes = [...this.runtimes.values()]; this.runtimes.clear(); await Promise.all(runtimes.map(runtime => runtime.close()));
       }
       this.store.settings.verifiedLocalWorkspace = canonicalLocal; this.store.settings.localWorkspace = canonicalLocal; this.store.settings.lastWorkspace = canonicalLocal;
@@ -816,7 +846,7 @@ export class Workbench {
   async networkChanged() {
     if (this.store.sessions.some(s => s.networkRoute === 'management' && ['starting', 'running', 'approval'].includes(s.status))) throw new Error('请等待使用管理端出口的任务结束或先停止任务，再更换管理端连接');
     for (const provider of ['codex', 'cursor', 'claude'] as Provider[]) this.accounts.invalidate(provider);
-    for (const job of this.catalogJobs.values()) job.controller.abort(); this.catalogJobs.clear();
+    this.clearCatalogCache();
   }
   async changePermissions(id: string, mode: PermissionMode, _stop = false) {
     const s = this.session(id);
