@@ -1,4 +1,4 @@
-import type { SharedContent } from './content';
+import { titleSubject, type SharedContent } from './content';
 import type { ConclusionSource, ProjectConclusion } from './types';
 
 export type TeamResultDifference = 'missing' | 'updated' | 'edited';
@@ -10,13 +10,18 @@ function sharedOrigin(source: ConclusionSource, item: SharedContent) {
   if (source.kind === 'session' && source.publication?.path === item.path) return source.publication;
 }
 
-// Callers pass only the current account's project results, including history.
-// Deletion and activity processing are independent from owning a personal copy.
+const currentPersonal = (personal: ProjectConclusion[]) => personal.filter(value => !value.deletedAt && !value.archived);
+const unsourced = (value: ProjectConclusion) => !value.sources.some(source => source.kind === 'remote' || source.kind === 'session' && source.publication);
+
+// Compare with the personal results currently shown in the library.
+// Archived history and deleted copies do not count as already saved.
 export function teamResultDifference(item: SharedContent, personal: ProjectConclusion[]): TeamResultDifference | undefined {
-  const related = personal.filter(value => !value.deletedAt && value.sources.some(source => sharedOrigin(source, item)));
-  if (!related.length) return 'missing';
+  const live = currentPersonal(personal);
+  const related = live.filter(value => value.sources.some(source => sharedOrigin(source, item)));
   const body = normalizedResultBody(item.description || item.title);
+  const sameTitle = live.filter(value => unsourced(value) && titleSubject(value.title) === titleSubject(item.title));
+  if (!related.length && !sameTitle.length) return 'missing';
   const current = related.filter(value => value.sources.some(source => { const origin = sharedOrigin(source, item); return origin && origin.revision === item.revision && (!origin.sha256 || origin.sha256 === item.sha256); }));
-  if (current.some(value => normalizedResultBody(value.content) === body)) return undefined;
-  return current.length ? 'edited' : 'updated';
+  if (current.some(value => normalizedResultBody(value.content) === body) || sameTitle.some(value => normalizedResultBody(value.content) === body)) return undefined;
+  return current.length || sameTitle.length ? 'edited' : 'updated';
 }

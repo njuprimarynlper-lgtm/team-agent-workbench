@@ -33,7 +33,7 @@ test('copy, duplicate clicks, personal deletion, reimport and restart derive vis
   assert.equal(difference(wb, item), undefined);
   assert.equal(difference(wb, { ...item, id: randomUUID() }), 'missing', 'identical text from another origin remains distinct');
   const local = results[0].conclusion;
-  await wb.archiveConclusion(local.id, true); assert.equal(difference(wb, item), undefined, 'history still owns a copy');
+  await wb.archiveConclusion(local.id, true); assert.equal(difference(wb, item), 'missing', 'archived history is not the current personal library');
   await wb.deleteConclusion(local.id, local.version); assert.equal(difference(wb, item), 'missing');
   const adopted = await wb.importContentConclusion(offlineProjectId, item.id, 1);
   assert.notEqual(adopted.conclusion.id, local.id); assert.equal(difference(wb, item), undefined);
@@ -96,6 +96,17 @@ test('account switching during remote fetch rejects the import and another accou
   await assert.rejects(wb.importContentConclusion(offlineProjectId, item.id, 1), /账号已改变/);
   assert.equal(wb.store.conclusions.length, 1);
 }));
+
+test('a current personal result with the same title and text is saved, and an archived copy is not', () => {
+  const team = remoteResult();
+  team.title = '【项目资料】 test'; team.description = 'test';
+  const saved = { id: 'local', projectId: offlineProjectId, title: team.title, content: 'test', sources: [], updatedAt: now, version: 1, archived: false };
+  const authority = remoteResult();
+  authority.title = '【项目结论】 权威接口要求是NVFP4转HiF4';
+  const archived = { id: 'old', projectId: offlineProjectId, title: authority.title, content: authority.description, sources: [{ kind: 'remote' as const, id: authority.id, revision: authority.revision, title: authority.title, sha256: authority.sha256 }], updatedAt: now, version: 1, archived: true };
+  assert.equal(teamResultDifference(team, [saved, archived]), undefined);
+  assert.equal(teamResultDifference(authority, [saved, archived]), 'missing');
+});
 
 test('file replacement hashes and source revision changes are differences even when display text is unchanged', async () => fixture(async (wb, items) => {
   const item = items[0]; item.kind = 'file'; item.description = '';
