@@ -47,8 +47,8 @@ test('CLI reports retain only allowlisted state, remain bounded and render error
   assert(!JSON.stringify(monitor.snapshot()).includes('PRIVATE'));
   const html = renderToStaticMarkup(React.createElement(EgressMonitorPanel, { snapshot: { config: {} as any, running: true, activeConnections: 1, fingerprint: '', inviteCode: '', hasUpstreamPassword: false, events: [], monitor: { ...monitor.sample(), process: { pid: 123, cpuPercent: 0.17, memoryBytes: 50 * 1024 ** 2, heapBytes: 1 } } } }));
   for (const value of ['HTTP 403', 'CLI 请求失败', '代理 CPU', '0.17%', '50.0 MB', '独立代理进程', '在线成员']) assert(html.includes(value), value);
-  const reconnect = renderToStaticMarkup(React.createElement(CliConnectionNotice, { value: { state: 'reconnecting', kind: 'network', attempt: 2, retryLimit: 5, at: new Date().toISOString() } }));
-  assert(reconnect.includes('CLI 正在重连（2/5）')); assert(reconnect.includes('role="status"'));
+  const reconnect = renderToStaticMarkup(React.createElement(CliConnectionNotice, { value: { state: 'reconnecting', kind: 'network', attempt: 2, retryLimit: 5, at: new Date().toISOString() }, provider: 'codex' }));
+  assert(reconnect.includes('重连 2/5')); assert(reconnect.includes('role="status"')); assert(!reconnect.includes('请检查网络与管理端出口'));
   for (let i = 0; i < 120; i++) monitor.report({ ...report, sessionId: 'session-' + i, username: 'alice', address: '127.0.0.1', updatedAt: new Date().toISOString() });
   assert.equal(monitor.snapshot().cliReports.length, 100);
 });

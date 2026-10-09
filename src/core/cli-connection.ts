@@ -38,15 +38,36 @@ export class CliConnectionTracker {
     if (!['running', 'starting'].includes(this.session.status)) return;
     this.buffer = (this.buffer + chunk).slice(-8192);
     const lines = this.buffer.split(/[\r\n]+/); this.buffer = lines.pop() || '';
-    for (const line of lines) { const value = classifyCliError(line); if (value) this.set(value); }
-    const value = classifyCliError(this.buffer); if (value) this.set(value);
+    for (const line of lines) this.observe(classifyCliError(line), false);
+    const pending = classifyCliError(this.buffer);
+    if (pending?.state === 'reconnecting') this.observe(pending, false);
   }
-  error(error: unknown, retrying?: boolean) { const value = classifyCliError(error, retrying); if (value) this.set(value); }
+  error(error: unknown, retrying?: boolean) { this.observe(classifyCliError(error, retrying), retrying === false); }
+  // Codex keeps retrying a dropped request. A transport error is one step of that
+  // sequence, not a finished failure, until Codex itself stops retrying.
+  private observe(value: Omit<CliConnection, 'at'> | undefined, terminal: boolean) {
+    if (!value) return;
+    const previous = this.session.cliConnection;
+    const codexNetwork = !terminal && this.session.provider === 'codex' && value.kind === 'network' && (value.state === 'reconnecting' || value.state === 'failed');
+    if (codexNetwork) {
+      const limit = value.retryLimit || previous?.retryLimit || 5;
+      const counted = previous?.state === 'reconnecting' ? previous.attempt || 1 : 0;
+      const attempt = value.attempt || (value.state === 'reconnecting' && counted ? counted : counted + 1);
+      this.set({ ...value, state: 'reconnecting', attempt: Math.min(attempt, limit), retryLimit: limit });
+      return;
+    }
+    if (!terminal && this.session.provider === 'codex' && value.state === 'reconnecting') {
+      this.set({ ...value, attempt: value.attempt || previous?.attempt || 1, retryLimit: value.retryLimit || previous?.retryLimit || 5 });
+      return;
+    }
+    const retrying = previous?.state === 'reconnecting' ? previous : undefined;
+    this.set({ ...value, ...(value.attempt ? {} : retrying?.attempt ? { attempt: retrying.attempt } : {}), ...(value.retryLimit ? {} : retrying?.retryLimit ? { retryLimit: retrying.retryLimit } : {}) });
+  }
   responded() { this.buffer = ''; this.set({ state: 'connected' }); }
   finish(error?: unknown) {
     if (!error) { this.responded(); return; }
-    const value = classifyCliError(error, false);
-    this.set(value || { ...this.session.cliConnection, state: 'failed', kind: this.session.cliConnection?.kind || 'unknown' });
+    const value = classifyCliError(error, false), previous = this.session.cliConnection;
+    this.set(value ? { ...value, ...(value.attempt ? {} : previous?.attempt ? { attempt: previous.attempt } : {}), ...(value.retryLimit ? {} : previous?.retryLimit ? { retryLimit: previous.retryLimit } : {}) } : { ...previous, state: 'failed', kind: previous?.kind || 'unknown' });
   }
   stop() { this.buffer = ''; if (this.session.cliConnection?.state !== 'failed') this.set({ state: 'stopped' }); }
 }

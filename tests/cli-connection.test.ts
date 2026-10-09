@@ -22,6 +22,13 @@ test('CLI diagnostics classify reconnects and HTTP failures without copying payl
   const tracker = new CliConnectionTracker(s, () => {}, value => reports.push(value));
   tracker.begin(); tracker.diagnostic('Reconnec'); tracker.diagnostic('ting... 1/5\nPRIVATE_SECRET\n');
   assert.equal(s.cliConnection?.state, 'reconnecting'); tracker.responded(); assert.equal(s.cliConnection?.state, 'connected');
+  const codex = { status: 'running', provider: 'codex' } as AgentSession;
+  const codexTracker = new CliConnectionTracker(codex, () => {});
+  codexTracker.begin();
+  for (const step of [1, 2, 3, 4, 5]) { codexTracker.diagnostic('error sending request\n'); assert.equal(codex.cliConnection?.state, 'reconnecting'); assert.equal(codex.cliConnection?.attempt, step); assert.equal(codex.cliConnection?.retryLimit, 5); }
+  codexTracker.diagnostic('Reconnecting... 5/5\n'); assert.equal(codex.cliConnection?.state, 'reconnecting'); assert.equal(codex.cliConnection?.attempt, 5);
+  codexTracker.responded(); assert.equal(codex.cliConnection?.state, 'connected');
+  codexTracker.diagnostic('Reconnecting... 5/5\n'); codexTracker.error('error sending request', false); assert.equal(codex.cliConnection?.state, 'failed'); assert.equal(codex.cliConnection?.attempt, 5);
   tracker.error('HTTP 403 Forbidden'); tracker.finish('request failed'); assert.equal(s.cliConnection?.httpStatus, 403);
   assert(!JSON.stringify(reports).includes('PRIVATE')); tracker.stop(); assert.equal(s.cliConnection?.state, 'failed', 'cleanup must preserve the failure until the next attempt');
   tracker.begin(); tracker.stop(); assert.equal(s.cliConnection?.state, 'stopped');
