@@ -83,7 +83,7 @@ try {
   await page.getByRole('button',{name:'刷新',exact:true}).click();
   await expect(linkedTodo).toHaveClass(/result-completed/);
   checks.push('关联项目任务的待办显示真实验收状态，不能绕过验收直接完成，验收后置灰保留');
-  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:'全部',exact:true}).click();
+  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/^全部/}).click();
   await page.getByRole('button',{name:'合并整理',exact:true}).click();
   await page.getByRole('checkbox',{name:'选择合并：词典增强的效果与适用范围'}).check();
   await expect(page.getByRole('checkbox',{name:'选择合并：离线批处理与词典增强'})).toBeDisabled();
@@ -98,6 +98,49 @@ try {
   await expect(page.locator('.result-card')).toHaveCount(1);checks.push('分类修改使用独立窗口，保存后条目移到对应分类');
   await page.getByRole('button',{name:'切换普通成员'}).click();await expect(page.getByRole('button',{name:'合并整理',exact:true})).toHaveCount(0);checks.push('普通成员无法进入团队合并入口');
   await page.getByRole('tab',{name:'个人',exact:true}).click();await page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:/待办事项/}).click();await expect(page.locator('.result-completed')).toHaveCount(1);checks.push('个人库同样保留完成待办');
+  await page.getByRole('tab', { name: '团队', exact: true }).click();
+  await page.evaluate(() => {
+    const {items, history} = window.fixture, now = items[0].updatedAt;
+    for (const [index, category, reason, title] of [[1,'capability','merged','合并的能力记录'],[2,'exploration','merged','合并的探索记录'],[3,'exploration','deleted','删除的探索记录'],[4,'todo','deleted','删除的待办记录']]) {
+      history.push({ ...items[2], id: '30000000-0000-4000-8000-' + String(index).padStart(12, '0'), revision: 1, category, title, resultStatus: undefined, description: reason === 'deleted' ? '' : '合并前的研究依据', ...(reason === 'merged' ? { supersededBy: { scope:'team', projectId:window.fixture.project.id, id:items[3].id, version:1 }, supersededAt:now } : { deletedAt:now, deletedBy:'alice' }) });
+    }
+  });
+  await page.getByRole('button', { name:'刷新', exact:true }).click();
+  await page.getByRole('button', { name:'查看团队历史', exact:true }).click();
+  const historyFilter = page.getByLabel('团队历史类型', { exact:true });
+  await expect(historyFilter).toHaveValue('all');
+  await expect(page.locator('.result-card')).toHaveCount(4);
+  await expect(page.locator('.team-history-badge.is-merged')).toHaveCount(2);
+  await expect(page.locator('.team-history-badge.is-deleted')).toHaveCount(2);
+  await expect(page.getByText('个人库已有', { exact:true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name:'批量删除团队成果', exact:true })).toHaveCount(0);
+  await page.screenshot({path:path.join(out,'team-history-all.png')});
+  await historyFilter.selectOption('merged');
+  await expect(page.locator('.result-card')).toHaveCount(2);
+  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/探索记录/}).click();
+  await expect(page.locator('.result-card')).toHaveCount(1);
+  await page.locator('.result-card-toggle').click();
+  await expect(page.locator('.team-history-note')).toContainText('此条作为合并来源保留');
+  await expect(page.locator('.result-card-details .markdown')).toContainText('合并前的研究依据');
+  await page.getByLabel('搜索团队成果').fill('没有这条记录');
+  await expect(page.locator('.result-card')).toHaveCount(0);
+  await page.getByRole('button', {name:'清除筛选', exact:true}).click();
+  await expect(historyFilter).toHaveValue('all');
+  await expect(page.locator('.result-card')).toHaveCount(4);
+  await historyFilter.selectOption('deleted');
+  await expect(page.locator('.result-card')).toHaveCount(2);
+  await expect(page.locator('.result-card-preview').first()).toHaveText('仅保留删除记录，正文不可用。');
+  await page.locator('.result-card-toggle').first().click();
+  await expect(page.locator('.result-card-details')).toContainText('这条成果已删除，仅保留删除记录，正文不可用。');
+  await page.screenshot({path:path.join(out,'team-history-deleted.png')});
+  await page.getByRole('button', {name:'返回当前成果', exact:true}).click();
+  await expect(historyFilter).toHaveCount(0);
+  await expect(page.locator('.result-card')).toHaveCount(6);
+  await expect(page.locator('.team-history-badge')).toHaveCount(0);
+  await page.getByRole('button', {name:'查看团队历史', exact:true}).click();
+  await expect(historyFilter).toHaveValue('all');
+  await expect(page.locator('.result-card')).toHaveCount(4);
+  checks.push('团队历史区分合并和删除，支持类别与搜索组合筛选、清除筛选；不混入编辑旧版本或当前成果，也不显示个人库已有或删除操作');
   await page.goto(url+'?prepare=1');await expect(page.getByRole('region',{name:'检查整理结果'})).toBeVisible().catch(()=>expect(page.locator('.preparation-review')).toBeVisible());
   await expect(page.getByLabel('已有能力更新目标')).toHaveValue('00000000-0000-4000-8000-000000000002');
   await page.getByLabel('整理成果正文').fill('用户补充：目前只覆盖离线环境。');
