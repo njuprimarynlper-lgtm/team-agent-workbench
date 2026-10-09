@@ -12,6 +12,7 @@ import { contentEditSchema, contentMergeSchema, contentMetadataSchema, contribut
 import type { RemoteBinding } from '../shared/types';
 import { inspectContentFiles } from './content-files-state';
 import { assertContentReadable } from '../shared/content-files-state';
+import { missingContentIndexMessage } from '../shared/content-index';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
 export class ContentFiles {
@@ -28,7 +29,7 @@ export class ContentFiles {
   async list(binding: RemoteBinding) {
     await this.authorize(binding);
     try { await fs.stat(await this.index(binding)); }
-    catch (error: any) { if (error.code === 'ENOENT') throw new Error('团队成果登记文件缺失，暂无法确认成果状态，请联系组管理员'); throw error; }
+    catch (error: any) { if (error.code === 'ENOENT') throw new Error(missingContentIndexMessage); throw error; }
     const actor = await this.authorize(binding), items = await this.read(binding), tasks = await this.tasks(binding);
     const checked = await this.inspect(binding, items);
     await this.authorize(binding);

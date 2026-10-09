@@ -17,7 +17,7 @@ import { systemUsername } from './account-login';
 import type { AccountSnapshot } from '../shared/account-data';
 import { newProjectLayout, projectName } from './project-layout';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
-import { groupWorkspacePattern } from '../shared/groups';
+import { missingContentIndexMessage } from '../shared/content-index';
 import type { TransferPhase } from '../shared/types';
 const MAX_PREVIEW = 512 * 1024;
 export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
@@ -197,7 +197,7 @@ export class SftpConnection {
   async ensurePersonalFolder(binding: RemoteBinding, _target: string) { this.channel(binding); this.requireStorage(); }
   async contentList(binding: RemoteBinding): Promise<SharedContent[]> {
     const s = this.channel(binding); await this.checked(binding, binding.project.remoteRoot);
-    const items = await new Promise<SharedContent[]>((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) reject(new Error('团队成果登记文件缺失，暂无法确认成果状态，请联系组管理员')); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
+    const items = await new Promise<SharedContent[]>((resolve, reject) => s.readFile(childRemote(binding.project.remoteRoot, '.workbench-content.json'), (error, buffer) => { if (error) { if ((error as any).code === 2) reject(new Error(missingContentIndexMessage)); else reject(friendlySftp(error)); return; } try { const items = JSON.parse(buffer.toString('utf8')); if (!Array.isArray(items)) throw new Error('公共内容索引无效'); resolve(items); } catch (e) { reject(e); } }));
     const directories = new Map<string, Promise<any[] | 'missing' | 'unverified'>>();
     const checked = await inspectContentFiles(items, async target => {
       try { assertRemote(binding.project.remoteRoot, target); } catch { return 'unverified'; }

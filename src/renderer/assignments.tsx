@@ -7,6 +7,7 @@ import { assignmentInScope, assignmentStatuses, assignmentViewItems, type Assign
 import type { AgentSession, Project } from '../shared/types';
 import type { SharedContent } from '../shared/content';
 import { contentAliasKey, projectResultTitle, resultTitle } from '../shared/content';
+import { missingContentIndexMessage } from '../shared/content-index';
 import { rankConclusions } from '../core/conclusion-matcher';
 
 const api = window.workbench;
@@ -19,7 +20,7 @@ export function AssignmentsPanel({ project, admin, username, items, loading, loa
   const [selected, setSelected] = useState(''), [scope, setScope] = useState<'active' | 'all' | 'deleted'>('active');
   const [creating, setCreating] = useState(false), [requestId, setRequestId] = useState(''), [title, setTitle] = useState(''), [description, setDescription] = useState(''), [acceptance, setAcceptance] = useState(''), [assignee, setAssignee] = useState('');
   const [members, setMembers] = useState<AssignmentMember[]>([]), [content, setContent] = useState<SharedContent[]>([]), [referenceIds, setReferenceIds] = useState<string[]>([]), [search, setSearch] = useState('');
-  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [catalogMissing, setCatalogMissing] = useState(false);
   const [uploads, setUploads] = useState<AssignmentUpload[]>([]), [uploadIds, setUploadIds] = useState<string[]>([]), [referenceFiles, setReferenceFiles] = useState<Record<string, string[]>>({});
   const selectedFiles = [...uploads.filter(file => uploadIds.includes(file.id)), ...content.filter(item => referenceIds.includes(item.id)).flatMap(item => [...(item.kind === 'file' ? [{ name: item.path.split('/').at(-1) || item.title, sha256: item.sha256 }] : []), ...(item.attachments || []).filter(file => !referenceFiles[item.id] || referenceFiles[item.id].includes(file.sha256))])];
   const fileCount = new Set(selectedFiles.map(file => JSON.stringify([file.name, file.sha256]))).size;
@@ -35,18 +36,25 @@ export function AssignmentsPanel({ project, admin, username, items, loading, loa
   const visible = viewItems.filter(task => assignmentInScope(task, scope));
   const task = visible.find(item => item.id === selected) || visible[0];
   const localSession = (value: ProjectAssignment) => sessions.find(session => session.assignment?.id === value.id && !session.closedAt);
+  const loadChoices = async () => {
+    const people = await api.call<AssignmentMember[]>('assignment.members', { projectId: project.id });
+    let results: SharedContent[] = [], missingCatalog = false;
+    try { results = await api.call<SharedContent[]>('content.list', { projectId: project.id }); }
+    catch (reason: any) { if (reason?.message !== missingContentIndexMessage) throw reason; missingCatalog = true; }
+    return { people, results: results.filter(item => ['contribution', 'file'].includes(item.kind)), missingCatalog };
+  };
   const beginCreate = async () => {
     setBusy(true); setError('');
     try {
-      const [people, results] = await Promise.all([api.call<AssignmentMember[]>('assignment.members', { projectId: project.id }), api.call<SharedContent[]>('content.list', { projectId: project.id })]);
-      setMembers(people); setContent(results.filter(item => ['contribution', 'file'].includes(item.kind))); setRequestId(crypto.randomUUID()); setTitle(''); setDescription(''); setAcceptance(''); setAssignee(''); setReferenceIds([]); setSearch(''); setUploads([]); setUploadIds([]); setReferenceFiles({}); setCreating(true);
+      const { people, results, missingCatalog } = await loadChoices();
+      setMembers(people); setContent(results); setCatalogMissing(missingCatalog); setRequestId(crypto.randomUUID()); setTitle(''); setDescription(''); setAcceptance(''); setAssignee(''); setReferenceIds([]); setSearch(''); setUploads([]); setUploadIds([]); setReferenceFiles({}); setCreating(true);
     } catch (error: any) { setError(error.message); } finally { setBusy(false); }
   };
   const reloadChoices = async () => {
     setBusy(true); setError('');
     try {
-      const [people, results] = await Promise.all([api.call<AssignmentMember[]>('assignment.members', { projectId: project.id }), api.call<SharedContent[]>('content.list', { projectId: project.id })]);
-      setMembers(people); setContent(results.filter(item => ['contribution', 'file'].includes(item.kind))); setReferenceIds([]); setUploads([]); setUploadIds([]); setReferenceFiles({}); setRequestId(crypto.randomUUID()); if (!people.some(item => item.username === assignee)) setAssignee('');
+      const { people, results, missingCatalog } = await loadChoices();
+      setMembers(people); setContent(results); setCatalogMissing(missingCatalog); setReferenceIds([]); setUploads([]); setUploadIds([]); setReferenceFiles({}); setRequestId(crypto.randomUUID()); if (!people.some(item => item.username === assignee)) setAssignee('');
     } catch (error: any) { setError(error.message); } finally { setBusy(false); }
   };
   const create = async () => {
@@ -71,7 +79,7 @@ export function AssignmentsPanel({ project, admin, username, items, loading, loa
       {error && <div className="inline-error" role="alert">{error}</div>}
       <div className="form-grid"><label className="field">负责人<select aria-label="任务负责人" disabled={busy} value={assignee} onChange={event => setAssignee(event.target.value)}><option value="">请选择本组成员</option>{members.map(item => <option value={item.username} key={item.username}>{item.name}（{item.username}）{item.username === username ? ' · 我自己' : ''}</option>)}</select><button className="text-button" type="button" disabled={busy || !members.some(item => item.username === username)} onClick={() => setAssignee(username)}>分配给自己</button></label><label className="field">任务标题<input aria-label="任务标题" maxLength={200} value={title} onChange={event => setTitle(event.target.value)}/></label></div>
       <label className="field">任务目标与工作范围<textarea aria-label="任务目标与工作范围" rows={4} maxLength={12000} placeholder="说明需要完成什么、从哪里开始、有哪些约束。" value={description} onChange={event => setDescription(event.target.value)}/></label><label className="field">验收要求（可选）<textarea aria-label="任务验收要求" rows={2} maxLength={6000} value={acceptance} onChange={event => setAcceptance(event.target.value)} placeholder="例如：提交验证结果，说明样本覆盖及未解决问题。"/></label>
-      <div className="row"><h3>关联共享成果和文件（已选 {referenceIds.length}/20）</h3><span className="spacer"/><button className="text-button" disabled={busy} onClick={() => void reloadChoices()}>刷新成员和成果</button></div><p className="muted small">填写任务后，会优先显示文字相关的候选成果；勾选的内容将随任务交给成员。勾选成果时会一并带上它的附件，可逐个取消。刷新会清空成果和附件选择，便于重新核对版本。</p><input aria-label="搜索任务关联成果" placeholder="搜索成果名称、内容或作者" value={search} onChange={event => setSearch(event.target.value)}/>
+      <div className="row"><h3>关联共享成果和文件（已选 {referenceIds.length}/20）</h3><span className="spacer"/><button className="text-button" disabled={busy} onClick={() => void reloadChoices()}>刷新成员和成果</button></div>{catalogMissing && <p className="muted small">团队成果清单不存在，这次不能引用已有成果，仍可直接派发。</p>}<p className="muted small">填写任务后，会优先显示文字相关的候选成果；勾选的内容将随任务交给成员。勾选成果时会一并带上它的附件，可逐个取消。刷新会清空成果和附件选择，便于重新核对版本。</p><input aria-label="搜索任务关联成果" placeholder="搜索成果名称、内容或作者" value={search} onChange={event => setSearch(event.target.value)}/>
       <div className="assignment-choices">{candidates.map(item => <div className="assignment-choice" key={item.id}><label className="check-row"><input type="checkbox" aria-label={`关联成果：${displayTitle(item)}`} checked={referenceIds.includes(item.id)} disabled={busy || !referenceIds.includes(item.id) && referenceIds.length >= 20} onChange={event => setReferenceIds(current => event.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))}/><span><b>{displayTitle(item)}</b><small>v{item.revision} · {item.author}{recommended.has(item.id) ? ' · 与任务相关：' + recommended.get(item.id)!.reasons : ''}</small></span></label>{referenceIds.includes(item.id) && !!item.attachments?.length && <div className="assignment-reference-files">{item.attachments.map(file => <label className="check-row" key={file.name + file.sha256}><input type="checkbox" disabled={busy} aria-label={`关联文件：${file.name}`} checked={!referenceFiles[item.id] || referenceFiles[item.id].includes(file.sha256)} onChange={event => { const current = referenceFiles[item.id] || item.attachments!.map(file => file.sha256); setReferenceFiles({ ...referenceFiles, [item.id]: event.target.checked ? [...new Set([...current, file.sha256])] : current.filter(hash => hash !== file.sha256) }); }}/><span>{file.name} · {fileSize(file.size)}</span></label>)}</div>}<details><summary>{item.kind === 'file' ? '文件说明' : '阅读成果'}</summary><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.description}</ReactMarkdown></div></details></div>)}</div>{!candidates.length && <p className="muted small">暂无匹配的共享成果，可以先派发任务。</p>}
       <section aria-label="上传任务附件"><div className="row"><h3>另外附文件</h3><button className="secondary" disabled={busy} onClick={() => void pickFiles()}>选择本地文件</button></div><p className="muted small">确认派发时上传。任务文件只对负责人和本组管理员可见；相同权限下的相同内容只存一份。</p>{uploads.map(file => <label className="check-row" key={file.id}><input type="checkbox" aria-label={`上传附件：${file.name}`} disabled={busy} checked={uploadIds.includes(file.id)} onChange={event => setUploadIds(current => event.target.checked ? [...current, file.id] : current.filter(id => id !== file.id))}/><span>{file.name} · {fileSize(file.size)}</span></label>)}<p className={fileCount > 30 ? 'inline-error' : 'muted small'}>共选择 {fileCount} 个文件，单个任务最多 30 个，每个不超过 2 GB。</p></section>
     </div><footer><button className="secondary" disabled={busy} onClick={() => setCreating(false)}>取消</button><button className="primary" disabled={busy || fileCount > 30 || !assignee || !title.trim() || !description.trim()} onClick={() => void create()}>{busy ? '正在上传并派发…' : '确认派发'}</button></footer></section></div>}

@@ -94,7 +94,7 @@ test('external file loss is not deletion, freezes unsent references, and recover
     const indexBytes = await fs.readFile(index), observations = structuredClone(x.bob.contentUpdates());
     await fs.unlink(index); await x.bob.syncContentUpdates();
     assert.deepEqual(x.bob.contentUpdates(), observations, 'a missing registry cannot prove deletion');
-    await assert.rejects(x.bob.remote.contentList(x.bob.remote.binding(x.project.id)), /登记文件缺失/);
+    await assert.rejects(x.bob.remote.contentList(x.bob.remote.binding(x.project.id)), /团队成果清单不存在/);
     await fs.writeFile(index, indexBytes);
   } finally { await x.close(); }
 });

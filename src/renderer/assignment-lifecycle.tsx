@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { assignmentEventLabels, type AssignmentStatusChange, type AssignmentUpload, type ProjectAssignment } from '../shared/assignments';
 import { projectResultTitle, type SharedContent } from '../shared/content';
+import { missingContentIndexMessage } from '../shared/content-index';
 
 const labels = { pending_review: '提交验收', completed: '确认完成', in_progress: '退回继续工作', cancelled: '取消任务', deleted: '删除任务', restored: '恢复任务', purged: '彻底删除' };
 type Action = keyof typeof labels;
@@ -24,7 +25,7 @@ export function AssignmentLifecycle({ task, admin, username, projectId, refresh,
     if (next === 'pending_review' || next === 'completed' && task.status === 'in_progress') {
       setBusy(true);
       try { setChoices((await window.workbench.call<SharedContent[]>('content.list', { projectId })).filter(item => ['contribution', 'file'].includes(item.kind))); }
-      catch (e: any) { setError('关联成果暂未加载：' + e.message); }
+      catch (e: any) { if (e?.message === missingContentIndexMessage) setChoices([]); else setError('关联成果暂未加载：' + e.message); }
       finally { setBusy(false); }
     }
   };
