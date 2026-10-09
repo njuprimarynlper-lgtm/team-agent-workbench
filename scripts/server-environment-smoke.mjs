@@ -28,11 +28,11 @@ try {
   server.state.initialized = true;
   server.control.setupIssues = ['未检测到运行中的 systemd 或可管理的 Supervisor。请配置容器服务管理。'];
   await page.evaluate(() => window.admin.call('operation', { op: 'status' }));
-  await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '创建项目组', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
   server.control.setupIssues = [];
   await page.getByRole('button', { name: '重新检查服务器', exact: true }).click();
-  await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '创建项目组', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeEnabled();
   server.control.missingCommands = ['setfacl']; server.control.setupIssues = ['缺少 ACL 支持'];
   await page.evaluate(() => window.admin.call('operation', { op: 'status' }));

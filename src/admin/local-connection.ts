@@ -71,12 +71,12 @@ export class LocalAdminConnection {
             const label = request.label, name = 'local_' + groupSlug(label), record = state.groups[name];
             if (!record) {
               const collision = Object.values(state.groups).find(g => g.label.toLowerCase() === label.toLowerCase());
-              if (collision) throw new Error('已存在同名或仅大小写不同的用户组：' + collision.label);
+              if (collision) throw new Error('已存在同名或仅大小写不同的项目组：' + collision.label);
               const workspace = '/projects/' + label;
               await fs.mkdir(await diskPath(this.root, workspace, true));
               state.groups[name] = { name, label, adminGroup: name + '_admins', workspace };
             }
-            else if (record.label !== label) throw new Error('用户组名称与已有用户组冲突，请换一个名称：' + record.label);
+            else if (record.label !== label) throw new Error('项目组名称与已有项目组冲突，请换一个名称：' + record.label);
             else throw new Error('项目组已存在'); break;
           }
           case 'workspace_prepare': if (!state.groups[request.group]?.workspace) throw new Error('项目组不存在'); break;

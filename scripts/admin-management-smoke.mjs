@@ -26,15 +26,15 @@ async function fields(username, password = 'member-test-password') {
   await page.getByLabel('再次输入密码', { exact: true }).fill(password);
 }
 async function createGroup(label) {
-  await page.getByRole('button', { name: '创建用户组', exact: true }).click();
-  await page.getByLabel('用户组名称').fill(label); await confirm();
+  await page.getByRole('button', { name: '创建项目组', exact: true }).click();
+  await page.getByLabel('项目组名称').fill(label); await confirm();
 }
 async function membership(select) {
   if (select) await select(); await confirm();
 }
 async function creationActions() {
-  const actions = page.getByRole('group', { name: '创建账号与用户组', exact: true });
-  const user = actions.getByRole('button', { name: '创建用户', exact: true }), group = actions.getByRole('button', { name: '创建用户组', exact: true });
+  const actions = page.getByRole('group', { name: '创建账号与项目组', exact: true });
+  const user = actions.getByRole('button', { name: '创建用户', exact: true }), group = actions.getByRole('button', { name: '创建项目组', exact: true });
   for (const view of ['全部用户', '按组查看']) {
     await page.getByRole('tab', { name: view, exact: true }).click();
     await expect(user).toBeEnabled(); await expect(group).toBeEnabled();
@@ -42,10 +42,10 @@ async function creationActions() {
       const a = await user.boundingBox(), b = await group.boundingBox();
       return !!a && !!b && Math.abs(a.y - b.y) <= 1 && b.x - a.x - a.width >= 0 && b.x - a.x - a.width <= 32;
     }).toBe(true);
-    await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: '创建项目组', exact: true })).toHaveCount(1);
     await user.click(); await expect(page.getByRole('heading', { name: '创建团队用户', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '取消', exact: true }).click();
-    await group.click(); await expect(page.getByRole('heading', { name: '创建团队用户组', exact: true })).toBeVisible();
+    await group.click(); await expect(page.getByRole('heading', { name: '创建项目组', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '取消', exact: true }).click();
   }
   await page.getByRole('tab', { name: '全部用户', exact: true }).click();
@@ -56,8 +56,8 @@ try {
   await page.getByLabel('本地共享区根目录').fill(shared);
   await expect(page.getByLabel('管理账号', { exact: true })).toHaveCount(0); await expect(page.getByLabel('登录密码', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '打开共享目录', exact: true }).click(); await expect(page.locator('.modal')).toHaveCount(0);
-  await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
-  await expect(page.getByRole('group', { name: '创建账号与用户组' }).getByRole('button', { name: '创建用户组', exact: true })).toBeDisabled();
+  await expect(page.getByRole('group', { name: '创建账号与项目组' }).getByRole('button', { name: '创建用户', exact: true })).toBeDisabled();
+  await expect(page.getByRole('group', { name: '创建账号与项目组' }).getByRole('button', { name: '创建项目组', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: '初始化团队空间', exact: true }).click(); await confirm();
   await creationActions();
   const initialSize = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize());
@@ -165,8 +165,8 @@ try {
   checks.push('Chinese name, numeric employee ID and mixed-case accounts accept one-character passwords; invalid names, empty passwords and mismatched confirmation show clear Chinese errors');
 
   // The administrator types the name members see; the Linux group name is derived from it.
-  await page.getByRole('button', { name: '创建用户组', exact: true }).click();
-  await page.getByLabel('用户组名称').fill('实体抽取'); await confirm();
+  await page.getByRole('button', { name: '创建项目组', exact: true }).click();
+  await page.getByLabel('项目组名称').fill('实体抽取'); await confirm();
   const derived = 'local_g' + createHash('sha256').update('实体抽取'.normalize('NFC'), 'utf8').digest('hex').slice(0, 13);
   await expect(page.locator('.admin-success')).toContainText('操作成功');
   await expect(page.locator('.admin-success')).toHaveCount(0, { timeout: 12000 });

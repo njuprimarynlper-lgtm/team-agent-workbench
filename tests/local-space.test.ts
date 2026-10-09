@@ -228,7 +228,7 @@ test('local stub derives a Linux group name from a Chinese group name and keeps 
     await assert.rejects(x.admin.operation({ op: 'group_create', label: '实体抽取' }), /项目组已存在/);
     await assert.rejects(x.admin.operation({ op: 'group_create', label: 'WorkBench' }), /仅大小写不同/);
     // The client schema rejects before the request leaves, so Python and TypeScript stay in step.
-    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'a b' }), /用户组名称支持中文/);
+    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'a b' }), /项目组名称支持中文/);
     await x.admin.operation({ op: 'group_create', label: 'café' });
     assert.equal(Object.values(x.admin.snapshot.state!.groups).find(g => g.label === 'café')!.workspace, '/projects/café');
     // The same visible name in a decomposed Unicode form must land on the one record.

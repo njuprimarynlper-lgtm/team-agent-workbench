@@ -3,4 +3,4 @@
 // Linux group name and the workspace path are derived from it.
 export const groupLabelPattern = /^[\p{L}\p{N}][\p{L}\p{N}_·-]{0,23}$/u;
 export const groupWorkspacePattern = /^\/projects\/[\p{L}\p{N}][\p{L}\p{N}_·-]{0,23}$/u;
-export const groupLabelMessage = '用户组名称支持中文、字母、数字、下划线、短横线和间隔号，最多 24 个字符';
+export const groupLabelMessage = '项目组名称支持中文、字母、数字、下划线、短横线和间隔号，最多 24 个字符';

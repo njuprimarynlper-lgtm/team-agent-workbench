@@ -320,7 +320,7 @@ def account_name(value):
 
 def group_label(value):
     # Local display name the administrator types; the Linux group name is derived from it.
-    message = '用户组名称支持中文、字母、数字、下划线、短横线和间隔号，最多 24 个字符'
+    message = '项目组名称支持中文、字母、数字、下划线、短横线和间隔号，最多 24 个字符'
     if not isinstance(value, str):
         raise ValueError(message)
     value = unicodedata.normalize('NFC', value)
@@ -1210,7 +1210,7 @@ def _execute(request):
         if not record:
             collision = next((g for g in state["groups"].values() if str(g.get("label", "")).casefold() == label.casefold()), None)
             if collision:
-                raise ValueError("已存在同名或仅大小写不同的用户组：" + collision["label"])
+                raise ValueError("已存在同名或仅大小写不同的项目组：" + collision["label"])
             target = child(root, "projects/" + label)
             if target.exists() and any(target.iterdir()):
                 raise ValueError("同名工作目录已存在且非空，不能自动接管")
@@ -1225,7 +1225,7 @@ def _execute(request):
             save(root, state)
         elif record.get("label") != label:
             # The derived Linux name is not injective; never complete another group's record.
-            raise ValueError("用户组名称与已有用户组冲突，请换一个名称：" + str(record.get("label", "")))
+            raise ValueError("项目组名称与已有项目组冲突，请换一个名称：" + str(record.get("label", "")))
         elif not record.get("provisioning"):
             raise ValueError("用户组已存在且创建完成")
         provision_group(root, state, record, "gid", name, "成员用户组已创建")

@@ -5,8 +5,8 @@ export async function adminCases({ app, page, data }) {
   const server = await adminServer();
   try {
     await page.evaluate(profile => window.admin.call('connect', { profile, password: 'test-password', sudoPassword: '' }), server.profile);
-    await page.getByRole('button', { name: '创建用户组', exact: true }).click();
-    await page.getByLabel('用户组名称', { exact: true }).fill('nlp');
+    await page.getByRole('button', { name: '创建项目组', exact: true }).click();
+    await page.getByLabel('项目组名称', { exact: true }).fill('nlp');
     await page.getByRole('button', { name: '确认执行', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: '测试：组管理员组创建失败' }).waitFor();
     await page.getByRole('button', { name: '取消', exact: true }).click();
@@ -43,7 +43,7 @@ export async function adminCases({ app, page, data }) {
     await page.evaluate(() => window.admin.call('operation', { op: 'status' }));
     await expect(page.getByRole('button', { name: '完成配置', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '创建用户', exact: true })).toBeEnabled();
-    await expect(page.getByRole('button', { name: '创建用户组', exact: true })).toBeEnabled();
+    await expect(page.getByRole('button', { name: '创建项目组', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: '创建用户', exact: true }).click();
     await page.getByLabel('成员姓名', { exact: true }).fill('Bob');
     await page.getByLabel('登录账号', { exact: true }).fill('bob');
