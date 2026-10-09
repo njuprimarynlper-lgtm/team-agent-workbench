@@ -51,9 +51,16 @@ test('bulk shared deletion respects roles and revisions, creates removal activit
     await assert.rejects(x.bob.deleteSharedContents(x.project.id, [{ id: curated.id, revision: 2 }]), /无权删除/);
     assert((await x.list()).some(item => item.id === curated.id));
     const file = await x.publish(x.bob, '共享文件', 'file'), history = await x.publish(x.bob, '上传轨迹', 'trajectory');
+    const stored = path.join(x.root, 'share', ...history.path.split('/').filter(Boolean));
+    const orphan = path.join(path.dirname(stored), 'left-behind.txt');
+    await fs.writeFile(orphan, 'left');
+    const projectFile = path.join(x.root, 'share', ...x.project.remoteRoot.split('/').filter(Boolean), '旁边文件.txt');
+    await fs.writeFile(projectFile, 'keep');
     const files = await x.alice.deleteSharedContents(x.project.id, selection([file, history]));
     assert.deepEqual(files.deletedIds, [file.id, history.id]); assert.equal(files.error, undefined);
     assert((await x.list()).every(item => item.id !== file.id && item.id !== history.id));
+    await assert.rejects(fs.stat(stored)); await assert.rejects(fs.stat(orphan));
+    assert.equal(await fs.readFile(projectFile, 'utf8'), 'keep');
   } finally { await x.close(); }
 });
 

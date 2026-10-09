@@ -50,6 +50,7 @@ export class SharedFiles {
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.backend.assignmentStatus(binding, input); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.backend.contentAdopt(binding, target); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.backend.contentEdit(binding, change); }
+  contentReap(binding: RemoteBinding) { return this.backend.contentReap(binding); }
   contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.backend.contentReplace(binding, change, file); }
   projectBrief(binding: RemoteBinding) { return this.backend.projectBrief(binding); }
   saveProjectBrief(binding: RemoteBinding, brief: ProjectBrief, revision: number) { return this.backend.saveProjectBrief(binding, brief, revision); }

@@ -109,6 +109,8 @@ if (ownDataDirectory(() => window)) app.whenReady().then(async () => {
         try { value = await remote.storageUsage(payload as any, controller.signal); }
         finally { if (storageAbort === controller) storageAbort = undefined; }
       } else if (action === 'storage.cancel') { storageAbort?.abort(); value = true; }
+      else if (action === 'project.catalog') value = await remote.projectCatalog();
+      else if (action === 'project.purge') { const request = z.object({ projectId: z.string().regex(/^project_[a-f0-9]{32}$/), mode: z.enum(['all', 'keep_trajectories']) }).parse(payload); value = await remote.projectPurge(request.projectId, request.mode); }
       else throw new Error('管理员版不支持此操作');
       return { ok: true, value };
     } catch (error: any) { return { ok: false, error: errorMessage(error) }; }

@@ -6,6 +6,7 @@ import type { AdminOperation, AdminProfile, AdminSnapshot, StorageScanRequest } 
 import { adminOperationSchema, storageScanSchema } from './types';
 import { diskPath, localRoot, passwordHash, readRegistry, registryLock, writeRegistry, type LocalRegistry } from '../core/local-space';
 import { scanLocalStorage } from './storage-usage';
+import { catalogProjects, purgeProject, type ProjectPurgeMode } from './project-purge';
 
 export class LocalAdminConnection {
   snapshot: AdminSnapshot = { connected: false, verified: false, busy: false };
@@ -113,5 +114,21 @@ export class LocalAdminConnection {
     const generation = this.generation, data = await readRegistry(this.root);
     if (data.state.teamId !== this.teamId || generation !== this.generation) throw new Error('本地共享区已改变，请重新连接');
     return scanLocalStorage(this.root, data.state, request, signal);
+  }
+  async projectCatalog() {
+    if (!this.snapshot.connected || !this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以清理项目');
+    if (!this.snapshot.state?.initialized || !this.teamId) throw new Error('请先初始化团队空间');
+    const data = await readRegistry(this.root);
+    if (data.state.teamId !== this.teamId) throw new Error('本地共享区已改变，请重新连接');
+    return { projects: await catalogProjects(this.root, data.state) };
+  }
+  async projectPurge(projectId: string, mode: ProjectPurgeMode) {
+    if (!this.snapshot.connected || !this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以清理项目');
+    if (!this.snapshot.state?.initialized || !this.teamId) throw new Error('请先初始化团队空间');
+    return registryLock(this.root, async () => {
+      const data = await readRegistry(this.root);
+      if (data.state.teamId !== this.teamId) throw new Error('本地共享区已改变，请重新连接');
+      return purgeProject(this.root, data.state, projectId, mode);
+    });
   }
 }

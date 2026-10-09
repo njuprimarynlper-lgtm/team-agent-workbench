@@ -29,7 +29,7 @@ import ipaddress
 if "acl_apply" not in globals():
     exec(compile(pathlib.Path(__file__).with_name("acl_support.py").read_text(encoding="utf-8"), "acl_support.py", "exec"))
 
-OPS = {"probe", "environment_prepare", "initialize", "status", "storage_usage", "storage_upgrade", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover", "egress_jump", "egress_jump_probe"}
+OPS = {"probe", "environment_prepare", "initialize", "status", "storage_usage", "storage_upgrade", "project_catalog", "project_purge", "user_create", "user_password", "user_enabled", "group_create", "user_groups", "group_member", "workspace_prepare", "recover", "egress_jump", "egress_jump_probe"}
 REQUIRED_COMMANDS = ["useradd", "usermod", "groupadd", "gpasswd", "chpasswd", "pkill", "sshd", "setfacl"]
 MANAGED_SUPERVISOR = pathlib.Path('/etc/team-agent-workbench')
 SUPERVISOR_CONFIGS = [pathlib.Path('/etc/supervisor/supervisord.conf'), pathlib.Path('/etc/supervisord.conf'), MANAGED_SUPERVISOR / 'supervisord.conf']
@@ -388,6 +388,108 @@ STORAGE_LABELS = {
     "submissions": "成员成果", "trajectories": "会话轨迹", "curated": "团队整理",
     "project": "项目公共内容", "system": "系统数据", "unassigned": "未归属",
 }
+
+def project_catalog(root, state):
+    projects = []
+    for group_id, group in (state.get("groups") or {}).items():
+        workspace = group.get("workspace") or ""
+        if not workspace or group.get("provisioning"):
+            continue
+        base = child(root, workspace[1:] if workspace.startswith("/") else workspace)
+        if not base.is_dir() or base.is_symlink():
+            continue
+        for entry in base.iterdir():
+            if entry.name.startswith(".") or entry.is_symlink() or not entry.is_dir():
+                continue
+            meta_file = entry / ".workbench-project.json"
+            if not meta_file.is_file() or meta_file.is_symlink():
+                continue
+            try:
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(meta, dict) or not isinstance(meta.get("id"), str) or not isinstance(meta.get("name"), str):
+                continue
+            projects.append({"id": meta["id"], "name": meta["name"], "group": group_id, "groupLabel": group.get("label") or group_id, "path": entry.relative_to(root).as_posix()})
+    projects.sort(key=lambda item: (item["groupLabel"], item["name"]))
+    return {"projects": projects}
+
+def project_json(file, value):
+    info = file.stat() if file.is_file() and not file.is_symlink() else file.parent.stat()
+    temp = file.with_name("." + uuid.uuid4().hex + ".tmp")
+    try:
+        with temp.open("x", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False)
+        os.chmod(temp, info.st_mode & 0o777 or 0o640)
+        try:
+            os.chown(temp, info.st_uid, info.st_gid)
+        except (OSError, AttributeError):
+            pass
+        os.replace(temp, file)
+    finally:
+        temp.unlink(missing_ok=True)
+
+def project_purge(root, state, request):
+    project_id, mode = request.get("projectId"), request.get("mode")
+    if not isinstance(project_id, str) or not re.fullmatch(r"project_[a-f0-9]{32}", project_id):
+        raise ValueError("项目身份无效")
+    if mode not in ("all", "keep_trajectories"):
+        raise ValueError("请选择清理方式")
+    matches = [item for item in project_catalog(root, state)["projects"] if item["id"] == project_id]
+    if len(matches) != 1:
+        raise ValueError("项目不存在或身份重复，已停止清理")
+    found = matches[0]
+    directory = child(root, found["path"])
+    prefix = "/" + found["path"] + "/trajectories/"
+    def listed(file):
+        if not file.is_file() or file.is_symlink():
+            return []
+        try:
+            value = json.loads(file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        return value if isinstance(value, list) else []
+    def trajectory(entry):
+        return isinstance(entry, dict) and isinstance(entry.get("path"), str) and entry["path"].startswith(prefix)
+    content_file, history_file = directory / ".workbench-content.json", directory / ".workbench-content-history.json"
+    items, history = listed(content_file), listed(history_file)
+    if mode == "keep_trajectories":
+        items, history = [entry for entry in items if trajectory(entry)], [entry for entry in history if trajectory(entry)]
+    else:
+        items, history = [], []
+    removed = 0
+    for entry in list(directory.iterdir()):
+        if entry.name in {".workbench-project.json", "项目说明.md", ".brief-versions", ".workbench-content.json", ".workbench-content-history.json"}:
+            continue
+        if mode == "keep_trajectories" and entry.name == "trajectories":
+            continue
+        if entry.is_symlink() or entry.is_file():
+            entry.unlink()
+            removed += 1
+            continue
+        if entry.is_dir():
+            for _current, _dirs, files in os.walk(entry, followlinks=False):
+                removed += len(files)
+            shutil.rmtree(entry)
+    project_json(content_file, items)
+    project_json(history_file, history)
+    receipt = root / ".workbench/admin/uploads.json"
+    if receipt.is_file() and not receipt.is_symlink():
+        try:
+            data = json.loads(receipt.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = None
+        if isinstance(data, dict):
+            project_prefix = "/" + found["path"] + "/"
+            def retain(value):
+                path = value.get("path") if isinstance(value, dict) and isinstance(value.get("path"), str) else ""
+                if not path.startswith(project_prefix):
+                    return True
+                return mode == "keep_trajectories" and path.startswith(prefix)
+            trimmed = {key: value for key, value in data.items() if retain(value)}
+            if len(trimmed) != len(data):
+                project_json(receipt, trimmed)
+    return {"projectId": project_id, "name": found["name"], "mode": mode, "removedFiles": removed}
 
 def storage_metrics():
     return {"bytes": 0, "files": 0, "directories": 0, "directBytes": 0}
@@ -1013,6 +1115,11 @@ def _execute(request):
         if not (root / ".workbench/admin/state.json").is_file():
             raise ValueError("请先初始化团队空间")
         return storage_usage(root, load(root), request)
+    if request["op"] in ("project_catalog", "project_purge"):
+        if not (root / ".workbench/admin/state.json").is_file():
+            raise ValueError("请先初始化团队空间")
+        state = load(root)
+        return project_catalog(root, state) if request["op"] == "project_catalog" else project_purge(root, state, request)
     if missing and request['op'] != 'status':
         hint = '；ACL 安装命令：' + acl_install_hint() if 'setfacl' in missing else ''
         raise ValueError("服务器缺少命令：" + ", ".join(missing) + "。请先安装发行版的 OpenSSH、shadow/passwd、procps、acl 软件包" + hint)
@@ -1187,7 +1294,7 @@ def execute(request):
     try:
         return _execute(request)
     except Exception as error:
-        if request["op"] not in ["status", "probe", "storage_usage", "environment_prepare", "egress_jump_probe"]:
+        if request["op"] not in ["status", "probe", "storage_usage", "project_catalog", "project_purge", "environment_prepare", "egress_jump_probe"]:
             try:
                 state = load(root)
                 key = operation_key(request)

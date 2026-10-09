@@ -526,11 +526,23 @@ export class Workbench {
     return { files: item.files, missingFiles: missingContentFiles(item), submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
   }
   async editSharedContent(projectId: string, change: ContentEdit) {
-    const binding = this.remote.binding(projectId), before = await this.remote.contentList(binding), target = before.find(item => item.id === change.id);
-    if (!target) throw new Error('内容已更新或删除，请刷新后再操作');
+    const binding = this.remote.binding(projectId), before = await this.remote.contentList(binding);
+    let target = before.find(item => item.id === change.id), historic = false;
+    if (target && target.revision !== change.revision) target = undefined;
+    if (!target && change.action === 'delete') {
+      const history = await this.remote.contentHistory(binding);
+      target = history.find(item => item.id === change.id && item.revision === change.revision && (!!item.supersededBy || !!item.deletedAt));
+      historic = !!target;
+    }
+    if (!target || (!historic && target.revision !== change.revision)) throw new Error('内容已更新或删除，请刷新后再操作');
     this.remote.channel(binding);
-    const result = await this.remote.contentEdit(binding, change);
-    if (change.action !== 'delete') return result;
+    let result: SharedContent | undefined;
+    try { result = await this.remote.contentEdit(binding, change); }
+    catch (error: any) {
+      if (historic && /已更新或删除|不支持的内容操作/.test(error.message || '')) throw new Error('服务器尚未更新历史删除功能，请管理员在管理端点击“更新服务端功能”');
+      throw error;
+    }
+    if (change.action !== 'delete' || historic) return result;
     await this.recordSharedDeletion(binding, before, target); return result;
   }
   private async recordSharedDeletion(binding: RemoteBinding, before: SharedContent[], target: SharedContent) {
@@ -545,6 +557,15 @@ export class Workbench {
     reconcileTeamResultReferences(this.store.sessions, binding, before.filter(item => item.id !== target.id), false, [target]);
     await this.store.save(); this.broadcast();
   }
+  async reapProjectFiles(projectId: string) {
+    const binding = this.remote.binding(projectId);
+    this.assertCanWork(binding);
+    try { return await this.remote.contentReap(binding); }
+    catch (error: any) {
+      if (/不支持的内容操作/.test(error.message || '')) throw new Error('服务器尚未更新清理功能，请管理员在管理端点击“更新服务端功能”');
+      throw error;
+    }
+  }
   async deleteSharedContents(projectId: string, raw: ContentDeleteSelection[]): Promise<ContentDeleteResult> {
     const selections = contentDeleteSelectionsSchema.parse(raw), binding = this.remote.binding(projectId);
     this.assertCanWork(binding);
@@ -552,12 +573,13 @@ export class Workbench {
     if (this.deletingSharedContent.has(key)) throw new Error('此项目正在批量删除，请稍候');
     this.deletingSharedContent.add(key);
     try {
-      const before = await this.remote.contentList(binding);
+      const before = await this.remote.contentList(binding), history = await this.remote.contentHistory(binding);
       this.assertCanWork(binding);
       const admin = !!this.remote.workspaces.find(group => group.groupName === binding.project.groupName)?.canCreateProject;
       // Check the entire frozen selection before the first write. Each server edit checks it again.
       for (const selection of selections) {
-        const item = before.find(value => value.id === selection.id);
+        const current = before.find(value => value.id === selection.id);
+        const item = current?.revision === selection.revision ? current : !current ? history.find(value => value.id === selection.id && value.revision === selection.revision && (!!value.supersededBy || !!value.deletedAt)) : undefined;
         if (!item || item.revision !== selection.revision) throw new Error('所选成果已更新、删除或不属于此项目，请刷新后重新确认；本次未删除任何内容');
         if (!canDeleteSharedContent(item, binding.username, admin)) throw new Error('所选成果包含无权删除的条目；只能删除自己的未整理提交，或由本组组管理员操作');
       }

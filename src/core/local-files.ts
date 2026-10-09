@@ -262,6 +262,7 @@ export class LocalFileConnection {
   contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.content().merge(binding, change); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.content().adopt(binding, target); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.content().edit(binding, change); }
+  contentReap(binding: RemoteBinding) { return this.content().reap(binding); }
   contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.content().edit(binding, change, file); }
   async uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void, _requestId?: string, phase?: (value: import('../shared/types').TransferPhase) => Promise<void> | void) {
     this.channel(binding); await phase?.('streaming'); const item = await this.content().publishAttachment(binding, local, hash); progress(item.size, item.size); await phase?.('verifying'); return item;

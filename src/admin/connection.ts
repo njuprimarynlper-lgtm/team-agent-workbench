@@ -182,4 +182,14 @@ export class AdminConnection {
     if (!this.snapshot.state?.initialized) throw new Error('请先初始化团队空间');
     return await this.execute({ op: 'storage_usage', ...request }, this.useSudo, signal, 5 * 60 * 1000) as StorageUsageReport;
   }
+  async projectCatalog() {
+    if (!this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以清理项目');
+    if (!this.snapshot.state?.initialized) throw new Error('请先初始化团队空间');
+    return await this.execute({ op: 'project_catalog' }, this.useSudo) as { projects: { id: string; name: string; group: string; groupLabel: string; path: string }[] };
+  }
+  async projectPurge(projectId: string, mode: 'all' | 'keep_trajectories') {
+    if (!this.snapshot.verified || this.snapshot.role !== 'administrator') throw new Error('只有总管理员可以清理项目');
+    if (!this.snapshot.state?.initialized) throw new Error('请先初始化团队空间');
+    return await this.execute({ op: 'project_purge', projectId, mode }, this.useSudo, undefined, 10 * 60 * 1000) as { projectId: string; name: string; mode: string; removedFiles: number };
+  }
 }

@@ -893,10 +893,16 @@ def handle(root, state, username, request, incoming=None):
         receipts[key] = item
         atom(receipt_file, receipts)
         return item
+    if op == 'reap_project_files':
+        if not admin:
+            raise PermissionError('只有本组组管理员可以清理未引用文件')
+        return {'removed': release_unreferenced_files(root, directory, retained_paths(items, read_json(history_index, [])))}
     if op != 'edit_content':
         raise ValueError('不支持的内容操作')
     change = request.get('change', {})
     item = next((i for i in items if i['id'] == change.get('id')), None)
+    if not item and change.get('action') == 'delete':
+        return purge_history_content(root, directory, history_index, items, change, username, admin, gid)
     if not item or item['revision'] != change.get('revision'):
         raise ValueError('内容已更新或删除，请刷新后再操作')
     if not admin and (item['author'] != username or item['state'] == 'curated'):
@@ -1003,7 +1009,7 @@ def handle(root, state, username, request, incoming=None):
         for target in dict.fromkeys(owned):
             if target in kept or not target.startswith(project_prefix):
                 continue
-            if '/.workbench-attachments/' not in target and item['id'] not in target and not target.startswith(project_prefix + 'submissions/') and not target.startswith(project_prefix + 'curated/'):
+            if '/.workbench-attachments/' not in target and item['id'] not in target and not target.startswith(project_prefix + 'submissions/') and not target.startswith(project_prefix + 'curated/') and not target.startswith(project_prefix + 'trajectories/'):
                 continue
             safe(root, target).unlink(missing_ok=True)
         receipt_file = safe(root, '.workbench/admin/uploads.json')
@@ -1012,7 +1018,61 @@ def handle(root, state, username, request, incoming=None):
             trimmed = {key: value for key, value in receipts.items() if not (isinstance(value, dict) and value.get('id') == item['id'])}
             if len(trimmed) != len(receipts):
                 atom(receipt_file, trimmed, gid)
+        release_unreferenced_files(root, directory, kept)
     return item if change['action'] == 'save' else None
+
+def content_paths(entry):
+    if not isinstance(entry, dict):
+        return []
+    found = [entry.get('path')] if isinstance(entry.get('path'), str) else []
+    found += [attachment.get('path') for attachment in entry.get('attachments') or [] if isinstance(attachment, dict) and isinstance(attachment.get('path'), str)]
+    return found
+
+def retained_paths(items, history):
+    return {target for entry in list(items) + [entry for entry in history if isinstance(entry, dict) and not entry.get('deletedAt')] for target in content_paths(entry)}
+
+def release_unreferenced_files(root, directory, kept):
+    # Session trajectories and member uploads live outside curated/. A deleted
+    # record used to leave those files in place because nothing in the library named them.
+    prefix = '/' + directory.relative_to(root).as_posix() + '/'
+    removed = 0
+    for name in ('submissions', 'trajectories', 'curated', '.workbench-attachments'):
+        base = directory / name
+        if not base.is_dir() or base.is_symlink():
+            continue
+        for dirpath, _dirnames, filenames in os.walk(base, topdown=False, followlinks=False):
+            current = pathlib.Path(dirpath)
+            if current.is_symlink():
+                continue
+            for filename in filenames:
+                file = current / filename
+                if file.is_symlink() or not file.is_file():
+                    continue
+                target = '/' + file.relative_to(root).as_posix()
+                if not target.startswith(prefix) or target in kept:
+                    continue
+                file.unlink(missing_ok=True)
+                removed += 1
+            if current != base:
+                try:
+                    current.rmdir()
+                except OSError:
+                    pass
+    return removed
+
+def purge_history_content(root, directory, history_index, items, change, username, admin, gid):
+    history = read_json(history_index, [])
+    selected = next((entry for entry in history if entry.get('id') == change.get('id') and entry.get('revision') == change.get('revision') and (entry.get('supersededBy') or entry.get('deletedAt'))), None)
+    if not selected:
+        raise ValueError('历史成果已更新或删除，请刷新后再操作')
+    if any(item.get('id') == selected.get('id') for item in items):
+        raise ValueError('当前成果仍在团队库中，请从当前成果删除')
+    if not admin and (selected.get('author') != username or selected.get('state') == 'curated'):
+        raise PermissionError('只能删除自己尚未被整理的历史提交')
+    next_history = [entry for entry in history if entry.get('id') != selected.get('id')]
+    atom(history_index, next_history, gid)
+    release_unreferenced_files(root, directory, retained_paths(items, next_history))
+    return None
 
 def save_brief_file(directory, project, brief, username, gid):
     body = '# ' + project['name'] + ' · 项目说明\n\n' + '由 ' + username + ' 更新于 ' + now() + '。\n\n'

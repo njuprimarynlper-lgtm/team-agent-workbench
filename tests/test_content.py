@@ -187,6 +187,31 @@ class ContentRules(unittest.TestCase):
         self.assertNotIn('后来需要移除的内容', stored)
         self.assertNotIn('已验证内容', stored)
 
+    def test_deleted_trajectory_and_history_drop_unreferenced_files(self):
+        target = '/projects/relation/实体抽取/trajectories/bob/session.zip'
+        item = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata={'title': '轨迹', 'description': '快照', 'kind': 'trajectory'})
+        orphan = self.directory / 'trajectories' / 'bob' / 'left-behind.txt'
+        orphan.write_bytes(b'orphan')
+        self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='delete'))
+        self.assertFalse(content.safe(self.root, target).exists())
+        self.assertFalse(orphan.exists())
+        self.assertTrue((self.directory / '项目说明.md').is_file())
+        sources = [self.publish(name=f'hist-{index}.md') for index in range(2)]
+        result = self.call('alice', op='merge_content', change=dict(sources=[dict(id=item['id'], revision=1) for item in sources], replaceIds=[item['id'] for item in sources], title='合并后', description='新正文'))
+        self.call('alice', op='edit_content', change=dict(id=sources[0]['id'], revision=1, action='delete'))
+        self.assertFalse(content.safe(self.root, sources[0]['path']).exists())
+        self.assertTrue(content.safe(self.root, sources[1]['path']).is_file())
+        self.assertTrue(content.safe(self.root, result['path']).is_file())
+        self.assertEqual(self.call('alice', op='content_history', id=sources[0]['id']), [])
+        with self.assertRaises(PermissionError):
+            self.call('bob', op='reap_project_files')
+        stray = self.directory / 'trajectories' / 'bob' / 'stray.txt'
+        stray.parent.mkdir(parents=True, exist_ok=True)
+        stray.write_bytes(b'stray')
+        self.assertGreaterEqual(self.call('alice', op='reap_project_files')['removed'], 1)
+        self.assertFalse(stray.exists())
+        self.assertTrue(content.safe(self.root, result['path']).is_file())
+
     def test_private_account_data_is_isolated_versioned_and_not_public(self):
         self.assertEqual(self.call('bob', op='account_read')['records'], {})
         data = {'material:one': {'title': 'private'}, 'result-rules:preferences': {'combinations': [], 'projects': {self.project: 'development'}}}

@@ -20,8 +20,9 @@ export function StorageView({ active, enabled, identity, state }: { active: bool
   const [tab, setTab] = useState<'groups' | 'users' | 'folders'>('groups');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [autoScanned, setAutoScanned] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false), [purgeNotice, setPurgeNotice] = useState('');
   const request = useRef(0), currentIdentity = useRef(identity); currentIdentity.current = identity;
-  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setAutoScanned(false); setBusy(false); }, [identity]);
+  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setPurgeNotice(''); setPurgeOpen(false); setAutoScanned(false); setBusy(false); }, [identity]);
   const scan = async (path = '', append = false, offset = 0) => {
     const token = ++request.current, targetIdentity = identity;
     const current = () => token === request.current && targetIdentity === currentIdentity.current;
@@ -53,14 +54,15 @@ export function StorageView({ active, enabled, identity, state }: { active: bool
 
   if (!enabled) return <div className="admin-connect-card"><HardDrive size={36}/><h2>共享空间</h2><p>连接并初始化团队空间后，可以查看容量和目录占用。</p></div>;
   return <section className="storage-view" aria-label="共享空间管理">
-    <div className="page-title storage-title"><div><span className="eyebrow">SHARED STORAGE</span><h1>共享空间</h1><p>统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。</p></div><div className="storage-actions">{root && <span className="storage-scanned">统计于 {formatTime(root.scannedAt)}</span>}{busy ? <button className="secondary" onClick={() => void cancel()}><Square size={14}/>取消统计</button> : <button className="primary" onClick={() => void scan()}><RefreshCw size={15}/>刷新统计</button>}</div></div>
+    <div className="page-title storage-title"><div><span className="eyebrow">SHARED STORAGE</span><h1>共享空间</h1><p>统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。</p></div><div className="storage-actions">{root && <span className="storage-scanned">统计于 {formatTime(root.scannedAt)}</span>}<button className="secondary" disabled={busy} onClick={() => { setPurgeNotice(''); setPurgeOpen(true); }}>清理项目</button>{busy ? <button className="secondary" onClick={() => void cancel()}><Square size={14}/>取消统计</button> : <button className="primary" onClick={() => void scan()}><RefreshCw size={15}/>刷新统计</button>}</div></div>
+    {purgeNotice && <div className="admin-success" role="status">{purgeNotice}</div>}
     {error && <div className="inline-error admin-alert" role="alert"><span>{error}</span><button className="icon" aria-label="关闭错误" onClick={() => setError('')}><X size={17}/></button></div>}
     {busy && <div className="storage-loading"><span className="spinner"/>正在统计共享空间，可以继续切换页面。</div>}
     {!root && !busy ? <div className="storage-empty"><HardDrive size={42}/><h3>还没有空间统计</h3><button className="primary" onClick={() => void scan()}>开始统计</button></div> : root && <>
       <div className="storage-stat-grid">
         <div className="storage-stat primary-stat"><span>共享文件总量</span><strong>{formatBytes(root.total.bytes)}</strong><small>{root.total.files.toLocaleString()} 个文件 · {root.total.directories.toLocaleString()} 个目录</small></div>
         <div className="storage-stat"><span>磁盘剩余</span><strong>{root.volume.totalBytes ? formatBytes(root.volume.freeBytes) : '不可用'}</strong><small>{root.volume.totalBytes ? `总容量 ${formatBytes(root.volume.totalBytes)}` : '服务器未返回磁盘容量'}</small></div>
-        <div className="storage-stat"><span>项目组</span><strong>{root.groups.length}</strong><small>{root.groups.reduce((sum, group) => sum + group.projects, 0)} 个已登记项目</small></div>
+        <div className="storage-stat"><span>项目组</span><strong>{root.groups.length}</strong><small>{root.groups.reduce((sum, group) => sum + group.projects, 0)} 个项目</small></div>
         <div className="storage-stat"><span>成员共享占用</span><strong>{formatBytes(root.users.reduce((sum, user) => sum + user.bytes, 0))}</strong><small>{root.users.filter(user => user.bytes > 0).length} 位成员有共享内容</small></div>
       </div>
       <div className="storage-overview-grid">
@@ -72,7 +74,53 @@ export function StorageView({ active, enabled, identity, state }: { active: bool
       {tab === 'users' && <section className="storage-card storage-table-card"><header><div><h3>用户占用</h3><small>只统计成员成果和轨迹；团队整理内容归项目组公共空间</small></div></header><div className="storage-table-scroll"><table><thead><tr><th>用户</th><th>所属项目组</th><th>成果提交</th><th>轨迹</th><th>合计</th><th>文件数</th><th>最近变化</th></tr></thead><tbody>{root.users.map(user => <tr key={user.username}><td><b>{user.name}</b><code>{user.username}</code></td><td><div className="storage-chips">{user.groups.map(id => <span key={id}>{groupLabels.get(id) || id}</span>)}</div></td><td>{formatBytes(user.submissionsBytes)}</td><td>{formatBytes(user.trajectoriesBytes)}</td><td><b>{formatBytes(user.bytes)}</b></td><td>{user.files.toLocaleString()}</td><td>{formatTime(user.modifiedAt)}</td></tr>)}</tbody></table>{!root.users.length && <div className="storage-no-rows">暂无团队成员</div>}</div></section>}
       {tab === 'folders' && folder && <section className="storage-card storage-folders"><header><div><h3>文件夹占用</h3><div className="storage-breadcrumb"><button disabled={busy} onClick={() => void scan('')}>共享空间</button>{crumbs.map(crumb => <React.Fragment key={crumb.path}><ChevronRight size={13}/><button disabled={busy} onClick={() => void scan(crumb.path)}>{crumb.name}</button></React.Fragment>)}</div></div><span className="spacer"/><span className="folder-total">当前目录 {formatBytes(folder.total.bytes)}</span></header><div className="storage-table-scroll"><table><thead><tr><th>文件夹</th><th>递归占用</th><th>目录直属文件</th><th>文件数</th><th>子目录数</th><th>最近变化</th></tr></thead><tbody>{folder.children.map(item => <tr key={item.path}><td><button className="folder-link" disabled={busy} onClick={() => void scan(item.path)}><Folder size={18}/><span>{item.name}<small>{item.path}</small></span><ChevronRight size={15}/></button></td><td><b>{formatBytes(item.bytes)}</b></td><td>{formatBytes(item.directBytes)}</td><td>{item.files.toLocaleString()}</td><td>{item.directories.toLocaleString()}</td><td>{formatTime(item.modifiedAt)}</td></tr>)}</tbody></table>{!folder.children.length && <div className="storage-no-rows">当前目录没有子文件夹 · 直属文件占用 {formatBytes(folder.total.directBytes)}</div>}</div>{folder.children.length < folder.childCount && <footer><button className="secondary" disabled={busy} onClick={() => void scan(folder.path, true, folder.children.length)}>加载更多（已显示 {folder.children.length} / {folder.childCount}）</button></footer>}</section>}
     </>}
+    {purgeOpen && <ProjectPurgeDialog close={() => setPurgeOpen(false)} done={message => { setPurgeOpen(false); setPurgeNotice(message); void scan(); }}/>}
   </section>;
+}
+
+type ProjectCatalogItem = { id: string; name: string; groupLabel: string };
+
+function ProjectPurgeDialog({ close, done }: { close: () => void; done: (message: string) => void }) {
+  const [projects, setProjects] = useState<ProjectCatalogItem[]>([]);
+  const [projectId, setProjectId] = useState('');
+  const [mode, setMode] = useState<'all' | 'keep_trajectories'>();
+  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    window.admin.call<{ projects: ProjectCatalogItem[] }>('project.catalog').then(result => {
+      if (!live) return;
+      setProjects(result.projects);
+      setProjectId(result.projects[0]?.id || '');
+    }).catch((reason: any) => { if (live) setError(reason.message || '读取项目列表失败'); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, []);
+  const project = projects.find(item => item.id === projectId);
+  const confirm = async () => {
+    if (!project || !mode) return;
+    setBusy(true); setError('');
+    try {
+      const result = await window.admin.call<{ name: string; removedFiles: number }>('project.purge', { projectId: project.id, mode });
+      done(mode === 'all'
+        ? `已全部清理「${result.name}」，删除 ${result.removedFiles.toLocaleString()} 个文件`
+        : `已清理「${result.name}」并保留轨迹，删除 ${result.removedFiles.toLocaleString()} 个文件`);
+    } catch (reason: any) { setError(reason.message || '清理失败'); }
+    finally { setBusy(false); }
+  };
+  return <div className="modal-backdrop"><section className="modal project-purge-dialog" role="dialog" aria-labelledby="project-purge-title"><header><h2 id="project-purge-title">清理项目</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={close}><X size={19}/></button></header>
+    <div className="modal-body">
+      {loading ? <p>正在读取项目…</p> : !projects.length ? <p>还没有项目。</p> : <>
+        <label className="field">项目<select aria-label="要清理的项目" value={projectId} disabled={busy} onChange={event => setProjectId(event.target.value)}>{projects.map(item => <option key={item.id} value={item.id}>{item.groupLabel} / {item.name}</option>)}</select></label>
+        <div className="purge-options" role="radiogroup" aria-label="清理方式">
+          <button type="button" role="radio" aria-checked={mode === 'all'} className={mode === 'all' ? 'selected' : ''} disabled={busy} onClick={() => setMode('all')}><b>全部删除</b><span>删除成果、历史、附件、会话轨迹和项目目录里的其他文件。项目本身和项目说明会保留。</span></button>
+          <button type="button" role="radio" aria-checked={mode === 'keep_trajectories'} className={mode === 'keep_trajectories' ? 'selected' : ''} disabled={busy} onClick={() => setMode('keep_trajectories')}><b>保留轨迹的删除</b><span>删除成果、历史、附件和其他文件，留下会话轨迹目录，以及仍然指向这些轨迹的成果记录。</span></button>
+        </div>
+        {project && mode && <p className="purge-confirm">{mode === 'all' ? `确认后将全部清理「${project.groupLabel} / ${project.name}」。此操作不能撤销。` : `确认后将清理「${project.groupLabel} / ${project.name}」，并保留其中的会话轨迹。此操作不能撤销。`}</p>}
+      </>}
+      {error && <div className="inline-error" role="alert">{error}</div>}
+    </div>
+    <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || loading || !project || !mode} onClick={() => void confirm()}>{busy ? '正在清理…' : '确认清理'}</button></footer>
+  </section></div>;
 }
 
 function GroupUsage({ report }: { report: StorageUsageReport }) {

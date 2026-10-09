@@ -213,6 +213,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow): Pro
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
     case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.editSharedContent(p.projectId, p.change); }
     case 'content.deleteMany': { const p = z.object({ projectId: z.string(), selections: contentDeleteSelectionsSchema }).parse(raw); return workbench.deleteSharedContents(p.projectId, p.selections); }
+    case 'content.reap': { const p = z.object({ projectId: z.string() }).parse(raw); return workbench.reapProjectFiles(p.projectId); }
     case 'content.replace': {
       const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw), binding = workbench.remote.binding(p.projectId);
       const file = (await dialog.showOpenDialog(owner, { title: '选择替换文件（保存为新修订）', properties: ['openFile'] })).filePaths[0];

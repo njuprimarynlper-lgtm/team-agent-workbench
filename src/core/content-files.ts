@@ -160,7 +160,10 @@ export class ContentFiles {
   async edit(binding: RemoteBinding, input: ContentEdit, replacement?: string) {
     const change = contentEditSchema.parse(input);
     return registryLock(this.root, async () => {
-      const actor = await this.authorize(binding), items = await this.read(binding), item = items.find(i => i.id === change.id);
+      const actor = await this.authorize(binding), items = await this.read(binding), history = await this.historyRead(binding);
+      const current = items.find(i => i.id === change.id);
+      if (!current && change.action === 'delete') return this.purgeHistory(binding, actor, items, history, change);
+      const item = current;
       if (!item || item.revision !== change.revision) throw new Error('内容已更新或删除，请刷新后再操作；本地编辑仍保留');
       if (!actor.admin && (item.author !== actor.username || item.state === 'curated')) throw new Error('只能修改自己尚未被组管理员整理的提交；可另提补充');
       if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组组管理员可以整理或合并内容');
@@ -170,7 +173,7 @@ export class ContentFiles {
       if (change.merge.length) throw new Error('旧版合并入口已停用，请更新客户端后重新整理；原成果保持不变');
       if (new Set(change.merge.map(m => m.id)).size !== change.merge.length) throw new Error('不能重复合并同一成果');
       const merged = change.merge.map(m => { const source = items.find(i => i.id === m.id); if (!source || source.id === item.id || source.revision !== m.revision || source.kind !== 'contribution') throw new Error('待合并内容已改变或不是文字成果，请刷新'); return source; });
-      const history = await this.historyRead(binding), previous = structuredClone(item);
+      const previous = structuredClone(item);
       const attachments = mergeAttachments([item, ...merged]);
       const provenance = [...(item.provenance || []), { id: item.id, revision: item.revision, title: item.title, author: item.author, updatedAt: item.updatedAt }, ...merged.flatMap(source => [...(source.provenance || []), { id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt }])].filter((source, index, all) => all.findIndex(value => value.id === source.id && value.revision === source.revision) === index);
       const oldPaths = [item, ...merged].map(i => i.path);
@@ -212,15 +215,62 @@ export class ContentFiles {
         for (const target of [...new Set([previous, ...history].filter(entry => entry.id === item.id).flatMap(recordedFiles))]) {
           if (retained.has(target)) continue;
           if (!target.startsWith(projectPrefix)) continue;
-          if (!target.includes(item.id) && !target.includes('/.workbench-attachments/') && !target.startsWith(projectPrefix + 'submissions/') && !target.startsWith(projectPrefix + 'curated/')) continue;
+          if (!target.includes(item.id) && !target.includes('/.workbench-attachments/') && !target.startsWith(projectPrefix + 'submissions/') && !target.startsWith(projectPrefix + 'curated/') && !target.startsWith(projectPrefix + 'trajectories/')) continue;
           await fs.unlink(await diskPath(this.root, target, true)).catch(() => {});
         }
         const receiptFile = await diskPath(this.root, '/.workbench-local/upload-receipts.json', true);
         const receipts = JSON.parse(await fs.readFile(receiptFile, 'utf8').catch(() => '{}')) as Record<string, { id?: string }>;
         const trimmed = Object.fromEntries(Object.entries(receipts).filter(([, value]) => value?.id !== item.id));
         if (Object.keys(trimmed).length !== Object.keys(receipts).length) await atomicJson(receiptFile, trimmed);
+        await this.releaseUnreferenced(binding, retained);
       }
       return change.action === 'delete' ? undefined : item;
     });
+  }
+  async reap(binding: RemoteBinding) {
+    return registryLock(this.root, async () => {
+      const actor = await this.authorize(binding);
+      if (!actor.admin) throw new Error('只有本组组管理员可以清理未引用文件');
+      const removed = await this.releaseUnreferenced(binding, this.retainedPaths(await this.read(binding), await this.historyRead(binding)));
+      return { removed };
+    });
+  }
+  private retainedPaths(items: SharedContent[], history: SharedContent[]) {
+    const recorded = (entry: { path?: string; attachments?: { path: string }[] }) => [entry.path, ...(entry.attachments || []).map(file => file.path)].filter((value): value is string => !!value);
+    return new Set([...items, ...history.filter(entry => !entry.deletedAt)].flatMap(recorded));
+  }
+  private async purgeHistory(binding: RemoteBinding, actor: { username: string; admin: boolean }, items: SharedContent[], history: SharedContent[], change: ContentEdit) {
+    const selected = history.find(entry => entry.id === change.id && entry.revision === change.revision && (!!entry.supersededBy || !!entry.deletedAt));
+    if (!selected) throw new Error('历史成果已更新或删除，请刷新后再操作');
+    if (items.some(item => item.id === selected.id)) throw new Error('当前成果仍在团队库中，请从当前成果删除');
+    if (!actor.admin && (selected.author !== actor.username || selected.state === 'curated')) throw new Error('只能删除自己尚未被整理的历史提交');
+    await this.authorize(binding);
+    const nextHistory = history.filter(entry => entry.id !== selected.id);
+    await atomicJson(await this.historyIndex(binding), nextHistory);
+    await this.releaseUnreferenced(binding, this.retainedPaths(items, nextHistory));
+    return undefined;
+  }
+  private async releaseUnreferenced(binding: RemoteBinding, kept: Set<string>) {
+    const prefix = binding.project.remoteRoot + '/';
+    let removed = 0;
+    for (const name of ['submissions', 'trajectories', 'curated', '.workbench-attachments']) {
+      const walk = async (relative: string, top: boolean) => {
+        let entries;
+        try { entries = await fs.readdir(await diskPath(this.root, relative), { withFileTypes: true }); }
+        catch (error: any) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return; throw error; }
+        for (const entry of entries) {
+          if (entry.isSymbolicLink()) continue;
+          const child = relative + '/' + entry.name;
+          if (entry.isDirectory()) await walk(child, false);
+          else if (entry.isFile() && child.startsWith(prefix) && !kept.has(child)) {
+            await fs.unlink(await diskPath(this.root, child, true)).catch(() => {});
+            removed++;
+          }
+        }
+        if (!top) await fs.rmdir(await diskPath(this.root, relative)).catch(() => {});
+      };
+      await walk(prefix + name, true);
+    }
+    return removed;
   }
 }

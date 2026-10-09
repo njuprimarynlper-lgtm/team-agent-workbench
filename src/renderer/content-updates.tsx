@@ -12,7 +12,7 @@ const changeInfo = {
   updated: { label: '更新成果', detail: '已有内容发布了新修订', icon: Pencil },
   deleted: { label: '团队成果已删除', detail: '团队成果正文已删除，已保存的个人副本保留', icon: Trash2 },
   merged: { label: '合并成果', detail: '多条来源已融合为统一结果', icon: Combine },
-  files_missing: { label: '关联文件缺失', detail: '成果仍有登记，部分关联文件已缺失', icon: AlertTriangle },
+  files_missing: { label: '关联文件缺失', detail: '成果还在，部分关联文件已缺失', icon: AlertTriangle },
   files_restored: { label: '关联文件恢复', detail: '关联文件已恢复可访问', icon: Check },
   superseded: { label: '成果被替代', detail: '原文仍可在团队历史中查看', icon: Archive }
 } as const;

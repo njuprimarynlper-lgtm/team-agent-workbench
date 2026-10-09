@@ -248,6 +248,7 @@ export class SftpConnection {
   }
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_lifecycle', change: input }); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.request({ op: 'edit_content', projectId: binding.project.id, change }, binding) as Promise<SharedContent | undefined>; }
+  contentReap(binding: RemoteBinding) { return this.request({ op: 'reap_project_files', projectId: binding.project.id }, binding) as Promise<{ removed: number }>; }
   contentAdopt(binding: RemoteBinding, target: string) { return this.request({ op: 'adopt_content', projectId: binding.project.id, target }, binding); }
   async contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.request({ op: 'edit_content', projectId: binding.project.id, change, replacement: { extension: path.extname(file), sha256: await hashFile(file) } }, binding, file); }
   async projectBrief(binding: RemoteBinding) { const s = this.channel(binding); const data = await this.readLimited(s, childRemote(binding.project.remoteRoot, '.workbench-project.json'), 256 * 1024); const meta = JSON.parse(data.buffer.toString('utf8')); return { brief: meta.brief, revision: meta.briefRevision || 0, updatedAt: meta.briefUpdatedAt || meta.createdAt }; }
