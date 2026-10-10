@@ -1,15 +1,26 @@
 """Build an offline, self-contained task-oriented HTML manual from Markdown."""
 from pathlib import Path
-import re, json, html, base64
+import re, json, html, base64, subprocess, argparse, sys
 from urllib.parse import unquote
-from manual_meta import RELATED, read_meta
+from manual_meta import RELATED, read_meta as read_source_meta
+from dataclasses import replace
+from datetime import datetime
+from functools import lru_cache
+from handbook_paths import document_paths
+from handbook_notes import editorial_notes, render_notes
+from handbook_screenshots import screenshot_caption
 
 ROOT=Path(__file__).resolve().parents[1]
+@lru_cache(maxsize=1)
+def read_meta():
+ commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
+ return replace(read_source_meta(),commit=commit,date=datetime.now().strftime('%Y 年 %m 月 %d 日'))
 DOCS=ROOT/'docs'
 WEB=DOCS/'handbook'
 STRUCTURE=json.loads((WEB/'structure.json').read_text(encoding='utf-8'))
 DISPLAY_TITLES=STRUCTURE['titles']
 DESTINATION_TITLES={}
+EGRESS_PATH_TITLE='通过管理端访问模型服务的路径'
 RELATED_FRAGMENT_TARGETS={}
 PAGE_ORDER=[page for group in STRUCTURE['groups'] for page in group['pages']]
 if len(PAGE_ORDER)!=len(set(PAGE_ORDER)):
@@ -42,6 +53,14 @@ def inline(text):
   elif token.startswith('`'): result.append('<code>'+html.escape(token[1:-1])+'</code>')
   else: result.append(html.escape(token))
  return ''.join(result)
+
+def scenario_inline(text):
+ # Chapter references are links; quotes around actual interface labels remain.
+ for target in PAGE_ORDER:
+  title=DESTINATION_TITLES.get(target)
+  if title:
+   text=re.sub(r'(继续阅读|阅读|参考|按|见)“'+re.escape(title)+'”',lambda match:match[1]+'['+title+'](#'+target+')',text)
+ return inline(text)
 
 def list_item(raw):
  match=re.match(r'^(\s*)(\d+\.|[-*])\s+(.+)$',raw)
@@ -93,7 +112,8 @@ def render(lines,prefix=''):
   img=re.fullmatch(r'!\[([^\]]*)\]\(([^)]+)\)',line)
   if img:
    path=DOCS/img[2]; data=base64.b64encode(path.read_bytes()).decode('ascii')
-   output.append(f'<figure><button class="zoom-image" type="button" aria-label="放大查看{html.escape(img[1])}"><img src="data:image/png;base64,{data}" alt="{html.escape(img[1])}" loading="lazy"><span>点击放大</span></button></figure>'); continue
+   caption=screenshot_caption(path.name) if path.parent.name=='ui-screens' else ''
+   output.append(f'<figure><button class="zoom-image" type="button" aria-label="放大查看{html.escape(img[1])}"><img src="data:image/png;base64,{data}" alt="{html.escape(img[1])}" loading="lazy"><span>点击放大</span></button>{caption}</figure>'); continue
   if line.startswith('|'):
    rows=[]
    while True:
@@ -113,6 +133,8 @@ def render(lines,prefix=''):
    output.append(render_list_block(rows));continue
   if line.startswith('# '): continue
   source.append(line)
+  if line.startswith('注：'):
+   output.append(render_notes([line[2:]], inline)); continue
   cls=' class="figure-caption"' if re.match(r'^图 \d+ ',line) else ' class="next-actions"' if line.startswith('**接下来可以做') else ''
   output.append(f'<p{cls}>'+inline(line)+'</p>')
  flush_section()
@@ -124,6 +146,20 @@ def internal_link(target):
 
 def heading(identifier,title,level='h2'):
  return f'<{level} id="{html.escape(identifier,quote=True)}" tabindex="-1">{html.escape(title)}<a class="heading-link" href="#{html.escape(identifier,quote=True)}" aria-label="定位到{html.escape(title,quote=True)}">#</a></{level}>'
+
+def beta_features_page():
+ title='Beta 功能'
+ sections=[
+  ('beta-open','开启跨会话引用','用户版顶部点击 Beta 功能，开启“跨会话引用阶段摘要”。开关按当前团队账号保存在本机，默认关闭。'),
+  ('beta-use','引用另一段会话的摘要','先在来源会话的“AI 参考内容 → 查看阶段摘要”核对或更正摘要。打开同一项目的目标会话，在输入区点击“引用会话摘要”，预览后点击“加入当前会话”。确认参考资料已选中，填写本轮要求并发送。'),
+  ('beta-scope','使用范围与共享','只能引用同一团队账号、同一项目在本机保存的其他工作会话。加入摘要后不会立即发送给 AI；发送下一条消息时才会带入。摘要不自动同步给团队，也不作为团队成果上传。引用摘要会关闭目标会话的轨迹自动上传；如需共享轨迹，请先核对并手动上传。'),
+  ('beta-close','关闭 Beta 功能','回到顶部“Beta 功能”关闭开关。关闭后隐藏新增引用入口，已加入会话的摘要仍保留；发送前可从输入区参考资料中移除。')]
+ body='<p class="read-first">试用功能统一从用户版顶部的“Beta 功能”进入。当前提供“跨会话引用阶段摘要”，用于把自己在同一项目的工作进展带入另一段会话。</p>'
+ body+=''.join(heading(identifier,name)+'<p>'+html.escape(description)+'</p>' for identifier,name,description in sections)
+ return {'id':'beta-features','title':title,'group':GROUPS['beta-features'],'html':body,
+         'headings':[{'id':identifier,'title':name,'level':'h2'} for identifier,name,_ in sections],
+         'sections':[{'id':identifier,'title':name,'text':description} for identifier,name,description in sections],
+         'text':' '.join([title,*(description for _,_,description in sections)])}
 
 def quickstart_page(spec):
  steps=[]
@@ -148,7 +184,7 @@ def enrich_home(article):
  intro=(f'<p class="home-intro">{html.escape(config["intro"])}</p><div class="role-grid">'
         +''.join(cards)+'</div>'+heading('common-actions','常用操作')
         +f'<div class="quick-grid">{actions}</div>'
-        +f'<p class="read-first">软件安装、服务器准备与升级请进入{internal_link(config["deployment_target"])}。模型服务无法直连时，可从{internal_link("section-14-2")}开始。</p>'
+        +f'<p class="read-first">软件安装、服务器准备与升级请进入{internal_link(config["deployment_target"])}。个人网络账号无法与模型服务完整交互时，按{internal_link("gateway")}完成配置与验证。</p>'
         +heading('complete-task-index','按任务查找'))
  article['html']=intro+article['html']
  article['headings']=[{'id':'common-actions','title':'常用操作','level':'h2'},
@@ -158,19 +194,19 @@ def enrich_home(article):
 
 def enrich_gateway(article):
  path_id='egress-path'; cases_id='egress-scenarios'
- path_title='模型请求通过管理端的完整路径'; cases_title='查看完整使用场景'
- route=[('成员本机','用户版启动 Codex / Cursor CLI'),('本机代理','仅该 CLI 连接 127.0.0.1'),
-        ('管理员电脑','TLS 出口与接入码校验，默认端口 18443'),('管理员上游','直连 / HTTP CONNECT / SOCKS5'),
-        ('模型服务','Codex 或 Cursor 官方服务')]
- flow='<figure class="network-route" aria-label="成员通过管理端访问 Codex 和 Cursor 的模型请求路径"><figcaption>模型请求路径</figcaption><ol>'+''.join(f'<li><b>{html.escape(name)}</b><span>{html.escape(detail)}</span></li>' for name,detail in route)+'</ol><p><strong>团队资料路径：</strong>成员用户版 → SSH/SFTP → Linux 团队服务器。它不经过管理端模型出口。</p></figure>'
+ path_title=EGRESS_PATH_TITLE; cases_title='查看接入管理端的操作教程'
+ route=[('成员本机','用户版启动 Codex / Cursor / Claude Code CLI'),('连接管理端','直接连接，或经共享服务器 SSH 中转'),
+        ('管理端出口','校验证书与接入码，转发模型请求'),('管理端网络','使用具备模型服务访问权限的网络或代理账号'),
+        ('模型服务','所选工具的模型服务')]
+ flow='<figure class="network-route" aria-label="成员通过管理端网络与模型服务交互"><figcaption>模型请求的网络路径</figcaption><ol>'+''.join(f'<li><b>{html.escape(name)}</b><span>{html.escape(detail)}</span></li>' for name,detail in route)+'</ol><p><strong>经共享服务器中转：</strong>成员连接共享服务器的 SSH 入口，服务器沿管理端预先建立的反向隧道转发请求。成员和管理端都需保持服务器连接。</p><p><strong>团队成果与附件：</strong>成员用户版 → SSH/SFTP → Linux 团队服务器。</p></figure>'
  case_links='<ul>'+''.join(f'<li>{internal_link(case_id)}</li>' for case_id in STRUCTURE['egress_case_ids'])+'</ul>'
  supplement=(heading(path_id,path_title)
-             +'<p>总管理员负责开启并保持管理端出口运行；需要转发的成员在用户版填入接入码。只有工作台启动的模型 CLI 使用这条路径，浏览器和系统代理不变。</p>'
+             +'<p>总管理员确认管理端具备模型服务访问权限后，开启出口并交付接入码。成员在用户版应用接入码，本次会话通过管理端网络与模型服务交互。</p>'
              +flow
-             +'<p>成员继续使用自己的 Codex 或 Cursor 账号和额度。管理端只转发模型连接，不共享模型账号；项目、任务和文件仍按成员自己的 SSH 身份访问团队服务器。</p>'
-             +f'<p class="route-role">操作入口：总管理员看{internal_link("section-14-1")}；成员看{internal_link("section-14-2")}；部署细节看{internal_link("egress-reference")}。</p>'
+             +'<p>此路径用于工作台启动的 Codex、Cursor 或 Claude Code CLI。成员使用自己的模型账号，模型服务按对应账号和服务规则处理请求。</p>'
+             +f'<p class="route-role">操作入口：总管理员看{internal_link("section-14-1")}；项目组管理员和项目组成员看{internal_link("section-14-2")}；部署细节看{internal_link("egress-reference")}。</p>'
              +heading(cases_id,cases_title)
-             +'<p>本机能直连模型时保持出口关闭；不能直连而能访问管理员电脑时，按下面的 A/B 场景核对两条网络路径和角色操作。上游代理配置与连接故障排查见本页后续小节。</p>'
+             +'<p>项目组成员 B 的个人网络账号没有与模型服务完整交互的权限。总管理员提供网络通路，B 使用接入码连接管理端并开展 AI 工作。</p>'
              +case_links)
  marker='<h2 id="section-14-1"'
  if marker not in article['html']: raise ValueError('Gateway insertion point changed')
@@ -181,61 +217,87 @@ def enrich_gateway(article):
                       {'id':cases_id,'title':cases_title,'text':' '.join(DESTINATION_TITLES[case_id] for case_id in STRUCTURE['egress_case_ids'])},*article['sections']]
  article['text']+=' '+path_title+' '+cases_title
 
-def case_diagram(spec):
+def case_diagram(spec, identifier=None):
  lanes=[]
  for lane in spec['lanes']:
   nodes=''.join(f'<li>{html.escape(node)}</li>' for node in lane['nodes'])
   lanes.append(f'<div class="case-diagram-lane"><strong>{html.escape(lane["label"])}</strong><ol>{nodes}</ol></div>')
- return f'<figure class="case-diagram"><figcaption>{html.escape(spec["caption"])}</figcaption>'+''.join(lanes)+'</figure>'
+ context=f' data-scenario="{html.escape(identifier,quote=True)}"' if identifier else ''
+ return f'<figure class="case-diagram"{context}><figcaption>{html.escape(spec["caption"])}</figcaption>'+''.join(lanes)+'</figure>'
 
 def actor_table(actors):
  rows=''.join(f'<tr><td>{html.escape(actor["name"])}</td><td>{html.escape(actor["role"])}</td></tr>' for actor in actors)
  return '<div class="table-scroll cols-2" tabindex="0"><table><thead><tr><th scope="col">参与者</th><th scope="col">在此场景中的职责</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
 
 def bullet_list(items):
- return '<ul>'+''.join(f'<li>{html.escape(item)}</li>' for item in items)+'</ul>'
+ return '<ul>'+''.join(f'<li>{scenario_inline(item)}</li>' for item in items)+'</ul>'
+
+def comparison_table(spec):
+ columns=spec['columns'];rows=spec['rows']
+ if any(len(row)!=len(columns) for row in rows): raise ValueError('Comparison table column count differs')
+ widths=spec.get('column_widths',[])
+ if widths and (len(widths)!=len(columns) or sum(widths)!=100): raise ValueError('Comparison table widths must sum to 100')
+ colgroup='<colgroup>'+''.join(f'<col style="width:{int(width)}%">' for width in widths)+'</colgroup>' if widths else ''
+ return f'<div class="table-scroll cols-{len(columns)}" tabindex="0"><span class="table-hint">左右滑动查看完整表格 →</span><table>'+colgroup+'<thead><tr>'+''.join(f'<th scope="col">{scenario_inline(column)}</th>' for column in columns)+'</tr></thead><tbody>'+''.join('<tr>'+''.join(f'<td>{scenario_inline(cell)}</td>' for cell in row)+'</tr>' for row in rows)+'</tbody></table></div>'
 
 def use_case_page(case):
- steps=''.join(f'<li><strong>{html.escape(step["label"])}</strong><p>{html.escape(step["detail"])}</p></li>' for step in case['steps'])
- sections=[('roles','参与者与前提'),('steps','操作路径'),('done','完成标志'),('boundaries','关键边界'),('links','对应说明')]
- body=(f'<p class="home-intro">{html.escape(case["situation"])}</p>'
-       +case_diagram(case['diagram'])
+ done=case.get('done',[])
+ boundaries=case.get('boundaries',[])
+ steps=''.join(f'<li><strong>{html.escape(step["label"])}</strong><p>{scenario_inline(step["detail"])}</p>'+render_notes(step.get('notes',[]),scenario_inline)+'</li>' for step in case['steps'])
+ steps_title=case.get('steps_title','操作步骤')
+ choices=case.get('connection_choices')
+ choices_html=(f'<p>{scenario_inline(choices["intro"])}</p>'+comparison_table(choices)+render_notes(choices.get('notes',[]),scenario_inline)) if choices else ''
+ choices_text=' '.join([choices['intro'],*choices['columns'],*(cell for row in choices['rows'] for cell in row),*choices.get('notes',[])]) if choices else ''
+ sections=[('scene','使用场景'),('roles','参与者与前提'),('steps',steps_title)]+([('done','完成标志')] if done else [])+([('boundaries','补充说明')] if boundaries else [])
+ supplements=[];supplement_headings=[];supplement_sections=[]
+ for supplement in case.get('supplements',[]):
+  identifier=supplement['id'];title=supplement['title']
+  supplement_steps=''.join(f'<li><strong>{html.escape(step["label"])}</strong><p>{scenario_inline(step["detail"])}</p>'+render_notes(step.get('notes',[]),scenario_inline)+'</li>' for step in supplement['steps'])
+  supplements.append(heading(identifier,title)+f'<p>{scenario_inline(supplement["intro"])}</p>'+render_notes(supplement.get('notes',[]),scenario_inline)+case_diagram(supplement['diagram'],identifier)+f'<ol class="case-steps">{supplement_steps}</ol>')
+  supplement_headings.append({'id':identifier,'title':title,'level':'h2'})
+  supplement_sections.append({'id':identifier,'title':title,'text':plain(' '.join([supplement['intro'],*supplement.get('notes',[]),*(step['label']+' '+step['detail']+' '+' '.join([*step.get('actions',[]),*step.get('notes',[])]) for step in supplement['steps'])]))})
+ body=(heading(case['id']+'-scene','使用场景')+f'<p class="home-intro">{html.escape(case["situation"])}</p>'
        +heading(case['id']+'-roles','参与者与前提')+actor_table(case['actors'])+bullet_list(case['prerequisites'])
-       +heading(case['id']+'-steps','操作路径')+f'<ol class="case-steps">{steps}</ol>'
-       +heading(case['id']+'-done','完成标志')+bullet_list(case['done'])
-       +heading(case['id']+'-boundaries','关键边界')+bullet_list(case['boundaries'])
-       +heading(case['id']+'-links','对应说明')
-       +'<p class="next-actions">'+' · '.join(internal_link(target) for target in case['targets'])+'</p>')
+       +render_notes(case.get('notes',[]),scenario_inline)
+       +('<p class="next-actions">准备步骤：'+' · '.join(internal_link(target) for target in case['prerequisite_targets'])+'</p>' if case.get('prerequisite_targets') else '')
+       +heading(case['id']+'-steps',steps_title)+choices_html+(f'<p>{scenario_inline(case["steps_intro"])}</p>' if case.get('steps_intro') else '')+case_diagram(case['diagram'],case['id'])+f'<ol class="case-steps">{steps}</ol>'
+       +''.join(f'<p>{scenario_inline(paragraph)}</p>' for paragraph in case.get('steps_after',[]))
+       +(heading(case['id']+'-done','完成标志')+bullet_list(done) if done else '')
+       +''.join(supplements)
+       +(heading(case['id']+'-boundaries','补充说明')+render_notes(boundaries,scenario_inline) if boundaries else ''))
  diagram_text=' '.join([case['diagram']['caption'],*(lane['label']+' '+' '.join(lane['nodes']) for lane in case['diagram']['lanes'])])
- sections_text=[('roles',' '.join(actor['name']+' '+actor['role'] for actor in case['actors'])+' '+' '.join(case['prerequisites'])),
-                ('steps',' '.join(step['label']+' '+step['detail'] for step in case['steps'])),
-                ('done',' '.join(case['done'])),('boundaries',' '.join(case['boundaries'])),
-                ('links',' '.join(DESTINATION_TITLES[target] for target in case['targets']))]
+ sections_text=[('scene',case['situation']),
+                ('roles',' '.join(actor['name']+' '+actor['role'] for actor in case['actors'])+' '+' '.join([*case['prerequisites'],*case.get('notes',[])])),
+                ('steps',' '.join([choices_text,case.get('steps_intro',''),*(step['label']+' '+step['detail']+' '+' '.join(step.get('notes',[])) for step in case['steps']),*case.get('steps_after',[])])),
+                ('done',' '.join(done)),('boundaries',' '.join(boundaries))]
+ sections_text=[(identifier,plain(content)) for identifier,content in sections_text if identifier in dict(sections)]
+ headings=[{'id':case['id']+'-'+suffix,'title':title,'level':'h2'} for suffix,title in sections if suffix!='boundaries']+supplement_headings
+ search_sections=[{'id':case['id']+'-'+suffix,'title':dict(sections)[suffix],'text':content} for suffix,content in sections_text if suffix!='boundaries']+supplement_sections
+ if boundaries:
+  headings.append({'id':case['id']+'-boundaries','title':'补充说明','level':'h2'})
+  search_sections.append({'id':case['id']+'-boundaries','title':'补充说明','text':plain(' '.join(boundaries))})
  return {'id':case['id'],'title':case['title'],'group':GROUPS[case['id']],
          'html':body,
-         'headings':[{'id':case['id']+'-'+suffix,'title':title,'level':'h2'} for suffix,title in sections],
-         'sections':[{'id':case['id']+'-'+suffix,'title':dict(sections)[suffix],'text':content} for suffix,content in sections_text],
-         'text':' '.join([case['situation'],diagram_text,*(content for _,content in sections_text)])}
+         'headings':headings,
+         'sections':search_sections,
+         'text':' '.join([diagram_text,*(content for _,content in sections_text),*(section['text'] for section in supplement_sections)])}
 
 def enrich_algorithm_example(article):
  spec=STRUCTURE['example_details']
- roles_id='example-roles';walk_id='example-walkthrough';checks_id='example-checks'
- original=article['html'];marker='<p class="next-actions"';at=original.rfind(marker)
- if at<0: raise ValueError('Example closing links changed')
- main,tail=original[:at],original[at:]
- article['html']=(f'<p class="home-intro">{html.escape(spec["summary"])}</p>'
-                  +case_diagram(spec['diagram'])
+ scene_id='example-scene';roles_id='example-roles';walk_id='example-walkthrough';checks_id='example-checks'
+ article['html']=(heading(scene_id,'使用场景')+f'<p class="home-intro">{html.escape(spec["summary"])}</p>'
                   +heading(roles_id,'参与者与共同目标')+actor_table(spec['actors'])
-                  +heading(walk_id,'逐轮协作过程')+main
+                  +heading(walk_id,'逐轮协作过程')+case_diagram(spec['diagram'])
                   +heading(checks_id,'完成时核对')+bullet_list(spec['checks'])
-                  +'<p class="related-note">对应操作：'+' · '.join(internal_link(target) for target in spec['targets'])+'</p>'
-                  +tail)
+                  +'<p class="related-note">对应操作：'+' · '.join(internal_link(target) for target in spec['targets'])+'</p>')
  article['headings']=[{'id':identifier,'title':title,'level':'h2'} for identifier,title in
-                      [(roles_id,'参与者与共同目标'),(walk_id,'逐轮协作过程'),(checks_id,'完成时核对')]]
- article['sections']=[{'id':roles_id,'title':'参与者与共同目标','text':spec['summary']+' '+' '.join(actor['name']+' '+actor['role'] for actor in spec['actors'])},
-                      {'id':walk_id,'title':'逐轮协作过程','text':article['text']},
+                      [(scene_id,'使用场景'),(roles_id,'参与者与共同目标'),(walk_id,'逐轮协作过程'),(checks_id,'完成时核对')]]
+ roles_text=' '.join(actor['name']+' '+actor['role'] for actor in spec['actors'])
+ article['sections']=[{'id':scene_id,'title':'使用场景','text':spec['summary']},
+                      {'id':roles_id,'title':'参与者与共同目标','text':roles_text},
+                      {'id':walk_id,'title':'逐轮协作过程','text':''},
                       {'id':checks_id,'title':'完成时核对','text':' '.join(spec['checks'])}]
- article['text']+=' '+spec['summary']+' '+' '.join(spec['checks'])
+ article['text']=' '.join([spec['summary'],roles_text,*spec['checks'],*(DESTINATION_TITLES[target] for target in spec['targets'])])
 
 def add_related(article,lead,targets):
  note=f'<p class="related-note">{html.escape(lead)}'+ ' · '.join(internal_link(target) for target in targets)+'</p>'
@@ -245,11 +307,18 @@ def add_related(article,lead,targets):
  else: article['html']+=note
  article['text']+=' '+lead+' '+' '.join(DESTINATION_TITLES[target] for target in targets)
 
-def main():
+def main(capture_ui=True):
  DESTINATION_TITLES.clear();RELATED_FRAGMENT_TARGETS.clear()
- source=(DOCS/'user-guide.md').read_text(encoding='utf-8')
+ subprocess.run([sys.executable,str(ROOT/'scripts/build-manual-diagrams.py'),'--handbook-roles'],cwd=ROOT,check=True)
+ if capture_ui:
+  subprocess.run(['node',str(ROOT/'scripts/render_handbook_ui_screens.mjs')],cwd=ROOT,check=True)
+ source=editorial_notes(document_paths((DOCS/'user-guide.md').read_text(encoding='utf-8')))
+ for image_name in ['admin-users','admin-groups','admin-storage']:
+  source=source.replace('images/user-manual/'+image_name+'.png','handbook/ui-screens/'+image_name+'.png')
  # Keep link sentences readable after the HTML view displays destination titles.
  html_only_edits={
+  '全新共享空间先按界面初始化；已有团队使用现有配置，不重新初始化。':'首次启用团队服务器，请按[首次启用团队空间](#case-team-setup)完成连接、环境检查和初始化。已有团队使用原服务器地址和团队根路径连接。',
+  '团队页默认仅展示与当前账号个人库有差异的成果；组管理员勾选**包含个人库已有成果**可查看全部团队原件。该选项只改变列表范围，不编辑或导入内容。团队表示项目成员共享，不按“未操作 / 已操作”或“待整理 / 已整理”分组；针对对话的整理任务在左侧**成果整理**中查看。':'团队页默认展示与当前账号个人库有差异的成果。组管理员勾选**包含个人库已有成果**可查看全部团队原件。会话产生的整理任务在左侧**成果整理**中查看。',
   '可按[管理端网络出口](#gateway)的步骤接入管理员提供的转发通路':'接入管理员转发通路的做法见[管理端网络出口](#gateway)',
   '确需借用管理端出口时，按[用户端接入步骤](#section-14-2)填写接入码。':'确需借用管理端出口时，填写接入码的方法见[用户端接入](#section-14-2)。',
   '普通文件和轨迹可[单独上传](#files)':'普通文件和轨迹的操作见[单独上传](#files)',
@@ -261,12 +330,15 @@ def main():
   DESTINATION_TITLES[identifier]=DISPLAY_TITLES.get(identifier,title)
  for _,(identifier,title) in RELATED.items(): DESTINATION_TITLES[identifier]=DISPLAY_TITLES.get(identifier,title)
  for spec in STRUCTURE['quickstarts']: DESTINATION_TITLES[spec['id']]=spec['title']
- for case in STRUCTURE['use_cases']: DESTINATION_TITLES[case['id']]=case['title']
+ for case in STRUCTURE['use_cases']:
+  DESTINATION_TITLES[case['id']]=case['title']
+  for supplement in case.get('supplements',[]): DESTINATION_TITLES[supplement['id']]=supplement['title']
+ DESTINATION_TITLES['beta-features']='Beta 功能'
  DESTINATION_TITLES.update({'common-actions':'常用操作','complete-task-index':'按任务查找',
-                            'egress-path':'模型请求通过管理端的完整路径',
-                            'egress-scenarios':'查看完整使用场景'})
+                            'egress-path':EGRESS_PATH_TITLE,
+                            'egress-scenarios':'查看接入管理端的操作教程'})
  for filename,(identifier,_) in RELATED.items():
-  raw=(DOCS/filename).read_text(encoding='utf-8'); pending=None; number=0
+  raw=editorial_notes(document_paths((DOCS/filename).read_text(encoding='utf-8'))); pending=None; number=0
   for line in raw.splitlines():
    anchor=re.fullmatch(r'<a id="([^"]+)"></a>',line.strip())
    if anchor: pending=anchor[1]; continue
@@ -284,24 +356,28 @@ def main():
   body,headings,sections=render(source[m.end():end].splitlines())
   articles.append({'id':identifier,'title':title,'group':GROUPS[identifier],'html':body,'headings':headings,'sections':sections,'text':plain(source[m.end():end])})
  for filename,(identifier,title) in RELATED.items():
-  raw=(DOCS/filename).read_text(encoding='utf-8'); body,headings,sections=render(raw.splitlines(),identifier+'-')
+  raw=editorial_notes(document_paths((DOCS/filename).read_text(encoding='utf-8'))); body,headings,sections=render(raw.splitlines(),identifier+'-')
   articles.append({'id':identifier,'title':DESTINATION_TITLES[identifier],'group':GROUPS[identifier],'html':body,'headings':headings,'sections':sections,'text':plain(raw)})
  articles.extend(quickstart_page(spec) for spec in STRUCTURE['quickstarts'])
  articles.extend(use_case_page(spec) for spec in STRUCTURE['use_cases'])
+ articles.append(beta_features_page())
  article_by_id={article['id']:article for article in articles}
  if len(article_by_id)!=len(articles): raise ValueError('Duplicate handbook page ID')
  if set(article_by_id)!=set(PAGE_ORDER):
   raise ValueError(f'Handbook structure mismatch: missing={set(article_by_id)-set(PAGE_ORDER)}, extra={set(PAGE_ORDER)-set(article_by_id)}')
  enrich_home(article_by_id['start'])
+ add_related(article_by_id['sessions'],'跨会话引用的开关和操作：',['beta-features'])
  enrich_algorithm_example(article_by_id['example'])
  enrich_gateway(article_by_id['gateway'])
  article_by_id['deployment']['html']=(
-  '<p class="read-first">部署时分开核对两条连接：团队项目和文件由成员用户版通过 SSH/SFTP 访问 Linux 服务器；模型请求由成员自己的 Codex 或 Cursor CLI 发出。成员不能直连模型时，按'
-  +internal_link('egress-path')+'经管理员电脑转发，并用'+internal_link('case-egress-mixed')+'核对实际场景。</p>'
+  '<p class="read-first">团队项目和成果通过 SSH/SFTP 访问 Linux 服务器。个人网络账号无法与模型服务完整交互时，成员可按'
+  +internal_link('egress-path')+'接入具备相应权限的管理端网络。完整操作见'+internal_link('case-egress-mixed')+'。</p>'
   +article_by_id['deployment']['html'])
- article_by_id['deployment']['text']+=' 团队 SSH/SFTP 通路与模型网络出口独立 管理端转发 Codex Cursor'
+ article_by_id['deployment']['text']+=' 团队 SSH/SFTP 共享服务器中转 管理端反向隧道 Codex Cursor'
  add_related(article_by_id['conclusions'],'成果分类的设置与使用细节：',['classification-reference-topic-1'])
  add_related(article_by_id['tasks'],'任务入口及文件的详细边界：',['classification-reference-topic-5','classification-reference-topic-6'])
+ add_related(article_by_id['people'],'首次启用团队服务器，按界面完成：',['case-team-setup'])
+ add_related(article_by_id['deployment'],'首次部署操作示例：',['case-team-setup'])
  add_related(article_by_id['egress-reference'],'按界面操作：',['section-14-1','section-14-2'])
  articles=[article_by_id[identifier] for identifier in PAGE_ORDER]
  all_targets=[identifier for article in articles for identifier in [article['id'],*(h['id'] for h in article['headings'])]]
@@ -330,7 +406,11 @@ def main():
  (WEB/'index.html').write_text(output,encoding='utf-8')
  # Preserve the interface walkthroughs whenever the handbook is rebuilt.
  from handbook_ui_scenarios import enhance_html
- enhance_html(WEB/'index.html')
+ enhance_html(WEB/'index.html',capture_ui=False)
  print(f'Built {len(articles)} topics, {sum(len(a["sections"]) for a in articles)} sections; {len(output.encode())} bytes. No external runtime dependencies.')
 
-if __name__=='__main__': main()
+if __name__=='__main__':
+ parser=argparse.ArgumentParser(description=__doc__)
+ parser.add_argument('--reuse-screens',action='store_true',help='Reuse reviewed screenshots for text and layout edits.')
+ args=parser.parse_args()
+ main(capture_ui=not args.reuse_screens)

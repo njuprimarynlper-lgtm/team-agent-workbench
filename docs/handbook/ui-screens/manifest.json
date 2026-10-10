@@ -1,4 +1,3533 @@
 {
-  "digest": "45f09e3397f686a7ed9ceccc94593e6b8c7f7f37d906a43653c85eef12f46b54",
-  "count": 34
+  "digest": null,
+  "count": 64,
+  "renderer": "production-react",
+  "path_display": "relative-with-directory-placeholders",
+  "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "fixtures": "scripts/handbook-ui-fixture.mjs",
+  "captures": [
+    {
+      "file": "case-team-setup-01-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 管理员服务器连接",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "填写团队 Linux 服务器的地址，并核对 SSH 端口。",
+            "box": {
+              "x": 466,
+              "y": 343,
+              "width": 246,
+              "height": 38
+            },
+            "badge": {
+              "x": 435,
+              "y": 340,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "使用服务器已有的管理账号；sudo 账号按提示填写 sudo 密码。",
+            "box": {
+              "x": 466,
+              "y": 422,
+              "width": 508,
+              "height": 38
+            },
+            "badge": {
+              "x": 435,
+              "y": 419,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "团队目录保存账号、工作组、项目资料、任务、成果及附件。首次初始化使用专用空目录。",
+            "box": {
+              "x": 466,
+              "y": 659,
+              "width": 508,
+              "height": 38
+            },
+            "badge": {
+              "x": 435,
+              "y": 656,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 4,
+            "text": "点击后验证服务器连接与管理权限；首次连接按提示确认服务器身份。",
+            "box": {
+              "x": 861,
+              "y": 807,
+              "width": 114,
+              "height": 36
+            },
+            "badge": {
+              "x": 858,
+              "y": 776,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "b4f9205148b10b9e9a326128ff75305afb472feb0e0768dd83a558a11b1004bf",
+      "image_sha256": "1b6447648a0212c643ded52c70ec79d4a4d7149aafc32d7fcf17307f9e92bfba",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-team-setup-01-2.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 环境检查",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "这里列出服务器环境问题；按下方具体检查结果处理。",
+            "box": {
+              "x": 287,
+              "y": 139,
+              "width": 497.453125,
+              "height": 15
+            },
+            "badge": {
+              "x": 256,
+              "y": 136,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击查看在线或离线修复方式，进入下一张图。",
+            "box": {
+              "x": 386,
+              "y": 219.390625,
+              "width": 119,
+              "height": 33.796875
+            },
+            "badge": {
+              "x": 510,
+              "y": 216.390625,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "7f1f6fe6ede9dff9215fba5899d84b3ad5cb4df334180f965abb4ecbeeef8169",
+      "image_sha256": "5c79d82ba238a5bdc3215897e70b4d109e1e9757c59f98dba90f213b62fd8c12",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-team-setup-02-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 修复远端服务器环境 › 选择安装方式",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "选择缺失组件的安装方式。本例从服务器的软件源下载 ACL 等组件；离线方式使用事先放在服务器上的组件安装包。",
+            "box": {
+              "x": 466,
+              "y": 544.8125,
+              "width": 508,
+              "height": 40
+            },
+            "badge": {
+              "x": 435,
+              "y": 541.8125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击后，管理端通过 SSH 在当前服务器补装缺失组件，再检查工作台的运行条件。",
+            "box": {
+              "x": 849,
+              "y": 742.5625,
+              "width": 126,
+              "height": 36
+            },
+            "badge": {
+              "x": 846,
+              "y": 711.5625,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "ca2bf14d36d9362cb34a57d6c9088348ea7cf5619ec0976e87af9e02d3b27ebe",
+      "image_sha256": "7146596c3403d4c037cdec2ff615725ba5201deac1d6543626d5513cca0b0718",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-team-setup-03-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 首次初始化入口",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对显示的初始化目录，确认它是为本团队准备的空目录。",
+            "box": {
+              "x": 325,
+              "y": 247.59375,
+              "width": 952,
+              "height": 18
+            },
+            "badge": {
+              "x": 294,
+              "y": 244.59375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击打开初始化确认窗口。",
+            "box": {
+              "x": 1289,
+              "y": 231.296875,
+              "width": 97,
+              "height": 29
+            },
+            "badge": {
+              "x": 1258,
+              "y": 228.296875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "c591a2aac623e612b829375427fcd875bb3c2dcc2cf7652eef72388bb75f84d5",
+      "image_sha256": "d7942b0c6c92d09aec303d2964dea508ec17aab1175ce4e3993909ffd43dcc07",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-team-setup-03-2.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 初始化团队空间 › 核对服务器与团队目录",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "root 为管理账号，team.example.internal 为服务器地址。",
+            "box": {
+              "x": 466,
+              "y": 444.5,
+              "width": 508,
+              "height": 40
+            },
+            "badge": {
+              "x": 435,
+              "y": 441.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "〈团队根目录〉应与连接时填写的“团队根路径”一致。",
+            "box": {
+              "x": 483.84375,
+              "y": 506.5,
+              "width": 98,
+              "height": 17
+            },
+            "badge": {
+              "x": 480.84375,
+              "y": 475.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "确认服务器和目录无误后执行初始化。",
+            "box": {
+              "x": 897,
+              "y": 600.5,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 894,
+              "y": 569.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "c5b16c38bcf7a4b6ee4b8caa8d10b283800bf46913a533571d71393a5aeed643",
+      "image_sha256": "ad3572b3a2cae007e8b2c120afdf0e09bae8642f926b61866d26f0186c8cf01f",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-team-setup-04-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 初始化完成",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "首次初始化后，成员和工作组待创建，三个统计数字均为 0。",
+            "box": {
+              "x": 274,
+              "y": 264,
+              "width": 1128,
+              "height": 107
+            },
+            "badge": {
+              "x": 243,
+              "y": 261,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击右上角入口，打开工作组名称填写窗口。",
+            "box": {
+              "x": 1286,
+              "y": 183,
+              "width": 116,
+              "height": 39
+            },
+            "badge": {
+              "x": 1283,
+              "y": 152,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "50642ae661c6ee69e949c391f1763746daca79d2f34253be4310a4dd6be61eac",
+      "image_sha256": "c53e86a48d0d2cc161930d9f92831e92b17d9ed12e4dea602e6a592840d40fad",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-01-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "我的工作组 › 量化转换项目 › 项目资料",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "填写本轮共同目标，并在下方验收标准中明确需要保留的证据。",
+            "box": {
+              "x": 356,
+              "y": 384.984375,
+              "width": 728,
+              "height": 81.390625
+            },
+            "badge": {
+              "x": 325,
+              "y": 381.984375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "保存后生成新的项目资料版本，成员刷新后可查看。",
+            "box": {
+              "x": 995,
+              "y": 900,
+              "width": 90,
+              "height": 36
+            },
+            "badge": {
+              "x": 992,
+              "y": 869,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "069239e19cfe26902e19f53f81578c27b8616a9a2086777e24c4a3b7294fb2c4",
+      "image_sha256": "93410b8d0ef902b53c5ba59483d279ec66c33fd74db9aad0615a5954adaf8e3f",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-03-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 格式 A 验证 › 发起成果整理",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "先核对会话中的验证结果及对应的测试记录，再开始整理。",
+            "box": {
+              "x": 405.5,
+              "y": 265.6875,
+              "width": 950,
+              "height": 187.75
+            },
+            "badge": {
+              "x": 374.5,
+              "y": 262.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击会话右上角的“整理成果”，选择要整理的方面。",
+            "box": {
+              "x": 1303,
+              "y": 66,
+              "width": 85,
+              "height": 29
+            },
+            "badge": {
+              "x": 1300,
+              "y": 35,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "16ddba654d91d6b8f0a5575e89955c830d738d135b8b7cd036cdb90e1dccd213",
+      "image_sha256": "1c131d139e57216838d97320bec8d0e80e10a7f9ea590edff64eb30d88d0d40b",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-03-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 整理选项",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "确认来源为“格式 A 验证”，本次整理读取这段会话。",
+            "box": {
+              "x": 196,
+              "y": 323.65625,
+              "width": 1048,
+              "height": 17
+            },
+            "badge": {
+              "x": 1249,
+              "y": 320.65625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "本例只选“探索记录”，保留本轮实验的观察、依据和适用范围。",
+            "box": {
+              "x": 215,
+              "y": 408.65625,
+              "width": 1010,
+              "height": 201
+            },
+            "badge": {
+              "x": 184,
+              "y": 405.65625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "点击后等待整理完成，再打开生成的成果核对内容。",
+            "box": {
+              "x": 1143,
+              "y": 720.34375,
+              "width": 102,
+              "height": 36
+            },
+            "badge": {
+              "x": 1140,
+              "y": 689.34375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "28c4fd05b12f05ac17b2b911b331860c3d677ba2ad401badc22381bbf7b8e988",
+      "image_sha256": "e2c434e4b929eb1ebd70189879dc45430ae6547df56347a68c6af11df6f72c73",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-04-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "成果整理 › 格式 A 验证结论",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对整理出的验证结论，补全输入、设备、代码版本和限制，再勾选要分享的成果。",
+            "box": {
+              "x": 372,
+              "y": 218.6875,
+              "width": 1032,
+              "height": 644.171875
+            },
+            "badge": {
+              "x": 341,
+              "y": 215.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击后开始上传。上传完成并同步后，Bob 才会在团队动态看到这项成果。",
+            "box": {
+              "x": 1240.703125,
+              "y": 935,
+              "width": 163.296875,
+              "height": 36
+            },
+            "badge": {
+              "x": 1237.703125,
+              "y": 904,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "ace07c601046e35eb00528bea91a48994ba90ced61ffffba77117022d6d8602d",
+      "image_sha256": "5ab8836f8a1ef9031e48e2a6ad6c7ee88d5bcecb0b3965edf7c098503db4c6c7",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-04-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "团队动态 › 待处理",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "同步或刷新后，核对 Alice 上传的成果标题和版本。",
+            "box": {
+              "x": 449,
+              "y": 269.6875,
+              "width": 788,
+              "height": 96
+            },
+            "badge": {
+              "x": 418,
+              "y": 266.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "打开这一条动态对应的成果详情。",
+            "box": {
+              "x": 1251,
+              "y": 284.1875,
+              "width": 134,
+              "height": 29
+            },
+            "badge": {
+              "x": 1248,
+              "y": 253.1875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "5a0d16bd48e16a5e4b02a2ab3d50c1e76391982aae60c72ced20f17ef068a2ec",
+      "image_sha256": "5b1bf21af3dd48abb489bb2855f65d315177d44215578a61eca04960bb8996eb",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-05-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 格式 A 验证结论",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "展开查看这份个人副本的来源与版本。",
+            "box": {
+              "x": 391,
+              "y": 814.921875,
+              "width": 994,
+              "height": 15
+            },
+            "badge": {
+              "x": 360,
+              "y": 811.921875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "从“更多”进入“加入会话”，选择本次要使用成果的会话。",
+            "box": {
+              "x": 1349,
+              "y": 416.5,
+              "width": 42,
+              "height": 30
+            },
+            "badge": {
+              "x": 1346,
+              "y": 385.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "bcaf01f6f1beed3ab2d636a511456dd242c2374109b85813ed1a64447d6fef3b",
+      "image_sha256": "1a5318b501a0b7e7722a32d435bac246fd743c5de24d87ca940edcc028639208",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-06-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 整理成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对成果名称、结论、证据和适用范围，并勾选需要共享的成果。",
+            "box": {
+              "x": 372,
+              "y": 218.6875,
+              "width": 1032,
+              "height": 644.171875
+            },
+            "badge": {
+              "x": 341,
+              "y": 215.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认内容和共享项目后提交；项目成员随后可在团队动态查看。",
+            "box": {
+              "x": 1240.703125,
+              "y": 935,
+              "width": 163.296875,
+              "height": 36
+            },
+            "badge": {
+              "x": 1237.703125,
+              "y": 904,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "f5506e64e330e1bf70a8818286c16f48b17b97cd10b299b09bddb599d73cd089",
+      "image_sha256": "2fee3fadcebdd3acdae3413d35ea9f804891184e2ee8921aeb96d4c4c1abbf2d",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-07-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 团队 › Bob 的格式 B 实验",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "阅读结论、证据和适用范围，确认这份成果可供自己的工作使用。",
+            "box": {
+              "x": 391,
+              "y": 618.875,
+              "width": 994,
+              "height": 249.234375
+            },
+            "badge": {
+              "x": 360,
+              "y": 615.875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "保存到个人成果库，后续可加入自己的会话。",
+            "box": {
+              "x": 1156,
+              "y": 502.6875,
+              "width": 95,
+              "height": 30
+            },
+            "badge": {
+              "x": 1125,
+              "y": 499.6875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "eee26100897d1951bff1ccd8c5bd94f8f5eafa7bf107bc26b2d7761044b93385",
+      "image_sha256": "ebd457ad747ff42f6098d9448e680241541c500bab6ea3fb2ae11ae0dce5a24b",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-07-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 格式 A 验证",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "同时保留双方证据，避免只根据其中一条结论复测。",
+            "box": {
+              "x": 391.1875,
+              "y": 816,
+              "width": 993.625,
+              "height": 26
+            },
+            "badge": {
+              "x": 360.1875,
+              "y": 813,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "写明统一的复测条件与需要解释的分歧。",
+            "box": {
+              "x": 392.1875,
+              "y": 849,
+              "width": 991.625,
+              "height": 70
+            },
+            "badge": {
+              "x": 361.1875,
+              "y": 846,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "发送复测要求，保留新的测试记录与结论。",
+            "box": {
+              "x": 1341.8125,
+              "y": 922,
+              "width": 33,
+              "height": 33
+            },
+            "badge": {
+              "x": 1338.8125,
+              "y": 891,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "9db9c4204242359e746ef4a8d01d904cd275eea1a2e7df69b5eb237cd25db10d",
+      "image_sha256": "a63574dd01d6280379e3fa522e33a68c82081f1cc04fcdd5595d0980221831d7",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-08-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "成果整理 › 综合结果确认",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对参与合并的两条成果、作者和版本。",
+            "box": {
+              "x": 372,
+              "y": 223.6875,
+              "width": 1032,
+              "height": 24
+            },
+            "badge": {
+              "x": 341,
+              "y": 220.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "阅读共同结论、适用范围和待验证项，需要调整时点击“编辑内容”。",
+            "box": {
+              "x": 372,
+              "y": 471.6875,
+              "width": 1032,
+              "height": 285.578125
+            },
+            "badge": {
+              "x": 341,
+              "y": 468.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "确认后提交新的团队成果；来源是否移入历史由勾选决定。",
+            "box": {
+              "x": 1240.703125,
+              "y": 935,
+              "width": 163.296875,
+              "height": 36
+            },
+            "badge": {
+              "x": 1237.703125,
+              "y": 904,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "916164ff457ecb94c033deaccee4e826031b40698b5f73ed18b11813aef15aba",
+      "image_sha256": "8a72a14f9acc7bf4d59b23688db1f22e4a3544c8f980bee3c9a3970c2703adaf",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "example-08-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "团队动态 › 综合结果更新",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "这里显示合并后的成果及其来源。",
+            "box": {
+              "x": 449,
+              "y": 269.6875,
+              "width": 788,
+              "height": 121
+            },
+            "badge": {
+              "x": 418,
+              "y": 266.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "打开合并结果，核对新的适用范围与后续验证要求。",
+            "box": {
+              "x": 1251,
+              "y": 296.6875,
+              "width": 134,
+              "height": 29
+            },
+            "badge": {
+              "x": 1220,
+              "y": 293.6875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "ab621d7d321512f0adff9858eb2377bb0c904d17022ba499d6d01981fe8986c9",
+      "image_sha256": "8aeb5a28473a4564f97f6bc47ec115c5fd1610519bb81d2e573f8d71d72f20e6",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-01-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 团队 › 格式 B 大输入性能反例",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "默认显示全部当前成果；只需要尚未采用的内容时再勾选。",
+            "box": {
+              "x": 525.046875,
+              "y": 236,
+              "width": 129,
+              "height": 16
+            },
+            "badge": {
+              "x": 522.046875,
+              "y": 205,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "展开查看来源会话、作者与版本，判断是否需要整理。",
+            "box": {
+              "x": 391,
+              "y": 895.109375,
+              "width": 66.640625,
+              "height": 15
+            },
+            "badge": {
+              "x": 360,
+              "y": 892.109375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "9aad3c223746dcabbf7655d8a72371fcc42b90ad12b6190fe7eac58944710c6e",
+      "image_sha256": "0428cb531458009c578f4f65dbb23400e97d5a55c2f75bfb7a7fdd417ca6f15d",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-02-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 团队 › 编辑成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "将标题改为能说明结论与适用范围的名称。",
+            "box": {
+              "x": 391,
+              "y": 573.875,
+              "width": 994,
+              "height": 38
+            },
+            "badge": {
+              "x": 360,
+              "y": 570.875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "补全实验条件、证据和限制，保留仍待确认的差异。",
+            "box": {
+              "x": 391,
+              "y": 652.875,
+              "width": 994,
+              "height": 324.3125
+            },
+            "badge": {
+              "x": 360,
+              "y": 649.875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "保存后产生新版本，团队成员刷新成果列表后可查看。",
+            "box": {
+              "x": 1329,
+              "y": 433.6875,
+              "width": 62,
+              "height": 30
+            },
+            "badge": {
+              "x": 1326,
+              "y": 402.6875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "efc61ea671040b5bf4fc43512c1184edd9afbaa5941878ebdd6a7d96e559366b",
+      "image_sha256": "a6c54f9b5ce5fe0781a4b83b1998e71878f9a2ca1c076bc3c3699bed86424cb4",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-03-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 团队 › 合并整理",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "勾选需要综合的两条成果，核对选中的标题。",
+            "box": {
+              "x": 372,
+              "y": 472.671875,
+              "width": 1032,
+              "height": 154.375
+            },
+            "badge": {
+              "x": 341,
+              "y": 469.671875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "使用同项目且模型账号已登录的工作会话进行合并。",
+            "box": {
+              "x": 1086.234375,
+              "y": 403.328125,
+              "width": 139,
+              "height": 35
+            },
+            "badge": {
+              "x": 1083.234375,
+              "y": 372.328125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "开始生成综合结果，随后在“成果整理”查看进度。",
+            "box": {
+              "x": 1239.234375,
+              "y": 402.828125,
+              "width": 147.765625,
+              "height": 36
+            },
+            "badge": {
+              "x": 1208.234375,
+              "y": 399.828125,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "bc52a53cc956712ab19200405985b8e8765b4d090ba3c64b2fb5b394004779c6",
+      "image_sha256": "4385e0f64711d187c9208ed7c43944386178a3b0716897694e486edb1f05df44",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-04-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "成果整理 › 综合结果确认",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对参与合并的两条成果、作者和版本。",
+            "box": {
+              "x": 372,
+              "y": 223.6875,
+              "width": 1032,
+              "height": 24
+            },
+            "badge": {
+              "x": 341,
+              "y": 220.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "阅读共同结论、适用范围和待验证项，需要调整时点击“编辑内容”。",
+            "box": {
+              "x": 372,
+              "y": 471.6875,
+              "width": 1032,
+              "height": 285.578125
+            },
+            "badge": {
+              "x": 341,
+              "y": 468.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "确认后提交新的团队成果；来源是否移入历史由勾选决定。",
+            "box": {
+              "x": 1240.703125,
+              "y": 935,
+              "width": 163.296875,
+              "height": 36
+            },
+            "badge": {
+              "x": 1237.703125,
+              "y": 904,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "916164ff457ecb94c033deaccee4e826031b40698b5f73ed18b11813aef15aba",
+      "image_sha256": "b0b96b50059598337be11b5dd2c0b86e4cf4a48cea37ae35b989d798a6675932",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-04-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "团队动态 › 合并成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "展开查看这份综合结果引用了哪些原成果。",
+            "box": {
+              "x": 449,
+              "y": 375.6875,
+              "width": 788,
+              "height": 15
+            },
+            "badge": {
+              "x": 418,
+              "y": 372.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "打开合并成果，阅读共同结论与适用范围。",
+            "box": {
+              "x": 1251,
+              "y": 296.6875,
+              "width": 134,
+              "height": 29
+            },
+            "badge": {
+              "x": 1220,
+              "y": 293.6875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "27819b6e5e606cbaf3dbd642db80f27a25bfcdc053fd4e8bc1f9aa33156c7278",
+      "image_sha256": "adb85ce5ce0b4a07fb77597b8364d238b14e7460615ae1f07d0ded28dcc63f26",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-05-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 团队 › 批量删除",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "逐项核对本次删除的成果和影响范围。",
+            "box": {
+              "x": 440,
+              "y": 362.78125,
+              "width": 560,
+              "height": 275.4375
+            },
+            "badge": {
+              "x": 409,
+              "y": 359.78125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认后删除选中的团队成果，成员会收到共享区移除动态。",
+            "box": {
+              "x": 823.953125,
+              "y": 658.21875,
+              "width": 151.046875,
+              "height": 36
+            },
+            "badge": {
+              "x": 820.953125,
+              "y": 627.21875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "50a03f4743c64a63405e20115a703a1189fbd83409236b7fe1143cacb250f066",
+      "image_sha256": "08bb42b846987e1c1af8b44930d315d5ffa2de94d9f125c5e4a1028530e8f3d2",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-admin-results-05-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "团队动态 › 删除成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "查看移除对象及与个人副本的关联。",
+            "box": {
+              "x": 1251,
+              "y": 297.03125,
+              "width": 134,
+              "height": 29
+            },
+            "badge": {
+              "x": 1220,
+              "y": 294.03125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "核对后标记该条动态已处理。",
+            "box": {
+              "x": 1251,
+              "y": 333.03125,
+              "width": 134,
+              "height": 31
+            },
+            "badge": {
+              "x": 1220,
+              "y": 330.03125,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "a91c84ebba619911ccc1d6ca387074078391f9414cf7a12aa0a5a25891d3cf89",
+      "image_sha256": "993e7b6c27dffb23bd9e60243f4790ca3d2300199704c7d21838f1f1ab66ede5",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-01-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "团队动态 › 动态结果 › 格式 A 验证结论",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "阅读团队成果的结论、证据与适用范围。",
+            "box": {
+              "x": 395,
+              "y": 500.6875,
+              "width": 986,
+              "height": 254.0625
+            },
+            "badge": {
+              "x": 364,
+              "y": 497.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击保存；后续在“个人”页管理这份副本。",
+            "box": {
+              "x": 391,
+              "y": 316,
+              "width": 136,
+              "height": 36
+            },
+            "badge": {
+              "x": 360,
+              "y": 313,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "d0d5b2502e27ddab5deb1b538f38ef017fb33e25187e129b5d90b25ef1331930",
+      "image_sha256": "7b314e5f030fed7e91aca3f3d310e74a97bf6e8edc38cfa7c75bb6a25379e419",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-02-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 新建成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "填写能说明实验对象与结论的标题。",
+            "box": {
+              "x": 391,
+              "y": 179,
+              "width": 994,
+              "height": 38
+            },
+            "badge": {
+              "x": 360,
+              "y": 176,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "记录实验条件、结果、证据和待确认项。",
+            "box": {
+              "x": 391,
+              "y": 258,
+              "width": 994,
+              "height": 367.5
+            },
+            "badge": {
+              "x": 360,
+              "y": 255,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "保存到自己的个人成果库。",
+            "box": {
+              "x": 435,
+              "y": 743.5,
+              "width": 83,
+              "height": 30
+            },
+            "badge": {
+              "x": 432,
+              "y": 712.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "fa12797626eaff7cbf9b599c5b42ee9db8f6cc305ea4643afeeccf66e458d998",
+      "image_sha256": "84243573e2f7558d8a7a84a2b7515ef3d7dfbb9bf71f15e8a113e64db5020084",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-03-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 设置本地别名",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "本例填写“格式 A 对照基线”，便于自己识别和引用。",
+            "box": {
+              "x": 466,
+              "y": 485,
+              "width": 508,
+              "height": 38
+            },
+            "badge": {
+              "x": 979,
+              "y": 482,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "保存后个人列表显示别名，团队共享标题保持原名。",
+            "box": {
+              "x": 873,
+              "y": 613.6875,
+              "width": 102,
+              "height": 36
+            },
+            "badge": {
+              "x": 870,
+              "y": 582.6875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "90b6202cfe61bd79c9b983b7b7c8864fcb7cc93b26c135988d2c0c4303cab137",
+      "image_sha256": "71ef872571bc3cf94d9d04812697ba87b6e6c5ee6d0e66b0265c3c454f388093",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-04-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 选择使用成果的会话",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "勾选要引用这份成果的会话。",
+            "box": {
+              "x": 466,
+              "y": 502.34375,
+              "width": 508,
+              "height": 64
+            },
+            "badge": {
+              "x": 979,
+              "y": 499.34375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "会话从下一次提问使用加入时的成果版本。",
+            "box": {
+              "x": 871.953125,
+              "y": 610.34375,
+              "width": 103.046875,
+              "height": 36
+            },
+            "badge": {
+              "x": 868.953125,
+              "y": 579.34375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "673b4bfc4cf0d5a2d312c993d6241c2258a70c887010e021d32b93bbb183140d",
+      "image_sha256": "4ded89e00482bab645148130c4c5531dc13a4608f5d0f03a44fa629709ce4067",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-04-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › AI 参考内容",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "这里列出本轮可用的 AI 参考内容，核对刚加入的成果。",
+            "box": {
+              "x": 727,
+              "y": 103,
+              "width": 300,
+              "height": 95
+            },
+            "badge": {
+              "x": 696,
+              "y": 100,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "输入需要结合这份成果完成的工作。",
+            "box": {
+              "x": 392.1875,
+              "y": 849,
+              "width": 991.625,
+              "height": 70
+            },
+            "badge": {
+              "x": 361.1875,
+              "y": 846,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "发送后模型使用本轮选中的参考内容。",
+            "box": {
+              "x": 1341.8125,
+              "y": 922,
+              "width": 33,
+              "height": 33
+            },
+            "badge": {
+              "x": 1338.8125,
+              "y": 891,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "1badcf02e330761388fb1cdd7146e8fa1a41012bc95584949a3a2b7a9144a20b",
+      "image_sha256": "9036a17a3f33d6b91c3819259a185af3a860dcddd22cb5f4b1eff5495fcad32b",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-05-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 选择处理",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "选择本次处理使用的模型会话。",
+            "box": {
+              "x": 466,
+              "y": 418.5,
+              "width": 508,
+              "height": 40
+            },
+            "badge": {
+              "x": 979,
+              "y": 415.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "说明要比较、归纳或保留的内容，本例要求保留分歧与证据。",
+            "box": {
+              "x": 466,
+              "y": 499.5,
+              "width": 508,
+              "height": 118
+            },
+            "badge": {
+              "x": 979,
+              "y": 496.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "开始整理，生成后先审阅再保存。",
+            "box": {
+              "x": 840,
+              "y": 702.5,
+              "width": 135,
+              "height": 36
+            },
+            "badge": {
+              "x": 837,
+              "y": 671.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "19c13029332cea1cf3fbe5555ee8a3d9fa216e0c8239d22824d5bef727e93c17",
+      "image_sha256": "e45687f58bfbe454b8c4e02398ba62d26dbbb1a5653931a531f682e24e883d39",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-05-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "成果整理 › 个人成果处理",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对综合结果及证据，必要时编辑内容。",
+            "box": {
+              "x": 372,
+              "y": 471.6875,
+              "width": 1032,
+              "height": 285.578125
+            },
+            "badge": {
+              "x": 341,
+              "y": 468.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "审阅后保存为个人成果；来源移入历史由勾选决定。",
+            "box": {
+              "x": 1256,
+              "y": 935,
+              "width": 148,
+              "height": 36
+            },
+            "badge": {
+              "x": 1253,
+              "y": 904,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "直接提交到团队；个人来源保持原状。",
+            "box": {
+              "x": 1082.703125,
+              "y": 935,
+              "width": 163.296875,
+              "height": 36
+            },
+            "badge": {
+              "x": 1051.703125,
+              "y": 932,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "b9c064f86365ad6b8377d656272f53feb516876fe4776df05ca497bb5054ff02",
+      "image_sha256": "b062fc081fc9c65620dc3b14e22cff5c4bba646fe8618dad7e11159665bbbd21",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-06-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 历史成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "确认需要重新使用的历史成果。",
+            "box": {
+              "x": 387,
+              "y": 410,
+              "width": 753,
+              "height": 21
+            },
+            "badge": {
+              "x": 356,
+              "y": 407,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击后该成果回到使用中列表。",
+            "box": {
+              "x": 1167,
+              "y": 416.5,
+              "width": 85,
+              "height": 30
+            },
+            "badge": {
+              "x": 1136,
+              "y": 413.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "efcced29d429ee023304b692683f033a6f15c70c35bc240687c5afd5cd3df3ae",
+      "image_sha256": "294d25cf22297d4c1afb9e49e64f10dc9d87504eda304d80f55201349ea409bd",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-personal-results-06-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目成果库 › 个人 › 删除确认",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对将删除的个人成果；删除后不能从历史列表恢复。",
+            "box": {
+              "x": 440,
+              "y": 428.65625,
+              "width": 560,
+              "height": 143.6875
+            },
+            "badge": {
+              "x": 1005,
+              "y": 425.65625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认删除当前选中的个人成果。",
+            "box": {
+              "x": 849,
+              "y": 592.34375,
+              "width": 126,
+              "height": 36
+            },
+            "badge": {
+              "x": 846,
+              "y": 561.34375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "4ee62385b8199ba401df10e9e6ed16b6bad375633aa75b731ed62efdb5b1945f",
+      "image_sha256": "bb13911a501924c9960f71efaf314f64b7c181c806cc606242a8d3f8d66a4a6b",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-session-routes-01-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "用户版 › 新建工作会话 › 本机直连",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "保持关闭，模型 CLI 使用本机网络。",
+            "box": {
+              "x": 373,
+              "y": 322.375,
+              "width": 320,
+              "height": 102.171875
+            },
+            "badge": {
+              "x": 342,
+              "y": 319.375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "核对个人账号、模型、目录和权限后创建会话。",
+            "box": {
+              "x": 1007,
+              "y": 900,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 1004,
+              "y": 869,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "6507a2167847f0d9d562a2242c13eebccf3c7cbcb39f715cd833bce96ce4a1f8",
+      "image_sha256": "3deb99912ce5555cd5e9953d0ac01457a593974eff428e673aff76f7c39a2f3c",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-session-routes-02-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "用户版 › 新建工作会话 › 直连管理端",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "开启本次会话的管理端网络路径。",
+            "box": {
+              "x": 373,
+              "y": 322.375,
+              "width": 320,
+              "height": 102.171875
+            },
+            "badge": {
+              "x": 342,
+              "y": 319.375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "直连管理端时保持中转关闭。",
+            "box": {
+              "x": 373,
+              "y": 436.546875,
+              "width": 320,
+              "height": 75.1875
+            },
+            "badge": {
+              "x": 342,
+              "y": 433.546875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "粘贴总管理员提供的直连接入码。",
+            "box": {
+              "x": 373,
+              "y": 551.734375,
+              "width": 320,
+              "height": 70
+            },
+            "badge": {
+              "x": 342,
+              "y": 548.734375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 4,
+            "text": "检测通过后核对本人模型账号，再创建会话。",
+            "box": {
+              "x": 373,
+              "y": 650.734375,
+              "width": 137,
+              "height": 38
+            },
+            "badge": {
+              "x": 342,
+              "y": 647.734375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "f1ebdf80e409d68433cda5334401487edcf6c1ae4a81c63e2acfc506c4097ca3",
+      "image_sha256": "92c541827daba184746c758d7a0131d0735d0e51bf5899ba63decaab5a3c966f",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-session-routes-03-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "用户版 › 新建工作会话 › 共享服务器中转",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "开启本次会话的管理端网络路径。",
+            "box": {
+              "x": 373,
+              "y": 322.375,
+              "width": 320,
+              "height": 102.171875
+            },
+            "badge": {
+              "x": 342,
+              "y": 319.375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "中转接入码会自动选中共享服务器路径。",
+            "box": {
+              "x": 373,
+              "y": 436.546875,
+              "width": 320,
+              "height": 94.375
+            },
+            "badge": {
+              "x": 342,
+              "y": 433.546875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "粘贴总管理员提供的中转接入码。",
+            "box": {
+              "x": 373,
+              "y": 570.921875,
+              "width": 320,
+              "height": 70
+            },
+            "badge": {
+              "x": 342,
+              "y": 567.921875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 4,
+            "text": "检测通过后核对本人模型账号，再创建会话。",
+            "box": {
+              "x": 373,
+              "y": 669.921875,
+              "width": 137,
+              "height": 38
+            },
+            "badge": {
+              "x": 342,
+              "y": 666.921875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "a30640f7f20d923b58ab453b5494f8a34f567bbf260a07f46c8c65e7a8839984",
+      "image_sha256": "0efbf8a528fb0372a799f159d19e7c730157419a054961d69af94e4d6f18e75b",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-egress-mixed-01-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 网络出口 › 出口设置",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "确认管理端网络或上游代理账号具备模型服务访问权限，再开启出口。",
+            "box": {
+              "x": 1265,
+              "y": 362.5,
+              "width": 114,
+              "height": 21
+            },
+            "badge": {
+              "x": 1234,
+              "y": 359.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "填写成员能访问的总管理员设备地址，并核对端口。",
+            "box": {
+              "x": 659.71875,
+              "y": 730,
+              "width": 421.96875,
+              "height": 38
+            },
+            "badge": {
+              "x": 628.71875,
+              "y": 727,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "本例选择“本机直接访问”；按总管理员设备的实际网络选择。",
+            "box": {
+              "x": 659.71875,
+              "y": 466,
+              "width": 717.28125,
+              "height": 40
+            },
+            "badge": {
+              "x": 628.71875,
+              "y": 463,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 4,
+            "text": "保存并启动出口，保持管理员版运行。",
+            "box": {
+              "x": 1288,
+              "y": 870,
+              "width": 90,
+              "height": 36
+            },
+            "badge": {
+              "x": 1285,
+              "y": 839,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "32788a4553a2c477f668b474c4ac8257a9b41bc80ebe922d2221b9c741ccd316",
+      "image_sha256": "25df6e688cf6cfc9a6fd3a60abe2be39eb2acfc240213d1b6d46a6cbb0bfb42f",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-egress-mixed-tunnel-enable.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 网络出口 › 成员接入 › 经共享服务器",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "管理端主动连接已登录的共享服务器，建立成员中转通路。",
+            "box": {
+              "x": 297,
+              "y": 648.078125,
+              "width": 102,
+              "height": 36
+            },
+            "badge": {
+              "x": 266,
+              "y": 645.078125,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "ea3af38add86f2d33c54fac3768c33b2aad205ae95b6400700295d20b680bc64",
+      "image_sha256": "df73033173a0bd256f28fa6d584b8e26f1c59872de081a743b52903e7b2a0924",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-egress-mixed-02-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 网络出口 › 成员接入 › 经共享服务器",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "确认隧道已连接，内部端口由工作台分配。",
+            "box": {
+              "x": 297,
+              "y": 644.078125,
+              "width": 1082,
+              "height": 70
+            },
+            "badge": {
+              "x": 266,
+              "y": 641.078125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "检测管理端经共享服务器返回出口的连接、证书和接入码。",
+            "box": {
+              "x": 421,
+              "y": 794.46875,
+              "width": 104,
+              "height": 38
+            },
+            "badge": {
+              "x": 418,
+              "y": 763.46875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "复制中转接入码并交给 B，成员粘贴后自动选择经共享服务器中转。",
+            "box": {
+              "x": 297,
+              "y": 794.46875,
+              "width": 114,
+              "height": 38
+            },
+            "badge": {
+              "x": 266,
+              "y": 791.46875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "2c6773d2d40466f0d26a92f8472fb4f2fb987491094c57735ab86dc8bc8b6937",
+      "image_sha256": "898ec3604f8471c5cf7fb74f26f1db6f04489a397d1a6e4ba95f1fd72d94bb74",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-egress-mixed-04-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › Codex / Cursor",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "此处显示“管理端出口”；打开可核对网络路径和个人模型账号。",
+            "box": {
+              "x": 507.1875,
+              "y": 925,
+              "width": 116.421875,
+              "height": 27
+            },
+            "badge": {
+              "x": 504.1875,
+              "y": 894,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "填写本轮任务要求，按需加入参考资料。",
+            "box": {
+              "x": 392.1875,
+              "y": 849,
+              "width": 991.625,
+              "height": 70
+            },
+            "badge": {
+              "x": 361.1875,
+              "y": 846,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "发送后核对模型回复和处理结果；失败时记录提示及发生时间。",
+            "box": {
+              "x": 1341.8125,
+              "y": 922,
+              "width": 33,
+              "height": 33
+            },
+            "badge": {
+              "x": 1338.8125,
+              "y": 891,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "8de7cab9a34703a42d5356766078ae76ab429d4f488d189528145fb0d0be943b",
+      "image_sha256": "107cd5344b542a63153bde1486cb9ed4ca145fc803d6276ab0bafb36ae04d350",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-egress-mixed-05-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 网络与登录设置",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "重新检查管理端网络路径和模型登录状态。",
+            "box": {
+              "x": 373,
+              "y": 435.890625,
+              "width": 161,
+              "height": 38
+            },
+            "badge": {
+              "x": 342,
+              "y": 432.890625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "模型账号尚未登录时，从这里完成本人的账号登录。",
+            "box": {
+              "x": 390,
+              "y": 570.484375,
+              "width": 109,
+              "height": 31
+            },
+            "badge": {
+              "x": 359,
+              "y": 567.484375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "c295fa156c0114e89eabb05b215fdbecb1050b3fa1482ecba38c13d3ff2d6c49",
+      "image_sha256": "6a2fb4f2c4433b4071a0b885d341e17ce5e27506e48a78424a52ea96301617f2",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-egress-mixed-05-2.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 网络出口 › 连接诊断",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "连接测试通过后，让成员发送一次实际任务，核对模型回复。",
+            "box": {
+              "x": 313,
+              "y": 548.1875,
+              "width": 319.328125,
+              "height": 38
+            },
+            "badge": {
+              "x": 282,
+              "y": 545.1875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "使用 Cursor 时检查对应连接，再由成员发送任务验证。",
+            "box": {
+              "x": 678.328125,
+              "y": 548.1875,
+              "width": 319.328125,
+              "height": 38
+            },
+            "badge": {
+              "x": 647.328125,
+              "y": 545.1875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "4a84a1a5daa6c9a794bd263ba79154003569bb0851dc0cf89c45872f26cf7368",
+      "image_sha256": "4d5f9fabe34dcd0a2db699d1cc5c0bb4a922cd4786af449d559189711ad7db74",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-01-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 创建项目组",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "本例填写“项目一组”。",
+            "box": {
+              "x": 466,
+              "y": 497,
+              "width": 508,
+              "height": 38
+            },
+            "badge": {
+              "x": 435,
+              "y": 494,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认后创建工作组，随后为该组添加成员。",
+            "box": {
+              "x": 897,
+              "y": 632,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 894,
+              "y": 601,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "9a88d703dfafdc2c3888c4fdf237375ad90d859a04d37745f170d5da4b9b23f9",
+      "image_sha256": "8bb69bf89b3866a8d49641d69fe0cfb471a9a63c042828b0fa3dfe67ac083e9d",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-02-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 组与组管理员",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "勾选“项目一组”，将 Alice 加入这个工作组。",
+            "box": {
+              "x": 466,
+              "y": 520.5,
+              "width": 508,
+              "height": 21
+            },
+            "badge": {
+              "x": 435,
+              "y": 517.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "Alice 同时加入工作组并取得该组的管理权限；Bob、Carol 只勾选所属组。",
+            "box": {
+              "x": 466,
+              "y": 578.5,
+              "width": 508,
+              "height": 21
+            },
+            "badge": {
+              "x": 435,
+              "y": 575.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "保存 Alice 的组成员关系和角色。",
+            "box": {
+              "x": 897,
+              "y": 673.1875,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 894,
+              "y": 642.1875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "e3bbaac760024cbcfc48f4ef48b0cd16bbc6c42059bc465601902849d44fc672",
+      "image_sha256": "6121e1c358c45cfbdba4edc9fc3efc982a80163006b4df11139d0460ef5edd0d",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-02-2.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 按组查看",
+      "annotation": {
+        "kind": "display",
+        "callouts": []
+      },
+      "guide_sha256": "7a88062af9078b6f9cb560bb912036658bcd0d416c8ecdf59fd7590049231fd5",
+      "image_sha256": "0e4715a20e3ac1f68929519d8dea9db85f6391f07f916052807d8de673b99bbf",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-03-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "用户版 › 连接团队空间",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "填写总管理员提供的服务器地址，并核对 SFTP 端口。",
+            "box": {
+              "x": 356,
+              "y": 436.5,
+              "width": 356,
+              "height": 38
+            },
+            "badge": {
+              "x": 325,
+              "y": 433.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "填写自己的团队账号，本图为 alice，并填写登录密码。",
+            "box": {
+              "x": 356,
+              "y": 533.5,
+              "width": 356,
+              "height": 38
+            },
+            "badge": {
+              "x": 325,
+              "y": 530.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "登录后检查自己可见的工作组。",
+            "box": {
+              "x": 1031,
+              "y": 632.5,
+              "width": 54,
+              "height": 36
+            },
+            "badge": {
+              "x": 1028,
+              "y": 601.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "5213f9d21490a89298d9ccdc30044b5a0fd68fa81e757a3a550882be290d7427",
+      "image_sha256": "71dd8842dfb55e117ff945d74c66c1a9280a0471137c9d03f220b6bee4d8b1f2",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-04-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "我的工作组 › 建立第一个项目",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "本例填写“票据 OCR 优化”。",
+            "box": {
+              "x": 356,
+              "y": 310.796875,
+              "width": 728,
+              "height": 38
+            },
+            "badge": {
+              "x": 325,
+              "y": 307.796875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "写明项目要完成的目标，并填写背景和验收标准。",
+            "box": {
+              "x": 356,
+              "y": 514.796875,
+              "width": 728,
+              "height": 84
+            },
+            "badge": {
+              "x": 325,
+              "y": 511.796875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "保存后，组内成员刷新即可看到项目和共同资料。",
+            "box": {
+              "x": 971,
+              "y": 849.796875,
+              "width": 114,
+              "height": 36
+            },
+            "badge": {
+              "x": 968,
+              "y": 818.796875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "9d17e8b2fcd7294979c66e82281d535d7cbbf690d2ee2c60585b94dbee9ded7e",
+      "image_sha256": "96e19c988dcd2dfaf35b323ac74f87f86f44960099fc13319ab254b9afffd6fa",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-04-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "我的工作组 › 票据 OCR 优化",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对 Alice 发布的项目目标。",
+            "box": {
+              "x": 356,
+              "y": 371.640625,
+              "width": 728,
+              "height": 45.5
+            },
+            "badge": {
+              "x": 325,
+              "y": 368.640625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "阅读需要提交的复核清单、日志和结论，按这些要求开展工作。",
+            "box": {
+              "x": 356,
+              "y": 435.140625,
+              "width": 728,
+              "height": 45.5
+            },
+            "badge": {
+              "x": 325,
+              "y": 432.140625,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "51847c353d30fdac6f508bac499bc847ead90011208f14d9daf3305e768d1b47",
+      "image_sha256": "46c2dc8d92ce89ab2748251009aecf65b0117268a934500fe53c7ed00e3e3acc",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-05-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目任务 › 派发任务",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "选择 Bob，并填写任务标题。",
+            "box": {
+              "x": 356,
+              "y": 185.625,
+              "width": 356,
+              "height": 40
+            },
+            "badge": {
+              "x": 325,
+              "y": 182.625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "写清要完成的工作，并在下方填写验收要求、选择关联资料。",
+            "box": {
+              "x": 356,
+              "y": 307.625,
+              "width": 728,
+              "height": 86
+            },
+            "badge": {
+              "x": 325,
+              "y": 304.625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "派发后任务出现在 Bob 的“我的任务”中。",
+            "box": {
+              "x": 1007,
+              "y": 883.375,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 1004,
+              "y": 852.375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "1fb1d6726154876c33b1a8ca5c76aee45f22f879dd68f1b0bce0e83a8d872be6",
+      "image_sha256": "6bf838533ee6ac87a0f73ff8961f6c46b591ed3fa6f0f5dcc105b5851d91742b",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-05-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "我的任务 › 任务详情",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "先阅读任务目标与工作范围，再核对下方验收要求。",
+            "box": {
+              "x": 745.234375,
+              "y": 413.375,
+              "width": 635.765625,
+              "height": 24.6875
+            },
+            "badge": {
+              "x": 714.234375,
+              "y": 410.375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "点击创建与该任务关联的工作会话。",
+            "box": {
+              "x": 745.234375,
+              "y": 656.4375,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 714.234375,
+              "y": 653.4375,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "ec1cf0988926631c50e3e20a641d584d86fa3031e74afbad31659be3249af19d",
+      "image_sha256": "6d5f11c8c019a5d966667b41f83c4cb2cb6a578445756db1e18fee3305d76901",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-06-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 新建工作会话",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "选择要使用的模型工具，本例使用 Codex。",
+            "box": {
+              "x": 356,
+              "y": 145,
+              "width": 728,
+              "height": 59
+            },
+            "badge": {
+              "x": 325,
+              "y": 142,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "个人网络账号没有与模型服务完整交互的权限时，勾选此卡片并应用总管理员提供的接入码，使用具备模型服务访问权限的网络。",
+            "box": {
+              "x": 373,
+              "y": 322.375,
+              "width": 320,
+              "height": 102.171875
+            },
+            "badge": {
+              "x": 342,
+              "y": 319.375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "确认已登录自己的模型账号，并核对本机目录、模型和权限。",
+            "box": {
+              "x": 373,
+              "y": 490.546875,
+              "width": 320,
+              "height": 126.59375
+            },
+            "badge": {
+              "x": 342,
+              "y": 487.546875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 4,
+            "text": "点击创建；随后检查输入草稿和引用资料。",
+            "box": {
+              "x": 1007,
+              "y": 900,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 1004,
+              "y": 869,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "d64e9b0cf465b50d10440ce83d05e4bbba2606b691889d01bdea4162a2f41da8",
+      "image_sha256": "89e643a0764aa74460e16a83a2eebbca80bf11044f6f0264b105a1bb97abcabe",
+      "source_digest": "338dedb23f77c94b5fdaa9c53eceaf0b526d13a4d9e92f1ef024c180f98774bb",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-08-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 首次输入",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对本轮选中的项目资料。",
+            "box": {
+              "x": 391.1875,
+              "y": 816,
+              "width": 993.625,
+              "height": 26
+            },
+            "badge": {
+              "x": 360.1875,
+              "y": 813,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认草稿准确表达本轮要完成的工作。",
+            "box": {
+              "x": 392.1875,
+              "y": 849,
+              "width": 991.625,
+              "height": 70
+            },
+            "badge": {
+              "x": 361.1875,
+              "y": 846,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "主动发送后，模型才开始处理这轮请求。",
+            "box": {
+              "x": 1341.8125,
+              "y": 922,
+              "width": 33,
+              "height": 33
+            },
+            "badge": {
+              "x": 1338.8125,
+              "y": 891,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "3d5e2fa0b2feb488cce18fa4dc3443d0843cd47be645149c7b6b7d84ea2cbd98",
+      "image_sha256": "e5999dc19e4a672a34d667ab052557ca8c7b139e9f635639e485cb5a557079ee",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-07-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "我的任务 › 新建工作会话",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对所关联的任务，以及即将带入的任务说明和成果。",
+            "box": {
+              "x": 356,
+              "y": 145,
+              "width": 728,
+              "height": 71.59375
+            },
+            "badge": {
+              "x": 325,
+              "y": 142,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "创建任务关联会话，再核对输入并发送。",
+            "box": {
+              "x": 1007,
+              "y": 900,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 1090,
+              "y": 897,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "dacaa44f14ff4b4f1e896d514b635c7c7b84fb7bb6646ca9434c664740fb4fe6",
+      "image_sha256": "48c3bc7125b6cd91a4c73121c201404897fb1324f0846d94c28a08b16652afdb",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-07-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "工作会话 › 首次输入",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "任务目标、验收要求和关联资料已带入，发送前核对本轮输入。",
+            "box": {
+              "x": 391.1875,
+              "y": 816,
+              "width": 993.625,
+              "height": 26
+            },
+            "badge": {
+              "x": 360.1875,
+              "y": 813,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认草稿准确表达本轮要完成的工作。",
+            "box": {
+              "x": 392.1875,
+              "y": 849,
+              "width": 991.625,
+              "height": 70
+            },
+            "badge": {
+              "x": 361.1875,
+              "y": 846,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "主动发送后，模型才开始处理这轮请求。",
+            "box": {
+              "x": 1341.8125,
+              "y": 922,
+              "width": 33,
+              "height": 33
+            },
+            "badge": {
+              "x": 1338.8125,
+              "y": 891,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "3165edcfe31e53adad6ee06265bc0f1be4d4a0ba66de7863dbe5c641a7c70209",
+      "image_sha256": "ac6f63c3d4607517222a41b6815677b6fc7383317f43939ccd9442e6c3408922",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-09-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "我的任务 › 提交验收",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "写清完成内容、证据和待确认项。",
+            "box": {
+              "x": 356,
+              "y": 361.15625,
+              "width": 728,
+              "height": 102
+            },
+            "badge": {
+              "x": 325,
+              "y": 358.15625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "勾选与本次交付相关的成果，并核对下方验收附件。",
+            "box": {
+              "x": 356,
+              "y": 507.15625,
+              "width": 728,
+              "height": 82
+            },
+            "badge": {
+              "x": 325,
+              "y": 504.15625,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "提交后任务进入待验收状态，由 Alice 核对。",
+            "box": {
+              "x": 1007,
+              "y": 812.53125,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 1090,
+              "y": 809.53125,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "7e0b13631c5333fb8d8b0f466614649b63f0f98897466264c9dcdf9182e9aec9",
+      "image_sha256": "e5ef1eb35ab830e3b681ec1825f24e2f0d064e903ca943aabf49ca1c53eceb65",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-09-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "成果整理 › 提交到团队",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对成果名称、结论、证据和适用范围，并勾选需要共享的成果。",
+            "box": {
+              "x": 372,
+              "y": 218.6875,
+              "width": 1032,
+              "height": 644.171875
+            },
+            "badge": {
+              "x": 341,
+              "y": 215.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "确认内容和共享项目后提交；项目成员随后可在团队动态查看。",
+            "box": {
+              "x": 1234.484375,
+              "y": 935,
+              "width": 169.515625,
+              "height": 36
+            },
+            "badge": {
+              "x": 1231.484375,
+              "y": 904,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "5a4fcfcb3f4350d9b077b168e9bce81103865d5ec0c8173f5dc1b074094ee8e7",
+      "image_sha256": "3cd80b45d7f0866bdb70e032fed1206b0a9b6d54f323fc4c741f27e7ac4d9e00",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-10-1.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "项目任务 › 验收结果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对结果说明、关联成果和验收附件。",
+            "box": {
+              "x": 745.234375,
+              "y": 666.4375,
+              "width": 635.765625,
+              "height": 191.6875
+            },
+            "badge": {
+              "x": 714.234375,
+              "y": 663.4375,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "交付满足验收要求时确认通过。",
+            "box": {
+              "x": 745.234375,
+              "y": 883.125,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 714.234375,
+              "y": 880.125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "需要补充时写明原因退回，让 Bob 继续处理。",
+            "box": {
+              "x": 833.234375,
+              "y": 882.125,
+              "width": 104,
+              "height": 38
+            },
+            "badge": {
+              "x": 912.234375,
+              "y": 851.125,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "32df49cedc25b00981037a380f6ad7fb0f022f1c1129a1a56eeec0c59ae01820",
+      "image_sha256": "ff72d5b7ea0cda887ff56d977ff039c7364da1e857efc1948151b27dc4aff192",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-first-session-10-2.png",
+      "edition": "user",
+      "entry": "start-user-dev.cmd",
+      "screen": "团队动态 › 上传成果",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对 Carol 上传的成果名称与版本。",
+            "box": {
+              "x": 449,
+              "y": 269.6875,
+              "width": 788,
+              "height": 96
+            },
+            "badge": {
+              "x": 418,
+              "y": 266.6875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "打开标注质量检查成果，阅读证据并安排后续工作。",
+            "box": {
+              "x": 1251,
+              "y": 284.1875,
+              "width": 134,
+              "height": 29
+            },
+            "badge": {
+              "x": 1248,
+              "y": 253.1875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "71536798f9565bf05990faf6f710e94e94f530a75289df54ff99f8f1984c6bbe",
+      "image_sha256": "5a239e423057c91d787851d07307d31072a68a0fac387b135209ba30d77744ed",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-project-cleanup-01-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 共享空间",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对共享占用和统计时间。",
+            "box": {
+              "x": 274,
+              "y": 227,
+              "width": 1128,
+              "height": 122
+            },
+            "badge": {
+              "x": 243,
+              "y": 224,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "打开项目选择和清理范围确认窗口。",
+            "box": {
+              "x": 1210,
+              "y": 138,
+              "width": 80,
+              "height": 38
+            },
+            "badge": {
+              "x": 1207,
+              "y": 107,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "c751bd7ea96d8745f3c478419d67abe2af331c9346d6e711e6430bcc44f54315",
+      "image_sha256": "0267bb8b47ce96e6b70eb39088d6dad44c3e3150d2929952d886b82f68250f6a",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-project-cleanup-02-1.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 共享空间 › 清理项目",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对工作组和项目名，避免清理其他项目。",
+            "box": {
+              "x": 466,
+              "y": 356.03125,
+              "width": 508,
+              "height": 40
+            },
+            "badge": {
+              "x": 435,
+              "y": 353.03125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "本例保留轨迹；成果、历史、附件和其他文件将删除。",
+            "box": {
+              "x": 466,
+              "y": 413.03125,
+              "width": 508,
+              "height": 196.75
+            },
+            "badge": {
+              "x": 435,
+              "y": 410.03125,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "确认后无法撤销服务器文件删除。",
+            "box": {
+              "x": 897,
+              "y": 712.96875,
+              "width": 78,
+              "height": 36
+            },
+            "badge": {
+              "x": 894,
+              "y": 681.96875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "ddc1502fa6ad1f39b72cd5be820b98a75155adc31ee4f306095ef3f5f4584317",
+      "image_sha256": "fceb1259279817e4d8d25388769808a1b4fe36c4e75091bcbe6e11798570cb22",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "admin-users.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 全部用户",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "为新成员开通团队账号。",
+            "box": {
+              "x": 1174,
+              "y": 130,
+              "width": 102,
+              "height": 37
+            },
+            "badge": {
+              "x": 1171,
+              "y": 99,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "在对应成员行设置所属工作组和项目组管理员身份。",
+            "box": {
+              "x": 1048.84375,
+              "y": 589,
+              "width": 66,
+              "height": 33
+            },
+            "badge": {
+              "x": 1045.84375,
+              "y": 558,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "在对应成员行处理密码重置。",
+            "box": {
+              "x": 1128.84375,
+              "y": 589,
+              "width": 44,
+              "height": 33
+            },
+            "badge": {
+              "x": 1125.84375,
+              "y": 558,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "bb57f17ef49a89ae0204995d363b92071871d4a25f24d645f70246493daeefae",
+      "image_sha256": "7f85f97cb4fe1e9e72f8e7e4070ab10c1992366982d332c28988c02d3412a6d2",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "admin-groups.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 用户管理 › 按组查看",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "核对工作组、目录、成员数量和项目组管理员数量。",
+            "box": {
+              "x": 294,
+              "y": 519,
+              "width": 202.265625,
+              "height": 40
+            },
+            "badge": {
+              "x": 263,
+              "y": 516,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "直接为当前组的新成员开通账号。",
+            "box": {
+              "x": 1173,
+              "y": 523.5,
+              "width": 109,
+              "height": 31
+            },
+            "badge": {
+              "x": 1142,
+              "y": 520.5,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "把已开通的账号加入当前工作组。",
+            "box": {
+              "x": 1296,
+              "y": 524.5,
+              "width": 86,
+              "height": 29
+            },
+            "badge": {
+              "x": 1293,
+              "y": 493.5,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "798a179de3659ffa113b11bdeab85415ca7ecba882a5f08bdfc74a52065b979f",
+      "image_sha256": "3bf302c5ca1f09c4558538d89331cbc51c1ff19696401d6720843a94b8369286",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "admin-storage.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 共享空间",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "查看共享文件总量、磁盘剩余空间和成员共享占用。",
+            "box": {
+              "x": 274,
+              "y": 227,
+              "width": 1128,
+              "height": 122
+            },
+            "badge": {
+              "x": 243,
+              "y": 224,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "按内容构成定位占用较多的成果、轨迹或项目文件。",
+            "box": {
+              "x": 275,
+              "y": 453,
+              "width": 714.609375,
+              "height": 224
+            },
+            "badge": {
+              "x": 244,
+              "y": 450,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 3,
+            "text": "需要最新数据时重新扫描；下方可按项目组、用户或文件夹查看。",
+            "box": {
+              "x": 1302,
+              "y": 139,
+              "width": 100,
+              "height": 36
+            },
+            "badge": {
+              "x": 1299,
+              "y": 108,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "431c31480e022925ea86eb020e0a4e070116777845a67272288c71156713c963",
+      "image_sha256": "c58a40c483e21281b270528381af00eb485846a76b47e8ed24118dd40ef55f46",
+      "source_digest": "3de4b560eef7f34c6768a7de90a399a655ab72118b1091a7875024101296164a",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    },
+    {
+      "file": "case-session-admin-direct.png",
+      "edition": "admin",
+      "entry": "start-admin-dev.cmd",
+      "screen": "管理员版 › 网络出口 › 成员接入 › 直连管理端",
+      "annotation": {
+        "kind": "instruction",
+        "callouts": [
+          {
+            "number": 1,
+            "text": "成员可直接访问管理端地址时选择这条路线。",
+            "box": {
+              "x": 274,
+              "y": 399.1875,
+              "width": 557,
+              "height": 84.5
+            },
+            "badge": {
+              "x": 243,
+              "y": 396.1875,
+              "width": 26,
+              "height": 26
+            }
+          },
+          {
+            "number": 2,
+            "text": "复制直连接入码，交给成员在新建会话时使用。",
+            "box": {
+              "x": 1266,
+              "y": 694.6875,
+              "width": 113,
+              "height": 36
+            },
+            "badge": {
+              "x": 1235,
+              "y": 691.6875,
+              "width": 26,
+              "height": 26
+            }
+          }
+        ]
+      },
+      "guide_sha256": "3c4722da693d90337776852d552f797baa8bea8c29a3b63ed282e52b25eb4768",
+      "image_sha256": "6de57e5247bacd84b291fc3c31d9c55a99834fe3893a815726b528995fc76fce",
+      "source_digest": "a7e58646850093b19adea15e0f320eda5845c08decca99961fce749bec93ca82",
+      "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5"
+    }
+  ]
 }

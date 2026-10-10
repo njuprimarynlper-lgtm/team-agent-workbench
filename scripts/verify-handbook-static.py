@@ -2,6 +2,7 @@
 from html.parser import HTMLParser
 from pathlib import Path
 from zipfile import ZipFile
+import argparse
 import json
 import re
 from urllib.parse import unquote
@@ -11,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 HTML = ROOT / 'docs/handbook/index.html'
 META = read_meta()
 PACKAGE = ROOT / 'docs/manuals' / f'{META.filename}.zip'
+STRUCTURE = json.loads((ROOT / 'docs/handbook/structure.json').read_text(encoding='utf-8'))
+SCENARIOS = next(group['pages'] for group in STRUCTURE['groups'] if group['title'] == '操作教程')
+SCENARIO_GUIDES = json.loads((ROOT / 'docs/handbook/ui-scenarios.json').read_text(encoding='utf-8'))
 
 
 class Collect(HTMLParser):
@@ -43,8 +47,8 @@ def check(html, names, prefix):
         for group in structure['groups']:
             for page_id in group['pages']:
                 assert next(article for article in articles if article['id'] == page_id)['group'] == group['title']
-        cases = next(group for group in structure['groups'] if group['title'] == '使用场景')
-        assert cases['pages'] == ['example', 'case-new-member', 'case-egress-mixed']
+        cases = next(group for group in structure['groups'] if group['title'] == '操作教程')
+        assert cases['pages'] == SCENARIOS
     else:
         assert len(articles) == 31, 'Legacy package topic count changed'
     all_ids = [article['id'] for article in articles]
@@ -73,13 +77,14 @@ def check(html, names, prefix):
     inline_images = [image for image in images if image]
     assert len(inline_images) >= 8 and any(a['id'] == 'tasks' and '<figure>' in a['html'] for a in articles)
     if structure_match:
-        for case_id in ('example', 'case-new-member', 'case-egress-mixed'):
+        for case_id in SCENARIOS:
             case = next(article for article in articles if article['id'] == case_id)
             assert '<figure class="ui-scenario-guide"' in case['html'], f'Missing interface guide in {case_id}'
-            assert case['html'].count('class="ui-person-pane ui-screen-shot"') >= 8, f'Incomplete interface steps in {case_id}'
+            expected_images = sum(len(step['panes']) for identifier, guide in SCENARIO_GUIDES.items() if guide.get('page', identifier) == case_id for step in guide['steps'])
+            assert case['html'].count('class="ui-person-pane ui-screen-shot"') == expected_images, f'Incomplete interface steps in {case_id}'
         egress = next(article for article in articles if article['id'] == 'egress-reference')
         assert '<li>选择管理端访问外网的方式：<ul>' in egress['html']
-        assert '</ul></li><li>点击 <strong>保存并应用</strong>' in egress['html']
+        assert re.search(r'</ul></li><li>(?:点击 <strong>保存并应用</strong>|在 <strong>成员可通过出口访问</strong>)', egress['html'])
         acceptance = next(article for article in articles if article['id'] == 'acceptance-reference')
         assert 'href="#deployment-topic-9"' in acceptance['html']
     for link in links:
@@ -91,20 +96,23 @@ def check(html, names, prefix):
             'navigation_targets': len(ids), 'internal_links': len(anchors), 'inline_images': len(inline_images)}
 
 
-def main():
+def main(html_only=False):
     source = HTML.read_text(encoding='utf-8')
     local_names = {p.relative_to(ROOT / 'docs').as_posix() for p in (ROOT / 'docs').rglob('*') if p.is_file()}
     result = {'html': check(source, local_names, '../')}
-    with ZipFile(PACKAGE) as archive:
-        assert archive.testzip() is None
-        names = set(archive.namelist())
-        assert {'使用手册.html', f'{META.filename}.docx',
-                f'{META.filename}.pdf', 'Markdown/user-guide.md',
-                'Markdown/result-classification.md', 'Markdown/background-testing.md'} <= names
-        result['package'] = check(archive.read('使用手册.html').decode('utf-8'), names, '')
-        result['package_files'] = len(names)
+    if not html_only:
+        with ZipFile(PACKAGE) as archive:
+            assert archive.testzip() is None
+            names = set(archive.namelist())
+            assert {'使用手册.html', f'{META.filename}.docx',
+                    f'{META.filename}.pdf', 'Markdown/user-guide.md',
+                    'Markdown/result-classification.md', 'Markdown/background-testing.md'} <= names
+            result['package'] = check(archive.read('使用手册.html').decode('utf-8'), names, '')
+            result['package_files'] = len(names)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--html-only', action='store_true', help='Verify the current HTML without an older offline ZIP package.')
+    main(html_only=parser.parse_args().html_only)

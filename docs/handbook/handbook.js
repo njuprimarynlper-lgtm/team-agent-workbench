@@ -68,7 +68,7 @@
     const a=event.target.closest('a[href^="#"]');
     if(a&&a.hash===location.hash){event.preventDefault();render();}
     if(a&&$('search-dialog').open)$('search-dialog').close();
-    const zoom=event.target.closest('.zoom-image');if(zoom){const img=zoom.querySelector('img');$('large-image').src=img.src;$('large-image').alt=img.alt;$('image-caption').textContent=img.alt;$('image-dialog').showModal();}
+    const zoom=event.target.closest('.zoom-image');if(zoom){const img=zoom.querySelector('img');$('large-image').src=img.src;$('large-image').alt=img.alt;const caption=zoom.parentElement.querySelector(':scope > .screenshot-caption');if(caption)$('image-caption').replaceChildren(caption.cloneNode(true));else $('image-caption').textContent=img.alt;$('image-dialog').showModal();}
     const close=event.target.closest('[data-close]');if(close)$(close.dataset.close).close();
     const copy=event.target.closest('.copy-code');if(copy)copyText(copy.parentElement.querySelector('code').textContent,'代码已复制');
   });
