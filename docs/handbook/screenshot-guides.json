@@ -1,0 +1,1204 @@
+{
+  "case-session-routes-01-1.png": {
+    "kind": "instruction",
+    "purpose": "在新建工作会话中选择本机直连",
+    "callouts": [
+      {
+        "selector": ".provider-route-option",
+        "text": "保持关闭，模型 CLI 使用本机网络。",
+        "show_caption": true
+      },
+      {
+        "button": "创建会话",
+        "text": "核对个人账号、模型、目录和权限后创建会话。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-session-routes-02-1.png": {
+    "kind": "instruction",
+    "purpose": "在新建工作会话中填写直连管理端接入码",
+    "callouts": [
+      {
+        "selector": ".provider-route-option",
+        "text": "开启本次会话的管理端网络路径。",
+        "show_caption": false
+      },
+      {
+        "selector": ".egress-route-choice",
+        "text": "直连管理端时保持中转关闭。",
+        "show_caption": true
+      },
+      {
+        "field": "管理端网络出口接入码",
+        "text": "粘贴总管理员提供的直连接入码。",
+        "show_caption": false
+      },
+      {
+        "button": "应用并重新检测",
+        "text": "检测通过后核对本人模型账号，再创建会话。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-session-routes-03-1.png": {
+    "kind": "instruction",
+    "purpose": "在新建工作会话中填写共享服务器中转接入码",
+    "callouts": [
+      {
+        "selector": ".provider-route-option",
+        "text": "开启本次会话的管理端网络路径。",
+        "show_caption": false
+      },
+      {
+        "selector": ".egress-route-choice",
+        "text": "中转接入码会自动选中共享服务器路径。",
+        "show_caption": true
+      },
+      {
+        "field": "管理端网络出口接入码",
+        "text": "粘贴总管理员提供的中转接入码。",
+        "show_caption": false
+      },
+      {
+        "button": "应用并重新检测",
+        "text": "检测通过后核对本人模型账号，再创建会话。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-team-setup-01-1.png": {
+    "kind": "instruction",
+    "purpose": "总管理员填写团队服务器的连接信息",
+    "callouts": [
+      {
+        "field": "服务器地址",
+        "text": "填写团队 Linux 服务器的地址，并核对 SSH 端口。",
+        "show_caption": false
+      },
+      {
+        "field": "管理账号",
+        "text": "使用服务器已有的管理账号；sudo 账号按提示填写 sudo 密码。",
+        "show_caption": true
+      },
+      {
+        "field": "团队根路径",
+        "text": "团队目录保存账号、工作组、项目资料、任务、成果及附件。首次初始化使用专用空目录。",
+        "show_caption": true
+      },
+      {
+        "button": "连接并验证权限",
+        "text": "点击后验证服务器连接与管理权限；首次连接按提示确认服务器身份。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-team-setup-01-2.png": {
+    "kind": "instruction",
+    "purpose": "根据检查结果修复服务器环境",
+    "callouts": [
+      {
+        "selector": "[aria-label=\"服务器环境待完善\"] > b",
+        "text": "这里列出服务器环境问题；按下方具体检查结果处理。",
+        "show_caption": false
+      },
+      {
+        "button": "查看服务器修复方式",
+        "text": "点击查看在线或离线修复方式，进入下一张图。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-team-setup-02-1.png": {
+    "kind": "instruction",
+    "purpose": "在现有服务器上补装工作台缺少的软件组件",
+    "callouts": [
+      {
+        "field": "服务器安装方式",
+        "text": "选择缺失组件的安装方式。本例从服务器的软件源下载 ACL 等组件；离线方式使用事先放在服务器上的组件安装包。",
+        "show_caption": true
+      },
+      {
+        "button": "在服务器执行修复",
+        "text": "点击后，管理端通过 SSH 在当前服务器补装缺失组件，再检查工作台的运行条件。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-team-setup-03-1.png": {
+    "kind": "instruction",
+    "purpose": "从用户管理页开始初始化",
+    "callouts": [
+      {
+        "selector": ".callout small",
+        "text": "核对显示的初始化目录，确认它是为本团队准备的空目录。",
+        "show_caption": false
+      },
+      {
+        "button": "初始化团队空间",
+        "text": "点击打开初始化确认窗口。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-team-setup-03-2.png": {
+    "kind": "instruction",
+    "purpose": "核对服务器与团队目录后确认",
+    "callouts": [
+      {
+        "selector": ".admin-target",
+        "text": "root 为管理账号，team.example.internal 为服务器地址。",
+        "show_caption": false
+      },
+      {
+        "selector": ".modal-body > p > code",
+        "text": "〈团队根目录〉应与连接时填写的“团队根路径”一致。",
+        "show_caption": true
+      },
+      {
+        "button": "确认执行",
+        "text": "确认服务器和目录无误后执行初始化。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-team-setup-04-1.png": {
+    "kind": "instruction",
+    "purpose": "确认初始化结果，找到创建入口",
+    "callouts": [
+      {
+        "selector": ".admin-stats",
+        "text": "首次初始化后，成员和工作组待创建，三个统计数字均为 0。",
+        "show_caption": false
+      },
+      {
+        "button": "创建项目组",
+        "text": "点击右上角入口，打开工作组名称填写窗口。",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-01-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 保存团队共同使用的项目资料",
+    "callouts": [
+      {
+        "field": "项目目标",
+        "text": "填写本轮共同目标，并在下方验收标准中明确需要保留的证据。",
+        "show_caption": false
+      },
+      {
+        "button": "保存新版本",
+        "text": "保存后生成新的项目资料版本，成员刷新后可查看。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-01-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 查看团队成果的来源",
+    "callouts": [
+      {
+        "field": "仅看与个人库的差异",
+        "parent": "label",
+        "text": "默认显示全部当前成果；只需要尚未采用的内容时再勾选。",
+        "show_caption": true
+      },
+      {
+        "summary": "来源与历史",
+        "text": "展开查看来源会话、作者与版本，判断是否需要整理。",
+        "scope": ".result-card.is-expanded",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-02-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 修订团队成果并保存",
+    "callouts": [
+      {
+        "field": "团队成果标题",
+        "text": "将标题改为能说明结论与适用范围的名称。",
+        "show_caption": false
+      },
+      {
+        "field": "团队成果内容",
+        "text": "补全实验条件、证据和限制，保留仍待确认的差异。",
+        "show_caption": false
+      },
+      {
+        "button": "保存修改",
+        "text": "保存后产生新版本，团队成员刷新成果列表后可查看。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-03-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 选择成果并发起语义合并",
+    "callouts": [
+      {
+        "selector": ".content-cards",
+        "text": "勾选需要综合的两条成果，核对选中的标题。",
+        "show_caption": false
+      },
+      {
+        "field": "合并使用的模型环境",
+        "text": "使用同项目且模型账号已登录的工作会话进行合并。",
+        "show_caption": true
+      },
+      {
+        "button": "开始语义合并（2 条）",
+        "text": "开始生成综合结果，随后在“成果整理”查看进度。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-04-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 审阅合并结果并发布",
+    "callouts": [
+      {
+        "selector": ".merge-source-list",
+        "text": "核对参与合并的两条成果、作者和版本。",
+        "show_caption": false
+      },
+      {
+        "selector": ".result-reading",
+        "text": "阅读共同结论、适用范围和待验证项，需要调整时点击“编辑内容”。",
+        "show_caption": false
+      },
+      {
+        "button": "提交到 量化转换项目",
+        "text": "确认后提交新的团队成果；来源是否移入历史由勾选决定。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-04-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 查看合并成果及其来源",
+    "callouts": [
+      {
+        "summary": "查看被融合的来源（2）",
+        "text": "展开查看这份综合结果引用了哪些原成果。",
+        "show_caption": false
+      },
+      {
+        "button": "查看结果",
+        "text": "打开合并成果，阅读共同结论与适用范围。",
+        "index": 0,
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-05-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 确认要从团队共享区删除的内容",
+    "callouts": [
+      {
+        "selector": ".modal-body",
+        "text": "逐项核对本次删除的成果和影响范围。",
+        "show_caption": false
+      },
+      {
+        "button": "确认删除 2 项团队成果",
+        "text": "确认后删除选中的团队成果，成员会收到共享区移除动态。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-admin-results-05-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 处理共享区移除通知",
+    "callouts": [
+      {
+        "button": "查看删除详情",
+        "text": "查看移除对象及与个人副本的关联。",
+        "show_caption": false,
+        "index": 0
+      },
+      {
+        "button": "标记已处理",
+        "text": "核对后标记该条动态已处理。",
+        "index": 0,
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-01-1.png": {
+    "kind": "instruction",
+    "purpose": "Bob 核对团队成果并保存个人副本",
+    "callouts": [
+      {
+        "selector": ".content-detail > .markdown",
+        "text": "阅读团队成果的结论、证据与适用范围。",
+        "show_caption": false
+      },
+      {
+        "button": "存入个人成果库",
+        "text": "点击保存；后续在“个人”页管理这份副本。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-02-1.png": {
+    "kind": "instruction",
+    "purpose": "Bob 保存自己的实验记录",
+    "callouts": [
+      {
+        "field": "项目成果标题",
+        "text": "填写能说明实验对象与结论的标题。",
+        "show_caption": false
+      },
+      {
+        "field": "项目成果内容",
+        "text": "记录实验条件、结果、证据和待确认项。",
+        "show_caption": false
+      },
+      {
+        "button": "保存成果",
+        "text": "保存到自己的个人成果库。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-03-1.png": {
+    "kind": "instruction",
+    "purpose": "为个人成果设置便于查找的别名",
+    "callouts": [
+      {
+        "field": "成果本地别名",
+        "text": "本例填写“格式 A 对照基线”，便于自己识别和引用。",
+        "show_caption": false
+      },
+      {
+        "button": "保存本地别名",
+        "text": "保存后个人列表显示别名，团队共享标题保持原名。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-04-1.png": {
+    "kind": "instruction",
+    "purpose": "选择使用这份成果的会话",
+    "callouts": [
+      {
+        "field": "使用成果的会话：格式 B 验证",
+        "text": "勾选要引用这份成果的会话。",
+        "parent": "label",
+        "show_caption": false
+      },
+      {
+        "button": "加入 1 个会话",
+        "text": "会话从下一次提问使用加入时的成果版本。",
+        "show_caption": true
+      }
+    ]
+  },
+  "case-personal-results-04-2.png": {
+    "kind": "instruction",
+    "purpose": "核对参考内容后继续提问",
+    "callouts": [
+      {
+        "selector": ".session-materials-content",
+        "text": "这里列出本轮可用的 AI 参考内容，核对刚加入的成果。",
+        "show_caption": false
+      },
+      {
+        "field": "任务输入",
+        "text": "输入需要结合这份成果完成的工作。",
+        "show_caption": false
+      },
+      {
+        "button": "发送任务",
+        "text": "发送后模型使用本轮选中的参考内容。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-05-1.png": {
+    "kind": "instruction",
+    "purpose": "设置多条个人成果的处理要求",
+    "callouts": [
+      {
+        "field": "用于处理成果的会话",
+        "text": "选择本次处理使用的模型会话。",
+        "show_caption": false
+      },
+      {
+        "field": "成果处理要求",
+        "text": "说明要比较、归纳或保留的内容，本例要求保留分歧与证据。",
+        "show_caption": false
+      },
+      {
+        "button": "生成预处理结果",
+        "text": "开始整理，生成后先审阅再保存。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-05-2.png": {
+    "kind": "instruction",
+    "purpose": "审阅个人成果处理草稿并选择保存位置",
+    "callouts": [
+      {
+        "selector": ".result-reading",
+        "text": "核对综合结果及证据，必要时编辑内容。",
+        "show_caption": false
+      },
+      {
+        "button": "保存到个人成果库",
+        "text": "审阅后保存为个人成果；来源移入历史由勾选决定。",
+        "show_caption": false
+      },
+      {
+        "button": "提交到 量化转换项目",
+        "text": "直接提交到团队；个人来源保持原状。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-06-1.png": {
+    "kind": "instruction",
+    "purpose": "将历史成果恢复到使用中",
+    "callouts": [
+      {
+        "selector": ".result-card.is-expanded .result-card-heading",
+        "text": "确认需要重新使用的历史成果。",
+        "show_caption": false
+      },
+      {
+        "button": "恢复使用",
+        "text": "点击后该成果回到使用中列表。",
+        "scope": ".result-card.is-expanded",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-personal-results-06-2.png": {
+    "kind": "instruction",
+    "purpose": "核对个人成果的删除范围",
+    "callouts": [
+      {
+        "selector": ".modal-body",
+        "text": "核对将删除的个人成果；删除后不能从历史列表恢复。",
+        "show_caption": false
+      },
+      {
+        "button": "确认删除项目成果",
+        "text": "确认删除当前选中的个人成果。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-egress-mixed-01-1.png": {
+    "kind": "instruction",
+    "purpose": "总管理员配置模型服务访问通路",
+    "callouts": [
+      {
+        "field": "启用管理端出口",
+        "text": "确认管理端网络或上游代理账号具备模型服务访问权限，再开启出口。",
+        "parent": "label",
+        "show_caption": false
+      },
+      {
+        "field": "提供给成员的地址",
+        "text": "填写成员能访问的总管理员设备地址，并核对端口。",
+        "show_caption": false
+      },
+      {
+        "field": "上游代理类型",
+        "text": "本例选择“本机直接访问”；按总管理员设备的实际网络选择。",
+        "show_caption": false
+      },
+      {
+        "button": "保存并应用",
+        "text": "保存并启动出口，保持管理员版运行。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-egress-mixed-02-1.png": {
+    "kind": "instruction",
+    "purpose": "总管理员检测隧道并复制中转接入码",
+    "callouts": [
+      {
+        "selector": ".egress-reverse-status",
+        "text": "确认隧道已连接，内部端口由工作台分配。",
+        "show_caption": false
+      },
+      {
+        "button": "检测完整隧道",
+        "text": "检测管理端经共享服务器返回出口的连接、证书和接入码。",
+        "show_caption": false
+      },
+      {
+        "button": "复制中转接入码",
+        "text": "复制中转接入码并交给 B，成员粘贴后自动选择经共享服务器中转。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-egress-mixed-04-2.png": {
+    "kind": "instruction",
+    "purpose": "成员发送任务并核对模型回复",
+    "callouts": [
+      {
+        "button": "网络与登录设置",
+        "text": "此处显示“管理端出口”；打开可核对网络路径和个人模型账号。",
+        "show_caption": false
+      },
+      {
+        "field": "任务输入",
+        "text": "填写本轮任务要求，按需加入参考资料。",
+        "show_caption": false
+      },
+      {
+        "button": "发送任务",
+        "text": "发送后核对模型回复和处理结果；失败时记录提示及发生时间。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-egress-mixed-05-1.png": {
+    "kind": "instruction",
+    "purpose": "项目组成员 B 检查网络与个人模型登录",
+    "callouts": [
+      {
+        "button": "重新检测连接与登录",
+        "text": "重新检查管理端网络路径和模型登录状态。",
+        "show_caption": false
+      },
+      {
+        "button": "登录个人账号",
+        "text": "模型账号尚未登录时，从这里完成本人的账号登录。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-egress-mixed-05-2.png": {
+    "kind": "instruction",
+    "purpose": "总管理员检查出口到模型服务的连接",
+    "callouts": [
+      {
+        "button": "测试 Codex",
+        "text": "连接测试通过后，让成员发送一次实际任务，核对模型回复。",
+        "show_caption": true
+      },
+      {
+        "button": "测试 Cursor",
+        "text": "使用 Cursor 时检查对应连接，再由成员发送任务验证。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-01-1.png": {
+    "kind": "instruction",
+    "purpose": "总管理员创建工作组",
+    "callouts": [
+      {
+        "field": "项目组名称",
+        "text": "本例填写“项目一组”。",
+        "show_caption": false
+      },
+      {
+        "button": "确认执行",
+        "text": "确认后创建工作组，随后为该组添加成员。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-02-1.png": {
+    "kind": "instruction",
+    "purpose": "为 Alice 配置所属组和项目组管理员身份",
+    "callouts": [
+      {
+        "selector": ".modal .check-row",
+        "text": "勾选“项目一组”，将 Alice 加入这个工作组。",
+        "index": 0,
+        "show_caption": false
+      },
+      {
+        "selector": ".modal .check-row",
+        "text": "Alice 同时加入工作组并取得该组的管理权限；Bob、Carol 只勾选所属组。",
+        "index": 1,
+        "show_caption": true
+      },
+      {
+        "button": "确认执行",
+        "text": "保存 Alice 的组成员关系和角色。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-02-2.png": {
+    "kind": "display",
+    "purpose": "核对三位成员的角色",
+    "explanation": "“项目一组”组内应有 Alice、Bob、Carol；Alice 显示“本组组管理员”，Bob 和 Carol 显示“本组普通成员”。"
+  },
+  "case-first-session-03-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 登录团队工作台",
+    "callouts": [
+      {
+        "field": "服务器地址",
+        "text": "填写总管理员提供的服务器地址，并核对 SFTP 端口。",
+        "show_caption": false
+      },
+      {
+        "field": "成员账号",
+        "text": "填写自己的团队账号，本图为 alice，并填写登录密码。",
+        "show_caption": false
+      },
+      {
+        "button": "登录",
+        "text": "登录后检查自己可见的工作组。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-04-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 创建项目并说明交付要求",
+    "callouts": [
+      {
+        "field": "引导项目名称",
+        "text": "本例填写“票据 OCR 优化”。",
+        "show_caption": false
+      },
+      {
+        "field": "项目目标",
+        "text": "写明项目要完成的目标，并填写背景和验收标准。",
+        "show_caption": false
+      },
+      {
+        "button": "保存并创建项目",
+        "text": "保存后，组内成员刷新即可看到项目和共同资料。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-04-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 阅读共同目标与验收标准",
+    "callouts": [
+      {
+        "field": "项目目标",
+        "text": "核对 Alice 发布的项目目标。",
+        "show_caption": false
+      },
+      {
+        "field": "验收标准",
+        "text": "阅读需要提交的复核清单、日志和结论，按这些要求开展工作。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-05-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 派发 Bob 的任务（可选）",
+    "callouts": [
+      {
+        "field": "任务负责人",
+        "text": "选择 Bob，并填写任务标题。",
+        "show_caption": false
+      },
+      {
+        "field": "任务目标与工作范围",
+        "text": "写清要完成的工作，并在下方填写验收要求、选择关联资料。",
+        "show_caption": false
+      },
+      {
+        "button": "确认派发",
+        "text": "派发后任务出现在 Bob 的“我的任务”中。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-05-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 阅读任务并开始工作",
+    "callouts": [
+      {
+        "selector": ".assignment-detail > .markdown",
+        "text": "先阅读任务目标与工作范围，再核对下方验收要求。",
+        "index": 0,
+        "show_caption": false
+      },
+      {
+        "button": "开始工作",
+        "text": "点击创建与该任务关联的工作会话。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-06-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 创建第一次工作会话",
+    "callouts": [
+      {
+        "selector": ".provider-picker",
+        "text": "选择要使用的模型工具，本例使用 Codex。",
+        "show_caption": false
+      },
+      {
+        "selector": ".provider-route-option",
+        "text": "个人网络账号没有与模型服务完整交互的权限时，勾选此卡片并应用总管理员提供的接入码，使用具备模型服务访问权限的网络。",
+        "show_caption": true
+      },
+      {
+        "selector": "[aria-label=\"Codex 登录状态\"]",
+        "text": "确认已登录自己的模型账号，并核对本机目录、模型和权限。",
+        "show_caption": false
+      },
+      {
+        "button": "创建会话",
+        "text": "点击创建；随后检查输入草稿和引用资料。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-07-1.png": {
+    "kind": "instruction",
+    "purpose": "Bob 从任务创建关联会话",
+    "callouts": [
+      {
+        "selector": ".modal-body > .callout",
+        "text": "核对所关联的任务，以及即将带入的任务说明和成果。",
+        "show_caption": false
+      },
+      {
+        "button": "创建会话",
+        "text": "创建任务关联会话，再核对输入并发送。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-07-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 核对首次输入并发送",
+    "callouts": [
+      {
+        "selector": ".source-chips",
+        "text": "任务目标、验收要求和关联资料已带入，发送前核对本轮输入。",
+        "show_caption": true
+      },
+      {
+        "field": "任务输入",
+        "text": "确认草稿准确表达本轮要完成的工作。",
+        "show_caption": false
+      },
+      {
+        "button": "发送任务",
+        "text": "主动发送后，模型才开始处理这轮请求。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-08-2.png": {
+    "kind": "instruction",
+    "purpose": "Carol 核对首次输入并发送",
+    "callouts": [
+      {
+        "selector": ".source-chips",
+        "text": "核对本轮选中的项目资料。",
+        "show_caption": false
+      },
+      {
+        "field": "任务输入",
+        "text": "确认草稿准确表达本轮要完成的工作。",
+        "show_caption": false
+      },
+      {
+        "button": "发送任务",
+        "text": "主动发送后，模型才开始处理这轮请求。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-09-1.png": {
+    "kind": "instruction",
+    "purpose": "Bob 提交可验收的任务结果",
+    "callouts": [
+      {
+        "field": "任务结果说明",
+        "text": "写清完成内容、证据和待确认项。",
+        "show_caption": false
+      },
+      {
+        "selector": ".modal .assignment-choices",
+        "text": "勾选与本次交付相关的成果，并核对下方验收附件。",
+        "show_caption": false
+      },
+      {
+        "button": "提交验收",
+        "text": "提交后任务进入待验收状态，由 Alice 核对。",
+        "scope": ".modal",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-09-2.png": {
+    "kind": "instruction",
+    "purpose": "Carol 核对成果后提交给团队",
+    "callouts": [
+      {
+        "selector": ".preparation-review",
+        "text": "核对成果名称、结论、证据和适用范围，并勾选需要共享的成果。",
+        "show_caption": false
+      },
+      {
+        "button": "提交到 票据 OCR 优化",
+        "text": "确认内容和共享项目后提交；项目成员随后可在团队动态查看。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-10-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 验收 Bob 的提交",
+    "callouts": [
+      {
+        "selector": "[aria-label=\"任务验收结果\"]",
+        "text": "核对结果说明、关联成果和验收附件。",
+        "show_caption": false
+      },
+      {
+        "button": "验收通过",
+        "text": "交付满足验收要求时确认通过。",
+        "show_caption": false
+      },
+      {
+        "button": "退回继续工作",
+        "text": "需要补充时写明原因退回，让 Bob 继续处理。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-first-session-10-2.png": {
+    "kind": "instruction",
+    "purpose": "Alice 查看 Carol 的共享成果",
+    "callouts": [
+      {
+        "selector": ".update-entry-body",
+        "text": "核对 Carol 上传的成果名称与版本。",
+        "show_caption": false
+      },
+      {
+        "button": "查看结果",
+        "text": "打开标注质量检查成果，阅读证据并安排后续工作。",
+        "show_caption": false
+      }
+    ]
+  },
+  "admin-users.png": {
+    "kind": "instruction",
+    "purpose": "总管理员管理团队账号",
+    "callouts": [
+      {
+        "button": "创建用户",
+        "text": "为新成员开通团队账号。",
+        "show_caption": false
+      },
+      {
+        "button": "组与组管理员",
+        "text": "在对应成员行设置所属工作组和项目组管理员身份。",
+        "index": 0,
+        "show_caption": true
+      },
+      {
+        "button": "重置密码",
+        "text": "在对应成员行处理密码重置。",
+        "index": 0,
+        "show_caption": false
+      }
+    ]
+  },
+  "admin-groups.png": {
+    "kind": "instruction",
+    "purpose": "按工作组管理成员与角色",
+    "callouts": [
+      {
+        "selector": ".group-heading",
+        "text": "核对工作组、目录、成员数量和项目组管理员数量。",
+        "show_caption": false
+      },
+      {
+        "button": "组内创建用户",
+        "text": "直接为当前组的新成员开通账号。",
+        "show_caption": true
+      },
+      {
+        "button": "添加已有用户",
+        "text": "把已开通的账号加入当前工作组。",
+        "show_caption": true
+      }
+    ]
+  },
+  "admin-storage.png": {
+    "kind": "instruction",
+    "purpose": "查看共享空间占用",
+    "callouts": [
+      {
+        "selector": ".storage-stat-grid",
+        "text": "查看共享文件总量、磁盘剩余空间和成员共享占用。",
+        "show_caption": true
+      },
+      {
+        "selector": ".storage-category-body",
+        "text": "按内容构成定位占用较多的成果、轨迹或项目文件。",
+        "show_caption": false
+      },
+      {
+        "button": "刷新统计",
+        "text": "需要最新数据时重新扫描；下方可按项目组、用户或文件夹查看。",
+        "show_caption": true
+      }
+    ]
+  },
+  "example-08-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 审阅合并结果并发布",
+    "callouts": [
+      {
+        "selector": ".merge-source-list",
+        "text": "核对参与合并的两条成果、作者和版本。",
+        "show_caption": false
+      },
+      {
+        "selector": ".result-reading",
+        "text": "阅读共同结论、适用范围和待验证项，需要调整时点击“编辑内容”。",
+        "show_caption": false
+      },
+      {
+        "button": "提交到 量化转换项目",
+        "text": "确认后提交新的团队成果；来源是否移入历史由勾选决定。",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-08-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 查看团队更新后的共同结论",
+    "callouts": [
+      {
+        "selector": ".update-feed > :first-child .update-entry-body",
+        "text": "这里显示合并后的成果及其来源。",
+        "show_caption": false
+      },
+      {
+        "button": "查看结果",
+        "text": "打开合并结果，核对新的适用范围与后续验证要求。",
+        "index": 0,
+        "show_caption": false
+      }
+    ]
+  },
+  "example-07-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 核对成果并保存个人副本",
+    "callouts": [
+      {
+        "selector": ".result-card.is-expanded .result-card-details > .markdown",
+        "text": "阅读结论、证据和适用范围，确认这份成果可供自己的工作使用。",
+        "show_caption": false
+      },
+      {
+        "text": "保存到个人成果库，后续可加入自己的会话。",
+        "scope": ".result-card.is-expanded",
+        "selector": ".result-card-actions button[aria-label^=\"存入个人成果库：\"]",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-07-2.png": {
+    "kind": "instruction",
+    "purpose": "Alice 带着双方的证据继续复测",
+    "callouts": [
+      {
+        "selector": ".source-chips",
+        "text": "同时保留双方证据，避免只根据其中一条结论复测。",
+        "show_caption": true
+      },
+      {
+        "field": "任务输入",
+        "text": "写明统一的复测条件与需要解释的分歧。",
+        "show_caption": false
+      },
+      {
+        "button": "发送任务",
+        "text": "发送复测要求，保留新的测试记录与结论。",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-06-1.png": {
+    "kind": "instruction",
+    "purpose": "Bob 核对成果后提交给团队",
+    "callouts": [
+      {
+        "selector": ".preparation-review",
+        "text": "核对成果名称、结论、证据和适用范围，并勾选需要共享的成果。",
+        "show_caption": false
+      },
+      {
+        "button": "提交到 量化转换项目",
+        "text": "确认内容和共享项目后提交；项目成员随后可在团队动态查看。",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-05-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 将个人副本用于自己的会话",
+    "callouts": [
+      {
+        "summary": "资料来源（1）",
+        "text": "展开查看这份个人副本的来源与版本。",
+        "show_caption": false
+      },
+      {
+        "text": "从“更多”进入“加入会话”，选择本次要使用成果的会话。",
+        "scope": ".result-card.is-expanded",
+        "show_caption": true,
+        "selector": ".result-more"
+      }
+    ]
+  },
+  "example-04-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 核对成果后提交给团队",
+    "callouts": [
+      {
+        "selector": ".preparation-review",
+        "text": "核对整理出的验证结论，补全输入、设备、代码版本和限制，再勾选要分享的成果。",
+        "show_caption": false
+      },
+      {
+        "button": "提交到 量化转换项目",
+        "text": "点击后开始上传。上传完成并同步后，Bob 才会在团队动态看到这项成果。",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-04-2.png": {
+    "kind": "instruction",
+    "purpose": "Bob 在 Alice 上传完成后查看团队动态",
+    "callouts": [
+      {
+        "selector": ".update-feed > :first-child .update-entry-body",
+        "text": "同步或刷新后，核对 Alice 上传的成果标题和版本。",
+        "show_caption": false
+      },
+      {
+        "button": "查看结果",
+        "text": "打开这一条动态对应的成果详情。",
+        "index": 0,
+        "show_caption": false
+      }
+    ]
+  },
+  "example-03-1.png": {
+    "kind": "instruction",
+    "purpose": "Alice 从验证会话发起成果整理",
+    "callouts": [
+      {
+        "selector": ".message.assistant",
+        "text": "先核对会话中的验证结果及对应的测试记录，再开始整理。",
+        "show_caption": false
+      },
+      {
+        "button": "整理成果",
+        "text": "点击会话右上角的“整理成果”，选择要整理的方面。",
+        "show_caption": false
+      }
+    ]
+  },
+  "example-03-2.png": {
+    "kind": "instruction",
+    "purpose": "Alice 确认整理来源、类别并开始整理对话",
+    "callouts": [
+      {
+        "selector": ".preparation-intro",
+        "text": "确认来源为“格式 A 验证”，本次整理读取这段会话。",
+        "show_caption": false
+      },
+      {
+        "selector": ".preparation-category-choices",
+        "text": "本例只选“探索记录”，保留本轮实验的观察、依据和适用范围。",
+        "show_caption": true
+      },
+      {
+        "button": "开始整理对话",
+        "text": "点击后等待整理完成，再打开生成的成果核对内容。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-egress-mixed-tunnel-enable.png": {
+    "kind": "instruction",
+    "purpose": "总管理员启用反向隧道",
+    "callouts": [
+      {
+        "button": "启用反向隧道",
+        "text": "管理端主动连接已登录的共享服务器，建立成员中转通路。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-project-cleanup-01-1.png": {
+    "kind": "instruction",
+    "purpose": "总管理员找到项目清理入口",
+    "callouts": [
+      {
+        "selector": ".storage-stat-grid",
+        "text": "核对共享占用和统计时间。",
+        "show_caption": false
+      },
+      {
+        "button": "清理项目",
+        "text": "打开项目选择和清理范围确认窗口。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-project-cleanup-02-1.png": {
+    "kind": "instruction",
+    "purpose": "核对目标项目和保留范围",
+    "callouts": [
+      {
+        "field": "要清理的项目",
+        "text": "核对工作组和项目名，避免清理其他项目。",
+        "show_caption": false
+      },
+      {
+        "selector": ".purge-options",
+        "text": "本例保留轨迹；成果、历史、附件和其他文件将删除。",
+        "show_caption": true
+      },
+      {
+        "button": "确认清理",
+        "text": "确认后无法撤销服务器文件删除。",
+        "show_caption": false
+      }
+    ]
+  },
+  "case-session-admin-direct.png": {
+    "kind": "instruction",
+    "purpose": "总管理员选择直连管理端并复制接入码",
+    "callouts": [
+      {
+        "selector": ".egress-route-picker label",
+        "index": 0,
+        "text": "成员可直接访问管理端地址时选择这条路线。",
+        "show_caption": false
+      },
+      {
+        "button": "复制接入码",
+        "text": "复制直连接入码，交给成员在新建会话时使用。",
+        "show_caption": false
+      }
+    ]
+  }
+}

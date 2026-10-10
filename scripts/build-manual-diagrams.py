@@ -63,12 +63,12 @@ def card(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, height: int,
         draw.text((x + 26, y + 105 + index * 38), line, font=font(23), fill=MUTED)
 
 
-def reference_flow():
+def reference_flow(*, handbook_roles: bool = False):
     canvas, draw = base("成果进入会话", "本次使用哪些成果，由成员选择并确认。", 413)
     xs = [44, 462, 880, 1298]
     titles = ["选择来源", "加入会话", "待带入", "已带入"]
     details = [
-        ["本地项目成果", "或可用的团队成果"],
+        ["个人项目成果", "或可用的团队成果"],
         ["引用项目成果", "并指定目标会话"],
         ["保存当前版本副本", "发送失败仍保留"],
         ["消息发送成功后", "成为 AI 参考内容"],
@@ -77,18 +77,20 @@ def reference_flow():
         card(draw, x, 143, 358, 188, str(i + 1), titles[i], details[i], TEAL if i == 3 else BLUE)
         if i < 3:
             arrow(draw, x + 365, xs[i + 1] - 8, 238)
-    draw.text((53, 352), "已有会话引用不会因共享内容更新而自动替换。", font=font(23), fill=TEAL)
-    canvas.save(OUT / "reference-flow.png", optimize=True)
+    draw.text((53, 352), "已发送的引用保留当时版本；待发送的团队引用会核对删除状态。", font=font(23), fill=TEAL)
+    output = ROOT / "docs/handbook/diagrams" if handbook_roles else OUT
+    output.mkdir(parents=True, exist_ok=True)
+    canvas.save(output / "reference-flow.png", optimize=True)
 
 
-def publish_flow():
+def publish_flow(*, handbook_roles: bool = False):
     canvas, draw = base("成果整理与上传", "AI 先归纳，成员核对后才发布到团队。", 410)
     xs = [36, 374, 712, 1050, 1388]
     titles = ["冻结来源", "AI 整理", "人工审核", "上传附件", "发布成果"]
     details = [
         ["复制当时的会话", "与所选资料"],
-        ["最多生成 5 项", "可能没有新成果"],
-        ["核对类别与正文", "明确勾选附件"],
+        ["每类最多 1 条", "三类最多 3 条"],
+        ["核对类别与正文", "核对已勾选附件"],
         ["仅上传所选文件", "失败可原记录重试"],
         ["如有附件先上传", "核对传输记录"],
     ]
@@ -97,13 +99,15 @@ def publish_flow():
         if i < 4:
             arrow(draw, x + 286, xs[i + 1] - 9, 238)
     draw.text((52, 352), "无新成果时先确认本次无需保留；有成果时以传输记录和团队成果库为准。", font=font(23), fill=TEAL)
-    canvas.save(OUT / "publish-flow.png", optimize=True)
+    output = ROOT / "docs/handbook/diagrams" if handbook_roles else OUT
+    output.mkdir(parents=True, exist_ok=True)
+    canvas.save(output / "publish-flow.png", optimize=True)
 
 
-def sync_scope():
-    canvas, draw = base("本地成果的同步范围", "连接同一团队账号后，可在另一台电脑恢复已同步的个人内容。", 478)
+def sync_scope(*, handbook_roles: bool = False):
+    canvas, draw = base("个人成果的同步范围", "连接同一团队账号后，可在另一台电脑恢复已同步的个人内容。", 478)
     blocks = [
-        (46, "随账号私有同步", ["本地成果 · 分类组合 · 别名", "整理结果 · 附件 · 动态处理记录"], TEAL),
+        (46, "随账号私有同步", ["个人成果 · 别名", "整理草稿 · 附件 · 动态处理记录"], TEAL),
         (868, "仅保留在本机", ["Session · 完整对话 · 输入草稿", "代码目录 · CLI 登录凭据"], BLUE),
     ]
     for x, title, lines, accent in blocks:
@@ -114,17 +118,20 @@ def sync_scope():
             draw.text((x + 59, 225 + index * 48), line, font=font(25), fill=INK)
     draw.rounded_rectangle((46, 349, 1654, 432), 14, fill="#E4F2F0")
     draw.text((74, 370), "两台电脑修改同一资料：比较本机版本与账号版本 → 逐项选择 → 再同步", font=font(26, True), fill=TEAL)
-    canvas.save(OUT / "sync-scope.png", optimize=True)
+    output = ROOT / "docs/handbook/diagrams" if handbook_roles else OUT
+    output.mkdir(parents=True, exist_ok=True)
+    canvas.save(output / "sync-scope.png", optimize=True)
 
 
-def task_lifecycle():
-    canvas, draw = base("任务从派发到验收", "负责人提交结果和证据，组管理员决定通过或退回。", 570)
+def task_lifecycle(*, handbook_roles: bool = False):
+    group_admin = "项目组管理员" if handbook_roles else "组管理员"
+    canvas, draw = base("任务从派发到验收", f"负责人提交结果和证据，{group_admin}决定通过或退回。", 570)
     xs = [45, 470, 895, 1320]
     titles = ["待开始", "进行中", "待验收", "已完成"]
     details = [
-        ["组管理员派发", "负责人阅读任务与附件"],
+        [f"{group_admin}派发", "负责人阅读任务与附件"],
         ["负责人创建或继续会话", "完成工作并准备证据"],
-        ["负责人提交说明与证据", "组管理员审核或退回"],
+        ["负责人提交说明与证据", f"{group_admin}审核或退回"],
         ["验收通过后结束", "记录与附件继续保留"],
     ]
     for i, x in enumerate(xs):
@@ -134,21 +141,29 @@ def task_lifecycle():
     draw.line((1075, 363, 1075, 421, 650, 421, 650, 378), fill=TEAL, width=5)
     draw.polygon([(638, 393), (650, 375), (662, 393)], fill=TEAL)
     center(draw, (862, 455), "退回后继续原会话，补充后再次提交", font(23, True), TEAL)
-    draw.text((55, 509), "组管理员自派可直接确认完成；取消不计完成。结束任务可移入已删除，恢复或彻底删除。",
+    footer = ("项目组管理员自派可直接确认完成；取消不计完成。任务可移入已删除，恢复或彻底删除。"
+              if handbook_roles else "组管理员自派可直接确认完成；取消不计完成。结束任务可移入已删除，恢复或彻底删除。")
+    draw.text((55, 509), footer,
               font=font(23), fill=INK)
-    canvas.save(OUT / "task-lifecycle.png", optimize=True)
+    output = ROOT / "docs/handbook/diagrams" if handbook_roles else OUT
+    output.mkdir(parents=True, exist_ok=True)
+    canvas.save(output / "task-lifecycle.png", optimize=True)
 
 
-def deployment_logic():
-    canvas, draw = base("正式部署：独立节点与两类服务", "总管理员、项目组管理员、成员 A 和 B 独立接入；同类节点可以继续增加。", 1010)
+def deployment_logic(*, handbook_roles: bool = False):
+    member_a = "项目组成员 A" if handbook_roles else "成员 A"
+    member_b = "项目组成员 B" if handbook_roles else "成员 B"
+    subtitle = ("总管理员、项目组管理员、项目组成员 A 和 B 独立接入；同类节点可以继续增加。"
+                if handbook_roles else "总管理员、项目组管理员、成员 A 和 B 独立接入；同类节点可以继续增加。")
+    canvas, draw = base("正式部署：独立节点与两类服务", subtitle, 1010)
     MODEL = "#77559B"
     ACCESS = "#8295A3"
 
     clients = [
-        (44, "总管理员", "管理员版", ["建组建号，任命组管理员", "初始化团队空间与服务端", "可选转发成员的模型连接"], BLUE),
-        (456, "项目组管理员", "用户版", ["创建项目，派发任务", "维护说明和公共成果", "每组可有多位组管理员"], TEAL),
-        (868, "成员 A", "用户版", ["开展 AI 会话与代码工作", "管理账号私有资料", "确认发布成果与附件"], TEAL),
-        (1280, "成员 B", "用户版", ["接收任务并开展会话", "复用本地和团队成果", "确认发布成果与附件"], TEAL),
+        (44, "总管理员", "管理员版", ["建组建号，任命项目组管理员" if handbook_roles else "建组建号，任命组管理员", "初始化团队空间与服务端", "可选转发成员的模型连接"], BLUE),
+        (456, "项目组管理员", "用户版", ["创建项目，派发任务", "维护说明和团队成果" if handbook_roles else "维护说明和公共成果", "每组可有多位项目组管理员" if handbook_roles else "每组可有多位组管理员"], TEAL),
+        (868, member_a, "用户版", ["开展 AI 会话与代码工作", "管理账号私有资料", "确认发布成果与附件"], TEAL),
+        (1280, member_b, "用户版", ["接收任务并开展会话", "复用本地和团队成果", "确认发布成果与附件"], TEAL),
     ]
     for x, title, app, lines, accent in clients:
         draw.rounded_rectangle((x, 155, x + 376, 455), 18, fill=WHITE, outline=LINE, width=3)
@@ -173,7 +188,7 @@ def deployment_logic():
     center(draw, (1056, 557), "各自登录，连接方式相同", font(22), MUTED)
     draw.line((810, 520, 810, 640), fill=TEAL, width=5)
     draw.polygon([(797, 628), (810, 649), (823, 628)], fill=TEAL)
-    center(draw, (701, 606), "成员 SSH/SFTP", font(22, True), TEAL)
+    center(draw, (701, 606), "用户版 SSH/SFTP" if handbook_roles else "成员 SSH/SFTP", font(22, True), TEAL)
     draw.line((1440, 520, 1440, 640), fill=MODEL, width=5)
     draw.polygon([(1427, 628), (1440, 649), (1453, 628)], fill=MODEL)
     center(draw, (1512, 606), "模型 HTTPS", font(22, True), MODEL)
@@ -198,11 +213,23 @@ def deployment_logic():
     draw.text((1168, 785), "能直连就直连，否则经管理端转发", font=font(22), fill=INK)
     draw.text((1168, 827), "管理端只转发连接，不接管账号", font=font(22), fill=MODEL)
 
-    draw.text((54, 932), "数据边界：代码、Session、完整对话及模型凭据留在各自本机；成果经成员确认后才进入授权项目。",
+    boundary = ("数据边界：代码、Session、完整对话及模型凭据留在各自本机；成果经用户确认后才进入授权项目。"
+                if handbook_roles else "数据边界：代码、Session、完整对话及模型凭据留在各自本机；成果经成员确认后才进入授权项目。")
+    draw.text((54, 932), boundary,
               font=font(24), fill=INK)
-    canvas.save(OUT / "deployment-logic.png", optimize=True)
+    output = ROOT / "docs/handbook/diagrams" if handbook_roles else OUT
+    output.mkdir(parents=True, exist_ok=True)
+    canvas.save(output / "deployment-logic.png", optimize=True)
 
 if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["--handbook-roles"]:
+        reference_flow(handbook_roles=True)
+        publish_flow(handbook_roles=True)
+        sync_scope(handbook_roles=True)
+        task_lifecycle(handbook_roles=True)
+        deployment_logic(handbook_roles=True)
+        sys.exit(0)
     OUT.mkdir(parents=True, exist_ok=True)
     reference_flow()
     publish_flow()
