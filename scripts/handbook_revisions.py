@@ -22,6 +22,14 @@ def git(*args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=ROOT, text=True, encoding="utf-8").strip()
 
 
+def committed_source(commit: str) -> str:
+    """Preserve HTML whitespace so its fingerprint matches the saved source."""
+    return subprocess.check_output(
+        ["git", "show", f"{commit}:docs/handbook/index.html"],
+        cwd=ROOT, text=True, encoding="utf-8",
+    )
+
+
 def content_without_history(source: str) -> str:
     return PANEL.sub("", source)
 
@@ -36,7 +44,7 @@ def historical_revisions() -> list[dict]:
     entries = []
     for line in reversed(lines):
         commit, updated_at, summary = line.split("\x1f", 2)
-        source = git("show", f"{commit}:docs/handbook/index.html")
+        source = committed_source(commit)
         entries.append({
             "updated_at": updated_at,
             "base_commit": commit,
@@ -63,7 +71,7 @@ def finalize_committed_revisions(entries: list[dict]) -> bool:
         return False
     changed = False
     for commit in git("log", "--format=%H", "--", "docs/handbook/index.html").splitlines():
-        digest = fingerprint(git("show", f"{commit}:docs/handbook/index.html"))
+        digest = fingerprint(committed_source(commit))
         if digest in pending:
             pending[digest]["document_commit"] = commit
             del pending[digest]

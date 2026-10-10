@@ -508,7 +508,7 @@
     {
       "updated_at": "2026-10-10T10:11:10+08:00",
       "base_commit": "fda23a5ebaa64cea2576dadccc0a747cad1600f5",
-      "document_commit": null,
+      "document_commit": "c113ac04cccd4d4c25d5ff3c10142ee9116f2f73",
       "summary": "为三种连接方式补充选择依据和场景对照表；截图步骤只保留具体操作。",
       "content_sha256": "7d4d2b05b78c7be4ecf9e552abdf26fef7aeee183f4b3c91a178d739600d5576"
     }
