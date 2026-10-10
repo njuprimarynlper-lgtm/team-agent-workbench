@@ -140,5 +140,14 @@ test('sessions keep independent direct and management CLI routes across restart'
     const restored = new Store(wb.store.root); await restored.init();
     assert.equal(restored.sessions.find(item => item.id === direct.id)?.networkRoute, 'direct');
     assert.equal(restored.sessions.find(item => item.id === managed.id)?.networkRoute, 'management');
+    assert.equal((await wb.changeNetworkRoute(direct.id, 'management')).networkRoute, 'management');
+    managed.status = 'running';
+    const deferred = await wb.changeNetworkRoute(managed.id, 'direct');
+    assert.equal(deferred.networkRoute, 'direct');
+    assert.equal(deferred.settingsPending, true);
+    assert.equal(deferred.status, 'running');
+    deferred.status = 'idle';
+    wb.store.settings.egress.enabled = false;
+    await assert.rejects(wb.changeNetworkRoute(deferred.id, 'management'), /请先应用并检测管理端网络出口/);
   } finally { await wb.close(); await cleanup(root); }
 });

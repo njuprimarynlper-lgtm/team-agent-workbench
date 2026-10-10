@@ -922,6 +922,16 @@ export class Workbench {
       await this.store.save(); this.broadcast(); return s;
     } finally { this.changingSettings.delete(s.id); }
   }
+  async changeNetworkRoute(id: string, route: SessionNetworkRoute) {
+    const s = this.session(id);
+    if (s.purpose !== 'work') throw new Error('成果整理沿用来源会话的网络出口');
+    if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
+    if (route !== 'direct' && route !== 'management') throw new Error('无效的网络出口');
+    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
+    if ((s.networkRoute || 'direct') === route) return s;
+    if (route === 'management' && !this.store.settings.egress?.enabled) throw new Error('请先应用并检测管理端网络出口');
+    return this.updateSessionSettings(s, () => { s.networkRoute = route; });
+  }
   async changeModel(id: string, model: string, _stop = false) {
     const s = this.session(id);
     if (s.purpose !== 'work') throw new Error('成果整理使用来源会话的模型');

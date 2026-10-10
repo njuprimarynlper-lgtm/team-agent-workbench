@@ -25,6 +25,17 @@ test('new sessions reuse the selected management route and saved access code wit
   assert.match(existingSession, /重新检测连接与登录/);
 });
 
+test('an existing session can switch to the management route and asks for an access code when one is missing', () => {
+  const page = renderToStaticMarkup(React.createElement(ProviderConnectionSettings, {
+    provider: 'codex', cwd: 'D:/work', auth, egress: direct, activeTaskCount: 0, sessionRoute: 'management', savedRoute: 'direct', sessionId: 'session-1',
+  }));
+  assert.match(page, /通过管理端访问模型服务/);
+  assert.match(page, /从下一轮开始使用所选出口/);
+  assert.match(page, /aria-label="管理端网络出口接入码"/);
+  assert.match(page, /应用并重新检测/);
+  assert.match(page, /缺少管理端接入码/);
+});
+
 test('a direct session remains selectable while another management task runs', () => {
   const page = renderToStaticMarkup(React.createElement(ProviderConnectionSettings, { provider: 'codex', cwd: 'D:/work', auth, egress: ready, sessionRoute: 'direct', activeTaskCount: 1 }));
   assert.match(page, /本机网络/);
