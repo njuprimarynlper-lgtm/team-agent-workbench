@@ -70,3 +70,47 @@ test('merge uses the same boundaries, at most one result, and supports an empty 
   assert.throws(() => applyContentMerge(value, output(result, item({ topic: '独立主题', title: '另一项', body: '其他内容', evidenceIds: ['source'] }))), /只生成一条/);
   applyContentMerge(value, output()); assert.equal(value.body, ''); assert.equal(value.mergeSources[0].revision, 1);
 });
+
+test('automatic preparation emits at most one result for each selected category', () => {
+  const value = draft();
+  value.resultRules = { contract: 4, categories: ['capability', 'exploration', 'todo'] };
+  const prompt = preparationPrompt(value, []);
+  assert.match(prompt, /每个启用类别最多生成一条成果/);
+  assert.match(prompt, /每个勾选类别最多生成一条成果/);
+  assert.doesNotMatch(prompt, /独立待办逐条/);
+  assert.doesNotMatch(prompt, /不同待办逐条/);
+  const evidence = { origin: 'project', evidenceIds: ['message:m1'] };
+  const review = { status: 'complete', inputCount: 0 };
+  applyPreparation(value, JSON.stringify({ sourceReview: review, artifacts: [
+    { category: 'capability', topic: '检索', title: '已能按条件检索', body: '当前实现支持按标签检索，未覆盖模糊匹配。', ...evidence },
+    { category: 'exploration', topic: '缓存', title: '缓存方案仍在验证', body: '尝试过本地缓存，命中率未在生产负载下验证。', ...evidence },
+    { category: 'todo', topic: '后续', title: '补齐检索与缓存验证', body: '需要补模糊匹配，并在生产负载下复核缓存命中。', ...evidence },
+  ] }));
+  assert.deepEqual(value.artifacts?.map(item => item.category), ['capability', 'exploration', 'todo']);
+  assert.throws(() => applyPreparation(value, JSON.stringify({ sourceReview: review, artifacts: [
+    { category: 'todo', topic: '测试', title: '补齐失败分支测试', body: '补齐单元测试覆盖失败分支。', ...evidence },
+    { category: 'todo', topic: '文档', title: '补齐接口说明', body: '补齐接口说明和使用限制。', ...evidence },
+  ] })), /每个勾选类别只能生成一条/);
+  assert.throws(() => applyPreparation(value, JSON.stringify({ sourceReview: review, artifacts: [
+    { category: 'capability', topic: '检索', title: '已能检索', body: '支持按标签检索。', ...evidence },
+    { category: 'exploration', topic: '缓存', title: '缓存待验证', body: '本地缓存尚未在生产负载下验证。', ...evidence },
+    { category: 'todo', topic: '测试', title: '补测试', body: '补齐失败分支测试。', ...evidence },
+    { category: 'todo', topic: '文档', title: '补文档', body: '补齐接口说明。', ...evidence },
+  ] })), /每个勾选类别最多生成一条/);
+});
+
+test('session attachments are associated with each organized result', () => {
+  const value = draft();
+  value.files = [
+    { id: 'note', name: '记录.txt', userAttachment: true },
+    { id: 'code', name: 'main.ts' },
+  ] as Draft['files'];
+  applyPreparation(value, output(
+    item({ attachmentIds: ['code', 'missing'] }),
+    item({ category: 'issue', topic: '后续缺口', title: '补齐失败记录', body: '失败样本还没有归档，当前不能判断覆盖范围。' })
+  ));
+  assert.deepEqual(value.artifacts?.[0].attachments, [{ fileId: 'note', selected: true }, { fileId: 'code', selected: true }]);
+  assert.deepEqual(value.artifacts?.[1].attachments, [{ fileId: 'note', selected: true }]);
+  assert.match(preparationPrompt(value, []), /用户附加的文件会自动关联/);
+  assert.doesNotMatch(preparationPrompt(value, []), /仍需用户勾选/);
+});

@@ -95,8 +95,12 @@ export async function preparationSnapshot(session: AgentSession, inputDir: strin
   let handoff: SourceFile | undefined, noteWarning: string | undefined;
   try { handoff = await freezeFile(session.handoffPath, inputDir); }
   catch (error: any) { if (error.code !== 'ENOENT') throw error; noteWarning = '阶段摘要缺失；依据冻结对话整理。'; }
-  const files: SourceFile[] = [];
-  for (const source of session.sources.filter(source => !isPersonalHandoffSource(source))) { const copy = await freezeFile(source.localPath, inputDir); files.push({ ...copy, name: source.name, sourcePath: source.sourcePath }); }
+  const files: SourceFile[] = [], briefId = session.projectBrief?.sourceId;
+  for (const source of session.sources.filter(source => !isPersonalHandoffSource(source))) {
+    const copy = await freezeFile(source.localPath, inputDir);
+    const userAttachment = !source.contentRef && source.id !== briefId;
+    files.push({ ...copy, name: source.name, sourcePath: source.sourcePath, ...(userAttachment ? { userAttachment: true } : {}) });
+  }
   for (const file of extraFiles) files.push(await freezeFile(file, inputDir));
   // Only known files inside this session's workspace become candidates. Never crawl a directory.
   const canonical = session.cwd ? await fs.realpath(session.cwd).catch(() => '') : '';

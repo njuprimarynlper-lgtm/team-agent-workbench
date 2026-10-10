@@ -39,11 +39,18 @@ export function resultRulesPrompt(categories: readonly ContributionCategory[]) {
     const boundary = resultCategoryBoundaries[category as MaterialCategory];
     return { category, name: contributionCategoryInfo[category].label, ...(boundary || { include: contributionCategoryInfo[category].description }) };
   });
-  if (categories.every(category => materialCategories.includes(category as any))) return `先识别内容的用途，再按启用类别分别提炼。类别边界：${JSON.stringify(definitions)}。
-允许同一主题在用户选中的类别分别形成成果，但各自回答不同问题，不能复制相同正文。已有能力描述当前实现，探索记录描述尝试及依据，待办事项描述独立后续动作；跨类引用不等于跨类合并。
-独立待办逐条输出；只有确属同一事项的重复描述才合并。最多 50 条，超过时返回 sourceReview.status="incomplete" 并说明需缩小范围，不得静默截断。允许 0 条，不凑齐分类。
+  if (categories.every(category => materialCategories.includes(category as any))) {
+    const definitions = categories.map(category => {
+      const boundary = { ...(resultCategoryBoundaries[category as MaterialCategory] || { question: '', include: contributionCategoryInfo[category].description, exclude: '' }) };
+      if (category === 'todo') boundary.exclude = '多个待办写进同一条成果，不逐条拆开。';
+      return { category, name: contributionCategoryInfo[category].label, ...boundary };
+    });
+    return `先识别内容的用途，再按启用类别分别提炼。类别边界：${JSON.stringify(definitions)}。
+每个启用类别最多生成一条成果，因此这次最多 ${categories.length} 条。同一类别里的多个对象、证据和后续动作收成这一条，在正文里分点写清。不同类别仍各自一条，可以围绕同一主题分别回答不同问题，不能复制相同正文。
+没有新内容的类别直接省略。允许 0 条，不凑齐分类。
 已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。显式处理项目目标时保持待确认，不能据 AI 建议自动确认；项目资料保持参考性质，不能写成目标。
 过滤与项目无关的操作流水、凭据和本机临时故障。项目自身的缺陷、交付环境限制和网络适配任务可以保留。不要因正文出现权限或网络就过滤整个项目任务。只从启用类别选择，不为迁就分类夸大事实。`;
+  }
   return `整理顺序：先过滤不应保留的信息，再按独立主题提炼和合并，最后为每个主题选择一个主类别。禁止按类别逐个生成，禁止同一主题换类别重复输出。总计最多 5 条，允许 0 条，不凑类别或数量；多个独立主题可以使用相同类别。
 类别边界：${JSON.stringify(definitions)}
 优先规则：先按主要用途区分需求、标准、设计、操作及问题处理，不因它们也可复用就一律归项目经验。finding 表示项目经验：从实际尝试、观察及取舍中提炼值得后续参考的做法或教训，说明当时条件、证据、适用边界和未验证范围，不要求形成最终定论；相关验证和对比依据放在同一条。只报告实测数据用 verification、摘录外部事实用 research、尚未结合实践的方案比较用 comparison。尚无实践或观察依据的设想用 method_exploration，不能仅加“可能”就包装成经验。未解决项目缺陷用 issue，根因和修复均确认后用 troubleshooting。requirement 描述做什么，project_standard 描述人确认的必须遵守事项，design 描述如何实现，baseline_change_proposal 描述尚未采纳的改进。只能从启用类别选择；没有合适类别且无法如实表达时省略，不夸大事实迁就分类。

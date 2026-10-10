@@ -47,7 +47,7 @@ export function PreparationOptionsModal({ session, baseline, initialDirections, 
           <PreparationCategoryChoices categories={preparationCategories} selected={selected} directions={directions} disabled={disabled} select={(category, checked) => setSelected(values => checked ? [...values, category] : values.filter(value => value !== category))} changeDirection={(category, value) => setDirections(values => ({ ...values, [category]: value }))}/>
           {!selected.length && <p className="inline-error" role="alert">请至少选择一个整理方面。</p>}
         </section>
-        <p className="muted small">按实际内容整理，不凑齐分类；独立待办逐条保留。没有新成果时会说明原因，由你确认；读取失败会提示重试。</p>
+        <p className="muted small">按实际内容整理，不凑齐分类。每个勾选的类别最多生成一条。没有新成果时会说明原因，由你确认；读取失败会提示重试。</p>
         {error && <div className="inline-error" role="alert">{error}</div>}
       </div>
       <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={disabled || !selected.length || scope === 'incremental' && !canIncremental} onClick={async () => {

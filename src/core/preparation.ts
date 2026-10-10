@@ -81,6 +81,12 @@ export function preparationFieldContract(categories: readonly ContributionCatego
 
 export const preparationWritingGuide = humanReadableWritingGuide + '\n精简交接：每项最多三段，正文通常控制在 150—250 字，不要重复标题。不按类别增加字段或固定章节，不罗列日志、返回码、文件清单、增删行数。静态通过不等于运行、精度或性能通过，未验证与不确定性必须保留。';
 
+function associatedAttachments(draft: Draft, attachmentIds?: string[]) {
+  const known = new Set(draft.files.map(file => file.id));
+  const ids = [...new Set([...draft.files.filter(file => file.userAttachment).map(file => file.id), ...(attachmentIds || [])])].filter(id => known.has(id)).slice(0, 30);
+  return ids.map(fileId => ({ fileId, selected: true }));
+}
+
 export function applyPreparation(draft: Draft, answer: string) {
   let raw: unknown;
   try { raw = JSON.parse(answer.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
@@ -91,7 +97,7 @@ export function applyPreparation(draft: Draft, answer: string) {
     const artifacts = review.artifacts.map((item, index) => {
       const artifact = preparedArtifact(item, `${draft.id}-${index + 1}`, contributionCategoryDirectory(draft.binding!, item.category));
       if (item.updateId) { const existing = draft.preparationExistingResults!.find(value => value.id === item.updateId)!; artifact.updateTarget = { scope: 'personal', projectId: draft.binding!.project.id, id: existing.id, version: existing.version! }; }
-      artifact.attachments = [...new Set(item.attachmentIds || [])].filter(id => draft.files.some(file => file.id === id)).map(fileId => ({ fileId, selected: false }));
+      artifact.attachments = associatedAttachments(draft, item.attachmentIds);
       if (item.repoUrl) { try { artifact.repoUrl = githubRepository(item.repoUrl); } catch { artifact.repoUrl = undefined; } }
       return artifact;
     });
@@ -115,7 +121,7 @@ export function applyPreparation(draft: Draft, answer: string) {
       if (!body) throw new Error(`“${item.title}”没有可提交的${contributionCategoryInfo[item.category].label}字段。`);
       let repoUrl = '';
       if (item.repoUrl) { try { repoUrl = githubRepository(item.repoUrl); } catch { /* Never guess or retain an invalid repository URL. */ } }
-      const attachments = [...new Set(item.attachmentIds || [])].filter(id => draft.files?.some(file => file.id === id)).map(fileId => ({ fileId, selected: false }));
+      const attachments = associatedAttachments(draft, item.attachmentIds);
       return { id: `${draft.id}-${index + 1}`, category: item.category, title: contributionTitle(item.category, item.title), fields, body, repoUrl, target: contributionCategoryDirectory(draft.binding!, item.category), selected: true, attachments, sourceDetails: item.sourceDetails };
     });
     const first = artifacts[0];

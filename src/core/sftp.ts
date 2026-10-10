@@ -17,6 +17,7 @@ import { systemUsername } from './account-login';
 import type { AccountSnapshot } from '../shared/account-data';
 import { newProjectLayout, projectName } from './project-layout';
 import { PROJECT_BRIEF_FILE, projectBriefSchema, projectBriefMarkdown, type ProjectBrief } from '../shared/project-brief';
+import { groupWorkspacePattern } from '../shared/groups';
 import { missingContentIndexMessage } from '../shared/content-index';
 import type { TransferPhase } from '../shared/types';
 const MAX_PREVIEW = 512 * 1024;

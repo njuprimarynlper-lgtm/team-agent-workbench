@@ -3,7 +3,7 @@ import { canonicalCategory } from '../shared/result-model';
 import { PreparationReview, type PreparationReviewHandle } from './preparation-review';
 import { resultLabelTitle } from '../shared/result-labels';
 import React, { useEffect, useState, useRef } from 'react';
-import { Upload, Check, LoaderCircle, ArrowLeft, Square, Trash2 } from 'lucide-react';
+import { Check, LoaderCircle, ArrowLeft, Square, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentSession, Draft, Transfer, Project } from '../shared/types';
@@ -121,7 +121,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
       <div className="draft-actions">
         <button className="secondary back-action" disabled={leaving} onClick={back}>{backLabel}</button>
         <span className="spacer"/>
-        {!isLocalMerge && ready && <button className="secondary" disabled={busy || leaving || mergeBlocked || !!draft.personalSavedIds?.includes(draft.id)} onClick={() => void run(async () => {
+        {!isLocalMerge && ready && <button className="primary" disabled={busy || leaving || mergeBlocked || !!draft.personalSavedIds?.includes(draft.id)} onClick={() => void run(async () => {
           setBusy(true);
           try {
             if (!draft.mergeCompletedAt) await mergeEditor.flush();
@@ -129,8 +129,8 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             notice('融合结果已保存到个人成果库；团队来源保持原状');
             viewConclusion(draft.mergeProjectId!, result.id);
           } finally { setBusy(false); }
-        })}>{draft.personalSavedIds?.includes(draft.id) ? '已保存到个人成果库' : '保存到个人成果库'}</button>}
-        {isLocalMerge && ready && !draft.mergeCompletedAt && <button className="secondary" disabled={busy || leaving || mergeBlocked || !mergeEditor.value.title.trim() || !mergeEditor.value.body.trim()} onClick={() => void run(async () => {
+        })}><Check size={15}/>{draft.personalSavedIds?.includes(draft.id) ? '已保存到个人成果库' : '保存到个人成果库'}</button>}
+        {isLocalMerge && ready && !draft.mergeCompletedAt && <button className="primary" disabled={busy || leaving || mergeBlocked || !mergeEditor.value.title.trim() || !mergeEditor.value.body.trim()} onClick={() => void run(async () => {
           setBusy(true);
           try {
             await mergeEditor.flush();
@@ -138,7 +138,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             setSubmitted(true);
             notice('已开始提交团队成果；个人来源保持原状，上传完成后项目组成员可见');
           } finally { setBusy(false); }
-        })}>{uploadLabel}</button>}
+        })}><Check size={15}/>{busy ? '正在提交…' : uploadLabel}</button>}
         {draft.mergeCompletedAt && draft.mergeResultId && isLocalMerge ? <button className="primary" onClick={() => viewConclusion(draft.conclusionMergeProjectId!, draft.mergeResultId!)}>查看个人成果</button> :
           draft.mergeCompletedAt && isLocalMerge && draft.mergeResultPath && transfer?.status === 'done' ? <button className="primary" onClick={() => viewShared(draft.binding!.project.id, draft.mergeResultPath!)}>查看团队成果</button> :
           draft.mergeCompletedAt && draft.mergeProjectId && draft.mergeResultPath ? <button className="primary" onClick={() => viewShared(draft.mergeProjectId!, draft.mergeResultPath!)}>查看团队成果</button> :
@@ -166,14 +166,14 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
       <div className="draft-actions">
         <button className="secondary back-action" disabled={leaving} onClick={back}>{backLabel}</button>
         <span className="spacer"/>
-        {ready && !!draft.binding && <button className="secondary" disabled={busy || leaving || !unsavedIds.length} onClick={() => void run(async () => {
+        {ready && !!draft.binding && <button className="primary" disabled={busy || leaving || !unsavedIds.length} onClick={() => void run(async () => {
           setBusy(true);
           try {
             if (!draft.submitted) await reviewRef.current?.flush(); await editor.flush();
             await api.call('draft.personal.save', { id: draft.id, artifactIds: selectedIds });
             notice(`已将 ${unsavedIds.length} 项成果保存到个人成果库；团队成员暂不可见`);
           } finally { setBusy(false); }
-        })}><Check size={15}/>{unsavedIds.length ? `保存 ${unsavedIds.length} 项到个人成果库` : '所选成果已保存到个人成果库'}</button>}
+        })}><Check size={15}/>{unsavedIds.length ? `保存到个人成果库${unsavedIds.length > 1 ? `（${unsavedIds.length} 项）` : ''}` : '已保存到个人成果库'}</button>}
         {!draft.submitted && !submitted ? <button className="primary" disabled={busy || leaving || !ready || !selectedIds.length || !draft.binding} onClick={() => void run(async () => {
           setBusy(true);
           try {
@@ -182,7 +182,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             setSubmitted(true);
             notice(`已开始提交 ${selectedIds.length} 项成果到团队`);
           } finally { setBusy(false); }
-        })}><Upload size={15}/>{busy ? '正在提交…' : `${uploadLabel}${selectedIds.length > 1 ? `（${selectedIds.length} 项）` : ''}`}</button> :
+        })}><Check size={15}/>{busy ? '正在提交…' : `${uploadLabel}${selectedIds.length > 1 ? `（${selectedIds.length} 项）` : ''}`}</button> :
           <span className="green row"><Check size={17}/>{transfers.some(item => item.status === 'error') ? '部分上传失败，可在对应成果中重试' : transfers.length && transfers.every(item => item.status === 'done') ? '团队提交已完成，可查看团队成果' : '正在提交团队成果'}</span>}
         {!artifacts.length && transfer?.status === 'done' && <button className="primary compact" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看团队成果</button>}
       </div>
