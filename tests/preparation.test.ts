@@ -284,20 +284,43 @@ test('SFTP candidate discovery skips other-member submissions and trajectories; 
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('hung preparation times out visibly; no duplicate jobs, no automatic upload, supplement survives retry and restart', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-timeout-'));
+for (const kind of ['summary', 'merge'] as const) test(`long-running ${kind} has no total deadline; stopping, failed retries and successful recovery preserve inputs`, async context => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-prepare-no-deadline-'));
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
-  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, 3000);
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  const realTimeout = setTimeout;
+  const pause = (ms: number) => new Promise<void>(resolve => realTimeout(resolve, ms));
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.cursor = fixture.launcher;
-    const s = await wb.createSession('cursor', root, offlineProjectId), d = await wb.prepare(s.id);
-    await wb.saveDraftSupplement(d.id, '一直保留的补充', ''); await until(() => d.generation === 'error'); assert.match(d.generationError!, /超时/);
-    assert(wb.session(d.prepareSessionId!).closedAt); assert.equal(s.status, 'idle'); assert.equal(wb.store.transfers.length, 0);
-    await fixture.write({ status: 'ready', turn: 'success', preparationRaw: 'broken response' });
+    const s = await wb.createSession('cursor', root, offlineProjectId);
+    const sources = kind === 'merge' ? [await wb.createConclusion(offlineProjectId, '部署约束', '隐藏终端窗口。'), await wb.createConclusion(offlineProjectId, '启动验证', '保留已有验证依据。')] : [];
+    context.mock.timers.enable({ apis: ['setTimeout'] });
+    const d = kind === 'merge' ? await wb.prepareConclusionMerge(offlineProjectId, s.id, sources.map(item => item.id), '保留已有依据') : await wb.prepare(s.id);
+    try {
+      const end = Date.now() + 20000;
+      while (wb.session(d.prepareSessionId!).status !== 'running') {
+        if (Date.now() > end) throw new Error('Preparation helper did not start');
+        await pause(20);
+      }
+      await wb.saveDraftSupplement(d.id, '一直保留的补充', '');
+      context.mock.timers.tick(10 * 60 * 1000 + 1);
+      await pause(0);
+      assert.equal(d.generation, 'running'); assert.equal(d.generationError, undefined);
+      assert.equal(wb.session(d.prepareSessionId!).closedAt, undefined);
+      assert.equal(wb.store.drafts.length, 1); assert.equal(wb.store.transfers.length, 0);
+      assert.equal(s.preparationCheckpoint, undefined);
+    } finally { context.mock.timers.reset(); }
+    const inputDir = d.inputDir;
+    await wb.cancelPreparation(d.id);
+    assert.equal(d.generation, 'canceled'); assert(wb.session(d.prepareSessionId!).closedAt); assert.equal(s.status, 'idle');
+    if (sources.length) assert(sources.every(item => !item.archived));
+    await fixture.write({ status: 'ready', turn: 'success', [kind === 'merge' ? 'mergeRaw' : 'preparationRaw']: 'broken response' });
     await wb.retryPreparation(d.id); await until(() => d.generation === 'error'); assert.match(d.generationError!, /格式不完整/);
+    assert.equal(d.inputDir, inputDir); assert.equal(s.preparationCheckpoint, undefined);
     await fixture.write({ status: 'ready', turn: 'success' }); await wb.retryPreparation(d.id); await until(() => d.generation === 'ready'); assert.equal(d.supplement, '一直保留的补充');
+    assert.equal(d.inputDir, inputDir); assert.equal(wb.store.transfers.length, 0);
     await wb.store.save(); const reopened = new Store(wb.store.root); await reopened.init(); assert.equal(reopened.drafts[0].supplement, d.supplement); assert.equal(reopened.drafts[0].body, d.body);
-  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
+  } finally { context.mock.timers.reset(); await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 test('cancel preparation preserves notes and supplements, stops only the helper, and supports retry', async () => {

@@ -689,7 +689,7 @@ async function createDataContext(root: string, personal = false): Promise<DataCo
       notification.show();
     } if (message.startsWith('待授权：')) for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
   let egress: EgressClientProxy | undefined;
-  workbench = new Workbench(root, broadcast, notice, 10 * 60 * 1000, (route, session) => {
+  workbench = new Workbench(root, broadcast, notice, undefined, (route, session) => {
     if (route === 'direct') return {};
     if (personal) assertPersonalRelay(route || (workbench.store.settings.egress?.enabled ? 'management' : 'direct'), workbench.store.settings.egress?.viaSharedServer, personalRelay?.workbench.remote.connected && personalRelay.workbench.remote.profile ? accountIdentity(personalRelay.workbench.remote.profile) : undefined, session);
     const environment = egress?.environment() || {};
