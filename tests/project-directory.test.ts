@@ -33,14 +33,17 @@ test('project directories and explicit skips survive restart without leaking bet
   } finally { await restored.close(); }
 }));
 
-test('changing the project default preserves existing sessions and creating sessions cannot overwrite the default', async () => fixture(async (wb, root) => {
+test('changing the project directory moves following sessions and creation cannot overwrite the default', async () => fixture(async (wb, root) => {
   const profile = wb.store.settings.workspaceSnapshot!.profile, key = projectDirectoryKey(profile, offlineProjectId);
-  const nextDirectory = path.join(root, 'second-code'); await fs.mkdir(nextDirectory);
-  await wb.saveProjectDirectory(offlineProjectId, root, key);
-  const prior = await wb.createSession('codex', root, offlineProjectId);
+  const firstDirectory = path.join(root, 'first-code'), nextDirectory = path.join(root, 'second-code'); await fs.mkdir(firstDirectory); await fs.mkdir(nextDirectory);
+  await wb.saveProjectDirectory(offlineProjectId, firstDirectory, key);
+  const prior = await wb.createSession('codex', firstDirectory, offlineProjectId);
+  await fs.writeFile(path.join(firstDirectory, 'download.txt'), 'downloaded content');
   await wb.saveProjectDirectory(offlineProjectId, nextDirectory, key);
   const next = await wb.createSession('codex', projectDirectory(wb.store.settings, profile, offlineProjectId)!, offlineProjectId);
-  assert.equal(prior.cwd, root); assert.equal(next.cwd, await fs.realpath(nextDirectory));
+  assert.equal(prior.cwd, await fs.realpath(nextDirectory)); assert.equal(next.cwd, await fs.realpath(nextDirectory));
+  assert.equal(await fs.readFile(path.join(nextDirectory, 'download.txt'), 'utf8'), 'downloaded content');
+  assert.equal(await fs.readFile(path.join(firstDirectory, 'download.txt'), 'utf8'), 'downloaded content');
   await wb.saveProjectDirectory(offlineProjectId, '', key);
   const research = await wb.createSession('cursor', '', offlineProjectId);
   assert(research.cwd.startsWith(path.join(wb.store.root, 'workspaces') + path.sep));

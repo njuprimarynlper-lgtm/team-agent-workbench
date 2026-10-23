@@ -26,7 +26,7 @@ test('#1 contributions are readable by teammates, cannot be overwritten, uploade
     const file = path.join(root, 'result.txt'); await fs.writeFile(file, 'shared-result');
     const upload = await alice.queue.enqueue(file, binding, project.uploadPath, 'upload'); await waitTransfer(upload);
     assert.equal(server.nodes.get(project.uploadPath).mode & 0o7777, 0o2750); assert.equal(server.nodes.get(upload.target).mode & 0o777, 0o640);
-    await bob.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
+    await bob.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true); await bob.connectProject(project.id);
     const bobBinding = bob.remote.binding(project.id);
     assert.equal((await bob.remote.preview(bobBinding, upload.target)).content, 'shared-result');
     await assert.rejects(bob.remote.upload(bobBinding, file, upload.target, () => {}), /拒绝访问|自己的提交/);

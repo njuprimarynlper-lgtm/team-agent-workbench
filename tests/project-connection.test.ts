@@ -25,7 +25,7 @@ test('reuse keys include server, port, account and identity; login record ids do
 
 test('project reuse rejects missing or revoked projects instead of falling back to another same-name project', () => {
   assert.equal(connectionProject(profile, 'same-id'), 'same-id');
-  assert.equal(connectionProject(profile), 'same-id');
+  assert.equal(connectionProject(profile), undefined);
   assert.throws(() => connectionProject(profile, 'unknown'), /访问权限/);
   assert.throws(() => connectionProject({ ...profile, projects: [] }, 'same-id'), /访问权限/);
   assert.equal(connectionProject({ ...profile, projects: [] }), undefined);
@@ -33,7 +33,7 @@ test('project reuse rejects missing or revoked projects instead of falling back 
 
 test('successful login survives a stale project selection without selecting another project or granting access', () => {
   assert.deepEqual(connectedProjectSelection(profile, project.id), { projectId: project.id });
-  assert.deepEqual(connectedProjectSelection(profile), { projectId: project.id });
+  assert.deepEqual(connectedProjectSelection(profile), { projectId: undefined });
   assert.deepEqual(connectedProjectSelection({ ...profile, projects: [] }), { projectId: undefined });
   for (const projects of [profile.projects, []]) {
     const selection = connectedProjectSelection({ ...profile, projects }, 'removed-id');
@@ -66,9 +66,9 @@ test('project settings show the actual server and account with the shared connec
   const central = createElement(ProjectCentralConnection, { profile, connected: false, configure() {} });
   const html = renderToStaticMarkup(createElement(ProjectSettingsDialog, { project, contextKey: 'scope', admin: false, central, close() {}, directorySaved: async () => {}, briefSaved: async () => {} }));
   assert.match(html, /role="tab"[^>]*>中央节点/);
-  assert.match(html, /node-a:22/); assert.match(html, /成员账号：alice/); assert.match(html, /查看连接/);
+  assert.match(html, /node-a:22/); assert.match(html, /成员账号：alice/); assert.match(html, /连接本项目/);
   const connected = renderToStaticMarkup(createElement(ProjectCentralConnection, { profile, connected: true, configure() {} }));
-  assert.match(connected, /已连接/); assert.match(connected, /查看连接/);
+  assert.match(connected, /已连接/); assert.match(connected, /断开本项目/);
   assert.doesNotMatch(connected, /type="password"/);
 });
 

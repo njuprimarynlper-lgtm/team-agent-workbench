@@ -33,7 +33,7 @@ test('members create groups, scoped roles govern content and membership; creator
     await assert.rejects(act(bob,{action:'delete',group:group.id,revision:joined.revision}),/创建者/);
     const project=await syncedProject(bob, '实体抽取',group.id,{background:'背景',objectives:'目标',acceptance:'验收',scope:'',deliverables:'',resources:'',constraints:'',collaboration:''});
     const source=path.join(root,'result.md'); await fs.writeFile(source,'研究结果');
-    await alice.refreshGroups(); const binding=alice.remote.binding(project.id);
+    await alice.refreshGroups(); await alice.connectProject(project.id); const binding=alice.remote.binding(project.id);
     const item=await alice.remote.upload(binding,source,binding.project.uploadPath+'/result.md',()=>{},{kind:'contribution',title:'结果',description:'验证结果'});
     const published=(await bob.remote.contentList(bob.remote.binding(project.id)))[0];
     await bob.remote.contentEdit(bob.remote.binding(project.id),{id:published.id,revision:published.revision,action:'save',title:'整理结果',description:'整理后的内容',curate:true,merge:[]});
@@ -53,7 +53,7 @@ test('members create groups, scoped roles govern content and membership; creator
     const all=await admin.operation({op:'group_control',command:{action:'list'}}) as TeamGroup[];
     assert.equal(all.length,2); const deleted=all.find(value=>value.id===group.id)!; assert(deleted.deletedAt); assert.equal(deleted.projects.length,1);
     await admin.operation({op:'group_control',command:{action:'restore',group:group.id,revision:deleted.revision}});
-    await bob.refreshGroups(); const restored=await bob.remote.contentList(bob.remote.binding(project.id)); assert.equal(restored[0].description,'整理后的内容');
+    await bob.refreshGroups(); await bob.connectProject(project.id); const restored=await bob.remote.contentList(bob.remote.binding(project.id)); assert.equal(restored[0].description,'整理后的内容');
     const carolView=await details(carol,other.id); assert.equal(carolView.role,'creator');
     await assert.rejects(act(bob,{action:'member',group:other.id,revision:carolView.revision,username:'bob',role:'manager'}),/权限/);
     current=await details(bob,group.id); await act(bob,{action:'delete',group:group.id,revision:current.revision});

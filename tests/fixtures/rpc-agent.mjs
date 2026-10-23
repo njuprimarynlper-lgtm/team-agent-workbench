@@ -7,7 +7,7 @@ let forks = 0;
 readline.createInterface({ input: process.stdin }).on('line', line => {
   const m = JSON.parse(line);
   if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_mode') send({ id: m.id, result: {} });
-  else if (m.method === 'thread/start' || m.method === 'thread/resume') send({ id: m.id, result: { thread: { id: nativeId, path: '/fake/native-session.jsonl' } } });
+  else if (m.method === 'thread/start' || m.method === 'thread/resume') send({ id: m.id, result: { cwd: process.env.TEST_CWD_MISMATCH || m.params.cwd, thread: { id: nativeId, path: '/fake/native-session.jsonl' } } });
   else if (m.method === 'thread/fork') {
     if (m.params.threadId !== nativeId || m.params.excludeTurns !== true || m.params.lastTurnId) send({ id: m.id, error: { code: -32602, message: 'unexpected fork boundary' } });
     else send({ id: m.id, result: { thread: { id: 'fork-' + ++forks, path: '/fake/fork-' + forks + '.jsonl' } } });

@@ -29,7 +29,7 @@ async function fixture() {
       await admin.operation({ op: 'user_create', username: 'member', name: 'Member', password: '1', groups: [group] });
       const owner = new Workbench(path.join(base, 'owner'), () => {}, () => {}); await owner.store.init();
       try { await owner.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'owner'), '1', '', async () => false); const project = await owner.createProject('团队项目', group); await owner.projectSync.sync();
-        await team.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'member'), '1', '', async () => false); return project;
+        await team.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'member'), '1', '', async () => false); await team.connectProject(project.id); return project;
       } finally { await owner.close(); }
     },
     async close() { admin.disconnect(); await local.close(); await team.close(); assert.equal(await fs.realpath(path.dirname(base)), await fs.realpath(os.tmpdir())); await fs.rm(base, { recursive: true, force: true, maxRetries: 5 }); },

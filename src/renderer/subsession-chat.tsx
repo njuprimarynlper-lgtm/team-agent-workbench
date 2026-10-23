@@ -1,3 +1,4 @@
+import { SessionDirectoryStatus } from './project-directory';
 import React, { useEffect, useRef, useState } from 'react';
 import { ConversationMessage } from './conversation-message';
 import type { AgentSession, Message, SessionInput, WorkbenchAPI } from '../shared/types';
@@ -10,6 +11,7 @@ import { RequestCard } from './request-card';
 import { SessionStatusIndicator, useSessionCompletionRead } from './session-status';
 import { SessionMoreMenu } from './session-more-menu';
 import { SessionName } from './session-name';
+import { SessionInputQueue } from './session-input-queue';
 
 export function SessionTree({ sessions, selectedId, childId, open, create, promote, organize, rename }: {
   sessions: AgentSession[]; selectedId: string; childId?: string;
@@ -48,9 +50,9 @@ export function SessionTree({ sessions, selectedId, childId, open, create, promo
   return <>{sessions.filter(value => !subsessionParentId(value) || !sessions.some(parent => parent.id === subsessionParentId(value))).map(value => row(value, new Set()))}</>;
 }
 
-export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed }: {
+export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId }: {
   session?: AgentSession; sessions: AgentSession[]; input?: SessionInput; edit: (id: string, patch: Partial<SessionInput>) => void;
-  api: WorkbenchAPI; active: boolean; open: (session: AgentSession) => void; sideChat?: (session: AgentSession, text?: string) => void;
+  api: WorkbenchAPI; active: boolean; activeTurnId?: string; open: (session: AgentSession) => void; sideChat?: (session: AgentSession, text?: string) => void;
   promote: (session: AgentSession) => void; remove: (session: AgentSession) => void; closed: (id: string) => void; locked?: boolean; changed: () => Promise<void>;
 }) {
   const [error, setError] = useState(''), [sending, setSending] = useState(false), [history, setHistory] = useState<Message[]>();
@@ -78,9 +80,9 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
     finally { availabilityLock.current = false; setChangingAvailability(false); }
   };
   const send = async () => {
-    if (lock.current || availabilityLock.current || session.closedAt || locked || running || !current.text.trim()) return;
+    if (lock.current || availabilityLock.current || session.closedAt || locked || !current.text.trim()) return;
     lock.current = true; setSending(true);
-    try { setError(''); await submitComposerInput(api, session.id, current, undefined, () => latestInput.current || current, id => edit(id, { text: '', sourceIds: [], capabilities: [] })); await changed(); }
+    try { setError(''); await submitComposerInput(api, session.id, current, undefined, () => latestInput.current || current, id => edit(id, { text: '', sourceIds: [], capabilities: [] }), running || !!session.inputQueue?.items.length); await changed(); }
     catch (reason: any) { setError(reason.message); }
     finally { lock.current = false; setSending(false); }
   };
@@ -97,7 +99,7 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
         </SessionMoreMenu>
       </div>
       {parent && <button className="subsession-parent text-button" title={'返回 ' + parent.title} onClick={() => open(parent)}>← {parent.title}</button>}
-      <p className="subsession-context-note" title="上下文独立；与父会话共用工作目录，文件修改会相互可见。">上下文独立 · 共用工作目录</p>
+      <p className="subsession-context-note" title="上下文独立；与父会话共用工作目录，文件修改会相互可见。">上下文独立 · 共用工作目录<SessionDirectoryStatus session={session}/></p>
     </header>
     {children.length > 0 && <details className="subsession-child-list"><summary>下级子会话 · {children.length}</summary><nav className="subsession-child-links" aria-label="下级子会话">{children.map(child => <button key={child.id} title={child.title} onClick={() => open(child)}><span>{child.title}</span><SessionStatusIndicator session={child}/></button>)}</nav></details>}
     <div className="subsession-messages" ref={messages}>
@@ -109,6 +111,6 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       {session.approvals.map(request => <RequestCard key={request.id} request={request} onAnswer={(option, answers) => void action(() => api.call('session.answer', { id: session.id, requestId: request.id, option, answers }))}/>)}
       {(error || session.error) && <p role="alert" className="inline-error">{error || session.error}</p>}
     </div>
-    {!session.closedAt && <div className="subsession-composer"><textarea aria-label="子会话输入" value={current.text} placeholder="在这个分支继续提问…" onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!event.repeat) void send(); } }}/><div className="row"><span className="muted small">{locked ? '关联求助正在自动对话' : 'Enter 发送 · Shift+Enter 换行'}</span><div className="spacer"/>{running && <button className="secondary" onClick={() => void action(() => api.call('session.stop', { id: session.id }))}>停止</button>}<button className="primary" disabled={locked || running || sending || changingAvailability || !current.text.trim()} onClick={() => void send()}>{sending ? '正在发送…' : '发送'}</button></div></div>}
+    {!session.closedAt && <div className="subsession-composer"><SessionInputQueue key={session.id} session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={locked}/><textarea aria-label="子会话输入" value={current.text} placeholder="在这个分支继续提问…" onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!event.repeat) void send(); } }}/><div className="row"><span className="muted small">{locked ? '关联求助正在自动对话' : running || session.inputQueue?.items.length ? 'Enter 排队 · Shift+Enter 换行' : 'Enter 发送 · Shift+Enter 换行'}</span><div className="spacer"/>{running && <button className="secondary" onClick={() => void action(() => api.call('session.stop', { id: session.id }))}>停止</button>}<button className="primary" disabled={locked || sending || changingAvailability || !current.text.trim()} onClick={() => void send()}>{sending ? '正在提交…' : running || session.inputQueue?.items.length ? '加入队列' : '发送'}</button></div></div>}
   </section>;
 }

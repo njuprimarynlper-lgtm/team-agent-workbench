@@ -16,7 +16,7 @@ Claude Code 会话通过 `stream-json` 接入。每轮结束保存原生会话 I
 
 会话中的权限选择对应 Claude Code 原生模式：手动批准对应 `manual`，自动审查对应 `auto`，跳过权限询问对应 `bypassPermissions`；“沿用设置”保留 CLI 配置，并将未预先决定的请求交给工作台。CLI 发来的单次操作授权及 `AskUserQuestion` 会显示在会话卡片中，用户可允许、拒绝或填写答案。成果整理使用完全权限，由工作台原有整理流程控制。修改权限不会自动重放已经失败的操作。
 
-Skill 从当前项目及个人 `.claude/skills`、`.claude/commands` 中发现，按 Claude Code 的 `/name` 命令在下一条消息中调用；已安装插件由 `claude plugin list --json` 列出，安装和启停仍在 Claude Code 内完成。生成中的补充引导暂不支持；等待本轮结束后再发送即可。工作台不把 Claude Code 自行打开的其他会话自动纳入团队记录。
+Skill 从当前项目及个人 `.claude/skills`、`.claude/commands` 中发现，按 Claude Code 的 `/name` 命令在下一条消息中调用；已安装插件由 `claude plugin list --json` 列出，安装和启停仍在 Claude Code 内完成。生成中的补充引导暂不支持；回复期间按 Enter 可加入待发送队列，本轮结束后按顺序继续。工作台不把 Claude Code 自行打开的其他会话自动纳入团队记录。
 
 ## 网络出口
 

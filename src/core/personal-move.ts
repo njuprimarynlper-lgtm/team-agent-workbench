@@ -20,6 +20,9 @@ export function applyPersonalMove(store: Store, move: PersonalMove, target: bool
   for (const session of move.sessions) {
     if (target && move.inputs[session.id]) store.inputs[session.id] = structuredClone(move.inputs[session.id]);
     else delete store.inputs[session.id];
+    for (const job of store.activity.jobs) if (job.sessionId === session.id && (!target || job.event.projectId !== session.binding?.project.id)) {
+      job.status = 'obsolete'; job.ignoredAt ||= new Date().toISOString(); delete job.error; delete job.retryAt;
+    }
   }
   if (!target && move.groupId) store.settings.personalGroups = store.settings.personalGroups?.filter(group => group.id !== move.groupId);
 }

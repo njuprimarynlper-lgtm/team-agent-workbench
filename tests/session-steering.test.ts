@@ -135,14 +135,55 @@ test('Cursor does not send a concurrent prompt or present unsupported steering a
   } finally { await t.cleanup(); }
 });
 
-test('composer renders steer and stop together only for a ready Codex turn, without opening windows', () => {
+test('queued messages share the real Codex runtime; approval, steering, stop and restore preserve FIFO', async () => {
+  const t = await setup({ toolApproval: true });
+  try {
+    const { wb, s } = t;
+    await wb.send(s.id, '正在执行'); await until(() => s.status === 'approval');
+    for (const text of ['第一条', '用于引导', '最后一条']) await wb.enqueueInput(s.id, { text, sourceIds: [], answers: {} });
+    await wb.inputQueue.pump(s.id); assert.equal((await t.calls()).filter(m => m.method === 'turn/start').length, 1);
+    await wb.inputQueue.steer(s.id, s.inputQueue!.items[1].id, 'fake-turn');
+    assert.equal(s.messages.find(m => m.steering)?.userText, '用于引导'); assert.equal(s.inputQueue!.items.length, 2);
+    await wb.answer(s.id, s.approvals[0].id, 'decline'); await until(() => s.status === 'idle');
+    await t.set({ toolApproval: false, turnId: 'next-turn' });
+    await Promise.all([wb.inputQueue.pump(s.id), wb.inputQueue.pump(s.id)]);
+    assert.equal((await t.calls()).filter(m => m.method === 'turn/start').length, 2);
+    assert.equal(s.messages.filter(m => m.role === 'user').at(-1)?.userText, '第一条');
+    await wb.stop(s.id); assert.equal(s.inputQueue!.paused, true); await wb.inputQueue.pump(s.id);
+    assert.equal((await t.calls()).filter(m => m.method === 'turn/start').length, 2);
+    await wb.inputQueue.pause(s.id, false); await wb.inputQueue.pump(s.id);
+    assert.equal(s.messages.filter(m => m.role === 'user').at(-1)?.userText, '最后一条');
+    assert.equal(s.inputQueue!.items.length, 0);
+    await wb.enqueueInput(s.id, { text: '重启后由用户继续', sourceIds: [], answers: {} });
+    await wb.close(); const store = new Store(wb.store.root); await store.init();
+    const restored = store.sessions.find(item => item.id === s.id)!;
+    assert.equal(restored.inputQueue!.paused, true); assert.equal(restored.inputQueue!.items[0].input.text, '重启后由用户继续');
+  } finally { await t.cleanup(); }
+});
+
+test('startup failure pauses messages queued while login was pending', async () => {
+  const t = await setup();
+  try {
+    let fail!: (reason: Error) => void;
+    t.wb.requireAuth = () => new Promise((_, reject) => { fail = reject; });
+    const sending = t.wb.send(t.s.id, '初始任务');
+    const rejected = assert.rejects(sending, /登录失败/);
+    await until(() => !!fail);
+    await t.wb.enqueueInput(t.s.id, { text: '后续任务', sourceIds: [], answers: {} });
+    fail(new Error('登录失败')); await rejected;
+    assert.equal(t.s.inputQueue!.paused, true); assert.match(t.s.inputQueue!.error!, /登录失败/);
+    await t.wb.inputQueue.pump(t.s.id); assert.equal(t.s.inputQueue!.items.length, 1);
+  } finally { await t.cleanup(); }
+});
+
+test('composer queues while busy for every CLI and leaves steering on queued rows', () => {
   const s = { provider: 'codex', status: 'running' } as AgentSession;
   const render = (session: AgentSession, activeTurnId?: string, busy = false, text = '追加要求') => renderToStaticMarkup(createElement(ComposerActions, { session, activeTurnId, busy, text, send: () => {}, stop: () => {} }));
-  const html = render(s, 'turn'); assert.match(html, /aria-label="引导当前任务"/); assert.match(html, /aria-label="停止当前任务"/); assert.doesNotMatch(html, /disabled=""|aria-label="发送任务"/);
-  for (const [session, id, busy, text] of [[s, undefined, false, '要求'], [s, 'turn', true, '要求'], [s, 'turn', false, '  '], [{ ...s, status: 'starting' }, 'turn', false, '要求']] as const) assert.match(render(session as AgentSession, id, busy, text), /disabled=""/);
-  assert.equal(composerMode({ ...s, status: 'approval' }, 'turn'), 'steer');
+  const html = render(s, 'turn'); assert.match(html, /aria-label="加入队列"/); assert.match(html, /aria-label="停止当前任务"/); assert.doesNotMatch(html, /disabled=""|aria-label="发送任务"/);
+  for (const [session, id, busy, text] of [[s, 'turn', true, '要求'], [s, 'turn', false, '  ']] as const) assert.match(render(session as AgentSession, id, busy, text), /disabled=""/);
+  assert.equal(composerMode({ ...s, status: 'approval' }, 'turn'), 'queue');
   assert.equal(composerMode({ ...s, status: 'idle' }, 'old-turn'), 'send');
-  assert.equal(composerMode({ ...s, provider: 'cursor' }, 'turn'), 'wait');
+  assert.equal(composerMode({ ...s, provider: 'cursor' }, 'turn'), 'queue');
   assert.doesNotMatch(render({ ...s, provider: 'cursor' }, 'turn'), /引导当前任务|发送任务/);
   assert.equal(render({ ...s, closedAt: 'closed' }, 'turn'), '');
   assert.match(render({ ...s, status: 'idle' }), /aria-label="发送任务"/);

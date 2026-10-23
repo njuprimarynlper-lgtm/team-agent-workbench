@@ -54,6 +54,15 @@ export async function registryLock<T>(root: string, action: () => Promise<T>) {
   const file = await diskPath(root, '/.workbench-local.lock', true);
   let lock;
   const deadline = Date.now() + 5000;
-  for (;;) { try { lock = await fs.open(file, 'wx'); break; } catch (e: any) { if (e.code !== 'EEXIST') throw e; if (Date.now() >= deadline) throw new Error('共享区正在保存其他操作，请稍后重试；异常退出留下的锁需由管理员核对后处理'); await new Promise(resolve => setTimeout(resolve, 25)); } }
+  for (;;) {
+    try { lock = await fs.open(file, 'wx'); break; }
+    catch (e: any) {
+      // Windows can report EPERM/EACCES while another handle is finishing the
+      // lock-file deletion. Retry exclusively; never remove another writer's lock.
+      if (e.code !== 'EEXIST' && !(process.platform === 'win32' && ['EPERM', 'EACCES'].includes(e.code))) throw e;
+      if (Date.now() >= deadline) { if (e.code !== 'EEXIST') throw e; throw new Error('共享区正在保存其他操作，请稍后重试；异常退出留下的锁需由管理员核对后处理'); }
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  }
   try { return await action(); } finally { await lock.close(); await fs.rm(file, { force: true }); }
 }

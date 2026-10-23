@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, FolderOpen } from 'lucide-react';
-import type { Project } from '../shared/types';
+import type { AgentSession, Project } from '../shared/types';
 import type { GroupCommand } from '../shared/team-groups';
 import { ProjectBriefSettings } from './project-brief-editor';
 import { TeamGroupDialog } from './team-groups';
@@ -11,6 +11,8 @@ import type { Snapshot } from '../shared/types';
 export function ProjectDirectoryForm({ projectId, projectName, contextKey, directory = '', initial = false, embedded = false, saved }: { projectId: string; projectName: string; contextKey: string; directory?: string; initial?: boolean; embedded?: boolean; saved: () => Promise<void> }) {
   const [value, setValue] = useState(directory), [operation, setOperation] = useState<'saving' | 'choosing' | ''>(''), [error, setError] = useState('');
   const [confirmation, setConfirmation] = useState(''), pending = useRef(false);
+  const [impact, setImpact] = useState<{ following: number; fixed: number; pending: number; failed: number }>();
+  useEffect(() => { let active = true; window.workbench.call<typeof impact>('project.directory.impact', { projectId }).then(value => { if (active) setImpact(value); }).catch(() => {}); return () => { active = false; }; }, [projectId, contextKey]);
   const busy = !!operation;
   const edit = (next: string) => { setValue(next); setConfirmation(''); setError(''); };
   const save = async (next: string) => {
@@ -18,14 +20,16 @@ export function ProjectDirectoryForm({ projectId, projectName, contextKey, direc
     pending.current = true; setOperation('saving'); setError(''); setConfirmation('');
     try {
       const canonical = await window.workbench.call<string>('project.directory.save', { projectId, directory: next, contextKey });
-      setValue(canonical); setConfirmation(canonical ? '代码目录已保存' : '已保存，新会话将自动创建独立目录');
+      const state = await window.workbench.call<NonNullable<typeof impact>>('project.directory.impact', { projectId }); setImpact(state);
+      setValue(canonical); setConfirmation(canonical ? state.failed ? '目录已保存，部分会话迁移待处理' : state.pending ? '目录已保存，等待当前任务结束后切换' : '代码目录已保存，跟随会话已切换' : '已保存，新会话将自动创建独立目录');
       try { await saved(); } catch { setError('目录已保存，但界面未能刷新，请重新打开项目设置。'); }
     } catch (reason: any) { setError(reason.message || '代码目录未保存，请重试'); }
     finally { pending.current = false; setOperation(''); }
   };
   return <section className={(embedded ? '' : 'modal-body ') + 'project-directory-form'} aria-label="项目代码目录设置">
     <h3>{projectName} · 本机代码目录</h3>
-    <p className="muted small">{initial ? '首次进入此项目，可选择本机代码目录。之后可点击“我的工作组”中项目旁的设置按钮修改。' : '此目录用于本项目的新会话，仅保存在当前账号的本机设置中。修改后，已有会话继续使用原目录。'}</p>
+    <p className="muted small">{initial ? '可选择本机代码目录。新会话和设置为“跟随项目”的已有会话会使用此目录。' : '此目录仅保存在本机。修改后，跟随项目的会话会一起切换；正在运行的会话完成当前轮后再切换。'}文件复制并校验后才切换，原文件保留；同名冲突另存副本。留空不会移动已有文件。</p>
+    {impact && <p className="muted small" role="status">{impact.following} 个会话跟随项目 · {impact.fixed} 个会话保留独立目录{impact.pending > 0 ? ` · ${impact.pending} 个待切换` : ''}{impact.failed > 0 ? `（${impact.failed} 个迁移遇到问题，请在会话归属中查看）` : ''}</p>}
     <label className="field">代码目录（选填）<div className="row"><input aria-label="代码目录（选填）" disabled={busy} value={value} placeholder="留空用于调研，每次会话自动创建独立目录" onChange={event => edit(event.target.value)}/><button className="secondary" disabled={busy} title="选择项目代码目录" onClick={async () => {
       if (pending.current) return;
       pending.current = true; setOperation('choosing'); setError('');
@@ -37,14 +41,19 @@ export function ProjectDirectoryForm({ projectId, projectName, contextKey, direc
   </section>;
 }
 
+export function SessionDirectoryStatus({ session }: { session: AgentSession }) {
+  if (!session.directoryMove) return null;
+  return <span className={session.directoryMove.error ? 'inline-error small' : 'muted small'} role="status" title={`当前：${session.cwd}\n目标：${session.directoryMove.to}\n${session.directoryMove.error || '当前任务结束后自动切换'}\n可在“管理会话归属”中查看。`}>{session.directoryMove.error ? ' · 目录迁移待处理' : ' · 目录待切换'}</span>;
+}
+
 export function ProjectDirectoryDialog(props: React.ComponentProps<typeof ProjectDirectoryForm>) {
   return <div className="modal-backdrop"><section className="modal" role="dialog" aria-label="设置项目代码目录"><header><h2>设置项目代码目录</h2></header><ProjectDirectoryForm {...props} initial/></section></div>;
 }
 
 type ProjectMembers = { groupId: string; groupLabel: string; connected: boolean; call: (command: GroupCommand) => Promise<any>; changed: () => Promise<void> };
 
-export function ProjectSettingsDialog({ project, admin, contextKey, directory, members, central, syncState, close, directorySaved, briefSaved }: { project: Project; admin: boolean; contextKey: string; directory?: string; members?: ProjectMembers; central?: React.ReactNode; syncState?: NonNullable<Snapshot['projectSync']>[string]; close: () => void; directorySaved: () => Promise<void>; briefSaved: (revision: number) => Promise<void> }) {
-  const [tab, setTab] = useState<'project' | 'members' | 'recommendations' | 'central'>('project'), [membersOpened, setMembersOpened] = useState(false), [recommendationsOpened, setRecommendationsOpened] = useState(false);
+export function ProjectSettingsDialog({ project, admin, contextKey, directory, members, central, syncState, initialTab = 'project', close, directorySaved, briefSaved }: { project: Project; admin: boolean; contextKey: string; directory?: string; members?: ProjectMembers; central?: React.ReactNode; initialTab?: 'project' | 'central'; syncState?: NonNullable<Snapshot['projectSync']>[string]; close: () => void; directorySaved: () => Promise<void>; briefSaved: (revision: number) => Promise<void> }) {
+  const [tab, setTab] = useState<'project' | 'members' | 'recommendations' | 'central'>(initialTab), [membersOpened, setMembersOpened] = useState(false), [recommendationsOpened, setRecommendationsOpened] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false), [syncError, setSyncError] = useState('');
   return <div className="modal-backdrop"><section className="modal wide" role="dialog" aria-label={'项目设置 · ' + project.name}>
     <header><h2>项目设置 · {project.name}</h2><button className="icon" aria-label="关闭窗口" onClick={close}>×</button></header>

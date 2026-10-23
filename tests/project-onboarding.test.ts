@@ -50,8 +50,8 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     const text = await fs.readFile(path.join(share, 'projects/one/客户信息整理', PROJECT_BRIEF_FILE), 'utf8');
     for (const field of briefFields) { assert(text.includes('## ' + field.label)); assert(text.includes(brief[field.key])); }
     for (const dir of ['trajectories', 'submissions']) assert((await fs.stat(path.join(share, 'projects/one/客户信息整理', dir))).isDirectory());
-    await member.remote.loadManifest(); const preview = await member.remote.preview(member.remote.binding(project.id), project.remoteRoot + '/' + PROJECT_BRIEF_FILE); assert.equal(preview.content, text);
-    await owner.configureWorkspace(config('alice'), '1', root, async () => false); assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_one')!.isEmpty, false);
+    await member.remote.loadManifest(); await member.connectProject(project.id); const preview = await member.remote.preview(member.remote.binding(project.id), project.remoteRoot + '/' + PROJECT_BRIEF_FILE); assert.equal(preview.content, text);
+    await owner.configureWorkspace(config('alice'), '1', root, async () => false); await owner.connectProject(project.id); assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_one')!.isEmpty, false);
     await assert.rejects(owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one')), /EEXIST|已存在/);
     assert.equal(await fs.readFile(path.join(share, 'projects/one/客户信息整理', PROJECT_BRIEF_FILE), 'utf8'), text);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_two', role: 'member', handoffs: { 'local_two': null } });
@@ -82,7 +82,7 @@ test('SFTP onboarding publishes complete UTF-8 brief, respects permissions, remo
     await owner.projectSync.sync(); const project = owner.projectBinding(created.id).project;
     const file = project.remoteRoot + '/' + PROJECT_BRIEF_FILE;
     assert.equal(server.nodes.get(file).mode & 0o777, 0o640); assert.equal(owner.remote.workspace!.isEmpty, false);
-    await member.remote.loadManifest(); const preview = await member.remote.preview(member.remote.binding(project.id), file); assert(preview.content.includes(brief.background));
+    await member.remote.loadManifest(); await member.connectProject(project.id); const preview = await member.remote.preview(member.remote.binding(project.id), file); assert(preview.content.includes(brief.background));
     const another = await owner.initializeProject('新项目', 'wb_test_ocr', brief, key); assert.notEqual(another.id, project.id); await owner.projectSync.sync(); assert.equal(owner.remote.profile!.projects.length, 2);
   } finally { await owner.close(); await member.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });

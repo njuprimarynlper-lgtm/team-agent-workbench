@@ -94,7 +94,7 @@ test('new uploads carry the source link even after their preparation record is r
   const file = path.join(wb.store.root, 'snapshot.txt'); await fs.writeFile(file, 'frozen package');
   wb.remote.ensurePersonalFolder = async () => {};
   wb.remote.loadManifest = async () => [wb.remote.binding(offlineProjectId).project];
-  wb.remote.channel = () => undefined as any;
+  wb.remote.channel = () => undefined as any; wb.remote.projectConnected = () => true;
   wb.remote.upload = async (binding, _local, target, _progress, _metadata, hash) => ({ path: target, sha256: hash, size: 14, author: binding.username }) as any;
   const [task] = await wb.queue.enqueueMany([{ conclusionSourceId: personal.sources[0].id, local: file, binding: wb.remote.binding(offlineProjectId), folder: wb.remote.binding(offlineProjectId).project.uploadPath, kind: 'upload', metadata: { title: team.title, description: team.description, kind: team.kind } }]);
   const end = Date.now() + 5000;

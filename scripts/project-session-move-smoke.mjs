@@ -1,0 +1,116 @@
+import { _electron as electron, expect as baseExpect } from '@playwright/test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { teamServer } from '../tests/fixtures/team-server.mjs';
+import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+
+const expect = baseExpect.configure({ timeout: 15000 }), root = process.cwd();
+const build = await fs.realpath(process.env.WORKBENCH_TEST_BUILD_ROOT || path.join(root, 'dist'));
+const data = path.join(root, '.test-data', 'project-session-move-' + Date.now()), store = path.join(data, 'user');
+const workspace = path.join(data, 'workspace'), directoryTarget = path.join(data, 'project-files');
+await fs.mkdir(workspace, { recursive: true }); await fs.mkdir(directoryTarget); await fs.writeFile(path.join(workspace, 'download.txt'), 'downloaded output');
+const server = await teamServer({ taowen: 'taowen' }), profile = server.profile('taowen');
+const owner = JSON.stringify([profile.host.toLowerCase(), profile.port, profile.username, profile.fingerprint]);
+const account = path.join(store, 'account-workspaces', createHash('sha256').update(owner).digest('hex'));
+const cli = await authLauncher(path.join(data, 'cli'));
+const projects = ['源项目', '目标项目'].map((name, index) => ({ id: 'project_' + (index ? 'b' : 'a').repeat(32), name, remoteRoot: '/projects/ocr/' + name, uploadPath: '/projects/ocr/' + name + '/submissions/taowen', historyPath: '/projects/ocr/' + name + '/trajectories/taowen' }));
+for (const project of projects) {
+  server.nodes.set(project.remoteRoot, { mode: 0o40755, uid: 0, gid: 100, data: Buffer.alloc(0) });
+  server.nodes.set(project.remoteRoot + '/.workbench-project.json', { mode: 0o100644, uid: 0, gid: 100, data: Buffer.from(JSON.stringify({ version: 1, id: project.id, name: project.name })) });
+}
+const settings = { connections: [profile], lastWorkspace: '', providerPaths: { codex: cli.launcher, cursor: cli.launcher, claude: cli.launcher } };
+const write = async (directory, name, value) => { await fs.mkdir(directory, { recursive: true }); await fs.writeFile(path.join(directory, name), JSON.stringify(value)); };
+await write(store, 'settings.json', settings);
+await write(account, 'settings.json', { ...settings, workspaceSnapshot: { profile: { ...profile, projects }, workspaces: [] } });
+const now = new Date().toISOString();
+const session = (title, directory, binding) => {
+  const id = randomUUID();
+  return { id, title, provider: 'codex', purpose: 'work', cwd: workspace, createdAt: now, status: 'idle', sources: [], approvals: [], autoUpload: false, handoffPath: path.join(directory, 'sessions', id, 'handoff.md'), binding, messages: [{ id: randomUUID(), role: 'user', text: '之前的讨论', createdAt: now }, { id: randomUUID(), role: 'assistant', text: '保留迁移前的结论。', createdAt: now }] };
+};
+const parent = session('项目里的会话', account, { connectionId: profile.id, ...profile, project: projects[0] });
+const child = session('关联子会话', account, parent.binding);
+child.parentId = parent.id;
+child.fork = { parentId: parent.id, capturedAt: now, parentMessageCount: 2, snapshotHash: 'fixture', sourceId: 'snapshot', inheritedSourceIds: [], workspaceKind: 'shared-directory', workspaceRoot: workspace };
+const personal = path.join(store, 'personal');
+const unassigned = session('未分项目的会话', personal, { connectionId: '__personal__', host: 'personal', port: 22, username: 'local', fingerprint: 'PERSONAL', project: { id: '__personal__', name: '未分项目', remoteRoot: '/personal', uploadPath: '/personal/results', historyPath: '/personal/history' } });
+await write(account, 'sessions.json', [parent, child]);
+await write(account, 'inputs.json', { [parent.id]: { text: '项目会话的未发送草稿', sourceIds: [], answers: {} } });
+await write(account, 'migration.json', { version: 1, owner, completedAt: now, sources: [store], counts: [0, 0, 0, 0] });
+await write(personal, 'settings.json', settings); await write(personal, 'sessions.json', [unassigned]);
+for (const item of [parent, child, unassigned]) { await fs.mkdir(path.dirname(item.handoffPath), { recursive: true }); await fs.writeFile(item.handoffPath, '阶段摘要'); }
+const env = { ...process.env, WORKBENCH_TEST: '1', WORKBENCH_DATA_DIR: store }; delete env.ELECTRON_RUN_AS_NODE;
+let app, page; const errors = [];
+const call = (action, payload) => page.evaluate(([action, payload]) => window.workbench.call(action, payload), [action, payload]);
+try {
+  app = await electron.launch({ args: [path.join(build, 'user')], cwd: root, env, timeout: 60000 });
+  page = await app.firstWindow(); page.on('pageerror', error => errors.push(error.message));
+  await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
+  await expect(page.getByRole('button', { name: '新建会话', exact: true })).toBeVisible();
+  await call('remote.connect', { profile, password: 'test-password', projectId: projects[0].id });
+  const skipDirectory = page.getByRole('button', { name: '暂不设置', exact: true }); await expect(skipDirectory).toBeVisible(); await skipDirectory.click();
+  const row = page.locator(`[data-session-id="${parent.id}"]`); await expect(row).toBeVisible(); await row.click();
+  await call('remote.disconnect');
+  await page.getByRole('button', { name: '管理会话归属：' + parent.title, exact: true }).click();
+  await expect(page.getByLabel('会话个人分组')).toHaveCount(0);
+  await page.getByRole('button', { name: /^迁移到项目/ }).click();
+  await expect(page.getByRole('button', { name: '迁移 2 条会话', exact: true })).toBeVisible();
+  const targets = page.getByLabel('迁移目标项目');
+  await expect(targets.locator(`option[value="${projects[0].id}"]`)).toHaveCount(0);
+  await targets.selectOption(projects[1].id); await page.screenshot({ path: path.join(data, 'move-dialog.png') });
+  await page.getByRole('button', { name: '迁移 2 条会话', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '迁移到项目', exact: true })).toHaveCount(0);
+  await expect(skipDirectory).toBeVisible(); await skipDirectory.click();
+  await expect(row).toBeVisible(); await row.click();
+  await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue('项目会话的未发送草稿');
+  await expect(page.locator('.conversation-message.assistant')).toContainText('保留迁移前的结论');
+  let snapshot = await call('snapshot');
+  for (const id of [parent.id, child.id]) assert.equal(snapshot.sessions.find(item => item.id === id).binding.project.id, projects[1].id);
+  assert(!snapshot.connection?.connected);
+  await page.reload(); await expect(row).toBeVisible();
+  await page.getByRole('button', { name: '展开会话菜单：' + parent.title, exact: true }).click();
+  await page.getByRole('button', { name: '管理会话归属：' + child.title, exact: true }).click();
+  await page.getByRole('button', { name: /^迁移到项目/ }).click();
+  await page.getByLabel('迁移目标项目').selectOption(projects[0].id);
+  await page.getByRole('button', { name: '迁移 2 条会话', exact: true }).click();
+  await expect(page.getByLabel('子会话：' + child.title, { exact: true })).toBeVisible();
+  await expect(row).toHaveClass(/selected/);
+  // The original unassigned entry uses the same dialog and IPC after this change.
+  await page.getByRole('button', { name: /^未分组 1$/ }).click();
+  await page.getByRole('button', { name: '管理会话归属：' + unassigned.title, exact: true }).click();
+  await expect(page.getByLabel('会话个人分组')).toBeVisible();
+  await page.getByRole('button', { name: /^迁移到项目/ }).click();
+  await page.getByLabel('迁移目标项目').selectOption(projects[0].id);
+  await page.getByRole('button', { name: '迁移 1 条会话', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '迁移到项目', exact: true })).toHaveCount(0);
+  await expect(page.locator(`[data-session-id="${unassigned.id}"]`)).toBeVisible();
+  snapshot = await call('snapshot'); assert.equal(snapshot.sessions.find(item => item.id === unassigned.id).binding.project.id, projects[0].id);
+  await page.locator(`[data-session-id="${parent.id}"]`).click();
+  await page.getByRole('button', { name: '管理会话归属：' + parent.title, exact: true }).click();
+  await expect(page.getByLabel('会话目录模式')).toHaveValue('project');
+  await page.getByLabel('会话目录模式').selectOption('fixed');
+  await expect.poll(async () => (await call('snapshot')).sessions.find(s => s.id === parent.id).directoryMode).toBe('fixed');
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  // Change the same project folder through the actual settings dialog.
+  await page.getByRole('button', { name: '项目设置：' + projects[0].name, exact: true }).click();
+  await page.getByLabel('代码目录（选填）', { exact: true }).fill(directoryTarget);
+  await page.getByRole('button', { name: '保存代码目录', exact: true }).click();
+  await expect(page.getByText('代码目录已保存，跟随会话已切换', { exact: true })).toBeVisible();
+  snapshot = await call('snapshot');
+  assert.equal(snapshot.sessions.find(s => s.id === parent.id).cwd, workspace);
+  assert.equal(snapshot.sessions.find(s => s.id === child.id).cwd, workspace);
+  assert.equal(snapshot.sessions.find(s => s.id === unassigned.id).cwd, await fs.realpath(directoryTarget));
+  assert.equal(await fs.readFile(path.join(directoryTarget, 'download.txt'), 'utf8'), 'downloaded output');
+  await page.screenshot({ path: path.join(data, 'directory-settings.png') });
+  await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
+  await page.getByRole('button', { name: '管理会话归属：' + parent.title, exact: true }).click();
+  await page.getByLabel('会话目录模式').selectOption('project');
+  await expect.poll(async () => (await call('snapshot')).sessions.find(s => s.id === parent.id).cwd).toBe(await fs.realpath(directoryTarget));
+  await page.screenshot({ path: path.join(data, 'directory-mode.png') });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  assert.deepEqual(errors, []);
+  await page.screenshot({ path: path.join(data, 'moved.png') });
+  console.log(JSON.stringify({ passed: true, data, cases: ['project entry shares the unassigned migration flow', 'current project excluded', 'family count includes children', 'offline team project migration', 'history and unsent input preserved', 'ownership survives reload', 'child-initiated migration opens the original hierarchy', 'unassigned migration still works', 'project folder follows into actual session cwd and files', 'fixed directory opt-out and opt-in'] }));
+} catch (error) { await page?.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {}); throw error; }
+finally { await app?.close().catch(() => {}); await server.close(); }

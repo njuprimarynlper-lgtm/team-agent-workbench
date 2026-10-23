@@ -197,7 +197,7 @@ test('legacy category drafts on local storage retain upload, immutable packages,
     const savedConclusions = structuredClone(wb.conclusions(p.id));
     await wb.deleteDraft(d.id); assert(!wb.store.drafts.some(item => item.id === d.id));
     assert.deepEqual(wb.conclusions(p.id), savedConclusions); await fs.access(transfer.localPath);
-    await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false);
+    await bob.store.init(); await bob.configureWorkspace(profile('bob'), 'member-password', root, async () => false); await bob.connectProject(p.id);
     assert((await bob.remote.list(bob.remote.binding(p.id), p.uploadPath + '/explorations')).some(x => x.path === transfer.target));
     const shared = await bob.remote.contentList(bob.remote.binding(p.id)); assert.deepEqual(new Set(shared.filter(x => x.kind === 'contribution').map(x => x.category)), new Set(['exploration', 'todo'])); assert(shared.every(item => item.sourceSessionTitle === '覆盖率验证会话'));
     await wb.saveContentAlias(p.id, shared[0].id, '我本机的验收结论');
@@ -278,7 +278,7 @@ test('SFTP candidate discovery skips other-member submissions and trajectories; 
     const found = await discoverDestinations(wb.remote, b, () => true);
     assert(found.destinations.some(x => x.path.endsWith('/资料'))); assert(!found.destinations.some(x => x.path.endsWith('/bob') || x.path.includes('trajectories')));
     const file = path.join(root, 'notes.txt'); await fs.writeFile(file, 'notes');
-    await wb.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
+    await wb.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true); await wb.connectProject(p.id);
     const transfer = await wb.queue.enqueue(file, wb.remote.binding(p.id), p.remoteRoot + '/资料', 'upload'); await until(() => transfer.status === 'error'); assert.match(transfer.error!, /只能修改自己的提交/);
     wb.remote.disconnect(); const offline = await discoverDestinations(wb.remote, b, () => true); assert.equal(offline.destinations.length, 1); assert(offline.note);
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }

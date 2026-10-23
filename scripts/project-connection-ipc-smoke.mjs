@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { _electron as electron } from '@playwright/test';
+import { teamServer } from '../tests/fixtures/team-server.mjs';
+import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
+const root=process.cwd(), data=await fs.mkdtemp(path.join(root,'.test-data','project-connection-ipc-'));
+const server=await teamServer({alice:'alice'}), profile=server.profile('alice');
+const projects=['算法研究','软件开发'].map((name,i)=>({id:'project_'+(i?'b':'a').repeat(32),name,remoteRoot:'/projects/ocr/'+name}));
+for(const project of projects){server.nodes.set(project.remoteRoot,{mode:0o40755,uid:0,gid:100,data:Buffer.alloc(0)});server.nodes.set(project.remoteRoot+'/.workbench-project.json',{mode:0o100644,uid:0,gid:100,data:Buffer.from(JSON.stringify({version:1,id:project.id,name:project.name}))});}
+const cli=await authLauncher(path.join(data,'cli')), store=path.join(data,'user');await fs.mkdir(store);
+await fs.writeFile(path.join(store,'settings.json'),JSON.stringify({connections:[profile],lastWorkspace:'',providerPaths:{codex:cli.launcher,cursor:cli.launcher,claude:cli.launcher}}));
+const env={...process.env,WORKBENCH_TEST:'1',WORKBENCH_DATA_DIR:store};delete env.ELECTRON_RUN_AS_NODE;
+let app;
+try{
+  app=await electron.launch({args:[path.join(root,'dist/user')],cwd:root,env,timeout:60000});const page=await app.firstWindow();
+  await app.evaluate(({dialog})=>{dialog.showMessageBox=async()=>({response:1,checkboxChecked:false});});
+  await page.locator('.sidebar').waitFor();
+  const call=(action,p)=>page.evaluate(([action,p])=>window.workbench.call(action,p),[action,p]);
+  await call('remote.connect',{profile,password:'test-password'});
+  let snapshot=await call('snapshot');assert(snapshot.connection.connected);assert(Object.values(snapshot.projectConnections).every(p=>!p.connected));
+  const key=snapshot.reusableConnections[0].key;
+  await call('project.connection.open',{key,projectId:projects[0].id});snapshot=await call('snapshot');
+  assert(snapshot.projectConnections[projects[0].id].connected);assert(!snapshot.projectConnections[projects[1].id].connected);
+  await assert.rejects(call('remote.list',{projectId:projects[1].id,path:projects[1].remoteRoot}),/此项目尚未连接/);
+  await call('project.connection.open',{key,projectId:projects[1].id});
+  await call('project.connection.disconnect',{projectId:projects[0].id});snapshot=await call('snapshot');
+  assert(!snapshot.projectConnections[projects[0].id].connected);assert(snapshot.projectConnections[projects[1].id].connected);assert(snapshot.connection.connected);
+  await call('remote.list',{projectId:projects[1].id,path:projects[1].remoteRoot});
+  await call('remote.manifest');assert(!(await call('snapshot')).projectConnections[projects[0].id].connected);
+  const local=await call('personal:project.create',{name:'本机待关联项目',localOnly:true});
+  await call('project.connection.open',{key,localProjectId:local.id});
+  snapshot=await call('snapshot');assert(!snapshot.projectConnections[projects[0].id].connected);assert(snapshot.projectConnections[projects[1].id].connected);
+  const group=snapshot.connection.workspaces[0].groupName;
+  await call('project.link',{projectId:local.id,groupName:group});
+  snapshot=await call('snapshot');assert(snapshot.projectConnections[local.id].connected);assert(!snapshot.personal.settings.workspaceSnapshot.profile.projects.some(p=>p.id===local.id));
+  await call('project.connection.disconnect',{projectId:local.id});await call('project.connection.disconnect',{projectId:projects[1].id});
+  snapshot=await call('snapshot');assert(snapshot.connection.connected);assert(Object.values(snapshot.projectConnections).every(p=>!p.connected));
+  await call('project.connection.open',{key,projectId:projects[0].id});assert((await call('snapshot')).projectConnections[projects[0].id].connected);
+  console.log('PASS: actual Electron IPC, authenticated SSH fixture, no implicit activation, independent two-project reuse/disconnect, local-project linking, rediscovery and reuse after all projects disconnected. '+data);
+}finally{await app?.close();await server.close();}

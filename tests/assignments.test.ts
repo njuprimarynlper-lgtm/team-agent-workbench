@@ -21,7 +21,7 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     await admin.connect({ mode: 'local', localRoot: shared, host: 'local', port: 22, username: '', fingerprint: '', root: '/srv/teamspace' }, '', '', async () => false);
     await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'research' }); await admin.operation({ op: 'group_create', label: 'other' });
     for (const name of ['alice', 'bob', 'carol', 'outside']) await admin.operation({ op: 'user_create', username: name, name, password: '1', groups: [name === 'outside' ? 'local_other' : 'local_research'], contentAdminGroups: name === 'alice' ? ['local_research'] : [] });
-    const connect = async (name: string) => { const wb = new Workbench(path.join(root, name), () => {}, () => {}); clients.push(wb); await wb.store.init(); await wb.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name), '1', root, async () => false); return wb; };
+    const connect = async (name: string) => { const wb = new Workbench(path.join(root, name), () => {}, () => {}); clients.push(wb); await wb.store.init(); await wb.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name), '1', root, async () => false); for (const project of wb.remote.profile!.projects) await wb.connectProject(project.id); return wb; };
     const alice = await connect('alice');
     const project = await syncedProject(alice, '任务验证', 'local_research', { background: '项目背景', objectives: '改善 OCR', acceptance: '覆盖失败样本', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' });
     const bob = await connect('bob'), carol = await connect('carol'), binding = alice.remote.binding(project.id), bobBinding = bob.remote.binding(project.id);
@@ -38,7 +38,7 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     assert.equal(task.references[0].category, 'finding'); assert.equal(projectResultTitle(task.references[0]), '【项目经验】 OCR 基线结论');
     const bobOther = new Workbench(path.join(root, 'bob-other-computer'), () => {}, () => {}); clients.push(bobOther); await bobOther.store.init();
     const bobOtherProfile = memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'bob'); bobOtherProfile.id = 'bob-other-computer';
-    await bobOther.configureWorkspace(bobOtherProfile, '1', '', async () => false);
+    await bobOther.configureWorkspace(bobOtherProfile, '1', '', async () => false); for (const project of bobOther.remote.profile!.projects) await bobOther.connectProject(project.id);
     assert.equal((await bobOther.remote.assignmentList(bobOther.remote.binding(project.id))).find(item => item.id === task.id)?.status, 'assigned', 'the same account sees its task on another computer');
     await assert.rejects(bob.startAssignment(project.id, task.id, task.revision, 'codex', path.join(root, 'missing-directory')));
     assert.equal((await bob.remote.assignmentList(bobBinding))[0].status, 'assigned', 'local setup failure must not mark remote work as started');

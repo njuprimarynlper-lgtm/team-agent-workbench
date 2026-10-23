@@ -293,5 +293,5 @@ test('authenticated connection handoff logs in once and rejected passwords leave
   const reconnect = new SharedFiles(() => {});
   const relogin = await reconnect.connect({ ...server.profile('alice'), id: 'different-window-id' }, 'test-password', async () => true);
   await reconnect.loadManifest(); await wb.configureWorkspace(relogin, '', '', async () => true, reconnect); reconnect.disconnect();
-  assert.equal(wb.remote.profile!.id, profile.id); assert.doesNotThrow(() => wb.remote.channel(session.binding));
+  assert.equal(wb.remote.profile!.id, profile.id); await wb.connectProject(project.id); assert.doesNotThrow(() => wb.remote.channel(session.binding));
 });

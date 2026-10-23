@@ -150,7 +150,7 @@ test('linking a local project works offline and preserves directories, summaries
     assert.equal(team.conclusions(project.id)[0].id, result.id);
     assert.equal((await team.journal.exportSessions(new Set([session.id])))[0].entries[0].text, '完成离线工作');
     assert.equal(team.remote.connected, false); assert.equal(team.projectSync.states()[project.id].pending, true);
-    await team.configureWorkspace(profile, '1', root, async () => false); await team.projectSync.sync();
+    await team.configureWorkspace(profile, '1', root, async () => false); await team.connectProject(project.id); await team.projectSync.sync();
     assert.equal(team.remote.profile!.projects.filter(item => item.id === project.id).length, 1);
     assert.equal(team.session(session.id).binding!.project.remoteRoot.startsWith('/projects/'), true);
   } finally { await local.close(); await team.close(); admin.disconnect(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }

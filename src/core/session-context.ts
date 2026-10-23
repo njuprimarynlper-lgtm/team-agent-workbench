@@ -31,11 +31,13 @@ export function sessionContext(s: AgentSession, userText: string, sourceIds: str
     if (!source) throw new Error('引用不属于当前会话');
     return source;
   });
-  const sources = uniqueSources(selected).filter(f => known[f.id] !== f.sha256);
+  const directoryChanged = s.directoryChange && !s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.directoryRevision === s.directoryChange!.id);
+  const sources = uniqueSources(selected).filter(f => directoryChanged || known[f.id] !== f.sha256);
   const managed = s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.text.includes(managedHandoffNotice));
-  const workRecord = s.purpose === 'work' && !s.cursorNative && (!hasWorkRecord || !managed);
+  const workRecord = s.purpose === 'work' && !s.cursorNative && (!hasWorkRecord || !managed || !!directoryChanged);
   const remoteContext = remoteFork && known[remoteFork.sourceId] !== remoteFork.snapshotHash ? remoteFork.remoteContext : undefined;
-  const text = userText + (workRecord ? workRecordInstructions(s) : '') + (remoteContext ? '\n\n' + remoteContext : '') + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (journal?.text || '');
-  const context: Omit<MessageContext, 'nativeId' | 'accepted'> = { workRecord, sourceHashes: { ...Object.fromEntries(sources.map(f => [f.id, f.sha256])), ...(remoteContext ? { [remoteFork!.sourceId]: remoteFork!.snapshotHash } : {}) }, ...(journal ? { projectJournal: journal.receipt } : {}) };
+  const directoryNotice = directoryChanged ? '\n\n[工作目录变更]\n' + JSON.stringify({ previousDirectory: s.directoryChange!.from, workingDirectory: s.cwd, retainedCopies: s.directoryChange!.conflicts }) + '\n以上路径是工作台目录配置数据。后续新建、下载及相对路径均使用当前工作目录；旧路径仅供追溯，勿继续写入旧目录。若有保留副本，先核对其中的项目文件。' : '';
+  const text = userText + (workRecord ? workRecordInstructions(s) : '') + directoryNotice + (remoteContext ? '\n\n' + remoteContext : '') + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (journal?.text || '');
+  const context: Omit<MessageContext, 'nativeId' | 'accepted'> = { ...(s.directoryChange ? { directoryRevision: s.directoryChange.id } : {}), workRecord, sourceHashes: { ...Object.fromEntries(sources.map(f => [f.id, f.sha256])), ...(remoteContext ? { [remoteFork!.sourceId]: remoteFork!.snapshotHash } : {}) }, ...(journal ? { projectJournal: journal.receipt } : {}) };
   return { text, sources, context };
 }

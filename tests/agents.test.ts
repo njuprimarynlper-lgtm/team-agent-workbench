@@ -7,6 +7,25 @@ import { randomUUID } from 'node:crypto';
 import { AgentRuntime } from '../src/core/agents';
 import type { AgentSession, Provider } from '../src/shared/types';
 async function until(predicate: () => boolean) { const deadline = Date.now() + 10000; while (!predicate()) { if (Date.now() > deadline) throw new Error('timeout'); await new Promise(r => setTimeout(r, 20)); } }
+
+test('relocated Codex sessions resume their original identity and pass the new cwd on every turn', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-cwd-runtime-'));
+  const s: AgentSession = { id: randomUUID(), nativeId: 'native-session-1', provider: 'codex', title: 'test', cwd: root, createdAt: new Date().toISOString(), purpose: 'work', status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: path.join(root, 'handoff.md'), directoryChange: { id: 'move', from: path.join(root, 'old'), to: root, conflicts: [] } };
+  const runtime = new AgentRuntime(s, path.resolve('tests/fixtures/rpc-agent.mjs'), { changed() {}, event() {}, done() {} });
+  const requests: { method: string; params: any }[] = [], request = runtime.rpc.request.bind(runtime.rpc);
+  runtime.rpc.request = async (method, ...args) => { requests.push({ method, params: args[0] }); return request(method, ...args); };
+  try {
+    const pending = runtime.prompt('continue'); void pending.catch(() => {});
+    await until(() => s.status === 'approval'); runtime.answer(s.approvals[0].id, 'decline'); await pending;
+    assert.equal(s.nativeId, 'native-session-1');
+    assert.equal(requests.find(r => r.method === 'thread/resume')!.params.cwd, root);
+    assert.equal(requests.find(r => r.method === 'turn/start')!.params.cwd, root);
+    assert(!requests.some(r => r.method === 'thread/start'));
+  } finally { await runtime.close(); }
+  const rejected = new AgentRuntime(s, path.resolve('tests/fixtures/rpc-agent.mjs'), { changed() {}, event() {}, done() {} }, undefined, { TEST_CWD_MISMATCH: path.join(root, 'old') });
+  try { await assert.rejects(rejected.prompt('must not send'), /未确认新的工作目录/); }
+  finally { await rejected.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
 test('native Codex forks return while the source turn is awaiting approval without compaction or interruption', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-native-fork-'));
   const s: AgentSession = { id: randomUUID(), provider: 'codex', title: 'test', cwd: root, createdAt: new Date().toISOString(), purpose: 'work', status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: path.join(root, 'handoff.md') };

@@ -82,7 +82,7 @@ export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: (
           }
         }
       }
-      if (workbench.remote.connected) {
+      if (workbench.projectConnected(projectId)) {
         const brief = await workbench.remote.projectBrief(bound);
         if (brief.brief) items.push({ source: 'project', sourceId: 'project-brief', factKey: `brief/${brief.revision}`, eventAt: brief.updatedAt || at, version: String(brief.revision), actor: '项目正式资料', assertion: 'explicit', text: JSON.stringify(brief.brief) });
         for (const event of workbench.store.settings.contentUpdates || []) if (event.projectId === projectId && !event.path?.includes('/trajectories/')) items.push({ source: 'project', sourceId: event.eventId, factKey: `${event.id}/${event.revision}`, eventAt: event.occurredAt, version: String(event.revision), actor: event.updatedBy || event.author || '未知', assertion: 'observed', text: JSON.stringify(event) });

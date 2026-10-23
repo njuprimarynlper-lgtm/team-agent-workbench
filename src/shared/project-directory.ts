@@ -1,5 +1,13 @@
 import { projectSetupIdentity } from './project-brief';
-import type { ConnectionProfile, Settings } from './types';
+import type { AgentSession, ConnectionProfile, Settings } from './types';
+
+export function canFollowProjectDirectory(session: AgentSession) {
+  return !session.codexRemote && !session.cursorNative && (!session.fork || session.fork.workspaceKind === 'shared-directory');
+}
+export function followsProjectDirectory(session: AgentSession) {
+  if (!canFollowProjectDirectory(session)) return false;
+  return session.directoryMode ? session.directoryMode === 'project' : !session.nativeLive;
+}
 
 export const projectDirectoryKey = (profile: ConnectionProfile, projectId: string) => projectSetupIdentity(profile, projectId);
 

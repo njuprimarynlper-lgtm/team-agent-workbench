@@ -28,6 +28,7 @@ export class TransferQueue {
   }
   async enqueueMany(inputs: TransferInput[]): Promise<Transfer[]> {
     const transfers: Transfer[] = await Promise.all(structuredClone(inputs).map(async input => {
+      this.remote.channel(input.binding);
       assertRemote(input.binding.project.remoteRoot, input.folder);
       const id = input.id || randomUUID();
       const metadata = input.kind === 'upload' && !input.attachment ? contentMetadataSchema.parse({ title: (input.name || path.basename(input.local)).slice(0, 200), description: '', kind: 'file', ...structuredClone(input.metadata), submission: input.metadata?.submission ? structuredClone(input.metadata.submission) : submissionRecord(input.binding, input.metadata?.sourceSessionTitle ? [{ kind: 'session', id: input.metadata.sourceSessionId, title: input.metadata.sourceSessionTitle, snapshotHash: input.metadata.snapshotHash }] : [{ kind: 'unknown' }]) }) : structuredClone(input.metadata);
@@ -67,11 +68,12 @@ export class TransferQueue {
     finally { for (const task of retry) this.persisting.delete(task.id); }
     this.changed(); void this.pump();
   }
+  resume() { void this.pump(); }
   private async pump() {
     if (this.active) return; this.active = true;
     try {
       for (;;) {
-        const task = [...this.store.transfers].reverse().find(t => t.status === 'queued' && !this.persisting.has(t.id) && !(t.dependsOn || []).some(id => this.store.transfers.some(d => d.id === id && ['queued', 'running'].includes(d.status)))); if (!task) break;
+        const task = [...this.store.transfers].reverse().find(t => t.status === 'queued' && this.remote.projectConnected(t.binding.project.id) && !this.persisting.has(t.id) && !(t.dependsOn || []).some(id => this.store.transfers.some(d => d.id === id && ['queued', 'running'].includes(d.status)))); if (!task) break;
         task.status = 'running'; this.changed();
         try {
           await this.store.save();

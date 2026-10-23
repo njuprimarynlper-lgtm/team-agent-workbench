@@ -1,0 +1,14 @@
+.session-input-queue{min-width:0;margin:0 0 8px;border:1px solid #e4e9e5;border-radius:10px;background:#fbfcfb;overflow:hidden;font-size:12px}
+.session-input-queue header{display:flex;align-items:center;gap:8px;min-height:27px;padding:3px 10px;color:#76867b;font-size:11px}
+.session-input-queue .queue-hint{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-input-queue .queue-rows{max-height:160px;overflow-y:auto;min-width:0}
+.session-input-queue .queue-row{box-sizing:border-box;display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:center;gap:7px;height:32px;padding:3px 8px 3px 10px;border-top:1px solid #e4e9e5}
+.session-input-queue .queue-number{font-size:10px;color:#76867b;display:flex;align-items:center}
+.session-input-queue .queue-text{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px}
+.session-input-queue .queue-actions{display:flex;align-items:center;gap:2px;white-space:nowrap}
+.session-input-queue button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;gap:3px;height:24px;min-width:24px;padding:0 4px;font-size:11px;line-height:1;border:0;border-radius:5px;background:transparent;color:#76867b;white-space:nowrap}
+.session-input-queue button:hover:not(:disabled){background:#edf2ee;color:#26352f}
+.session-input-queue button:disabled{opacity:.4}
+.session-input-queue .queue-steer{padding:0 5px}
+.session-input-queue .queue-edit{box-sizing:border-box;min-width:0;width:100%;height:24px;padding:1px 5px;font:inherit;border-radius:4px}
+.session-input-queue .queue-error{margin:0;padding:5px 10px;line-height:1.4;color:#aa403e;font-size:11px}

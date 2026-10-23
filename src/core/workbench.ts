@@ -62,13 +62,14 @@ import { attachmentList, freezeDraftAttachments } from './draft-attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
 import { ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
-import { projectDirectory, projectDirectoryKey } from '../shared/project-directory';
+import { canFollowProjectDirectory, followsProjectDirectory, projectDirectory, projectDirectoryKey } from '../shared/project-directory';
+import { applyWorkspacePaths, relocateWorkspace, remapWorkspacePath } from './workspace-relocation';
 import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
 import { attachedConclusion, conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
 import { acceptedSessionContext, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
-import { subsessionFamily, subsessionParentId } from '../shared/subsessions';
+import { subsessionFamily, subsessionParentId, sessionMoveFamilyIds } from '../shared/subsessions';
 import { changedWorkspaceFiles, reportSourceHash } from './subsession-report';
 import { safeFilename, localWithin } from './paths';
 import { ProviderAccounts, authReady } from './provider-auth';
@@ -87,7 +88,12 @@ import { isCursorFileSession } from '../shared/cursor-session-consistency';
 import { ProjectJournal } from './project-journal';
 import type { JournalEntry } from '../shared/project-journal';
 import type { ActivityChoice, ActivityActionResult } from '../shared/activity-assistant';
+import { SessionInputQueue } from './session-input-queue';
 export class Workbench {
+  readonly inputQueue: SessionInputQueue;
+  private inputQueueTimer?: NodeJS.Timeout;
+  private directoryTimer?: NodeJS.Timeout;
+  private directoryJob?: Promise<void>;
   readonly codexRemote: CodexRemoteIntegration = new CodexRemoteService(codexHome);
   rsi: RsiEngine;
   questions: Questions;
@@ -137,6 +143,27 @@ export class Workbench {
     // Autosave failures still block dependent work until those edits are retried.
     this.edits = retryOnClose ? next : next.catch(() => {}); return next;
   }
+  private connectedProjects = new Set<string>();
+  private disconnectingProjects = new Set<string>();
+  projectConnected(id: string) { return !this.configuring && this.remote.projectConnected(id); }
+  connectableProjects() {
+    const known = new Set(this.remote.profile?.projects.map(p => p.id)), states = this.projectSync.states();
+    return this.projectSync.projects().filter(p => known.has(p.id) || states[p.id]?.pending && !states[p.id]?.localOnly && p.remoteRoot.startsWith('/local-projects/') && this.remote.workspaces.some(w => w.groupName === p.groupName && w.canCreateProject && !w.accessError));
+  }
+  async connectProject(id: string) {
+    this.assertAccountReady();
+    if (this.disconnectingProjects.has(id)) throw new Error('此项目正在断开，请稍后连接');
+    if (!this.remote.connected || !this.connectableProjects().some(project => project.id === id)) throw new Error('此连接中没有该项目，请刷新项目列表后重试');
+    this.connectedProjects.add(id); this.accountSync.connectionChanged();
+    this.projectSync.schedule(); this.queue.resume(); this.activity.connectionRecovered(); this.broadcast();
+    void this.accountSync.settle().then(() => this.accountSync.sync()); void this.questions.sync().catch(() => {});
+  }
+  async disconnectProject(id: string) {
+    this.assertAccountReady();
+    this.disconnectingProjects.add(id); this.connectedProjects.delete(id); this.accountSync.connectionChanged(); this.broadcast();
+    try { await Promise.all([this.remote.settleProject(id), this.accountSync.settle(), this.projectSync.settle()]); }
+    finally { this.disconnectingProjects.delete(id); this.broadcast(); }
+  }
   workspaceReady = false;
   private configuring = false;
   private accountRevision = 0;
@@ -162,7 +189,21 @@ export class Workbench {
   // Keep the legacy argument slot so runtime environment and desktop integrations retain their positions.
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, _legacyPreparationTimeoutMs?: number, private providerEnvironment: (route?: SessionNetworkRoute, session?: AgentSession) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void, readonly codexDesktop: CodexDesktopIntegration = new CodexDesktopService(), readonly cursorDesktop: CursorDesktopIntegration = new CursorFileService(), readonly personal = false) {
     this.assignmentUploads = new AssignmentUploads(root);
-    this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
+    this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
+    this.inputQueue = new SessionInputQueue({
+      session: id => this.session(id), save: () => this.store.save(), changed: () => this.broadcast(),
+      blocked: s => this.closing || this.configuring || !!s.closedAt || s.purpose !== 'work' || !this.ownsLocal(s.binding)
+        || this.movingIds.has(s.id) || !!s.directoryMove || !!(s.binding && this.linkingProjects.has(s.binding.project.id))
+        || this.sending.has(s.id) || this.steering.has(s.id) || this.stoppingSessions.has(s.id)
+        || this.changingSettings.has(s.id) || this.attachingCodex.has(s.id) || !!this.questions.lockedPeer(s.id)
+        || ['starting', 'running', 'approval', 'error'].includes(s.status),
+      send: (id, input, submitted) => this.runAccountOperation('session.send', async () => {
+        const s = this.session(id);
+        if (s.title === '新会话') s.title = input.text.trim().slice(0, 40);
+        return this.send(id, input.text, input.sourceIds, input.capabilities || [], submitted);
+      }),
+      steer: (id, turnId, input) => this.steer(id, turnId, input.text, input.sourceIds, input.capabilities || []),
+    });
     this.journal = new ProjectJournal(this.store);
     this.questions = new Questions(this.store, this.remote, {
       profile: () => this.configuring ? undefined : this.localProfile(), session: id => this.session(id),
@@ -171,7 +212,7 @@ export class Workbench {
       changed: () => this.broadcast(), notice: text => this.notice(text),
     });
     this.activity = new ActivityAssistant({ store: this.store, prepare: () => this.journal.ready(), owns: s => !this.configuring && !this.personalMoving && !this.migrationRecoveryRequired && this.ownsLocal(s.binding), connected: () => !this.closing && !this.configuring && this.remote.connected,
-      content: s => { this.assertCanWork(s.binding); return this.remote.contentList(s.binding!); },
+      content: s => { this.assertCanWork(s.binding); return this.projectConnected(s.binding!.project.id) ? this.remote.contentList(s.binding!) : Promise.resolve([]); },
       commitSummary: (s, hash, count, summary, entry) => this.commitHandoff(s, hash, count, summary, entry), changed: () => this.broadcast(),
     }, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s)));
     this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s)), this.broadcast);
@@ -189,11 +230,11 @@ export class Workbench {
       const execution: AgentSession = parent || { id: randomUUID(), title: '同步冲突分析', provider: 'codex', purpose: 'background', cwd: this.store.root, networkRoute: 'direct', createdAt: new Date().toISOString(), status: 'idle', messages: [], sources: [], approvals: [], autoUpload: false, handoffPath: '' };
       await this.requireAuth(execution.provider, execution.cwd, execution.networkRoute);
       return backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s))(execution, prompt, signal || new AbortController().signal);
-    });
+    }, id => this.projectConnected(id));
     this.projectSync = new ProjectSync(root, {
       owner: () => { const profile = this.personal ? personalWorkspace().profile : this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile ? accountIdentity(profile) : 'unlinked'; },
       projects: () => (this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile)?.projects || [],
-      binding: id => this.remote.binding(id), connected: () => !this.configuring && !this.personal && this.remote.connected,
+      projectConnected: id => this.projectConnected(id), binding: id => this.remote.binding(id), connected: () => !this.configuring && !this.personal && this.remote.connected,
       create: async (name, group, brief, id) => {
         const result = await this.remote.createProject(name, group, brief, id);
         for (const session of this.store.sessions) if (session.binding?.project.id === id && this.ownsLocal(session.binding)) session.binding.project = structuredClone(result);
@@ -220,9 +261,14 @@ export class Workbench {
     }, this.providerEnvironment);
   }
   async init() {
-    if (this.personal) await recoverPersonalMove(this.store.root);
+    await recoverPersonalMove(this.store.root);
     await this.store.init();
     await this.questions.init();
+    this.inputQueueTimer = setInterval(() => {
+      if (this.closing || this.configuring) return;
+      for (const session of this.store.sessions) if (session.inputQueue?.items.length && !session.inputQueue.paused)
+        void this.inputQueue.pump(session.id).catch(() => {});
+    }, 200);
     // The former single switch enabled both abilities; preserve that choice on upgrade.
     for (const features of Object.values(this.store.settings.betaFeatures || {})) features.subsessions ??= !!features.sessionHandoff;
     // Pin pre-existing sessions to the account route they used before this feature.
@@ -242,7 +288,12 @@ export class Workbench {
       if (saved.length) draft.personalSavedIds = [...new Set([...(draft.personalSavedIds || []), ...saved])];
     }
     linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
-    await this.store.save(); await this.restoreLocalWorkspace(); await this.detect();
+    await this.store.save(); await this.restoreLocalWorkspace();
+    await this.reconcileProjectDirectories();
+    this.directoryTimer = setInterval(() => { void this.flushProjectDirectories().catch(() => {}); }, 3000);
+    this.directoryTimer.unref();
+    void this.flushProjectDirectories().catch(() => {});
+    await this.detect();
     this.ensureNativeTranscriptSync();
     await this.startCursorNativeSessions();
   }
@@ -273,6 +324,8 @@ export class Workbench {
     }
     if (this.remote.profile !== profileBefore || this.configuring) throw new Error('账号已改变，请重新刷新工作组');
     const profile = this.remote.profile!;
+    const accessible = new Set(this.connectableProjects().map(p => p.id));
+    for (const id of this.connectedProjects) if (!accessible.has(id)) { this.connectedProjects.delete(id); this.accountSync.connectionChanged(); }
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
     this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? structuredClone(profile) : p);
     this.workspaceReady = !!this.remote.workspaces.length; await this.store.save(); this.broadcast(); return projects;
@@ -733,6 +786,7 @@ export class Workbench {
     const beforeActivity = JSON.stringify(this.store.activity);
     let changed = false;
     for (const project of profile.projects) {
+      if (!this.projectConnected(project.id)) continue;
       const workspace = this.remote.workspaces.find(item => item.groupName === project.groupName);
       if (workspace?.accessError) continue;
       try {
@@ -742,6 +796,7 @@ export class Workbench {
         try { history = await this.remote.contentHistory(binding, undefined, undefined, true); }
         catch (error: any) { if (!/不支持的内容操作/.test(error.message || '')) throw error; completeHistory = false; }
         if (!this.remote.connected || !this.remote.profile || this.remote.profile.id !== profile.id || accountIdentity(this.remote.profile) !== accountIdentity(profile)) return this.contentUpdates();
+        if (!this.projectConnected(project.id)) continue;
         if (reconcileTeamResultReferences(this.store.sessions, binding, [...items, ...history], completeHistory)) changed = true;
         for (const item of items) if (this.linkPublishedContentId(project.id, item)) changed = true;
         // Account restoration replaces these containers while the network request is pending.
@@ -817,6 +872,16 @@ export class Workbench {
     const available = new Set(sessionWithAvailableReferences(this.session(id), this.store.conclusions).sources.map(source => source.id));
     this.store.inputs[id] = { ...structuredClone(input), sourceIds: input.sourceIds.filter(sourceId => available.has(sourceId)) }; return this.store.save();
   }
+  enqueueInput(id: string, input: SessionInput) {
+    this.assertWorkspace(); const session = this.session(id); this.assertCanWork(session.binding);
+    if (this.closing || this.stoppingSessions.has(id)) throw new Error('正在停止会话，请稍候');
+    if (this.questions.lockedPeer(id)) throw new Error('自动对话进行中，暂不能手动排队');
+    return this.inputQueue.enqueue(id, input);
+  }
+  shouldQueueInput(id: string) {
+    const s = this.session(id);
+    return !s.cursorNative && (!!s.inputQueue?.items.length || this.sending.has(id) || this.steering.has(id) || ['starting', 'running', 'approval'].includes(s.status));
+  }
   async renameSession(id: string, title: string) {
     const session = this.session(id), next = title.trim();
     if (!next) throw new Error('会话名称不能为空');
@@ -828,7 +893,7 @@ export class Workbench {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, { connected: this.projectConnected(p.id), disconnecting: this.disconnectingProjects.has(p.id) }])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { const profile = !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile && { ...profile, projects: this.projectSync?.projects() || profile.projects }; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -1060,6 +1125,113 @@ export class Workbench {
     return { pendingReload: sessions.filter((s, index) => s.settingsPending || results[index].status === 'rejected').length };
   }
   assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady && !this.localProfile()?.projects.length) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先连接中央节点并验证成员身份'); }
+  private queueDirectoryMove(session: AgentSession, directory?: string) {
+    if (session.purpose !== 'work' || !followsProjectDirectory(session)) return;
+    // "Unassigned" is a virtual container; its sessions can have unrelated roots.
+    if (session.binding?.project.id === PERSONAL_PROJECT_ID) { delete session.directoryMove; return; }
+    if (!directory || path.resolve(session.cwd) === path.resolve(directory)) { delete session.directoryMove; return; }
+    if (session.directoryMove?.to !== directory || session.directoryMove.error) session.directoryMove = { id: randomUUID(), from: session.cwd, to: directory };
+  }
+  // Includes legacy managed sessions which already belong to a project but still
+  // run in their original research workspace. Imported roots remain opt-in.
+  async reconcileProjectDirectories() {
+    const profile = this.localProfile(); if (!profile) return;
+    await this.edit('directory-reconcile', async () => {
+      for (const session of this.store.sessions) if (!session.closedAt && this.ownsLocal(session.binding))
+        this.queueDirectoryMove(session, projectDirectory(this.store.settings, profile, session.binding!.project.id));
+      await this.store.save();
+    }, false);
+  }
+  projectDirectoryImpact(projectId: string) {
+    const sessions = this.store.sessions.filter(s => s.purpose === 'work' && !s.closedAt && s.binding?.project.id === projectId && this.ownsLocal(s.binding));
+    return { following: sessions.filter(followsProjectDirectory).length, fixed: sessions.filter(s => !followsProjectDirectory(s)).length,
+      pending: sessions.filter(s => s.directoryMove).length, failed: sessions.filter(s => s.directoryMove?.error).length };
+  }
+  async setSessionDirectoryMode(id: string, mode: 'project' | 'fixed') {
+    const session = this.session(id);
+    if (session.purpose !== 'work' || mode === 'project' && !canFollowProjectDirectory(session)) throw new Error('独立子会话或外部管理的目录不能跟随项目');
+    await this.edit('directory-mode:' + id, async () => {
+      if (this.session(id) !== session) throw new Error('会话归属已改变，请重新打开会话设置');
+      const candidates = this.store.sessions.filter(s => s.purpose === 'work' && this.ownsLocal(s.binding) && s.binding?.project.id === session.binding?.project.id);
+      const ids = new Set([id]); let expanded = true;
+      while (expanded) {
+        expanded = false;
+        for (const child of candidates) {
+          const parentId = child.fork?.workspaceKind === 'shared-directory' ? subsessionParentId(child) : undefined;
+          if (parentId && (ids.has(child.id) || ids.has(parentId))) for (const key of [parentId, child.id]) if (!ids.has(key)) { ids.add(key); expanded = true; }
+        }
+      }
+      const family = candidates.filter(s => ids.has(s.id));
+      if (mode === 'project' && family.some(s => !canFollowProjectDirectory(s))) throw new Error('关联会话含外部管理的目录，不能跟随项目');
+      const previous = family.map(s => ({ session: s, mode: s.directoryMode, move: s.directoryMove })), profile = this.localProfile();
+      for (const s of family) {
+        s.directoryMode = mode;
+        if (mode === 'fixed') delete s.directoryMove;
+        else this.queueDirectoryMove(s, profile && projectDirectory(this.store.settings, profile, s.binding!.project.id));
+      }
+      try { await this.store.save(); } catch (error) { for (const old of previous) { old.session.directoryMode = old.mode; old.session.directoryMove = old.move; } throw error; }
+      this.broadcast();
+    }, false);
+    await this.flushProjectDirectories(); return session;
+  }
+  flushProjectDirectories(): Promise<void> {
+    if (this.directoryJob) return this.directoryJob;
+    if (this.closing || this.configuring || this.personalMoving || this.migrationRecoveryRequired) return Promise.resolve();
+    this.directoryJob = this.edit('directory-moves', async () => {
+      for (const session of this.store.sessions) {
+        if (this.closing || this.configuring || this.personalMoving) break;
+        const move = session.directoryMove;
+        if (!move || session.closedAt || !this.ownsLocal(session.binding) || (move.retryAt || 0) > Date.now()) continue;
+        // Any session sharing the source or destination may still be writing files.
+        const roots = await Promise.all([move.from, move.to].map(dir => fs.realpath(dir).catch(() => path.resolve(dir))));
+        const peerCandidates = await Promise.all(this.store.sessions.map(async s => ({ s, cwd: await fs.realpath(s.cwd).catch(() => path.resolve(s.cwd)) })));
+        const peers = peerCandidates.filter(({ cwd }) => roots.some(dir => localWithin(dir, cwd) || localWithin(cwd, dir))).map(({ s }) => s);
+        try { this.assertMoveIdle(peers, false); } catch { continue; }
+        const ids = new Set(peers.map(s => s.id)); ids.add(session.id);
+        ids.forEach(id => this.movingIds.add(id));
+        const resumeQuestions = this.questions.pauseSessions(ids);
+        try {
+          await this.rsi.pause(); await this.activity.pause();
+          let externalBusy = false;
+          for (const peer of peers.filter(s => s.codexDesktop && s.nativeId && !s.closedAt)) {
+            const runtime = await this.runtime(peer); await runtime.ensureStarted();
+            if (!(runtime instanceof AgentRuntime) || !runtime.sharedDesktop) throw new Error('尚未核对 Codex 桌面会话状态');
+            const { thread } = await runtime.rpc.request('thread/read', { threadId: peer.nativeId, includeTurns: false }, 10000);
+            if (!thread?.status?.type) throw new Error('Codex 尚未返回会话运行状态，目录切换将自动重试');
+            if (thread.status.type === 'active') externalBusy = true;
+          }
+          if (externalBusy) continue;
+          this.assertMoveIdle(peers, false);
+          await Promise.all([...ids].map(id => this.eventWrites.get(id)));
+          for (const id of ids) { const runtime = this.runtimes.get(id); if (runtime) { await runtime.close(); this.runtimes.delete(id); } }
+          const { mappings, conflicts } = await relocateWorkspace(this.store.root, session, [this.store.root]);
+          const draftIds = new Set(this.store.drafts.filter(d => d.sessionId === session.id).map(d => d.id));
+          const related = this.store.sessions.filter(s => s.id === session.id || s.purpose === 'prepare' && s.parentId === session.id);
+          const drafts = this.store.drafts.filter(d => draftIds.has(d.id));
+          const before = related.map(s => [s, structuredClone(s)] as const), beforeDrafts = drafts.map(d => [d, structuredClone(d)] as const);
+          const conclusions = this.store.conclusions.filter(c => c.sources.some(source => source.kind === 'session' && (source.id === session.id || draftIds.has(source.id))));
+          const beforeFiles = conclusions.map(c => [c, structuredClone(c.localFiles)] as const);
+          try {
+            applyWorkspacePaths(session, drafts, mappings);
+            for (const s of related) if (s !== session) { s.cwd = remapWorkspacePath(s.cwd, mappings); s.handoffPath = remapWorkspacePath(s.handoffPath, mappings); }
+            for (const c of conclusions) for (const file of c.localFiles || []) file.localPath = remapWorkspacePath(file.localPath, mappings);
+            session.directoryChange = { id: move.id, from: move.from, to: session.cwd, conflicts }; delete session.directoryMove;
+            await this.store.save();
+          } catch (error) {
+            for (const [s, old] of before) { for (const key of Object.keys(s)) delete (s as any)[key]; Object.assign(s, old); }
+            for (const [d, old] of beforeDrafts) Object.assign(d, old);
+            for (const [c, files] of beforeFiles) c.localFiles = files;
+            throw error;
+          }
+          await this.journal.invalidate();
+          for (const entry of this.sideChats.values()) if (ids.has(entry.view.parentId)) entry.view.expired = true;
+        } catch (error: any) {
+          if (session.directoryMove) { session.directoryMove.error = error.message; session.directoryMove.retryAt = Date.now() + 60000; await this.store.save(); }
+        } finally { resumeQuestions(); ids.forEach(id => this.movingIds.delete(id)); this.activity.resume(); this.broadcast(); }
+      }
+    }, false).finally(() => { this.directoryJob = undefined; });
+    return this.directoryJob;
+  }
   async saveProjectDirectory(projectId: string, directory: string, contextKey: string) {
     const checkContext = () => {
       const profile = this.localProfile();
@@ -1067,7 +1239,7 @@ export class Workbench {
       if (!profile || !project || projectDirectoryKey(profile, projectId) !== contextKey) throw new Error('账号或项目已改变，请重新打开项目设置');
       this.assertCanWork(this.remote.connected ? this.projectBinding(projectId) : { connectionId: profile.id, host: profile.host, port: profile.port, username: profile.username, fingerprint: profile.fingerprint, project });
     };
-    return this.edit('project-directory:' + contextKey, async () => {
+    const canonical = await this.edit('project-directory:' + contextKey, async () => {
       checkContext();
       let canonical = directory.trim();
       if (canonical) {
@@ -1076,14 +1248,19 @@ export class Workbench {
       }
       checkContext();
       const directories = this.store.settings.projectDirectories ||= {}, previous = directories[contextKey];
+      const sessions = this.store.sessions.filter(s => !s.closedAt && s.binding?.project.id === projectId && this.ownsLocal(s.binding));
+      const oldMoves = sessions.map(s => [s, s.directoryMove] as const);
       directories[contextKey] = canonical;
+      for (const session of sessions) this.queueDirectoryMove(session, canonical);
       try { await this.store.save(); }
-      catch (error) { if (previous === undefined) delete directories[contextKey]; else directories[contextKey] = previous; throw error; }
+      catch (error) { if (previous === undefined) delete directories[contextKey]; else directories[contextKey] = previous; for (const [s, move] of oldMoves) s.directoryMove = move; throw error; }
       this.broadcast(); return canonical;
     }, false);
+    await this.flushProjectDirectories(); return canonical;
   }
   assertCanLeaveAccount() {
     this.assertAccountReady();
+    if (this.directoryJob) throw new Error('工作目录正在迁移，请完成后再切换成员账号');
     if (this.publishingConclusions.size || this.accountMutations.size || this.store.sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)) || this.store.drafts.some(draft => draft.generation === 'running') || this.store.transfers.some(transfer => ['queued', 'running'].includes(transfer.status)) || this.sending.size || this.steering.size || this.changingSettings.size || this.preparing.size || this.preparingMerges.size || this.reorganizing.size || this.submittingDrafts.size || this.deletingDrafts.size || this.deletingSharedContent.size || this.archiving.size) throw new Error('请先停止运行中的会话和整理，并等待传输或保存操作完成，再切换成员账号');
   }
   async configureWorkspace(profile: ConnectionProfile, password: string, localPath: string, trust: (fingerprint: string) => Promise<boolean>, verified?: SharedFiles) {
@@ -1107,6 +1284,7 @@ export class Workbench {
       const remembered = { ...profile, projects: [], workPath: '', manifestPath: '' };
       this.store.settings.connections = [structuredClone(remembered)];
       await this.store.save(); this.broadcast();
+      this.connectedProjects.clear(); this.accountSync.connectionChanged();
       const result = verified ? this.remote.adoptConnection(verified) : await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       await this.accountSync.activate(result, previous);
@@ -1148,6 +1326,7 @@ export class Workbench {
     }
     const project = await this.projectSync.create(name, groupName, brief, this.personal);
     if (this.personal) await this.restoreLocalWorkspace();
+    else if (this.remote.connected) await this.connectProject(project.id);
     this.broadcast(); return project;
   }
   changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
@@ -1289,7 +1468,9 @@ export class Workbench {
     if(desktopSync && provider==='cursor'&&!this.betaFeatureEnabled('cursorDesktopSync'))throw new Error('请先在 Beta 功能中开启 Cursor 桌面联动');
     if(desktopSync && (route || (this.store.settings.egress?.enabled?'management':'direct'))==='management')throw new Error('桌面联动当前仅支持本机网络；请选择本机网络或关闭桌面联动');
     if (route === 'management' && !this.store.settings.egress?.enabled) throw new Error('请先应用并检测管理端网络出口');
-    cwd = cwd.trim() || await this.researchWorkspace();
+    const directoryProfile = this.localProfile();
+    cwd = cwd.trim() || (purpose === 'work' && !deferRegistration && projectId && projectId !== PERSONAL_PROJECT_ID && directoryProfile && projectDirectory(this.store.settings, directoryProfile, projectId)) || await this.researchWorkspace();
+    if (this.store.sessions.some(s => this.movingIds.has(s.id) && path.resolve(s.cwd) === path.resolve(cwd))) throw new Error('此目录正在迁移，请稍后创建会话');
     if (purpose === 'prepare') permissionMode = 'full';
     if (provider === 'cursor' && purpose === 'work' && permissionMode === 'auto') throw new Error('当前 Cursor 接入方式暂不支持切换 Auto-review，请选择其他模式');
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本地工作目录');
@@ -1301,6 +1482,7 @@ export class Workbench {
     const handoffPath = path.join(dir, 'handoff.md');
     await fs.writeFile(handoffPath, '# 阶段摘要\n\n## 当前工作焦点与范围\n待补充。\n\n## 当前进展\n尚未整理。\n\n## 已确认的决定与依据\n尚无。\n\n## 改动、影响范围与验证\n记录文件、版本、受影响的流程或文档、检查结果；尚无时写“尚未验证”。\n\n## 阻塞与待确认事项\n尚无。\n\n## 下一步\n待补充。\n', { flag: 'wx' });
     const session: AgentSession = { relayAccount: parentId ? this.session(parentId).relayAccount : undefined, personalGroupId: parentId ? this.session(parentId).personalGroupId : personalGroupId, id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, networkRoute: route || (this.store.settings.egress?.enabled ? 'management' : 'direct'), parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath, ...(purpose === 'work' ? { followProjectBrief: includeBrief } : {}) };
+    session.directoryMode = deferRegistration ? 'fixed' : 'project';
     if(desktopSync && provider==='codex')session.codexDesktop=true;
     if (deferRegistration) return session;
     this.store.sessions.unshift(session);
@@ -1318,33 +1500,60 @@ export class Workbench {
   private linkingProjects = new Set<string>();
   private migrationRecoveryRequired = false;
   private movingIds = new Set<string>();
+  private assertMoveIdle(sessions: AgentSession[], includeQueued = true) {
+    const ids = new Set(sessions.map(session => session.id));
+    const drafts = this.store.drafts.filter(draft => ids.has(draft.sessionId));
+    const busy = sessions.some(session => ['starting', 'running', 'approval'].includes(session.status)
+      || session.inputQueue?.items.some(item => item.state === 'sending') || (includeQueued && !!session.inputQueue?.items.length && !session.inputQueue.paused)
+      || session.cursorPendingSubmission || session.cursorQueue?.requests.some(request => ['queued', 'sending', 'accepted', 'uncertain'].includes(request.state))
+      || [this.sending, this.steering, this.stoppingSessions, this.changingSettings, this.attachingCodex, this.runtimeJobs, this.preparing, this.reorganizing, this.archiving].some(state => state.has(session.id)))
+      || drafts.some(draft => draft.generation === 'running' || this.submittingDrafts.has(draft.id) || this.deletingDrafts.has(draft.id))
+      || [...this.sideChats.values()].some(entry => ids.has(entry.view.parentId) && (entry.busy || ['starting', 'running', 'approval'].includes(entry.view.session.status)))
+      || this.store.transfers.some(transfer => transfer.sessionId && ids.has(transfer.sessionId) && ['queued', 'running'].includes(transfer.status));
+    if (busy) throw new Error('请先结束会话、侧边提问、成果整理和上传，再迁移');
+  }
+  private rebindMovedSession(session: AgentSession, binding: RemoteBinding, target: Workbench = this) {
+    session.projectMigration = { at: new Date().toISOString(), fromProjectId: session.binding!.project.id };
+    session.binding = structuredClone(binding); delete session.personalGroupId;
+    delete session.projectBrief; delete session.assignment; session.autoUpload = false;
+    const profile = target.localProfile();
+    this.queueDirectoryMove(session, profile && projectDirectory(target.store.settings, profile, binding.project.id));
+  }
   async moveWithinLocal(projectId: string, selection: { sessionId?: string; groupId?: string }) {
     this.assertAccountReady(); const binding = this.projectBinding(projectId); this.assertCanWork(binding);
-    if (!this.personal || this.personalMoving || !!selection.sessionId === !!selection.groupId) throw new Error('请选择会话或个人分组');
+    if ((!this.personal && selection.groupId) || !!selection.sessionId === !!selection.groupId) throw new Error('请选择会话或个人分组');
     const seeds = this.store.sessions.filter(session => session.purpose === 'work' && (selection.sessionId ? session.id === selection.sessionId : session.personalGroupId === selection.groupId));
     if (!seeds.length) throw new Error('没有可迁移的会话');
-    const ids = this.personalFamily(seeds.map(session => session.id)), sessions = this.store.sessions.filter(session => ids.has(session.id));
-    if (sessions.some(session => ['starting', 'running', 'approval'].includes(session.status) || this.sending.has(session.id) || this.changingSettings.has(session.id) || this.preparing.has(session.id) || this.reorganizing.has(session.id)) || this.store.drafts.some(draft => ids.has(draft.sessionId) && draft.generation === 'running')) throw new Error('请先结束会话和成果整理，再迁移');
+    const ids = sessionMoveFamilyIds(this.store.sessions, seeds.map(session => session.id)), sessions = this.store.sessions.filter(session => ids.has(session.id));
+    if (sessions.some(session => !this.ownsLocal(session.binding))) throw new Error('会话不存在或不属于当前账号');
+    const sourceProjects = new Set(sessions.map(session => session.binding!.project.id));
+    if (sourceProjects.size !== 1) throw new Error('关联父子会话的项目归属不一致，请先核对');
+    if (sourceProjects.has(projectId)) throw new Error('会话已在目标项目中');
+    this.assertMoveIdle(sessions);
+    const resumeQuestions = this.questions.pauseSessions(ids);
     this.personalMoving = true; ids.forEach(id => this.movingIds.add(id));
     try { return await this.edit('local-project-move', async () => {
+      if (sessions.some(session => !this.store.sessions.includes(session) || !this.ownsLocal(session.binding))) throw new Error('会话归属已改变，请刷新后重试');
+      this.assertMoveIdle(sessions);
       await this.rsi.pause(); await this.activity.pause();
       for (const session of sessions) { const runtime = this.runtimes.get(session.id); if (runtime) { await runtime.close(); this.runtimes.delete(session.id); } }
       await Promise.all(sessions.map(session => this.eventWrites.get(session.id)));
       const drafts = this.store.drafts.filter(draft => ids.has(draft.sessionId));
       const origins = new Set([...ids, ...drafts.flatMap(draft => [draft.id, ...(draft.artifacts || []).map(item => item.id)])]);
-      const conclusionIds = new Set(drafts.flatMap(draft => draft.personalSavedIds || []));
+      const conclusionIds = new Set(drafts.flatMap(draft => [...(draft.personalSavedIds || []), ...(draft.conclusionMergeProjectId ? draft.mergeSources?.map(source => source.id) || [] : [])]));
       for (const item of this.store.conclusions) if (item.sources.some(source => source.kind === 'session' && origins.has(source.id))) conclusionIds.add(item.id);
       for (const session of sessions) for (const source of session.sources) {
         const match = source.sourcePath.match(/^local-conclusion:([^:]+):v/); if (match) conclusionIds.add(match[1]);
         if (source.contentRef && this.store.conclusions.some(item => item.id === source.contentRef!.id)) conclusionIds.add(source.contentRef.id);
       }
       for (const id of conclusionIds) for (const ref of this.store.conclusions.find(item => item.id === id)?.derivedFrom || []) if (this.store.conclusions.some(item => item.id === ref.id)) conclusionIds.add(ref.id);
-      const retained = new Set([...conclusionIds].filter(id => this.store.sessions.some(session => !ids.has(session.id) && session.sources.some(source => source.contentRef?.id === id || source.sourcePath.startsWith('local-conclusion:' + id + ':'))) || this.store.drafts.some(draft => !ids.has(draft.sessionId) && draft.personalSavedIds?.includes(id)) || this.store.conclusions.some(item => !conclusionIds.has(item.id) && item.derivedFrom?.some(ref => ref.id === id))));
+      if ([...conclusionIds].some(id => this.publishingConclusions.has(id) || this.store.conclusions.some(item => item.id === id && ['queued', 'running'].includes(conclusionUploadState(item, this.store.transfers).status)))) throw new Error('请先等待关联成果上传完成，再迁移');
+      const retained = new Set([...conclusionIds].filter(id => this.store.conclusions.some(item => item.id === id && (item.publication || item.sources.some(source => source.publication) || !sourceProjects.has(item.projectId))) || this.store.sessions.some(session => !ids.has(session.id) && session.sources.some(source => source.contentRef?.id === id || source.sourcePath.startsWith('local-conclusion:' + id + ':'))) || this.store.drafts.some(draft => !ids.has(draft.sessionId) && draft.personalSavedIds?.includes(id)) || this.store.conclusions.some(item => !conclusionIds.has(item.id) && item.derivedFrom?.some(ref => ref.id === id))));
       for (const id of retained) for (const ref of this.store.conclusions.find(item => item.id === id)?.derivedFrom || []) if (conclusionIds.has(ref.id)) retained.add(ref.id);
       const replacements = new Map([...conclusionIds].map(id => [id, retained.has(id) && this.store.conclusions.find(item => item.id === id)?.projectId !== projectId ? randomUUID() : id]));
       const moved = structuredClone(sessions), movedDrafts = structuredClone(drafts);
       for (const session of moved) {
-        session.binding = structuredClone(binding); delete session.personalGroupId;
+        this.rebindMovedSession(session, binding);
         for (const source of session.sources) {
           const match = source.sourcePath.match(/^local-conclusion:([^:]+):v/);
           if (match && replacements.has(match[1])) source.sourcePath = source.sourcePath.replace('local-conclusion:' + match[1] + ':', 'local-conclusion:' + replacements.get(match[1]) + ':');
@@ -1354,20 +1563,32 @@ export class Workbench {
       for (const draft of movedDrafts) {
         draft.binding = structuredClone(binding); draft.target = binding.project.uploadPath;
         draft.personalSavedIds = draft.personalSavedIds?.map(id => replacements.get(id) || id);
-        if (draft.conclusionMergeProjectId) draft.conclusionMergeProjectId = projectId;
-        for (const artifact of draft.artifacts || []) artifact.target = contributionCategoryDirectory(binding, artifact.category);
+        if (draft.conclusionMergeProjectId) {
+          draft.conclusionMergeProjectId = projectId;
+          for (const source of draft.mergeSources || []) source.id = replacements.get(source.id) || source.id;
+          draft.mergeReplacementIds = draft.mergeReplacementIds?.map(id => replacements.get(id) || id);
+          if (draft.mergeResultId) draft.mergeResultId = replacements.get(draft.mergeResultId) || draft.mergeResultId;
+        } else delete draft.mergeReplacementIds;
+        for (const artifact of draft.artifacts || []) if (!artifact.submitted) { artifact.target = contributionCategoryDirectory(binding, artifact.category); delete artifact.updateTarget; }
+        delete draft.destinations; delete draft.mergeProjectId;
       }
       const conclusions = structuredClone(this.store.conclusions.filter(item => conclusionIds.has(item.id)));
       for (const item of conclusions) {
+        const changedProject = item.projectId !== projectId;
         item.id = replacements.get(item.id)!; item.projectId = projectId;
+        if (changedProject) { delete item.publication; delete item.uploadState; delete item.replaces; delete item.supersededBy; }
         for (const ref of item.derivedFrom || []) if (replacements.has(ref.id)) { ref.id = replacements.get(ref.id)!; ref.projectId = projectId; }
       }
       const journals = await this.journal.exportSessions(ids);
       for (const record of journals) record.projectId = projectId;
       try { await persistPersonalMove(this.store, this.store, { version: 1, targetRoot: this.store.root, groupId: selection.groupId, sessions: moved, drafts: movedDrafts, conclusions, journals, inputs: Object.fromEntries([...ids].flatMap(id => this.store.inputs[id] ? [[id, this.store.inputs[id]]] : [])) }); }
       catch (error) { if (error instanceof PersonalMovePendingError) this.migrationRecoveryRequired = true; throw error; }
-      await this.journal.invalidate(); this.broadcast(); return { count: sessions.filter(session => session.purpose === 'work').length, projectId, sessionId: seeds[0].id };
-    }, false); } finally { this.personalMoving = false; this.movingIds.clear(); if (!this.migrationRecoveryRequired) this.activity.resume(); }
+      await this.journal.invalidate();
+      await this.questions.reconcileSessionProjects().catch(error => this.notice('会话已迁移，提问关联将在后台继续清理：' + error.message));
+      for (const entry of this.sideChats.values()) if (ids.has(entry.view.parentId)) { entry.view.projectId = projectId; entry.view.expired = true; }
+      for (const session of this.store.sessions.filter(session => session.purpose === 'work' && !session.closedAt && (sourceProjects.has(session.binding?.project.id || '') || session.binding?.project.id === projectId))) await this.journal.project(session).catch(() => {});
+      this.broadcast(); return { count: sessions.filter(session => session.purpose === 'work').length, projectId, sessionId: seeds[0].id };
+    }, false); } finally { resumeQuestions(); this.personalMoving = false; this.movingIds.clear(); if (!this.migrationRecoveryRequired) { this.activity.resume(); await this.flushProjectDirectories(); } }
   }
   async linkLocalProject(target: Workbench, projectId: string, groupName: string) {
     this.assertAccountReady(); target.assertAccountReady();
@@ -1412,7 +1633,9 @@ export class Workbench {
       }
       await this.projectSync.removeLocal(projectId);
       this.store.settings.workspaceSnapshot!.profile.projects = this.store.settings.workspaceSnapshot!.profile.projects.filter(item => item.id !== projectId);
-      await this.store.save(); this.broadcast(); target.broadcast(); target.projectSync.schedule(); return projectId;
+      await this.store.save();
+      if (target.remote.connected) await target.connectProject(projectId);
+      this.broadcast(); target.broadcast(); target.projectSync.schedule(); return projectId;
     } catch (error) {
       if (error instanceof PersonalMovePendingError) { this.migrationRecoveryRequired = true; target.migrationRecoveryRequired = true; }
       throw error;
@@ -1465,8 +1688,7 @@ export class Workbench {
     if (!initial.length) throw new Error('没有可迁移的会话');
     const ids = this.personalFamily(initial.map(session => session.id));
     const sessions = this.store.sessions.filter(session => ids.has(session.id)), drafts = this.store.drafts.filter(draft => ids.has(draft.sessionId));
-    const busy = sessions.find(session => ['starting', 'running', 'approval'].includes(session.status) || this.sending.has(session.id) || this.changingSettings.has(session.id) || this.preparing.has(session.id) || this.reorganizing.has(session.id));
-    if (busy || drafts.some(draft => draft.generation === 'running')) throw new Error(`请先结束“${busy?.title || '成果整理'}”中的任务，再整体迁移`);
+    this.assertMoveIdle(sessions);
     if (sessions.some(session => !isPersonalBinding(session.binding))) throw new Error('会话归属已改变，请刷新后重试');
     const sourceProjects = new Set(sessions.map(session => session.binding!.project.id));
     const originIds = new Set([...ids, ...drafts.flatMap(draft => [draft.id, ...(draft.artifacts || []).map(item => item.id)])]);
@@ -1482,6 +1704,7 @@ export class Workbench {
     const retainedIds = new Set(retained.map(item => item.id));
     for (let index = 0; index < retained.length; index++) for (const ref of retained[index].derivedFrom || []) { const dependency = conclusions.find(item => item.id === ref.id); if (sourceProjects.has(ref.projectId) && dependency && !retainedIds.has(dependency.id)) { retained.push(dependency); retainedIds.add(dependency.id); } }
 
+    const resumeQuestions = this.questions.pauseSessions(ids);
     this.personalMoving = true; ids.forEach(id => this.movingIds.add(id));
     try {
       await this.rsi.pause(); await target.rsi.pause();
@@ -1499,7 +1722,7 @@ export class Workbench {
       for (const record of journals) { record.owner = accountIdentity(binding); record.projectId = projectId; }
       const moved = structuredClone(sessions);
       for (const session of moved) {
-        session.binding = structuredClone(binding); delete session.personalGroupId;
+        this.rebindMovedSession(session, binding, target);
         if (session.provider === 'codex' && session.nativeId && session.codexStorage === 'workbench') {
           const home = path.join(this.store.root, 'codex-home');
           const rollout = await findCodexRollout(home, session.nativeId);
@@ -1531,7 +1754,7 @@ export class Workbench {
     } catch (error) {
       if (error instanceof PersonalMovePendingError) { this.migrationRecoveryRequired = true; target.migrationRecoveryRequired = true; }
       throw error;
-    } finally { this.personalMoving = false; target.personalMoving = false; this.movingIds.clear(); if (!this.migrationRecoveryRequired) { this.activity.resume(); target.activity.resume(); } }
+    } finally { resumeQuestions(); this.personalMoving = false; target.personalMoving = false; this.movingIds.clear(); if (!this.migrationRecoveryRequired) { this.activity.resume(); target.activity.resume(); await target.flushProjectDirectories(); } }
   }
   async researchWorkspace() { const directory = path.join(this.store.root, 'workspaces', randomUUID()); await fs.mkdir(directory, { recursive: true }); return directory; }
   async selectAssignmentFiles(projectId: string, taskId: string, filenames: string[], selectionId = taskId) {
@@ -1639,7 +1862,9 @@ export class Workbench {
     if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请完成后再发送');
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
     if (!userText.trim()) throw new Error('请输入任务内容');
+    if (this.store.sessions.find(s => s.id === id)?.directoryMove) await this.flushProjectDirectories();
     const s = this.session(id); this.assertCanWork(s.binding);
+    if (s.directoryMove) throw new Error('工作目录尚未切换完成：' + (s.directoryMove.error || '等待当前任务结束') + '。可在会话归属中查看目录状态。');
     this.providerEnvironment(s.networkRoute, s);
     if (!questionRunId) { const autoPeer = this.questions.lockedPeer(id); if (autoPeer) throw new Error(`这个 Session 正在与${autoPeer}自动对话，不能手动发送`); }
     if (s.cursorNative) {
@@ -1663,16 +1888,19 @@ export class Workbench {
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (this.sending.has(id) || this.steering.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
-    await this.applyDeferredSettings(s);
-    if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
-    await this.adoptLatestProjectBrief(s);
-    if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请稍后发送；输入已保留');
-    this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; s.status = 'starting';
+    this.sending.add(id); s.stoppedAt = undefined; s.error = undefined;
     const preview = questionRunId && !draft ? this.questionPreview(s, questionRunId, userText) : undefined;
     this.changed();
     const canceled = () => this.canceledSends.has(id) || this.closing;
     let handedOff = false;
     try {
+      await this.applyDeferredSettings(s);
+      if (canceled()) return false;
+      if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
+      await this.adoptLatestProjectBrief(s);
+      if (canceled()) return false;
+      if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请稍后发送；输入已保留');
+      s.status = 'starting'; this.changed();
       if (!s.cursorNative && !s.codexDesktop && !s.codexRemote) await this.requireAuth(s.provider, s.cwd, s.networkRoute);
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
@@ -1704,7 +1932,7 @@ export class Workbench {
       handedOff = true;
       await this.store.save();
       return started;
-    } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
+    } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; if (s.inputQueue?.items.length) { s.inputQueue.paused = true; s.inputQueue.error = e.message; } this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
     finally {
       if (!handedOff && preview && s.messages.includes(preview)) { s.messages.splice(s.messages.indexOf(preview), 1); void this.store.save().catch(() => {}); this.changed(); }
       this.sending.delete(id); if (this.canceledSends.delete(id)) { s.status = 'idle'; s.error = undefined; this.changed(); }
@@ -1764,6 +1992,9 @@ export class Workbench {
     // Completion may arrive during a same-account reconnect. Preserve the result
     // internally without using the user-facing accessor, which is locked at login.
     const s = this.store.sessions.find(session => session.id === id); if (!s) return;
+    if (s.inputQueue?.items.length && (s.error || s.stoppedAt || s.status === 'error')) {
+      s.inputQueue.paused = true; s.inputQueue.error = s.error; this.changed();
+    }
     if (!this.closing && s.purpose === 'work' && !s.closedAt && !s.stoppedAt && s.status === 'idle' && !s.error) {
       s.completion = { id: randomUUID() }; this.changed();
     }
@@ -1789,7 +2020,7 @@ export class Workbench {
     }
     await this.questions.completed(s);
     if (s.purpose === 'work' && !s.closedAt) { this.activity.completed(s.id); if (s.binding) void this.rsi.completed(s.binding.project.id).catch(() => {}); }
-    if (!this.configuring && this.ownsLocal(s.binding) && s.autoUpload && s.binding && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.sessionNotice(s, '会话自动上传未完成：' + e.message); } }
+    if (!this.configuring && this.ownsLocal(s.binding) && s.autoUpload && s.binding && this.projectConnected(s.binding.project.id) && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.sessionNotice(s, '会话自动上传未完成：' + e.message); } }
   }
   async readSessionCompletion(id: string, completionId: string) {
     const s = this.session(id), completion = s.completion;
@@ -1804,6 +2035,7 @@ export class Workbench {
     if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请同步完成后重试');
     const s = this.session(id);
     if (s.purpose !== 'work') throw new Error('请在整理结果页停止整理');
+    if (s.inputQueue) { s.inputQueue.paused = true; await this.store.save(); this.broadcast(); }
     if (this.stoppingSessions.has(id)) return;
     if(isCursorFileSession(s)){
       this.stoppingSessions.add(id);
@@ -1826,6 +2058,7 @@ export class Workbench {
   async closeSession(id: string) {
     if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请同步完成后关闭');
     const s = this.session(id); if (s.purpose !== 'work') throw new Error('请在整理结果页停止整理');
+    if (s.inputQueue) s.inputQueue.paused = true;
     s.closedAt = new Date().toISOString();
     const runtime = this.runtimes.get(id); this.runtimes.delete(id);
     this.deferredSettings.delete(id); s.settingsPending = undefined; s.permissions = undefined;
@@ -1840,7 +2073,10 @@ export class Workbench {
   async reopenSession(id: string) {
     const s = this.session(id); if (s.purpose !== 'work') throw new Error('此任务不是工作会话');
     if (this.sending.has(id) || this.stoppingSessions.has(id)) throw new Error('正在停止此会话，请稍后重新打开');
-    s.closedAt = undefined; await this.store.save(); this.broadcast();
+    s.closedAt = undefined;
+    const profile = this.localProfile();
+    this.queueDirectoryMove(s, profile && projectDirectory(this.store.settings, profile, s.binding!.project.id));
+    await this.store.save(); await this.flushProjectDirectories(); this.broadcast();
     this.activity.resumed(id);
     this.ensureNativeTranscriptSync();
     return s;
@@ -1911,7 +2147,7 @@ export class Workbench {
     return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
   }
   private nativeTranscriptBlocked(session: AgentSession) {
-    return ['starting', 'running', 'approval'].includes(session.status) || this.sending.has(session.id) || this.stoppingSessions.has(session.id);
+    return this.movingIds.has(session.id) || ['starting', 'running', 'approval'].includes(session.status) || this.sending.has(session.id) || this.stoppingSessions.has(session.id);
   }
   private ensureNativeTranscriptSync() {
     if (this.closing) return;
@@ -2012,6 +2248,7 @@ export class Workbench {
     if (session.codexRemote) {
       if (session.closedAt || this.nativeTranscriptBlocked(session)) return false;
       const next = await this.codexRemote.read(session);
+      if (this.nativeTranscriptBlocked(session) || this.store.sessions.some(item => item.id === session.id && item !== session)) return false;
       const changed = nativeTranscriptChanged(session.messages, next); session.messages = next;
       if (changed && persist) { await this.store.save(); this.broadcast(); }
       return changed;
@@ -2020,6 +2257,7 @@ export class Workbench {
     if (session.provider !== 'codex' && session.provider !== 'cursor') return false;
     if (!nativeRecordAllowed(session.provider, session.nativePath)) throw new Error(session.provider === 'codex' ? 'Codex 关联只能读取 Codex 自己的会话记录' : 'Cursor 关联只能读取 Cursor 自己的会话记录');
     const parsed = session.provider === 'codex' ? await readCodexTranscript(session.nativePath) : readCursorTranscript(session.nativePath);
+    if (this.nativeTranscriptBlocked(session) || this.store.sessions.some(item => item.id === session.id && item !== session)) return false;
     const next = applyNativeTranscript(session.messages, parsed).map(message => ({ ...message }));
     migrateSessionContext({ ...session, messages: next });
     if (!nativeTranscriptChanged(session.messages, next)) return false;
@@ -2443,7 +2681,7 @@ export class Workbench {
     let brief: Partial<import('../shared/project-brief').ProjectBrief> = {}, revision: number | undefined;
     const source = draft.files.find(item => /项目说明/.test(item.name));
     if (source) brief = cachedPreparationBrief(await fs.readFile(source.localPath, 'utf8'));
-    if (this.remote.connected) {
+    if (this.projectConnected(binding.project.id)) {
       const reads = await Promise.allSettled([this.remote.projectBrief(binding), this.remote.contentList(binding), this.remote.contentHistory(binding)]);
       if (reads[0].status === 'fulfilled' && reads[0].value.brief) { brief = reads[0].value.brief; revision = reads[0].value.revision; }
       for (const [index, read] of reads.entries()) if (index > 0 && read.status === 'fulfilled' && Array.isArray(read.value)) candidates.push(...read.value.filter(item => item.kind === 'contribution' && !item.deletedAt && (!item.files || item.files.body === 'ok')).map(item => ({ projectId: binding.project.id, scope: 'team' as const, id: item.id, version: item.revision, title: item.title, category: canonicalCategory(item.category), state: index === 2 || item.supersededBy ? 'history' as const : 'current' as const, content: item.description, updatedAt: item.updatedAt, resultStatus: item.resultStatus })));
@@ -2935,7 +3173,7 @@ export class Workbench {
     if (automatic && remaining > 0) {
       if (!this.trajectoryTimers.has(id)) this.trajectoryTimers.set(id, setTimeout(() => {
         this.trajectoryTimers.delete(id);
-        if (!this.closing && !this.configuring && this.ownsLocal(s.binding) && s.autoUpload && !s.closedAt) void this.archive(id, true).catch(e => this.notice('会话自动上传未完成：' + e.message));
+        if (!this.closing && !this.configuring && this.ownsLocal(s.binding) && s.autoUpload && !s.closedAt && !!s.binding && this.projectConnected(s.binding.project.id)) void this.archive(id, true).catch(e => this.notice('会话自动上传未完成：' + e.message));
       }, remaining));
       return;
     }
@@ -3124,6 +3362,8 @@ export class Workbench {
         }
         child.title = title; child.reasoningEffort = captured.reasoningEffort; child.mode = captured.mode;
         child.followProjectBrief = captured.followProjectBrief;
+        child.directoryMode = followsProjectDirectory(captured) ? 'project' : 'fixed';
+        child.directoryMove = captured.directoryMove ? { ...captured.directoryMove, id: randomUUID() } : undefined;
         child.fork = { parentId, capturedAt, parentMessageId: captured.messages.at(-1)?.id, parentMessageCount: captured.messages.length, snapshotHash, sourceId, inheritedSourceIds, workspaceKind: 'shared-directory', workspaceRoot: captured.codexRemote?.cwd || captured.cwd, nativeFork: !!native, ...(captured.codexRemote ? { remoteContext: context } : {}), parentWasRunning: active, visibleSnapshotPath };
         if (native) {
           child.nativeId = native.id; child.nativePath = native.path;
@@ -3334,5 +3574,5 @@ export class Workbench {
   async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await this.store.save(); }
   listDirections() { return this.remote.memberDirections(); }
   saveDirections(directions: unknown) { return this.remote.memberDirections(directions); }
-  async close() { this.closing = true; await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  async close() { this.closing = true; clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

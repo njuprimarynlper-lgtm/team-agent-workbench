@@ -23,7 +23,7 @@ async function setup() {
   const client = async (slot: string, username = 'alice') => {
     const wb = new Workbench(path.join(root, slot), () => {}, () => {}); clients.push(wb); await wb.store.init();
     const profile = memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username); profile.id = 'connection-' + slot;
-    await wb.configureWorkspace(profile, '1', '', async () => false); return wb;
+    await wb.configureWorkspace(profile, '1', '', async () => false); for (const project of wb.remote.profile!.projects) await wb.connectProject(project.id); await wb.accountSync.sync(); return wb;
   };
   const first = await client('one'), created = await first.createProject('调研项目', 'local_research');
   await first.projectSync.sync(); const project = first.projectBinding(created.id).project;
@@ -283,7 +283,7 @@ test('account switching never exports another account and loss of membership kee
   const env = await setup();
   try {
     const a = env.first, material = await a.createConclusion(env.project.id, '仅 Alice 的资料', 'PRIVATE_ALICE'); await a.accountSync.sync();
-    const login = async (name: string) => a.configureWorkspace(memberProfile(env.admin.snapshot.profile!, env.admin.snapshot.state!, name), '1', '', async () => false);
+    const login = async (name: string) => { await a.configureWorkspace(memberProfile(env.admin.snapshot.profile!, env.admin.snapshot.state!, name), '1', '', async () => false); for (const project of a.remote.profile!.projects) await a.connectProject(project.id); await a.accountSync.sync(); };
     await login('bob'); assert.equal(a.conclusions(env.project.id).length, 0);
     await a.createConclusion(env.project.id, '仅 Bob 的资料', 'PRIVATE_BOB'); await a.accountSync.sync();
     assert(!JSON.stringify(await a.remote.accountData()).includes('PRIVATE_ALICE'));

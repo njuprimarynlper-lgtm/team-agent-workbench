@@ -128,7 +128,7 @@ test('production window routing reuses project connections, separates nodes and 
       const nodeTwoAlias = opened.at(-1)!;
       assert.equal((await snapshot(nodeTwoAlias)).projectCreation?.name, '复用节点新项目');
       assert.equal((await snapshot(nodeTwo)).projectCreation?.name, '第二节点新项目');
-      assert.equal((await snapshot(nodeTwoAlias)).selectedProjectId, project.id);
+      assert.equal((await snapshot(nodeTwoAlias)).selectedProjectId, undefined, 'reusing a connection for creation must not select or connect another project');
       const missing = await call(first, 'project.connection.open', { key: accountIdentity(nodeTwoProfile), projectId: 'revoked' });
       assert.equal(missing.newWindow, true); assert.equal(missing.projectId, undefined);
       assert.match(missing.notice, /已登录.*项目列表/);

@@ -27,7 +27,7 @@ test('lost upload acknowledgement survives restart and retry reads the same rece
   try {
     const file = path.join(root, 'report.md'); await fs.writeFile(file, '同一份成果');
     const receipts = new Map<string, any>(); let commits = 0, sends = 0, allowed = true, loseAck = true;
-    const remote = {
+    const remote = { projectConnected: () => true,
       loadManifest: async () => { if (!allowed) throw new Error('当前账号已退出项目组'); return [binding.project]; },
       channel: (requested: RemoteBinding) => { assert.equal(requested.username, 'alice'); return {}; },
       ensurePersonalFolder: async () => {},
@@ -92,7 +92,7 @@ test('partial upload restarts from the immutable snapshot; changed local bytes b
   try {
     const file = path.join(root, 'result.txt'); await fs.writeFile(file, 'original');
     let sends = 0, fail = true; const requestIds: string[] = [];
-    const remote = {
+    const remote = { projectConnected: () => true,
       loadManifest: async () => [binding.project], channel: () => ({}), ensurePersonalFolder: async () => {},
       upload: async (_binding: RemoteBinding, _local: string, target: string, _progress: unknown, _metadata: unknown, hash: string, requestId: string, phase: (value: TransferPhase) => Promise<void>) => {
         sends++; requestIds.push(requestId); await phase('streaming');
@@ -117,7 +117,7 @@ test('a definitive server rejection uses a fresh request after permission is res
   try {
     const file = path.join(root, 'result.txt'); await fs.writeFile(file, 'payload');
     const requestIds: string[] = []; let reject = true;
-    const remote = {
+    const remote = { projectConnected: () => true,
       loadManifest: async () => [binding.project], channel: () => ({}), ensurePersonalFolder: async () => {},
       upload: async (_binding: RemoteBinding, _local: string, target: string, _progress: unknown, _metadata: unknown, hash: string, requestId: string, phase: (value: TransferPhase) => Promise<void>) => {
         requestIds.push(requestId);
@@ -138,7 +138,7 @@ test('download retries only the same remote version and never marks an incomplet
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-transfer-download-'));
   try {
     const destination = path.join(root, 'download.txt'); let remoteBody = 'version-one', fail = true, downloads = 0;
-    const remote = {
+    const remote = { projectConnected: () => true,
       loadManifest: async () => [binding.project], channel: () => ({}),
       downloadInfo: async () => ({ sha256: sha(remoteBody), size: Buffer.byteLength(remoteBody) }),
       download: async (_binding: RemoteBinding, _target: string, local: string, progress: (bytes: number, total: number) => void, expected: { sha256: string; size: number }) => {

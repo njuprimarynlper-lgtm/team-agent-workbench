@@ -59,7 +59,7 @@ try {
   const reply = '问题：' + data.question.title + '\n回复人：Carol\n' + data.question.recipients[0].answers[0].body;
   const draft = '我尚未发送的问题\n\n' + reply;
   const noAutoSend = async () => {
-    assert.deepEqual(await page.evaluate(() => window.replyFixture.calls.filter(c => /session\.(send|steer|resume|stop)$/.test(c.action))), []);
+    assert.deepEqual(await page.evaluate(() => window.replyFixture.calls.filter(c => /session\.(enqueue|send|steer|resume|stop)$/.test(c.action))), []);
     assert.deepEqual(await page.evaluate(() => window.replyFixture.data.snapshot.questions.jobs), []);
     assert.deepEqual(await page.evaluate(() => window.replyFixture.data.snapshot.sessions[0].messages), data.session.messages);
     await expect(page.locator('.message-pending')).toHaveCount(0);
@@ -91,7 +91,7 @@ try {
   await noAutoSend();
   await page.evaluate(() => { window.replyFixture.data.snapshot.sessions[0].status = 'running'; window.replyFixture.data.snapshot.activeTurns = { 'work-session': 'active-turn' }; window.replyFixture.emit(); });
   await input.fill('正在执行时的草稿'); await fill.click(); await expect(input).toHaveValue('正在执行时的草稿\n\n' + reply);
-  await expect(page.getByRole('button', { name: '等待本轮结束' })).toBeDisabled(); await noAutoSend();
+  await expect(page.getByRole('button', { name: '加入队列', exact: true })).toBeEnabled(); await noAutoSend();
   await page.evaluate(() => { window.replyFixture.data.snapshot.sessions[0].status = 'idle'; window.replyFixture.emit(); });
   await input.fill('确认后的回答\n\n' + reply);
   await page.screenshot({ path: path.join(out, 'reply-in-composer.png') });

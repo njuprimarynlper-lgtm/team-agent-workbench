@@ -1,16 +1,9 @@
 import type { AgentSession, ConnectionProfile, RemoteBinding, WorkspaceSnapshot } from './types';
+import { sessionMoveFamilyIds } from './subsessions';
 
 export const PERSONAL_PROJECT_ID = '__personal__';
 export function personalFamilyIds(sessions: AgentSession[], seeds: string[]) {
-  const selected = new Set(seeds);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const session of sessions) if (session.parentId && isPersonalBinding(session.binding) && (selected.has(session.id) || selected.has(session.parentId))) {
-      for (const id of [session.id, session.parentId]) if (!selected.has(id)) { selected.add(id); changed = true; }
-    }
-  }
-  return selected;
+  return sessionMoveFamilyIds(sessions.filter(session => isPersonalBinding(session.binding)), seeds);
 }
 export interface PersonalGroup { id: string; name: string }
 export const personalProfile: ConnectionProfile = {

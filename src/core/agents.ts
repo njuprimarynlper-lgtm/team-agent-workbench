@@ -208,6 +208,7 @@ export class AgentRuntime {
       // Verify both identity and logical path against the result below.
       const compressedResume = !!resumePath && codexRolloutPath(resumePath) !== resumePath;
       let result = expectedId ? await this.rpc.request('thread/resume', { ...params, threadId: expectedId, ...(resumePath && !compressedResume ? { path: resumePath } : {}) }) : await this.rpc.request('thread/start', params);
+      if (s.directoryChange && !s.codexRemote && (!result.cwd || !sameNativePath(result.cwd, s.cwd))) throw new Error('Codex 未确认新的工作目录，已停止发送，请更新 CLI 后重试');
       if (s.codexPrivateFork && this.storage && !this.storage.sharedEndpoint) {
         if (!sameNativePath(result.thread?.path || '', this.storage.resumePath || '')) throw new Error('未能核对独立副本，原桌面会话保持不变');
         const revision = this.sharedRevision;
@@ -291,8 +292,9 @@ export class AgentRuntime {
       if (s.provider !== 'cursor') throw new Error('当前会话不能接入 Cursor 的原会话');
       if (s.nativeLive && !s.nativeId) { const message = '这条会话还没有原会话标识'; this.finish(message); throw new Error(message); }
       const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
+      if (s.directoryChange && result.cwd && !sameNativePath(result.cwd, s.cwd)) throw new Error('Cursor 返回的工作目录与项目目录不一致，已停止发送');
       const returned = String(result.sessionId || '');
-      if (s.nativeLive && returned !== s.nativeId) {
+      if (s.nativeLive && returned !== s.nativeId || s.directoryChange && s.nativeId && returned && returned !== s.nativeId) {
         const message = 'Cursor 打开了另一条会话，已停止。';
         this.closing = true; this.finish(message); await this.rpc.close().catch(() => {}); throw new Error(message);
       }
@@ -422,7 +424,7 @@ export class AgentRuntime {
         const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
         const permissions = this.sharedCodex ? codexTurnPermissionParams(this.session) : {};
         const selectedMode = this.session.permissionMode;
-        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(this.session.reasoningEffort ? { effort: this.session.reasoningEffort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, 60000, options?.submitted);
+        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...(this.session.directoryChange ? { cwd: this.executionCwd } : {}), ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(this.session.reasoningEffort ? { effort: this.session.reasoningEffort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, 60000, options?.submitted);
         if ('sandboxPolicy' in permissions) {
           // Read back effective policy; Windows or organization policy may narrow the requested scope.
           try {

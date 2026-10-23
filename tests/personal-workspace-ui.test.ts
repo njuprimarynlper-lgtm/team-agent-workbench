@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PersonalSection } from '../src/renderer/personal-workspace';
+import { PersonalSection, SessionOrganization, PersonalMoveDialog } from '../src/renderer/personal-workspace';
+import { personalProfile, personalBinding } from '../src/shared/personal-workspace';
 import type { AgentSession } from '../src/shared/types';
 
 const session = (id: string, personalGroupId?: string): AgentSession => ({
@@ -41,4 +42,20 @@ test('custom groups and the total count only open conversations, while closed-on
   const moveButtons = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].map(match => match[0]).filter(button => button.includes('整组迁移到项目'));
   assert.equal(moveButtons.length, 2);
   for (const button of moveButtons) assert.doesNotMatch(button, /disabled=/, 'closed records still belong to a whole-group move');
+});
+
+test('project sessions use the same migration entry and dialog without unrelated personal group controls', () => {
+  const call = async () => { throw new Error('No IPC while rendering'); };
+  const item = session('project-session'); item.binding = personalBinding();
+  const organization = () => renderToStaticMarkup(React.createElement(SessionOrganization, { session: item, groups, close() {}, move() {}, call, changed: async () => {} }));
+  assert.match(organization(), /会话个人分组/);
+  item.binding.project = { ...personalProfile.projects[0], id: 'project-a', name: '项目 A' };
+  for (const host of ['personal', 'team.invalid']) {
+    item.binding.host = host;
+    const html = organization(); assert.match(html, /迁移到项目/); assert.match(html, /当前项目：项目 A/);
+    assert.doesNotMatch(html, /会话个人分组|保存分组|从未分项目移除/);
+  }
+  const html = renderToStaticMarkup(React.createElement(PersonalMoveDialog, { selection: { sessionId: item.id, title: item.title, count: 3 }, projects: [{ ...item.binding.project, id: 'project-b', name: '项目 B' }], connected: false, connect() {}, call, close() {}, moved: async () => {} }));
+  assert.match(html, /包含关联父子会话/); assert.match(html, /迁移 3 条会话/); assert.match(html, /项目 B/);
+  assert.doesNotMatch(html, /连接中央节点|必须连接|__personal__/);
 });

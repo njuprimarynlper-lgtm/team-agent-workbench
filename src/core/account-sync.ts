@@ -14,6 +14,13 @@ import { conflictToken, SyncConflicts, type ConflictTextTask } from './sync-conf
 
 const canonical = canonicalSync;
 type Resolution = { local: string; remote: string; choice: SyncChoice; value?: unknown };
+// Tombstones have no value. Resolve their project from another version or the
+// project-prefixed event key, so disconnecting cannot look like a deletion.
+export function accountRecordProject(key: string, versions: AccountRecords[], projectIds: string[]) {
+  for (const records of versions) if (typeof records[key]?.projectId === 'string') return records[key].projectId as string;
+  const suffix = key.slice(key.indexOf(':') + 1);
+  return projectIds.find(id => suffix === id || suffix.startsWith(id + ':'));
+}
 export function mergeAccountRecords(base: AccountRecords, local: AccountRecords, remote: AccountRecords, choices: Record<string, Resolution> = {}) {
   const records: AccountRecords = {}, conflicts: NonNullable<AccountSyncState['conflicts']> = [];
   for (const key of new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(remote)])) {
@@ -71,9 +78,24 @@ export class AccountSync {
   private resolving = false;
   private choices: Record<string, Resolution> = {};
   readonly conflicts: SyncConflicts;
-  constructor(private store: Store, private remote: SharedFiles, private changed: () => void, private reconcile?: () => void, runConflict?: ConflictTextTask) {
+  constructor(private store: Store, private remote: SharedFiles, private changed: () => void, private reconcile?: () => void, runConflict?: ConflictTextTask, private projectEnabled?: (id: string) => boolean) {
     store.saved = () => this.schedule();
     this.conflicts = new SyncConflicts(store.root, () => { this.state.conflicts = this.state.conflicts?.map(value => this.conflicts.view(value)); this.changed(); }, runConflict);
+  }
+  connectionChanged() { this.generation++; clearTimeout(this.timer); this.state = { status: this.hasConnectedProject() ? 'pending' : 'offline' }; this.changed(); this.schedule(); }
+  async settle() { await this.running; }
+  private hasConnectedProject() { return !this.projectEnabled || !!this.remote.profile?.projects.some(p => this.projectEnabled!(p.id)); }
+  private scope(versions: AccountRecords[]) {
+    const projects = [...new Set([...(this.profile?.projects.map(p => p.id) || []), ...versions.flatMap(records => Object.values(records).flatMap(value => typeof value?.projectId === 'string' ? [value.projectId] : []))])];
+    const included = (key: string, value: any) => {
+      if (!this.projectEnabled) return true;
+      const owners = [...new Set([value, ...versions.map(records => records[key])].flatMap(item => typeof item?.projectId === 'string' ? [item.projectId] : []))];
+      if (!owners.length) owners.push(accountRecordProject(key, versions, projects) || '');
+      // A local move between projects must not become a remote deletion while
+      // either side is disconnected. Keep the move pending as one record.
+      return owners.every(id => this.projectEnabled!(id));
+    };
+    return (records: AccountRecords) => Object.fromEntries(Object.entries(records).filter(([key, value]) => included(key, value)));
   }
   private file(profile: ConnectionProfile) { return path.join(this.store.root, 'accounts', createHash('sha256').update(accountIdentity(profile)).digest('hex') + '.json'); }
   private owns(draft: Draft, profile: ConnectionProfile) { return !!draft.binding && accountIdentity(draft.binding) === accountIdentity(profile); }
@@ -94,13 +116,14 @@ export class AccountSync {
     for (const id of this.store.settings.dismissedContentUpdateIds || []) if (id.startsWith(prefix)) records['dismissed:' + id.slice(prefix.length)] = true;
     return structuredClone(records);
   }
-  private apply(records: AccountRecords, profile: ConnectionProfile, preserveLocalFiles: boolean | Set<string> = false) {
+  private apply(records: AccountRecords, profile: ConnectionProfile, preserveLocalFiles: boolean | Set<string> = false, updateKeys?: Set<string>) {
     const sources = new Map<string, string | undefined>(preserveLocalFiles ? this.recordFiles(preserveLocalFiles instanceof Set ? Object.fromEntries(Object.entries(records).filter(([key]) => preserveLocalFiles.has(key))) : records).map((file: { sha256: string }) => [file.sha256, this.ownedFile(profile, file.sha256)]) : []);
     const owner = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
     // A deletion received from another computer must not erase local progress.
     for (const session of this.store.sessions) rememberPreparationProgress(session, this.store.drafts);
     const materials: ProjectConclusion[] = [];
     for (const [key, value] of Object.entries(records)) {
+      if (updateKeys && !updateKeys.has(key)) continue;
       if (key.startsWith('material:') && value && typeof value.projectId === 'string' && value.id === key.slice(9) && typeof value.title === 'string' && typeof value.content === 'string' && Array.isArray(value.sources)) {
         const { localFiles: rawFiles, ...rest } = value;
         const localFiles = Array.isArray(rawFiles) ? rawFiles.flatMap((file: { id?: string; name?: string; sha256?: string; size?: number }) => file && typeof file.id === 'string' && typeof file.name === 'string' && typeof file.sha256 === 'string' && typeof file.size === 'number' ? [{ id: file.id, name: file.name, sha256: file.sha256, size: file.size, localPath: sources.get(file.sha256) || this.blobPath(file as { name: string; sha256: string; size: number }) }] : []) : [];
@@ -124,7 +147,7 @@ export class AccountSync {
         }
       }
     }
-    this.store.conclusions = [...this.store.conclusions.filter(item => item.accountOwner !== owner), ...materials];
+    this.store.conclusions = [...this.store.conclusions.filter(item => item.accountOwner !== owner || updateKeys && !updateKeys.has('material:' + item.id)), ...materials];
     const prefix = `${profile.id}:${profile.username}:`;
     this.store.settings.contentAliases = Object.fromEntries(Object.entries(records).filter(([key, value]) => key.startsWith('alias:') && typeof value === 'string').map(([key, value]) => [key.slice(6), value]));
     this.store.settings.contentUpdates = Object.entries(records).filter(([key, value]) => key.startsWith('update:') && value).map(([key, value]) => ({ ...value, eventId: prefix + key.slice(7) }));
@@ -185,8 +208,9 @@ export class AccountSync {
     if (this.applying || this.resolving || this.stopped || !this.profile) return;
     if (this.remote.profile && accountIdentity(this.remote.profile) === accountIdentity(this.profile)) this.profile = structuredClone(this.remote.profile);
     for (const item of this.store.conclusions) (item as any).accountOwner ||= accountIdentity(this.profile);
-    if (canonical(this.collect()) === canonical(Object.fromEntries(Object.entries(this.base).filter(([, value]) => value != null)))) return;
-    if (!this.remote.connected) { this.state = { ...this.state, status: 'offline', detail: '更改已保存在本机，登录后同步' }; this.changed(); return; }
+    const local = this.collect(), scope = this.scope([this.base, local]);
+    if (!this.remote.connected || !this.hasConnectedProject()) { this.state = { ...this.state, status: 'offline', detail: '更改已保存在本机，连接项目后同步' }; this.changed(); return; }
+    if (canonical(scope(local)) === canonical(scope(Object.fromEntries(Object.entries(this.base).filter(([, value]) => value != null))))) return;
     clearTimeout(this.timer); this.state = { ...this.state, status: 'pending' }; this.changed(); this.timer = setTimeout(() => void this.sync(), 1500); this.timer.unref();
   }
   async resolve(key: string, choice: SyncChoice, token?: string, fields?: { path: string[]; text: string }[]) {
@@ -232,7 +256,7 @@ export class AccountSync {
   }
   sync(): Promise<void> {
     if (this.running) return this.running;
-    if (!this.profile || this.resolving || this.stopped || !this.remote.connected) return Promise.resolve();
+    if (!this.profile || this.resolving || this.stopped || !this.remote.connected || !this.hasConnectedProject()) return Promise.resolve();
     if (this.remote.profile && accountIdentity(this.remote.profile) === accountIdentity(this.profile)) this.profile = structuredClone(this.remote.profile);
     const profile = this.profile, generation = this.generation;
     const valid = () => { if (generation !== this.generation || !this.remote.profile || accountIdentity(this.remote.profile) !== accountIdentity(profile)) throw new Error('账号已改变，未应用同步结果'); };
@@ -246,7 +270,9 @@ export class AccountSync {
           delete snapshot.records['result-rules:preferences'];
           delete this.base['result-rules:preferences'];
           accountRecordsSchema.parse(snapshot.records);
-          const before = this.collect(); let merged = mergeAccountRecords(this.base, before, snapshot.records, this.choices);
+          const before = this.collect(), scope = this.scope([this.base, before, snapshot.records]);
+          const remote = scope(snapshot.records);
+          let merged = mergeAccountRecords(scope(this.base), scope(before), remote, this.choices);
           for (const conflict of merged.conflicts) {
             const ai = this.conflicts.view(conflict).ai;
             if (ai?.status === 'ready' && !ai.unresolved?.length && verifiableTextMerge(conflict, ai.fields || [])) {
@@ -255,37 +281,40 @@ export class AccountSync {
               this.choices[conflict.key] = { local: canonical(conflict.local), remote: canonical(conflict.remote), choice: 'merged', value };
             }
           }
-          merged = mergeAccountRecords(this.base, before, snapshot.records, this.choices);
+          merged = mergeAccountRecords(scope(this.base), scope(before), remote, this.choices);
           const blocked = new Set(merged.conflicts.map(item => item.key)), oldBase = structuredClone(this.base);
           // A conflict holds only its own record. Other records continue to sync.
           for (const key of blocked) merged.records[key] = snapshot.records[key] ?? null;
           await this.files(Object.fromEntries(Object.entries(merged.records).filter(([key]) => !blocked.has(key))), snapshot.records, profile, valid); valid();
-          const result = !retiredPreferences && canonical(merged.records) === canonical(snapshot.records) ? snapshot : await this.remote.accountData({ revision: snapshot.revision, records: accountRecordsSchema.parse(merged.records) }); valid();
+          const outgoing = { ...snapshot.records, ...merged.records };
+          const result = !retiredPreferences && canonical(outgoing) === canonical(snapshot.records) ? snapshot : await this.remote.accountData({ revision: snapshot.revision, records: accountRecordsSchema.parse(outgoing) }); valid();
           if (result.conflict) continue;
           // Edits made while the request was in flight remain pending, never overwritten.
-          const after = mergeAccountRecords(before, this.collect(), result.records);
+          const currentLocal = this.collect(), activeLocal = scope(currentLocal);
+          const after = mergeAccountRecords(scope(before), activeLocal, scope(result.records));
           for (const key of blocked) after.records[key] = this.collect()[key] ?? null;
           if (after.conflicts.some(item => !blocked.has(item.key))) { this.state = { status: 'pending', detail: '同步期间有新修改，稍后继续' }; return; }
           this.applying = true;
           try {
-            this.apply(after.records, profile, blocked);
+            const inactive = Object.fromEntries(Object.entries(currentLocal).filter(([key]) => !Object.hasOwn(activeLocal, key)));
+            this.apply({ ...inactive, ...after.records }, profile, blocked, new Set(Object.keys(after.records)));
             // Older or interrupted clients may have uploaded a reviewed preparation
             // record without its derived personal result. Rebuild that local view
             // after restoration, then keep syncing until the repaired record is also
             // present in the account-private snapshot.
             this.reconcile?.();
-            await this.store.repairConclusionImports(); this.base = structuredClone(result.records);
+            await this.store.repairConclusionImports(); this.base = { ...oldBase, ...structuredClone(scope(result.records)) };
             for (const key of blocked) this.base[key] = oldBase[key] ?? null;
             await this.store.save(); await atomicJson(this.file(profile), { ...result, records: this.base });
           }
           finally { this.applying = false; }
           this.state.history = this.conflicts.history.filter(item => !item.key.startsWith('project:') && item.owner === accountIdentity(profile)).slice(0, 50).map(({ id, key, at, method }) => ({ id, key, at, method }));
           if (blocked.size) {
-            const current = mergeAccountRecords(this.base, this.collect(), result.records, this.choices).conflicts;
+            const current = mergeAccountRecords(scope(this.base), scope(this.collect()), scope(result.records), this.choices).conflicts;
             this.state = { ...this.state, status: 'conflict', conflicts: current.map(item => this.conflicts.view(item)), detail: `${current.length} 项分歧待处理，其他资料已继续同步` };
             this.conflicts.enqueue(current); return;
           }
-          if (canonical(this.collect(profile)) !== canonical(Object.fromEntries(Object.entries(this.base).filter(([, value]) => value != null)))) {
+          if (canonical(scope(this.collect(profile))) !== canonical(scope(Object.fromEntries(Object.entries(this.base).filter(([, value]) => value != null))))) {
             this.state = { status: 'pending', detail: '已恢复缺失的个人成果，正在回写账号资料' }; this.changed(); continue;
           }
           this.state = { status: 'synced', syncedAt: new Date().toISOString(), history: this.state.history }; this.choices = {}; return;

@@ -11,6 +11,19 @@ import type { AssignmentCreate, AssignmentStatusChange, AssignmentUpload } from 
 
 export class SharedFiles {
   private backend: SftpConnection | LocalFileConnection;
+  private projectAccess?: (id: string) => boolean;
+  private operations = new Map<string, Set<Promise<unknown>>>();
+  setProjectAccess(check: (id: string) => boolean) { this.projectAccess = check; }
+  projectConnected(id: string) { return this.connected && (this.projectAccess?.(id) ?? true); }
+  private assertProject(id: string) { if (!this.projectConnected(id)) throw new Error('此项目尚未连接中央节点，请在项目内连接；可复用已登录的连接'); }
+  private async access<T>(binding: RemoteBinding, action: () => Promise<T>): Promise<T> {
+    this.assertProject(binding.project.id);
+    const jobs = this.operations.get(binding.project.id) || new Set<Promise<unknown>>();
+    this.operations.set(binding.project.id, jobs);
+    const job = action(); jobs.add(job);
+    try { return await job; } finally { jobs.delete(job); if (!jobs.size) this.operations.delete(binding.project.id); }
+  }
+  async settleProject(id: string) { await Promise.allSettled([...(this.operations.get(id) || [])]); }
   constructor(private changed: () => void) { this.backend = new SftpConnection(() => this.changed()); }
   get profile() { return this.backend.profile; }
   get workspaces() { return this.backend.workspaces; }
@@ -39,33 +52,33 @@ export class SharedFiles {
   accountData(write?: AccountSnapshot) { return this.backend.accountData(write); }
   memberDirections(directions?: unknown) { return this.backend.memberDirections(directions); }
   accountFile(hash: string, local: string, upload: boolean) { return this.backend.accountFile(hash, local, upload); }
-  channel(binding?: RemoteBinding) { return this.backend.channel(binding); }
+  channel(binding?: RemoteBinding) { if (binding) this.assertProject(binding.project.id); return this.backend.channel(binding); }
   binding(id: string) { return this.backend.binding(id); }
   verifyWorkspace(target: string) { return this.backend.verifyWorkspace(target); }
   loadManifest() { return this.backend.loadManifest(); }
   groupCommand(command: GroupCommand) { return this.backend.groupCommand(command); }
   createProject(name: string, groupName?: string, brief?: ProjectBrief, id?: string) { return this.backend.createProject(name, groupName, brief, id); }
-  contentList(binding: RemoteBinding) { return this.backend.contentList(binding); }
-  contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false) { return this.backend.contentHistory(binding, id, revision, summary); }
-  contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.backend.contentMerge(binding, change); }
-  questionRequest(binding: RemoteBinding, command?: QuestionCommand | 'members'): Promise<TeamQuestion[] | TeamQuestion | QuestionMember[]> { return this.backend.questionRequest(binding, command); }
-  assignmentMembers(binding: RemoteBinding) { return this.backend.assignmentMembers(binding); }
-  assignmentList(binding: RemoteBinding) { return this.backend.assignmentList(binding); }
-  assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.backend.assignmentCreate(binding, input); }
-  assignmentUpload(binding: RemoteBinding, taskId: string, file: AssignmentUpload, local: string) { return this.backend.assignmentUpload(binding, taskId, file, local); }
-  assignmentDownload(binding: RemoteBinding, taskId: string, fileId: string, local: string) { return this.backend.assignmentDownload(binding, taskId, fileId, local); }
-  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.backend.assignmentStatus(binding, input); }
-  contentAdopt(binding: RemoteBinding, target: string) { return this.backend.contentAdopt(binding, target); }
-  contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.backend.contentEdit(binding, change); }
-  contentReap(binding: RemoteBinding) { return this.backend.contentReap(binding); }
-  contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.backend.contentReplace(binding, change, file); }
-  projectBrief(binding: RemoteBinding) { return this.backend.projectBrief(binding); }
-  saveProjectBrief(binding: RemoteBinding, brief: ProjectBrief, revision: number) { return this.backend.saveProjectBrief(binding, brief, revision); }
-  ensurePersonalFolder(binding: RemoteBinding, target: string) { return this.backend.ensurePersonalFolder(binding, target); }
-  list(binding: RemoteBinding, target: string) { return this.backend.list(binding, target); }
-  preview(binding: RemoteBinding, target: string, displayName?: string) { return this.backend.preview(binding, target, displayName); }
-  uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) { return this.backend.uploadAttachment(binding, local, hash, progress, requestId, phase); }
-  downloadInfo(binding: RemoteBinding, target: string) { return this.backend.downloadInfo(binding, target); }
-  download(binding: RemoteBinding, target: string, local: string, progress?: (bytes: number, total: number) => void, expected?: { sha256: string; size: number }) { return this.backend.download(binding, target, local, progress, expected); }
-  upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) { return this.backend.upload(binding, local, target, progress, metadata, hash, requestId, phase); }
+  contentList(binding: RemoteBinding) { return this.access(binding, () => this.backend.contentList(binding)); }
+  contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false) { return this.access(binding, () => this.backend.contentHistory(binding, id, revision, summary)); }
+  contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.access(binding, () => this.backend.contentMerge(binding, change)); }
+  questionRequest(binding: RemoteBinding, command?: QuestionCommand | 'members'): Promise<TeamQuestion[] | TeamQuestion | QuestionMember[]> { return this.access(binding, () => this.backend.questionRequest(binding, command)); }
+  assignmentMembers(binding: RemoteBinding) { return this.access(binding, () => this.backend.assignmentMembers(binding)); }
+  assignmentList(binding: RemoteBinding) { return this.access(binding, () => this.backend.assignmentList(binding)); }
+  assignmentCreate(binding: RemoteBinding, input: AssignmentCreate) { return this.access(binding, () => this.backend.assignmentCreate(binding, input)); }
+  assignmentUpload(binding: RemoteBinding, taskId: string, file: AssignmentUpload, local: string) { return this.access(binding, () => this.backend.assignmentUpload(binding, taskId, file, local)); }
+  assignmentDownload(binding: RemoteBinding, taskId: string, fileId: string, local: string) { return this.access(binding, () => this.backend.assignmentDownload(binding, taskId, fileId, local)); }
+  assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.access(binding, () => this.backend.assignmentStatus(binding, input)); }
+  contentAdopt(binding: RemoteBinding, target: string) { return this.access(binding, () => this.backend.contentAdopt(binding, target)); }
+  contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.access(binding, () => this.backend.contentEdit(binding, change)); }
+  contentReap(binding: RemoteBinding) { return this.access(binding, () => this.backend.contentReap(binding)); }
+  contentReplace(binding: RemoteBinding, change: ContentEdit, file: string) { return this.access(binding, () => this.backend.contentReplace(binding, change, file)); }
+  projectBrief(binding: RemoteBinding) { return this.access(binding, () => this.backend.projectBrief(binding)); }
+  saveProjectBrief(binding: RemoteBinding, brief: ProjectBrief, revision: number) { return this.access(binding, () => this.backend.saveProjectBrief(binding, brief, revision)); }
+  ensurePersonalFolder(binding: RemoteBinding, target: string) { return this.access(binding, () => this.backend.ensurePersonalFolder(binding, target)); }
+  list(binding: RemoteBinding, target: string) { return this.access(binding, () => this.backend.list(binding, target)); }
+  preview(binding: RemoteBinding, target: string, displayName?: string) { return this.access(binding, () => this.backend.preview(binding, target, displayName)); }
+  uploadAttachment(binding: RemoteBinding, local: string, hash: string, progress: (bytes: number, total: number) => void, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) { return this.access(binding, () => this.backend.uploadAttachment(binding, local, hash, progress, requestId, phase)); }
+  downloadInfo(binding: RemoteBinding, target: string) { return this.access(binding, () => this.backend.downloadInfo(binding, target)); }
+  download(binding: RemoteBinding, target: string, local: string, progress?: (bytes: number, total: number) => void, expected?: { sha256: string; size: number }) { return this.access(binding, () => this.backend.download(binding, target, local, progress, expected)); }
+  upload(binding: RemoteBinding, local: string, target: string, progress: (bytes: number, total: number) => void, metadata?: ContentMetadata, hash?: string, requestId?: string, phase?: (value: TransferPhase) => Promise<void> | void) { return this.access(binding, () => this.backend.upload(binding, local, target, progress, metadata, hash, requestId, phase)); }
 }

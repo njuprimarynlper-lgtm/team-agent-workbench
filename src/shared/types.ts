@@ -19,12 +19,13 @@ export interface AgentCapabilitySelection { id: string; kind: AgentCapabilityKin
 export interface AgentCapabilityOption extends AgentCapabilitySelection { description: string; invocation: string; path?: string; source?: string; enabled: boolean; unavailableReason?: string }
 export interface AgentCapabilityCatalog { provider: Provider; skills: AgentCapabilityOption[]; plugins: AgentCapabilityOption[]; checkedAt: string; skillError?: string; pluginError?: string }
 export interface SessionInput { nextTurnOnly?: boolean; text: string; sourceIds: string[]; answers: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
+export interface QueuedSessionInput { id: string; input: SessionInput; state: 'queued' | 'sending'; submitted?: boolean }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; role?: import('./team-groups').GroupRole; creator?: string; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
 export interface SourceFile { userAttachment?: boolean; resultUnavailable?: boolean; id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string; contentRef?: { projectId: string; id: string; revision: number } }
 export interface SessionFile { path: string; name: string; size: number; modifiedAt: string }
-export interface MessageContext { questionRunId?: string; questionFill?: boolean; nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[]; projectJournal?: import('./project-journal').JournalReceipt }
+export interface MessageContext { directoryRevision?: string; questionRunId?: string; questionFill?: boolean; nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[]; projectJournal?: import('./project-journal').JournalReceipt }
 export interface Message { id: string; nativeItemId?: string; role: 'user' | 'assistant' | 'tool' | 'system'; phase?: 'commentary' | 'final_answer'; text: string; userText?: string; context?: MessageContext; steering?: boolean; createdAt: string; kind?: 'plan' | 'planSteps'; steps?: import('./session-mode').PlanStep[]; nativeDetails?: { thinking?: unknown; allThinkingBlocks?: unknown; toolCall?: unknown; toolResults?: unknown; artifacts?: Array<{ content: string; blobId: string }>; error?: unknown } }
 export interface CursorQueuedRequest { id: string; text: string; createdAt: string; state: 'queued' | 'sending' | 'accepted' | 'completed' | 'aborted' | 'error' | 'uncertain' | 'cancelled'; error?: string; nativeMessageId?: string; candidates?: string[] }
 export interface ApprovalOption { id: string; label: string; kind: 'allow' | 'deny' | 'answer' }
@@ -36,6 +37,7 @@ export interface SubsessionReportPreview { childId: string; parentId: string; ti
 export interface SideChat { id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
 export type SessionNetworkRoute = 'direct' | 'management';
 export interface AgentSession {
+  inputQueue?: { items: QueuedSessionInput[]; paused: boolean; error?: string };
   codexRemote?: { hostId: string; hostName: string; cwd: string; nativePath: string; home: string };
   codexDesktop?: boolean;
   codexSyncRequest?: { requestedAt: string; error?: string };
@@ -52,6 +54,10 @@ export interface AgentSession {
   mode?: import('./session-mode').SessionMode; proposedPlan?: import('./session-mode').ProposedPlan;
   id: string; title: string; provider: Provider; model?: string; resolvedModel?: string; reasoningEffort?: string; closedAt?: string; nativeId?: string; nativePath?: string; nativeLive?: boolean; codexStorage?: 'workbench'; codexNeedsRegistration?: boolean;
   personalGroupId?: string; relayAccount?: string;
+  projectMigration?: { at: string; fromProjectId: string };
+  directoryMode?: 'project' | 'fixed';
+  directoryMove?: { id: string; from: string; to: string; error?: string; retryAt?: number };
+  directoryChange?: { id: string; from: string; to: string; conflicts: string[] };
   cwd: string; purpose: 'work' | 'prepare' | 'background'; networkRoute?: SessionNetworkRoute; parentId?: string; fork?: SubsessionFork; reports?: SubsessionReport[]; createdAt: string;
   handoffState?: import('./activity-assistant').HandoffState;
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string; stoppedAt?: string;
@@ -88,7 +94,7 @@ export interface ReasoningEffortOption { id: string; description?: string }
 export interface ModelOption { id: string; name: string; isDefault?: boolean; defaultReasoningEffort?: string; reasoningEfforts?: ReasoningEffortOption[] }
 export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
 export interface ProviderCatalog { models: ModelOption[]; defaultModel?: string; defaultModelWarning?: string; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
-export interface Snapshot { sideChats?: SideChat[]; projectSync?: Record<string, { pending: boolean; localOnly: boolean; history?: { id: string; at: string; method: string }[]; error?: string; conflict?: import('./sync-conflict').SyncConflict }>; projectCreation?: import('./project-connection').ProjectCreationIntent; selectedProjectId?: string; reusableConnections?: import('./project-connection').ReusableProjectConnection[]; personal?: { settings: Settings; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; egress?: UserEgressStatus }; questions?: import('./questions').QuestionInbox; activity?: import('./activity-assistant').ActivityAssistantView; publishingConclusions?: string[]; accountChanging?: boolean; activeTurns?: Record<string, string>; accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
+export interface Snapshot { projectLinkTarget?: string; projectConnections?: Record<string, { connected: boolean; disconnecting?: boolean }>; sideChats?: SideChat[]; projectSync?: Record<string, { pending: boolean; localOnly: boolean; history?: { id: string; at: string; method: string }[]; error?: string; conflict?: import('./sync-conflict').SyncConflict }>; projectCreation?: import('./project-connection').ProjectCreationIntent; selectedProjectId?: string; reusableConnections?: import('./project-connection').ReusableProjectConnection[]; personal?: { settings: Settings; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; egress?: UserEgressStatus }; questions?: import('./questions').QuestionInbox; activity?: import('./activity-assistant').ActivityAssistantView; publishingConclusions?: string[]; accountChanging?: boolean; activeTurns?: Record<string, string>; accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
 export type WorkbenchEvent = { type: 'state' } | { type: 'questions' } | { type: 'notice'; message: string };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;

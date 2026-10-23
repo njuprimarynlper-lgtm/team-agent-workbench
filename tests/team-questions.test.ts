@@ -145,6 +145,7 @@ async function fixture(run: (value: { alice: Workbench; bob: Workbench; carol: W
     const alice = await connect('alice');
     const project = await syncedProject(alice, '问答验证', 'local_research', { background: '项目背景', objectives: '目标', acceptance: '验收', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' });
     const bob = await connect('bob'), carol = await connect('carol'), dave = await connect('dave');
+    for (const client of [bob, carol, dave]) await client.connectProject(project.id);
     await run({ alice, bob, carol, dave, project: project.id, root, admin });
   } finally { for (const wb of clients) await wb.close(); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-member-questions-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 8 }); }
 }

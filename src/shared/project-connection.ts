@@ -22,7 +22,7 @@ export function reusableProjectConnections(profiles: ConnectionProfile[]) {
 }
 export function connectionProject(profile: ConnectionProfile, projectId?: string) {
   if (projectId && !profile.projects.some(project => project.id === projectId)) throw new Error('当前项目列表中未找到此项目，请刷新列表；若仍缺失，请联系项目管理者核对访问权限');
-  return projectId || profile.projects[0]?.id;
+  return projectId;
 }
 export interface ProjectConnectionSelection { projectId?: string; notice?: string }
 export interface ProjectLoginResult extends ConnectionProfile { selectedProjectId?: string; connectionNotice?: string }

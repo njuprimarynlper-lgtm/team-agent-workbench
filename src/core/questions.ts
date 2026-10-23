@@ -21,6 +21,7 @@ export class Questions {
   private polling?: Promise<void>;
   private saving: Promise<unknown> = Promise.resolve();
   private active = new Set<string>();
+  private movingSessions = new Set<string>();
   private references = new Map<string, Promise<void>>();
   private staged = new Map<string, SourceFile>();
   private autoRunning = false;
@@ -38,6 +39,29 @@ export class Questions {
     return owner ? this.buckets[owner] ||= { items: [], read: {}, notified: {}, jobs: [] } : undefined;
   }
   view(): QuestionInbox { const inbox = this.inbox(); return inbox ? { items: inbox.items, read: inbox.read, jobs: inbox.jobs, dialogues: inbox.dialogues, replyModes: inbox.replyModes, fills: inbox.fills, error: inbox.error } : { items: [], read: {}, jobs: [] }; }
+  pauseSessions(ids: Set<string>) {
+    if (this.active.size || Object.values(this.buckets).some(inbox => inbox.jobs.some(job => ids.has(job.sessionId) && job.phase === 'running'))) throw new Error('请先结束提问中的任务，再迁移');
+    ids.forEach(id => this.movingSessions.add(id));
+    return () => ids.forEach(id => this.movingSessions.delete(id));
+  }
+  // This also runs after recovery, before any network polling. Questions themselves
+  // remain in their original projects; only stale local automation is detached.
+  async reconcileSessionProjects() {
+    let changed = false;
+    for (const [owner, inbox] of Object.entries(this.buckets)) {
+      const moved = (id: string, projectId: string) => {
+        const session = this.store.sessions.find(item => item.id === id);
+        return !!session && (!session.binding || accountIdentity(session.binding) !== owner || session.binding.project.id !== projectId);
+      };
+      for (const q of inbox.items) {
+        const dialogues = inbox.dialogues?.filter(item => item.questionId !== q.id || !moved(item.sessionId, q.projectId));
+        if (dialogues?.length !== inbox.dialogues?.length) { inbox.dialogues = dialogues; changed = true; }
+        if (q.recipients.some(item => item.sessionId && moved(item.sessionId, q.projectId)) && inbox.replyModes?.[q.id] !== 'manual') { (inbox.replyModes ||= {})[q.id] = 'manual'; changed = true; }
+      }
+      for (const job of inbox.jobs) if (job.phase === 'queued' && moved(job.sessionId, job.projectId)) { job.phase = 'closed'; job.error = '关联会话已迁移到其他项目'; changed = true; }
+    }
+    if (changed) { await this.save(); this.hooks.changed(); }
+  }
   private rememberFill(inbox: SavedInbox, questionId: string, peer: string | undefined, text: string) {
     const body = text.trim().slice(0, 12000);
     if (!peer || !body) return false;
@@ -57,7 +81,7 @@ export class Questions {
     const username = this.hooks.profile()?.username;
     let wrote = false;
     for (const q of inbox.items) {
-      if (q.closedAt) continue;
+      if (q.closedAt || q.projectId !== session.binding?.project.id) continue;
       if (q.sessionId === session.id) {
         const dialogue = inbox.dialogues?.find(item => item.questionId === q.id && item.sessionId === session.id);
         const peer = dialogue?.peer || (q.recipients.length === 1 ? q.recipients[0].username : '');
@@ -78,6 +102,7 @@ export class Questions {
       // Older versions queued manual imports as model turns. Do not resume them.
       if (job.mode === 'import' && job.phase === 'queued') { job.phase = 'closed'; job.error = '请将回复填入对话框，确认后发送'; }
     }
+    await this.reconcileSessionProjects();
     this.timer = setInterval(() => void this.sync().catch(() => {}), 5000); this.timer.unref();
   }
   async members(projectId: string) { return this.remote.questionRequest(this.remote.binding(projectId), 'members'); }
@@ -179,8 +204,9 @@ export class Questions {
   }
   async answer(projectId: string, id: string, answerId: string, body: string) { return this.request(projectId, { kind: 'answer', id, answerId, body }); }
   lockedPeer(sessionId: string) {
-    const inbox = this.inbox(), dialogue = inbox?.dialogues?.find(item => item.sessionId === sessionId);
-    if (!dialogue) return inbox?.items.find(q => !q.closedAt && q.author !== this.hooks.profile()?.username && inbox.replyModes?.[q.id] === 'auto' && q.recipients.some(r => r.sessionId === sessionId))?.authorName;
+    const inbox = this.inbox(), projectId = this.store.sessions.find(item => item.id === sessionId)?.binding?.project.id;
+    const dialogue = inbox?.dialogues?.find(item => item.sessionId === sessionId && item.projectId === projectId);
+    if (!dialogue) return inbox?.items.find(q => q.projectId === projectId && !q.closedAt && q.author !== this.hooks.profile()?.username && inbox.replyModes?.[q.id] === 'auto' && q.recipients.some(r => r.sessionId === sessionId))?.authorName;
     return inbox?.items.find(item => item.id === dialogue.questionId)?.recipients.find(item => item.username === dialogue.peer)?.name || dialogue.peer;
   }
   private assertWorkSession(sessionId: string, projectId: string, automatic = true) {
@@ -200,6 +226,7 @@ export class Questions {
     const bound = inbox.dialogues?.find(item => item.sessionId === sessionId);
     if (bound && bound.peer !== recipient.username) throw new Error('这个自动 Session 只跟一个人进行，不能加入其他人的回答');
     if (bound) throw new Error('自动对话中的 Session 会自行接收这一位成员的回复');
+    if (this.movingSessions.has(sessionId)) throw new Error('会话正在迁移，请稍后重试');
     const answer = recipient.answers.find(item => item.id === answerId)!;
     // Preparing a draft must not create a model job or mark the reply as consumed.
     return visibleImportedReply(false, question.title, recipient.name, answer.body, answer.files);
@@ -301,7 +328,7 @@ export class Questions {
   }
   private async writeReference(session: AgentSession, q: TeamQuestion) {
     const owner = this.owner();
-    const valid = () => owner === this.owner() && !!session.binding && accountIdentity(session.binding) === owner && (this.inbox()?.items.find(item => item.id === q.id)?.revision || 0) <= q.revision;
+    const valid = () => !this.movingSessions.has(session.id) && this.store.sessions.includes(session) && session.binding?.project.id === q.projectId && owner === this.owner() && !!session.binding && accountIdentity(session.binding) === owner && (this.inbox()?.items.find(item => item.id === q.id)?.revision || 0) <= q.revision;
     if (!valid()) return;
     const added = await this.ensureReferenceFiles(session, q, valid);
     const follows = (q.followUps || []).map(item => `## 后续 · ${item.createdAt}\n${item.body}${questionFileNote(item.files)}`).join('\n\n');
@@ -322,13 +349,16 @@ export class Questions {
     try { await work; } finally { if (this.polling === work) this.polling = undefined; }
   }
   private async scan() {
+    await this.reconcileSessionProjects();
     const profile = this.remote.profile, inbox = this.inbox(), owner = this.owner();
     if (this.stopped || !this.remote.connected || !profile || !inbox || !owner || accountIdentity(profile) !== owner) return;
     try {
       for (const project of profile.projects) {
+        if (!this.remote.projectConnected(project.id)) continue;
         const before = new Map(inbox.items.filter(q => q.projectId === project.id).map(q => [q.id, q]));
         const questions = await this.remote.questionRequest(this.remote.binding(project.id)) as TeamQuestion[];
         if (owner !== this.owner() || this.stopped) return;
+        if (!this.remote.projectConnected(project.id)) continue;
         // Remove records the server no longer permits this account to read.
         inbox.items = inbox.items.filter(q => q.projectId !== project.id || before.get(q.id) !== q || questions.some(n => n.id === q.id));
         for (const q of questions) this.merge(inbox, q);
@@ -336,6 +366,7 @@ export class Questions {
       inbox.items = inbox.items.filter(q => profile.projects.some(p => p.id === q.projectId));
       inbox.error = undefined;
       for (const q of inbox.items) {
+        if (!this.remote.projectConnected(q.projectId)) continue;
         if (owner !== this.owner() || this.stopped) return;
         if (q.closedAt) inbox.dialogues = inbox.dialogues?.filter(item => item.questionId !== q.id);
         const self = q.recipients.find(recipient => recipient.username === profile.username);
@@ -363,6 +394,7 @@ export class Questions {
         for (const id of ids) { const session = this.store.sessions.find(s => s.id === id && s.binding && accountIdentity(s.binding) === owner && s.binding.project.id === q.projectId); if (session && !session.closedAt) await this.reference(session, q); }
       }
       for (const job of inbox.jobs) {
+        if (!this.remote.projectConnected(job.projectId)) continue;
         if (owner !== this.owner() || this.stopped) return;
         const q = inbox.items.find(q => q.id === job.questionId);
         if (!q || q.closedAt) { if (!['sent', 'error', 'tracked'].includes(job.phase)) job.phase = 'closed'; continue; }
@@ -374,8 +406,8 @@ export class Questions {
           const own = q.recipients.find(r => r.username === profile.username);
           if (own?.state !== 'running' || own.runId !== job.runId) job.released = true;
           else await this.request(job.projectId, { kind: 'fail', id: job.questionId, runId: job.runId }).then(() => { job.released = true; }).catch(() => {});
-        } else if (job.phase === 'queued' && !this.active.has(job.sessionId)) {
-          const s = this.store.sessions.find(s => s.id === job.sessionId && s.binding && accountIdentity(s.binding) === owner);
+        } else if (job.phase === 'queued' && !this.active.has(job.sessionId) && !this.movingSessions.size) {
+          const s = this.store.sessions.find(s => s.id === job.sessionId && s.binding?.project.id === job.projectId && accountIdentity(s.binding) === owner);
           if (!s || s.closedAt) { job.phase = 'error'; job.error = '关联 Session 已关闭，请选择其他 Session'; continue; }
           if (job.mode === 'auto' && (this.autoRunning || inbox.jobs.some(other => other !== job && other.mode === 'auto' && other.phase === 'running'))) continue;
           if (['running', 'starting', 'approval'].includes(s.status) || inbox.jobs.some(other => other !== job && other.sessionId === s.id && other.phase === 'running')) continue;
@@ -394,9 +426,9 @@ export class Questions {
     try { return await this.hooks.steer(sessionId, text, notice, runId); } catch { return false; }
   }
   private async queueContinuation(inbox: SavedInbox, q: TeamQuestion, username: string) {
-    if (q.closedAt) return;
+    if (q.closedAt || this.movingSessions.size) return;
     const known = new Set(inbox.jobs.filter(job => job.questionId === q.id).flatMap(job => [job.sourceId, ...(job.covered || [])]).filter((id): id is string => !!id));
-    const open = (sessionId?: string) => !!sessionId && this.store.sessions.some(session => session.id === sessionId && !session.closedAt && session.binding && accountIdentity(session.binding) === this.owner());
+    const open = (sessionId?: string) => !!sessionId && !this.movingSessions.has(sessionId) && this.store.sessions.some(session => session.id === sessionId && !session.closedAt && session.binding?.project.id === q.projectId && accountIdentity(session.binding) === this.owner());
     if (q.author === username) {
       for (const dialogue of inbox.dialogues || []) {
         if (dialogue.questionId !== q.id || dialogue.suggested || !open(dialogue.sessionId)) continue;
@@ -429,6 +461,8 @@ export class Questions {
   private async start(job: QuestionJob, q: TeamQuestion, owner: string) {
     try {
       if (job.mode === 'import') { job.phase = 'closed'; job.error = '请将回复填入对话框，确认后发送'; await this.save(); this.hooks.changed(); return; }
+      if (this.movingSessions.has(job.sessionId)) return;
+      this.assertWorkSession(job.sessionId, job.projectId);
       const incoming = job.mode === 'auto' || job.mode === 'ingest';
       if (job.mode === 'fill') {
         if (owner !== this.owner() || this.stopped) return;
@@ -471,7 +505,7 @@ export class Questions {
     let lastUser = session.messages.length - 1;
     while (lastUser >= 0 && (session.messages[lastUser].role !== 'user' || session.messages[lastUser].steering)) lastUser--;
     const runId = session.messages[lastUser]?.context?.questionRunId;
-    const job = inbox.jobs.find(j => j.sessionId === session.id && j.runId === runId && j.phase === 'running');
+    const job = inbox.jobs.find(j => j.sessionId === session.id && j.projectId === session.binding?.project.id && j.runId === runId && j.phase === 'running');
     const answer = session.messages.slice(lastUser + 1).filter(m => m.role === 'assistant' && !m.kind).at(-1)?.text.trim();
     const failed = session.closedAt || session.error || session.stoppedAt;
     if (!job) {

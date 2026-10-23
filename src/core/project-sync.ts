@@ -9,7 +9,7 @@ import { applyConflictText, applyConflictVersion, canonicalSync, mergeSyncValue,
 import { conflictToken, type SyncConflicts } from './sync-conflicts';
 
 interface Entry { project: Project; pendingCreate?: boolean; creation?: { brief?: ProjectBrief }; localOnly?: boolean; brief?: ProjectBrief; base?: ProjectBrief; revision: number; centralRevision: number; error?: string; conflict?: SyncConflict }
-interface Host { owner?(): string; projects(): Project[]; binding(id: string): RemoteBinding; connected(): boolean; create(name: string, group: string | undefined, brief: ProjectBrief | undefined, id: string): Promise<Project>; read(binding: RemoteBinding): Promise<ProjectBriefState>; save(binding: RemoteBinding, brief: ProjectBrief, revision: number): Promise<unknown>; changed(): void }
+interface Host { owner?(): string; projects(): Project[]; binding(id: string): RemoteBinding; connected(): boolean; projectConnected?(id: string): boolean; create(name: string, group: string | undefined, brief: ProjectBrief | undefined, id: string): Promise<Project>; read(binding: RemoteBinding): Promise<ProjectBriefState>; save(binding: RemoteBinding, brief: ProjectBrief, revision: number): Promise<unknown>; changed(): void }
 
 export class ProjectSync {
   private accounts: Record<string, Record<string, Entry>> = {};
@@ -60,7 +60,7 @@ export class ProjectSync {
   sync(): Promise<void> {
     if (this.running) return this.running;
     if (this.closed || !this.host.connected()) return Promise.resolve();
-    return this.running = this.flush().catch(error => { for (const entry of Object.values(this.entries)) if (!entry.localOnly) entry.error = error instanceof Error ? error.message : '同步暂不可用'; this.host.changed(); }).finally(() => { this.running = undefined; });
+    return this.running = this.flush().catch(error => { for (const entry of Object.values(this.entries)) if (!entry.localOnly && this.host.projectConnected?.(entry.project.id) !== false) entry.error = error instanceof Error ? error.message : '同步暂不可用'; this.host.changed(); }).finally(() => { this.running = undefined; });
   }
   private async flush() {
     await this.init(); await this.conflicts.init();
@@ -69,17 +69,19 @@ export class ProjectSync {
     for (const project of this.projects()) {
       if (this.closed || !this.host.connected() || owner !== this.owner()) break;
       const entry = entries[project.id] ||= { project, revision: 0, centralRevision: 0 };
-      if (entry.localOnly) continue;
+      if (entry.localOnly || this.host.projectConnected?.(project.id) === false) continue;
       try {
         if (entry.pendingCreate) {
           if (!entry.creation) { entry.creation = { brief: structuredClone(entry.brief) }; await this.persist(); }
           const createdBrief = structuredClone(entry.creation.brief);
           const result = await this.host.create(project.name, project.groupName, createdBrief, project.id); valid();
+          if (this.host.projectConnected?.(project.id) === false) continue;
           if (result.id !== project.id) throw new Error('中央节点需更新项目同步服务，本机项目已保留');
           entry.project = result; entry.base = createdBrief; entry.centralRevision = result.briefRevision || 0; entry.pendingCreate = false; entry.creation = undefined;
           await this.persist();
         }
         const binding = this.host.binding(project.id), remote = await this.host.read(binding); valid();
+        if (this.host.projectConnected?.(project.id) === false) continue;
         const local = structuredClone(entry.brief), merged = mergeSyncValue(entry.base, local, remote.brief);
         if (merged.fields.length) {
           const conflict: SyncConflict = { key: 'project:' + project.id, token: conflictToken(entry.base, local, remote.brief), base: entry.base, local, remote: remote.brief, merged: merged.value, fields: merged.fields };
@@ -99,7 +101,7 @@ export class ProjectSync {
       } catch (error) { entry.error = error instanceof Error ? error.message : '等待恢复连接后自动同步'; }
       finally { await this.persist(); this.host.changed(); }
     }
-    if (owner === this.owner()) this.conflicts.enqueue(Object.values(entries).flatMap(entry => entry.conflict ? [entry.conflict] : []));
+    if (owner === this.owner()) this.conflicts.enqueue(Object.values(entries).flatMap(entry => entry.conflict && this.host.projectConnected?.(entry.project.id) !== false ? [entry.conflict] : []));
   }
   async resolve(id: string, token: string, choice: SyncChoice, fields?: { path: string[]; text: string }[]) {
     const entry = this.entries[id], conflict = entry?.conflict;

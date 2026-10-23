@@ -25,7 +25,7 @@ test('next-turn quotation keeps the stop control and does not become a current-t
   assert.equal(quoted, '> 第一行\n> 第二行\n\n');
   const props = { session: session('s'), text: quoted, activeTurnId: 'turn', busy: false, nextTurnOnly: true, send() {}, stop() {} };
   const running = renderToStaticMarkup(React.createElement(ComposerActions, props));
-  assert.match(running, /等待本轮结束/); assert.match(running, /aria-label="停止当前任务"/);
+  assert.match(running, /aria-label="加入队列"/); assert.match(running, /aria-label="停止当前任务"/);
   assert.doesNotMatch(running, /引导当前任务/);
   const finished = renderToStaticMarkup(React.createElement(ComposerActions, { ...props, session: { ...props.session, status: 'idle' } }));
   assert.match(finished, /aria-label="发送任务"/); assert.doesNotMatch(finished, /disabled=/);
@@ -38,7 +38,7 @@ test('child chat keeps management actions folded, presents inherited context fol
   assert.match(html, /aria-label="修改会话名称：child"/);
   assert.match(html, /共用工作目录/); assert.match(html, /继续问/);
   assert.match(html, /<details class="inherited-conversation">/);
-  assert.match(html, /<button class="primary" disabled="">发送/);
+  assert.match(html, /<button class="primary">加入队列/);
 });
 
 test('closed child chats remain readable in history but do not appear as active descendant links', () => {

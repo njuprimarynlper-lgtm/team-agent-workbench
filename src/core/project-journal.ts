@@ -109,7 +109,9 @@ export class ProjectJournal {
       if (s.purpose !== 'work' || !s.binding || s.closedAt) return;
       await this.load();
       const { sources, path: index } = await this.materialize(s);
-      const previous = [...s.messages].reverse().find(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.projectJournal?.projectKey === key(s))?.context?.projectJournal;
+      const latestMessage = [...s.messages].reverse().find(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.projectJournal);
+      const latest = latestMessage?.context?.projectJournal;
+      const previous = latest?.projectKey === key(s) && (!s.projectMigration || latestMessage!.createdAt >= s.projectMigration.at) ? latest : undefined;
       const receipt: JournalReceipt = { projectKey: key(s), sessions: Object.fromEntries(sources.map(source => [source.id, { fingerprint: source.fingerprint, turnIds: source.entries.map(e => e.turnId) }])) };
       const removed = Object.keys(previous?.sessions || {}).filter(id => !receipt.sessions[id]);
       const changed = sources.filter(source => previous?.sessions[source.id]?.fingerprint !== source.fingerprint);
@@ -119,7 +121,9 @@ export class ProjectJournal {
         const expired = known?.turnIds.filter(id => !source.entries.some(e => e.turnId === id)) || [];
         return this.block(source, source.entries.filter(e => !known?.turnIds.includes(e.turnId))) + (expired.length ? '\n淘汰旧日志条目：' + expired.join('、') : '');
       });
-      return { receipt, text: `${projectJournalPrefix(previous ? '增量更新' : '首次全量')}${index}\n${removed.map(id => '移除会话及其日志：' + id).join('\n')}\n${blocks.join('\n\n')}` };
+      const project = `当前所属项目：${line(s.binding.project.name)}（${s.binding.project.id}）。`;
+      const migrated = !previous && (s.projectMigration || latest && latest.projectKey !== key(s)) ? '会话已迁移到此项目。历史中的原项目要求、任务分配和提问仅作历史参考；后续工作以当前项目资料和用户本轮要求为准。\n' : '';
+      return { receipt, text: `${projectJournalPrefix(previous ? '增量更新' : '首次全量')}${index}\n${project}\n${migrated}${removed.map(id => '移除会话及其日志：' + id).join('\n')}\n${blocks.join('\n\n')}` };
     });
   }
   remove(s: AgentSession) {

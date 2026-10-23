@@ -38,6 +38,7 @@ test('local account automatically discovers assigned groups, tolerates no member
     assert.equal(member.remote.workspaces.find(w => w.groupName === 'local_ocr')!.canCreateProject, true);
     assert.equal(member.remote.workspaces.find(w => w.groupName === 'local_nlp')!.canCreateProject, false);
     await assert.rejects(syncedProject(member, '越权', 'local_nlp'), /组管理员/);
+    await member.connectProject(ocr.id);
     const session = await member.createSession('codex', root, ocr.id), before = structuredClone(session.binding!);
     const own = await syncedProject(member, '新增项目', 'local_ocr'); assert.equal(own.groupName, 'local_ocr');
     await admin.operation({ op: 'group_member', username: 'test1', group: 'local_ocr', role: 'remove' });
@@ -45,7 +46,8 @@ test('local account automatically discovers assigned groups, tolerates no member
     await member.refreshGroups();
     assert.deepEqual(member.remote.workspaces.map(w => w.groupName), ['local_nlp']);
     assert.deepEqual(member.remote.profile!.projects.map(p => p.id), [nlp.id]); assert.deepEqual(session.binding, before);
-    await assert.rejects(member.remote.list(before, ocr.remoteRoot), /项目入口配置已改变/);
+    assert.equal(member.projectConnected(ocr.id), false);
+    await assert.rejects(member.remote.list(before, ocr.remoteRoot), /此项目尚未连接/);
     await fs.rename(path.join(share, 'projects', 'nlp'), path.join(share, 'projects', 'nlp-missing'));
     await member.refreshGroups();
     assert.equal(member.remote.workspaces.length, 1); assert(member.remote.workspaces[0].accessError); assert.equal(member.remote.profile!.projects.length, 0);

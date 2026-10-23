@@ -34,7 +34,7 @@ async function fixture() {
     await wb.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, name), '123', root, async () => false); return wb;
   };
   const alice = await connect('alice'), bob = await connect('bob');
-  const first = await syncedProject(alice, '优化项目', groups[0], brief), second = await syncedProject(alice, '优化项目', groups[1], brief); await bob.refreshGroups();
+  const first = await syncedProject(alice, '优化项目', groups[0], brief), second = await syncedProject(alice, '优化项目', groups[1], brief); await bob.refreshGroups(); await bob.connectProject(first.id); await bob.connectProject(second.id);
   return { root, admin, alice, bob, first, second, close: async () => { await alice.close(); await bob.close(); admin.disconnect(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-submission-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); } };
 }
 async function completed(task: Transfer) {
@@ -221,7 +221,7 @@ test('queue captures origin and destination before async hashing; later caller m
     const store = new Store(root); await store.init();
     const binding: RemoteBinding = { connectionId: 'c', host: 'local', port: 22, fingerprint: 'SHA256:fixture', username: 'alice', project: { id: 'p1', name: '原项目', groupName: 'g1', groupLabel: '原工作组', remoteRoot: '/p1', uploadPath: '/p1/submissions/alice', historyPath: '/p1/trajectories/alice' } };
     const metadata = { kind: 'contribution' as const, title: '原成果', description: '原正文', submission: submissionRecord(binding, [{ kind: 'personal_result', id: randomUUID(), title: '原个人成果', version: 2, projectId: 'p1' }]) };
-    const remote = {
+    const remote = { projectConnected: () => true,
       loadManifest: async () => [], channel: () => ({}), ensurePersonalFolder: async () => {},
       upload: async (received: RemoteBinding, _file: string, target: string, progress: (bytes: number, total: number) => void, meta: typeof metadata, sha256: string) => {
         assert.equal(received.project.id, 'p1'); assert.equal(received.project.name, '原项目');

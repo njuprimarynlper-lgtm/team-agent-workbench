@@ -20,7 +20,7 @@ async function setup() {
   await admin.connect({ mode: 'local', localRoot: shared, host: 'local', port: 22, username: '', fingerprint: '', root: '/srv/teamspace' }, '', '', async () => false);
   await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'team' });
   for (const username of ['alice', 'bob', 'carol']) await admin.operation({ op: 'user_create', username, name: username, password: '1', groups: ['local_team'], contentAdminGroups: username === 'alice' ? ['local_team'] : [] });
-  const client = async (username: string) => { const wb = new Workbench(path.join(root, username), () => {}, () => {}); clients.push(wb); await wb.store.init(); await wb.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username), '1', root, async () => false); return wb; };
+  const client = async (username: string) => { const wb = new Workbench(path.join(root, username), () => {}, () => {}); clients.push(wb); await wb.store.init(); await wb.configureWorkspace(memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username), '1', root, async () => false); for (const project of wb.remote.profile!.projects) await wb.connectProject(project.id); return wb; };
   const alice = await client('alice'), project = await syncedProject(alice, '附件任务', 'local_team'), bob = await client('bob'), carol = await client('carol');
   return { root, shared, admin, alice, bob, carol, project, close: async () => { for (const wb of clients) await wb.close(); admin.disconnect(); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } };
 }
