@@ -14,7 +14,7 @@ export function questionFileNote(files?: QuestionFile[]) {
   return files?.length ? `\n附件：${files.map(file => file.name).join('、')}` : '';
 }
 export function visibleImportedReply(introduced: boolean, title: string, name: string, body: string, files?: QuestionFile[]) {
-  return `${introduced ? '' : `问题：${title}\n`}回复人：${name}\n${body}${questionFileNote(files)}`;
+  return `${introduced ? '' : `求助：${title}\n`}回复人：${name}\n${body}${questionFileNote(files)}`;
 }
 export interface QuestionAnswer { id: string; body: string; createdAt: string; files?: QuestionFile[] }
 export interface QuestionFollowUp { id: string; body: string; createdAt: string; target?: string; files?: QuestionFile[] }
@@ -29,7 +29,7 @@ export interface TeamQuestion {
 }
 const uuid = z.string().uuid();
 export const questionCommandSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('create'), id: uuid, sessionId: uuid, title: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(12000), context: z.string().max(24000).default(''), files: questionFilesSchema.optional(), recipients: z.array(z.string().min(1).max(160)).min(1).max(50).refine(a => new Set(a).size === a.length) }),
+  z.object({ kind: z.literal('create'), id: uuid, sessionId: uuid, title: z.string().trim().min(1).max(200), body: z.string().trim().max(12000).default(''), context: z.string().max(24000).default(''), files: questionFilesSchema.optional(), recipients: z.array(z.string().min(1).max(160)).min(1).max(50).refine(a => new Set(a).size === a.length) }),
   z.object({ kind: z.literal('link'), id: uuid, sessionId: uuid }),
   z.object({ kind: z.literal('run'), id: uuid, sessionId: uuid, runId: uuid }),
   z.object({ kind: z.literal('reply'), id: uuid, runId: uuid, body: z.string().trim().min(1).max(48000), files: questionFilesSchema.optional() }),
@@ -54,7 +54,7 @@ export function changeQuestion(items: TeamQuestion[], projectId: string, actor: 
   const command = questionCommandSchema.parse(raw), existing = items.find(q => q.id === command.id);
   if (command.kind === 'create') {
     if (existing) {
-      if (existing.author !== actor.username || existing.sessionId !== command.sessionId || existing.title !== command.title || existing.body !== command.body || existing.context !== command.context || JSON.stringify(existing.files || []) !== JSON.stringify(command.files || []) || JSON.stringify(existing.recipients.map(r => r.username)) !== JSON.stringify(command.recipients)) throw new Error('问题编号已使用');
+      if (existing.author !== actor.username || existing.sessionId !== command.sessionId || existing.title !== command.title || existing.body !== command.body || existing.context !== command.context || JSON.stringify(existing.files || []) !== JSON.stringify(command.files || []) || JSON.stringify(existing.recipients.map(r => r.username)) !== JSON.stringify(command.recipients)) throw new Error('求助编号已使用');
       return existing;
     }
     const recipients = command.recipients.map(username => {
@@ -67,18 +67,18 @@ export function changeQuestion(items: TeamQuestion[], projectId: string, actor: 
     if (!question.files?.length) delete question.files;
     items.push(question); return question;
   }
-  if (!existing || !questionView(existing, actor.username)) throw new Error('问题不存在或无权访问');
+  if (!existing || !questionView(existing, actor.username)) throw new Error('求助不存在或无权访问');
   if (command.kind === 'close' || command.kind === 'follow' || command.kind === 'suggest' || command.kind === 'resume') {
     const named = (username: string) => existing.recipients.find(recipient => recipient.username === username);
     if (command.kind === 'close') {
       const recipient = named(actor.username);
       const inDialogue = !!recipient && (!!recipient.sessionId || recipient.answers.length > 0 || recipient.state !== 'pending');
-      if (existing.author !== actor.username && !inDialogue) throw new Error('只有发问人或已参与对话的回答者可以结束提问');
+      if (existing.author !== actor.username && !inDialogue) throw new Error('只有求助人或已参与对话的回答者可以结束求助');
       if (existing.closedAt) return existing;
       existing.closedAt = at;
     } else if (command.kind === 'follow') {
-      if (existing.author !== actor.username) throw new Error('只有发问人可以继续同一问题');
-      if (existing.closedAt) throw new Error('问题已关闭，不能继续补充');
+      if (existing.author !== actor.username) throw new Error('只有求助人可以继续同一求助');
+      if (existing.closedAt) throw new Error('求助已关闭，不能继续补充');
       if (command.target && !named(command.target)) throw new Error('后续信息的接收人不存在');
       const follows = existing.followUps ||= [];
       const prior = follows.find(item => item.id === command.followId);
@@ -88,15 +88,15 @@ export function changeQuestion(items: TeamQuestion[], projectId: string, actor: 
     } else if (command.kind === 'suggest') {
       const recipient = named(command.username);
       if (!recipient) throw new Error('对话成员不存在');
-      if (existing.author !== actor.username && actor.username !== command.username) throw new Error('只有发问人或这位回答者可以建议结束');
-      if (existing.closedAt) throw new Error('问题已关闭');
+      if (existing.author !== actor.username && actor.username !== command.username) throw new Error('只有求助人或这位回答者可以建议结束');
+      if (existing.closedAt) throw new Error('求助已关闭');
       if (recipient.endSuggestedAt) return existing;
       recipient.endSuggestedAt = at;
     } else {
-      if (existing.author !== actor.username) throw new Error('只有发问人可以继续自动对话');
+      if (existing.author !== actor.username) throw new Error('只有求助人可以继续自动对话');
       const recipient = named(command.username);
       if (!recipient) throw new Error('对话成员不存在');
-      if (existing.closedAt) throw new Error('问题已关闭');
+      if (existing.closedAt) throw new Error('求助已关闭');
       if (!recipient.endSuggestedAt) return existing;
       delete recipient.endSuggestedAt;
     }
@@ -105,20 +105,20 @@ export function changeQuestion(items: TeamQuestion[], projectId: string, actor: 
     if (!recipient) throw new Error('只有指定接收人可以回答');
     if (command.kind === 'answer') { const prior = recipient.answers.find(a => a.id === command.answerId); if (prior) { if (prior.body !== command.body || JSON.stringify(prior.files || []) !== JSON.stringify(command.files || [])) throw new Error('答复编号已使用'); return existing; } }
     if (command.kind === 'reply') { const prior = recipient.answers.find(a => a.id === command.runId); if (prior) { if (prior.body !== command.body || JSON.stringify(prior.files || []) !== JSON.stringify(command.files || [])) throw new Error('答复编号已使用'); return existing; } }
-    if (existing.closedAt) throw new Error('问题已关闭，答案保留在自己的 Session 中，不再回传');
+    if (existing.closedAt) throw new Error('求助已关闭，答案保留在自己的 Session 中，不再回传');
     if (command.kind === 'answer') {
       recipient.answers.push({ id: command.answerId, body: command.body, createdAt: at, ...(command.files?.length ? { files: command.files } : {}) });
       delete recipient.endSuggestedAt;
       if (recipient.state !== 'running') recipient.state = 'replied';
     } else if (command.kind === 'link') {
-      if (recipient.state === 'running') throw new Error('此问题正在回答，不能更换关联');
+      if (recipient.state === 'running') throw new Error('此求助正在回答，不能更换关联');
       if (recipient.sessionId === command.sessionId && !recipient.endSuggestedAt) return existing;
       delete recipient.endSuggestedAt;
       recipient.sessionId = command.sessionId; recipient.state = 'linked';
     } else if (command.kind === 'run') {
       if (recipient.sessionId !== command.sessionId) throw new Error('Session 关联已改变');
       if (recipient.runId === command.runId) return existing;
-      if (recipient.state === 'running') throw new Error('此问题已在其他窗口回答中');
+      if (recipient.state === 'running') throw new Error('此求助已在其他窗口回答中');
       recipient.runId = command.runId; recipient.state = 'running';
     } else {
       if (recipient.runId !== command.runId) throw new Error('答复不属于当前回答轮次');

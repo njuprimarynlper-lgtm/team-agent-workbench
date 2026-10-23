@@ -22,6 +22,8 @@ const fillFollowTail = '」的追问。只输出追问正文，不要解释，�
 const autoDialogueLead = '[自动对话]\n这个 Session 只和团队成员「';
 const previousAutoDialogueTail = '」自动对话，不能加入其他人的回答。请只根据下面这条回复决定下一步，并在回复第一行单独写一个标记：还要向对方提问时写 [[继续提问]]，从第二行写要发给对方的内容；认为提问可以结束时写 [[建议结束]]，后面可以写给当前用户看的简短说明。结束标记只停止自动对话，不会直接关闭提问。不要提及其他成员，也不要覆盖当前会话已有约定。\n\n';
 const autoDialogueTail = '」自动对话，不能加入其他人的回答。把要发给对方的内容写成这轮的最终回复；没有结束字段时，工作台会把这整段回复填入并发送。只有认为提问可以结束时，在回复里单独一行只写 [[建议结束]]。工作台会检索这一固定字段：检索到就停止自动对话，不把这段回复发给对方，也不直接关闭提问。不要提及其他成员，也不要覆盖当前会话已有约定。\n\n';
+// Keep the frozen wording above recognizable in existing conversations.
+const helpWording = (text: string) => text.replaceAll('提问', '求助');
 const memberNotices = [
   { lead: fillFollowLead, tail: fillFollowTail },
   { lead: autoDialogueLead, tail: autoDialogueTail },
@@ -31,30 +33,30 @@ const memberNotices = [
   { lead: incomingFollowLead, tail: incomingFollowTail },
   { lead: incomingFollowLead, tail: previousIncomingFollowTail },
   { lead: incomingReplyLead, tail: incomingReplyTail },
-];
+].flatMap(notice => [notice, { lead: helpWording(notice.lead), tail: helpWording(notice.tail) }]);
 
 function memberLabel(name: string) {
   return name.replace(/[\r\n」]/g, ' ').trim().slice(0, 80) || '其他成员';
 }
 
 export function incomingQuestionNotice(authorName: string) {
-  return incomingQuestionLead + memberLabel(authorName) + incomingQuestionTail;
+  return helpWording(incomingQuestionLead) + memberLabel(authorName) + helpWording(incomingQuestionTail);
 }
 
 export function incomingFollowNotice(authorName: string) {
-  return incomingFollowLead + memberLabel(authorName) + incomingFollowTail;
+  return helpWording(incomingFollowLead) + memberLabel(authorName) + helpWording(incomingFollowTail);
 }
 
 export function incomingReplyNotice(authorName: string) {
-  return incomingReplyLead + memberLabel(authorName) + incomingReplyTail;
+  return helpWording(incomingReplyLead) + memberLabel(authorName) + helpWording(incomingReplyTail);
 }
 
 export function autoDialogueNotice(peerName: string) {
-  return autoDialogueLead + memberLabel(peerName) + autoDialogueTail;
+  return helpWording(autoDialogueLead) + memberLabel(peerName) + helpWording(autoDialogueTail);
 }
 
 export function fillFollowNotice(peerName: string) {
-  return fillFollowLead + memberLabel(peerName) + fillFollowTail;
+  return helpWording(fillFollowLead) + memberLabel(peerName) + helpWording(fillFollowTail);
 }
 
 export function withoutQuestionFillTurns<T extends { role: string; steering?: boolean; context?: { questionFill?: boolean } }>(messages: T[]) {
@@ -84,7 +86,8 @@ export function withoutIncomingQuestionNotice(text: string) {
 }
 
 export const questionEndField = '[[建议结束]]';
-export const questionContinueField = '[[继续提问]]';
+export const questionContinueField = '[[继续求助]]';
+const legacyQuestionContinueField = '[[继续提问]]';
 
 export function questionSuggestsEnd(text: string) {
   return text.split(/\r?\n/).some(line => line.trim() === questionEndField);
@@ -93,7 +96,7 @@ export function questionSuggestsEnd(text: string) {
 export function withoutQuestionFields(text: string) {
   return text.split(/\r?\n/).filter(line => {
     const trimmed = line.trim();
-    return trimmed !== questionEndField && trimmed !== questionContinueField;
+    return trimmed !== questionEndField && trimmed !== questionContinueField && trimmed !== legacyQuestionContinueField;
   }).join('\n').trim();
 }
 
@@ -104,13 +107,13 @@ export function sessionQuestionDraft(session: Pick<AgentSession, 'messages' | 's
 }
 
 export function withoutQuestionControl(text: string) {
-  return text.replace(/^\[\[(?:继续提问|建议结束)\]\][ \t]*(?:\r?\n)?/, '');
+  return text.replace(/^\[\[(?:继续求助|继续提问|建议结束)\]\][ \t]*(?:\r?\n)?/, '');
 }
 
 export function questionControl(text: string): { kind: 'continue' | 'end' | 'none'; body: string } {
   const body = withoutQuestionFields(text);
   if (questionSuggestsEnd(text)) return { kind: 'end', body };
-  if (text.split(/\r?\n/)[0]?.trim() === questionContinueField) return { kind: 'continue', body };
+  if ([questionContinueField, legacyQuestionContinueField].includes(text.split(/\r?\n/)[0]?.trim())) return { kind: 'continue', body };
   return { kind: 'none', body: text.trim() };
 }
 

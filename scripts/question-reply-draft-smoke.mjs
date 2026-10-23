@@ -52,7 +52,7 @@ try {
   page.on('pageerror', e => errors.push(e.message));
   page.on('request', request => { if (/^https?:/.test(request.url())) network.push(request.url()); });
   await page.locator(`[data-session-id="${data.session.id}"]`).click();
-  await page.getByRole('button', { name: '提问', exact: true }).click();
+  await page.getByRole('button', { name: '寻求帮助', exact: true }).click();
   await page.locator('.team-question-card').filter({ hasText: data.question.title }).click();
   const fill = page.getByRole('button', { name: '填入对话框', exact: true });
   const input = page.getByLabel('任务输入', { exact: true });

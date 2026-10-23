@@ -46,10 +46,10 @@ try {
   app = await _electron.launch({ executablePath: require('electron'), args: [path.join(out, 'main.cjs')], env, timeout: 20000 });
   const page = await app.firstWindow(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  const composer = page.getByRole('region', { name: '发起提问' });
-  const title = composer.getByLabel('问题标题', { exact: true }), body = composer.getByLabel('问题内容', { exact: true });
+  const composer = page.getByRole('region', { name: '发起求助' });
+  const title = composer.getByLabel('求助标题', { exact: true }), body = composer.getByLabel('求助内容（选填）', { exact: true });
   const context = composer.getByLabel('补充资料（选填）', { exact: true });
-  const send = composer.getByRole('button', { name: /^发送提问/ });
+  const send = composer.getByRole('button', { name: /^发送求助/ });
   const selectBob = async () => {
     await composer.getByRole('button', { name: '选择成员', exact: true }).click();
     await composer.getByLabel('搜索成员').fill('bob');
@@ -63,6 +63,7 @@ try {
   await selectBob(); await body.fill('请确认这轮使用哪个样本版本？');
   await expect(title).toHaveValue(''); await expect(send).toBeDisabled();
   await title.fill('样本版本确认'); await expect(send).toBeEnabled();
+  await body.fill(' \n '); await expect(send).toBeEnabled();
   await composer.getByRole('button', { name: '添加附件' }).click();
   await expect(composer.locator('.team-question-file-chip')).toHaveCount(0);
   await page.screenshot({ path: path.join(out, 'compact.png') });
@@ -70,6 +71,8 @@ try {
   let created = await page.evaluate(() => window.calls.filter(item => item.action === 'question.create'));
   assert.equal(created.length, 1); assert.equal(created[0].payload.question.context, '');
   assert.equal(created[0].payload.question.title, '样本版本确认');
+  assert.equal(created[0].payload.question.body, '');
+  await body.fill('请确认这轮使用哪个样本版本？');
   await page.evaluate(() => window.setAi(true));
   await composer.getByRole('button', { name: '填入 AI 建议' }).click();
   await expect(body).toHaveValue('请确认这轮使用哪个样本版本？\n\n请确认样本版本。');
@@ -93,5 +96,5 @@ try {
   assert.deepEqual(created[2].payload.question.fileIds, ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb']);
   await composer.getByRole('button', { name: '移除接收人 bob' }).click(); await expect(send).toBeDisabled();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, output: out, cases: ['manual title required', 'optional context hidden by default and empty submission succeeds', 'search/select/remove recipients', 'cancel attachment selection does nothing', 'AI append and undo preserve user text and title', 'collapsed supplementary text is submitted', 'failed send keeps inputs and retry identity'] }));
+  console.log(JSON.stringify({ passed: true, output: out, cases: ['manual title required', 'title-only request with optional content succeeds', 'optional context hidden by default and empty submission succeeds', 'search/select/remove recipients', 'cancel attachment selection does nothing', 'AI append and undo preserve user text and title', 'collapsed supplementary text is submitted', 'failed send keeps inputs and retry identity'] }));
 } finally { await app?.close(); }

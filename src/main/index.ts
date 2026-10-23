@@ -683,8 +683,8 @@ async function createDataContext(root: string, personal = false): Promise<DataCo
   let emitTimer: NodeJS.Timeout | undefined;
   const broadcast = () => { egress?.sharedServerConnectionChanged(personal ? !!personalRelay?.workbench.remote.connected : !!workbench?.remote.connected); if (!personal) personalContext?.egress.sharedServerConnectionChanged(!!personalRelay?.workbench.remote.connected); if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) syncTaskbar(window, context.workbench); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message });
-    if (/^(收到提问|收到问题答复|问题已关闭)：/.test(message) && Notification.isSupported()) {
-      const notification = new Notification({ title: '团队工作台 · 提问', body: message });
+    if (/^(收到求助|收到求助答复|求助已关闭|收到提问|收到问题答复|问题已关闭)：/.test(message) && Notification.isSupported()) {
+      const notification = new Notification({ title: '团队工作台 · 寻求帮助', body: message });
       notification.on('click', () => { for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed()) { window.show(); window.focus(); window.webContents.send('workbench:event', { type: 'questions' }); break; } });
       notification.show();
     } if (message.startsWith('待授权：')) for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };

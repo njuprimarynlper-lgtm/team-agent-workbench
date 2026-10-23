@@ -192,8 +192,8 @@ export class Questions {
     const inbox = this.inbox(), profile = this.hooks.profile();
     if (!inbox || !profile) throw new Error('请先连接中央节点');
     const question = inbox.items.find(item => item.id === id && item.projectId === projectId);
-    if (!question || question.author !== profile.username) throw new Error('只有发问人可以引入回复');
-    if (question.closedAt) throw new Error('问题已关闭');
+    if (!question || question.author !== profile.username) throw new Error('只有求助人可以引入回复');
+    if (question.closedAt) throw new Error('求助已关闭');
     const recipient = question.recipients.find(item => item.answers.some(answer => answer.id === answerId));
     if (!recipient) throw new Error('要引入的回复不存在');
     this.assertWorkSession(sessionId, projectId, false);
@@ -208,20 +208,20 @@ export class Questions {
     const inbox = this.inbox(), profile = this.hooks.profile();
     if (!inbox || !profile) throw new Error('请先连接中央节点');
     const question = inbox.items.find(item => item.id === id && item.projectId === projectId);
-    if (!question) throw new Error('问题不存在');
+    if (!question) throw new Error('求助不存在');
     if (question.author !== profile.username) {
-      if (peer !== question.author || !question.recipients.some(r => r.username === profile.username)) throw new Error('只能与这条问题的发问人自动对话');
+      if (peer !== question.author || !question.recipients.some(r => r.username === profile.username)) throw new Error('只能与这条求助的求助人自动对话');
       this.assertWorkSession(sessionId, projectId);
       const locked = inbox.dialogues?.some(d => d.sessionId === sessionId) || inbox.items.some(q => q.author !== question.author && !q.closedAt && inbox.replyModes?.[q.id] === 'auto' && q.recipients.some(r => r.sessionId === sessionId));
       if (locked) throw new Error('这个 Session 已在进行另一条自动对话');
       return this.link(projectId, id, sessionId);
     }
-    if (question.closedAt) throw new Error('问题已关闭');
+    if (question.closedAt) throw new Error('求助已关闭');
     const recipient = question.recipients.find(item => item.username === peer);
     if (!recipient?.answers.length) throw new Error('对方第一次回答后才能开始自动对话');
     this.assertWorkSession(sessionId, projectId);
     const dialogues = inbox.dialogues ||= [];
-    if (inbox.items.some(q => !q.closedAt && inbox.replyModes?.[q.id] === 'auto' && q.recipients.some(r => r.sessionId === sessionId))) throw new Error('这个 Session 已经在回答其他成员的提问');
+    if (inbox.items.some(q => !q.closedAt && inbox.replyModes?.[q.id] === 'auto' && q.recipients.some(r => r.sessionId === sessionId))) throw new Error('这个 Session 已经在回答其他成员的求助');
     if (dialogues.some(item => item.sessionId === sessionId && !(item.questionId === id && item.peer === peer))) throw new Error('这个 Session 已经在和另一个人自动对话');
     const existing = dialogues.find(item => item.questionId === id && item.peer === peer);
     if (existing) { existing.sessionId = sessionId; existing.suggested = false; }
@@ -234,16 +234,16 @@ export class Questions {
     const inbox = this.inbox(), profile = this.hooks.profile();
     if (!inbox || !profile) throw new Error('请先连接中央节点');
     const question = inbox.items.find(item => item.id === id && item.projectId === projectId);
-    if (!question || question.author !== profile.username) throw new Error('只有发问人可以起草继续提问');
-    if (question.closedAt) throw new Error('问题已关闭');
+    if (!question || question.author !== profile.username) throw new Error('只有求助人可以起草继续求助');
+    if (question.closedAt) throw new Error('求助已关闭');
     const recipient = question.recipients.find(item => item.username === peer);
     if (!recipient) throw new Error('对话成员不存在');
     const session = this.hooks.session(question.sessionId);
-    if (session.cursorNative) throw new Error('此 Session 暂不能起草继续提问，请换一个工作 Session');
+    if (session.cursorNative) throw new Error('此 Session 暂不能起草继续求助，请换一个工作 Session');
     this.assertWorkSession(question.sessionId, projectId);
     const dialogue = inbox.dialogues?.find(item => item.sessionId === question.sessionId);
     if (dialogue && !dialogue.suggested) throw new Error('这个 Session 正在自动对话，请先停止后再自动填入');
-    if (['running', 'starting', 'approval'].includes(session.status) || inbox.jobs.some(job => job.sessionId === question.sessionId && ['queued', 'running', 'ready'].includes(job.phase))) throw new Error('这条提问的 Session 正在处理，请稍后再自动填入');
+    if (['running', 'starting', 'approval'].includes(session.status) || inbox.jobs.some(job => job.sessionId === question.sessionId && ['queued', 'running', 'ready'].includes(job.phase))) throw new Error('这条求助的 Session 正在处理，请稍后再自动填入');
     inbox.jobs.push({ questionId: id, projectId, sessionId: question.sessionId, runId: randomUUID(), phase: 'queued', mode: 'fill', peer });
     await this.save(); this.hooks.changed(); void this.sync().catch(() => {});
   }
@@ -266,7 +266,7 @@ export class Questions {
     if (s.cursorNative) throw new Error('此 Cursor 桌面接入暂不支持自动回答，请选择其他工作 Session');
     const inbox = this.inbox()!;
     if (inbox.dialogues?.some(d => d.sessionId === sessionId)) throw new Error('这个 Session 已经在进行另一条自动对话');
-    if (inbox.jobs.some(j => j.questionId === id && ['queued', 'running', 'ready'].includes(j.phase))) throw new Error('这条问题正在处理');
+    if (inbox.jobs.some(j => j.questionId === id && ['queued', 'running', 'ready'].includes(j.phase))) throw new Error('这条求助正在处理');
     const q = await this.request(projectId, { kind: 'link', id, sessionId });
     await this.reference(s, q);
     (inbox.replyModes ||= {})[id] = 'auto';
@@ -305,12 +305,12 @@ export class Questions {
     if (!valid()) return;
     const added = await this.ensureReferenceFiles(session, q, valid);
     const follows = (q.followUps || []).map(item => `## 后续 · ${item.createdAt}\n${item.body}${questionFileNote(item.files)}`).join('\n\n');
-    const body = `# 提问：${q.title}\n发问人：${q.authorName}\n状态：${q.closedAt ? '已关闭；不再回传答案' : '开放'}\n\n${q.body}${questionFileNote(q.files)}\n\n${q.context}\n\n${follows}\n\n` + q.recipients.flatMap(r => r.answers.map(a => `## ${r.name} · ${a.createdAt}\n${a.body}${questionFileNote(a.files)}`)).join('\n\n');
+    const body = `# 求助：${q.title}\n求助人：${q.authorName}\n状态：${q.closedAt ? '已关闭；不再回传答案' : '开放'}\n\n${q.body}${questionFileNote(q.files)}\n\n${q.context}\n\n${follows}\n\n` + q.recipients.flatMap(r => r.answers.map(a => `## ${r.name} · ${a.createdAt}\n${a.body}${questionFileNote(a.files)}`)).join('\n\n');
     const sourcePath = 'question:' + q.id, prior = session.sources.find(s => s.sourcePath === sourcePath);
     if (prior && await fs.readFile(prior.localPath, 'utf8').catch(() => '') === body) { if (added) await this.store.save(); return; }
     const folder = path.join(this.store.sessionDir(session.id), 'questions'); await fs.mkdir(folder, { recursive: true });
     const file = path.join(folder, q.id + '-v' + q.revision + '.md'); await fs.writeFile(file, body, 'utf8');
-    const source = await freezeFile(file, path.join(this.store.sessionDir(session.id), 'sources')); source.name = '提问 · ' + q.title; source.sourcePath = sourcePath;
+    const source = await freezeFile(file, path.join(this.store.sessionDir(session.id), 'sources')); source.name = '求助 · ' + q.title; source.sourcePath = sourcePath;
     if (!valid()) return;
     if (prior) { source.id = prior.id; session.sources.splice(session.sources.indexOf(prior), 1, source); } else session.sources.push(source);
     session.autoUpload = false;
@@ -351,12 +351,12 @@ export class Questions {
         }
         if ((inbox.notified[q.id] || 0) < q.activityRevision) {
           const prior = inbox.notified[q.id]; inbox.notified[q.id] = q.activityRevision;
-          if (q.closedAt && prior && inDialogue) this.hooks.notice(`问题已关闭：${q.title}`);
+          if (q.closedAt && prior && inDialogue) this.hooks.notice(`求助已关闭：${q.title}`);
           else if (!q.closedAt && suggested) this.hooks.notice(`自动对话建议结束：${q.title}`);
-          else if (!q.closedAt && (q.author !== profile.username && !prior || q.author === profile.username && q.recipients.some(r => r.answers.length))) this.hooks.notice(q.author === profile.username ? `收到问题答复：${q.title}` : `收到提问：${q.title}`);
+          else if (!q.closedAt && (q.author !== profile.username && !prior || q.author === profile.username && q.recipients.some(r => r.answers.length))) this.hooks.notice(q.author === profile.username ? `收到求助答复：${q.title}` : `收到求助：${q.title}`);
         } else if (suggested) this.hooks.notice(`自动对话建议结束：${q.title}`);
         const seenFollows = inbox.followSeen?.[q.id] || 0, follows = q.followUps?.length || 0;
-        if (q.author !== profile.username && seenFollows > 0 && follows > seenFollows) this.hooks.notice(`问题有后续：${q.title}`);
+        if (q.author !== profile.username && seenFollows > 0 && follows > seenFollows) this.hooks.notice(`求助有后续：${q.title}`);
         (inbox.followSeen ||= {})[q.id] = follows;
         await this.queueContinuation(inbox, q, profile.username);
         const ids = q.author === profile.username ? [q.sessionId, ...(inbox.dialogues || []).filter(item => item.questionId === q.id).map(item => item.sessionId)] : q.recipients.filter(r => r.username === profile.username).flatMap(r => r.sessionId ? [r.sessionId] : []);
@@ -434,10 +434,10 @@ export class Questions {
         if (owner !== this.owner() || this.stopped) return;
         job.phase = 'running'; await this.save(); this.hooks.changed();
         const peer = q.recipients.find(item => item.username === job.peer);
-        const lines = [...(q.followUps || []).filter(item => !item.target || item.target === job.peer).map(item => ({ at: item.createdAt, text: `发问人：${item.body}${questionFileNote(item.files)}` })), ...(peer?.answers || []).map(item => ({ at: item.createdAt, text: `${peer?.name || '对方'}：${item.body}${questionFileNote(item.files)}` }))].sort((a, b) => a.at.localeCompare(b.at));
-        const text = `问题：${q.title}\n${q.body}${questionFileNote(q.files)}${q.context ? `\n\n附带资料：\n${q.context}` : ''}${lines.length ? `\n\n已有往来：\n${lines.map(item => item.text).join('\n\n')}` : ''}`;
+        const lines = [...(q.followUps || []).filter(item => !item.target || item.target === job.peer).map(item => ({ at: item.createdAt, text: `求助人：${item.body}${questionFileNote(item.files)}` })), ...(peer?.answers || []).map(item => ({ at: item.createdAt, text: `${peer?.name || '对方'}：${item.body}${questionFileNote(item.files)}` }))].sort((a, b) => a.at.localeCompare(b.at));
+        const text = `求助：${q.title}\n${q.body}${questionFileNote(q.files)}${q.context ? `\n\n附带资料：\n${q.context}` : ''}${lines.length ? `\n\n已有往来：\n${lines.map(item => item.text).join('\n\n')}` : ''}`;
         const sent = await this.hooks.send(job.sessionId, text, job.runId, fillFollowNotice(peer?.name || job.peer || '对方'), true);
-        if (!sent && job.phase === 'running') throw new Error('没有起草出继续提问，请检查 Session');
+        if (!sent && job.phase === 'running') throw new Error('没有起草出继续求助，请检查 Session');
         return;
       }
       if (!incoming) await this.request(job.projectId, { kind: 'run', id: job.questionId, sessionId: job.sessionId, runId: job.runId });
@@ -454,10 +454,10 @@ export class Questions {
       const followText = follows.map(item => `${item.body}${questionFileNote(item.files)}`).join('\n\n');
       const replyText = replies.map(answer => `回复人：${answer.name}\n${answer.body}${questionFileNote(answer.files)}`).join('\n\n');
       const text = incoming
-        ? `${introduced ? '' : `问题：${q.title}\n`}${replyText}`
+        ? `${introduced ? '' : `求助：${q.title}\n`}${replyText}`
         : introduced && followText
           ? followText
-          : `问题：${q.title}\n${q.body}${questionFileNote(q.files)}\n\n附带资料：\n${q.context}${followText ? `\n\n同一问题的后续信息：\n${followText}` : ''}`;
+          : `求助：${q.title}\n${q.body}${questionFileNote(q.files)}\n\n附带资料：\n${q.context}${followText ? `\n\n同一求助的后续信息：\n${followText}` : ''}`;
       const notice = incoming ? (job.mode === 'auto' ? autoDialogueNotice(replies[0].name) : '') + incomingReplyNotice(replies[0].name) : follows.length && job.sourceId !== 'origin' ? incomingFollowNotice(q.authorName) : incomingQuestionNotice(q.authorName);
       try { job.outputSnapshot = [...(this.hooks.session(job.sessionId).outputFiles || [])]; } catch { job.outputSnapshot = []; }
       const sent = await this.hooks.send(job.sessionId, text, job.runId, notice);
@@ -480,7 +480,7 @@ export class Questions {
     }
     if (job.mode === 'fill') {
       const body = this.fillText(answer || '');
-      if (failed || !body) { job.phase = 'error'; job.error = session.error || '没有起草出继续提问'; }
+      if (failed || !body) { job.phase = 'error'; job.error = session.error || '没有起草出继续求助'; }
       else { job.answer = body; job.phase = 'tracked'; this.rememberFill(inbox, job.questionId, job.peer, body); }
       await this.save(); this.hooks.changed(); void this.sync().catch(() => {}); return;
     }
@@ -512,7 +512,7 @@ export class Questions {
       await this.save(); this.hooks.changed(); void this.sync().catch(() => {}); return;
     }
     const ending = questionSuggestsEnd(answer || '');
-    const body = ending ? (withoutQuestionFields(answer || '') || '我认为这条提问可以结束。') : withoutQuestionFields(answer || '');
+    const body = ending ? (withoutQuestionFields(answer || '') || '我认为这条求助可以结束。') : withoutQuestionFields(answer || '');
     if (failed || !body) { job.phase = 'error'; job.error = session.error || '回答已停止或没有生成答案'; }
     else if (body.length > 48000) { job.phase = 'error'; job.error = '答案过长，请在 Session 中精简后重新回答'; }
     else { job.answer = body; job.phase = 'ready'; try { job.files = await this.captureTurnFiles(session, job); } catch { /* The reply is still delivered when a new file cannot be copied. */ } this.rememberJobFill(inbox, job, answer || ''); if (ending && job.peer) await this.request(job.projectId, { kind: 'suggest', id: job.questionId, username: job.peer }).catch((error: any) => { job.error = error.message; }); }

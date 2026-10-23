@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MessageSquare, Sparkles, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Handshake, Network, MessageCircleQuestion, Sparkles, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import type { RsiInbox, RsiReaction } from '../shared/rsi';
 import type { WorkbenchAPI } from '../shared/types';
 import { useInteractionPanelResize } from './interaction-panel-resize';
@@ -101,16 +101,16 @@ export function ProjectInteractionPanel({ projectName, active, select, close, in
     {active && <button type="button" className="interaction-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-controls="project-interaction-panel" aria-valuemin={resize.limits.min} aria-valuemax={resize.limits.max} aria-valuenow={resize.width} aria-valuetext={`${resize.width} 像素`}
       onPointerDown={resize.begin} onPointerMove={resize.move} onPointerUp={resize.end} onPointerCancel={resize.end} onLostPointerCapture={resize.end} onKeyDown={resize.keyDown}/>}
     {!active && <nav className="interaction-reopen" aria-label="侧栏内容">
-    {team && <><button aria-label="展开 AI推荐" onClick={() => select('recommendations')}><Sparkles size={16}/><span>AI推荐</span></button><button aria-label="展开提问" onClick={() => select('questions')}><MessageSquare size={16}/><span>提问</span></button></>}
-    {subsessions && <button aria-label="展开子会话" onClick={() => select('subsessions')}><MessageSquare size={16}/><span>子会话</span></button>}
-    {sideChats && <button aria-label="展开侧边提问" onClick={() => select('sidechats')}><MessageSquare size={16}/><span>侧边提问</span></button>}
+    {team && <><button aria-label="展开 AI推荐" onClick={() => select('recommendations')}><Sparkles size={16}/><span>AI推荐</span></button><button aria-label="展开寻求帮助" onClick={() => select('questions')}><Handshake size={16}/><span>寻求帮助</span></button></>}
+    {subsessions && <button aria-label="展开子会话" onClick={() => select('subsessions')}><Network size={16}/><span>子会话</span></button>}
+    {sideChats && <button aria-label="展开侧边提问" onClick={() => select('sidechats')}><MessageCircleQuestion size={16}/><span>侧边提问</span></button>}
   </nav>}<aside id="project-interaction-panel" className="project-interaction-panel" aria-label="项目工作区" hidden={!active}>
     <header><span>{projectName}</span></header>
     <div className="project-interaction-tabs" role="tablist" aria-label="项目工作区内容">
       {team && <><button id="project-ai-tab" role="tab" aria-selected={active === 'recommendations'} aria-controls="project-ai-panel" onClick={() => select('recommendations')}><Sparkles size={14}/>AI推荐{pendingRecommendations(inbox) > 0 && <span>{pendingRecommendations(inbox)}</span>}</button>
-      <button id="project-questions-tab" role="tab" aria-selected={active === 'questions'} aria-controls="project-questions-panel" onClick={() => select('questions')}><MessageSquare size={14}/>提问{questionCount > 0 && <span>{questionCount}</span>}</button></>}
-      {subsessions && <button id="project-subsessions-tab" role="tab" aria-selected={active === 'subsessions'} aria-controls="project-subsessions-panel" onClick={() => select('subsessions')}><MessageSquare size={14}/>子会话</button>}
-      {sideChats && <button id="project-sidechats-tab" role="tab" aria-selected={active === 'sidechats'} aria-controls="project-sidechats-panel" onClick={() => select('sidechats')}><MessageSquare size={14}/>侧边提问</button>}
+      <button id="project-questions-tab" role="tab" aria-selected={active === 'questions'} aria-controls="project-questions-panel" onClick={() => select('questions')}><Handshake size={14}/>寻求帮助{questionCount > 0 && <span>{questionCount}</span>}</button></>}
+      {subsessions && <button id="project-subsessions-tab" role="tab" aria-selected={active === 'subsessions'} aria-controls="project-subsessions-panel" onClick={() => select('subsessions')}><Network size={14}/>子会话</button>}
+      {sideChats && <button id="project-sidechats-tab" role="tab" aria-selected={active === 'sidechats'} aria-controls="project-sidechats-panel" onClick={() => select('sidechats')}><MessageCircleQuestion size={14}/>侧边提问</button>}
     </div>
     <div className="project-interaction-pane" id="project-ai-panel" role="tabpanel" aria-labelledby="project-ai-tab" hidden={active !== 'recommendations'}><RsiRecommendations inbox={inbox} error={error} call={call} reload={reload}/></div>
     <div className="project-interaction-pane" id="project-questions-panel" role="tabpanel" aria-labelledby="project-questions-tab" hidden={active !== 'questions'}>{(visitedQuestions || active === 'questions') && questions}</div>

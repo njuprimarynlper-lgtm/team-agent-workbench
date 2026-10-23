@@ -398,7 +398,7 @@ def main(capture_ui=True):
   raise ValueError(f'Handbook structure mismatch: missing={set(article_by_id)-set(PAGE_ORDER)}, extra={set(PAGE_ORDER)-set(article_by_id)}')
  enrich_home(article_by_id['start'])
  add_related(article_by_id['sessions'],'向项目组成员请教与接收答复：',['questions','case-member-questions'])
- add_related(article_by_id['activity'],'接收和回复成员提问：',['questions-reply','case-member-questions'])
+ add_related(article_by_id['activity'],'接收和回复成员求助：',['questions-reply','case-member-questions'])
  add_related(article_by_id['sessions'],'跨会话引用的开关和操作：',['beta-features'])
  enrich_algorithm_example(article_by_id['example'])
  enrich_gateway(article_by_id['gateway'])

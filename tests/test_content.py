@@ -88,6 +88,21 @@ class ContentRules(unittest.TestCase):
     def publish(self, actor='bob', name='result.zip', kind='contribution'):
         return self.call(actor, op='publish', target='/projects/relation/实体抽取/submissions/' + actor + '/' + name, sha256=content.digest(self.incoming), metadata={'title': '方案结论', 'description': '已验证内容', 'kind': kind})
 
+    def test_title_only_help_requests_keep_title_required_and_content_optional(self):
+        for body in (None, '', ' \n '):
+            command = dict(kind='create', id=str(uuid.uuid4()), sessionId=str(uuid.uuid4()), title='请帮忙确认版本', recipients=['bob'])
+            if body is not None:
+                command['body'] = body
+            q = self.call('alice', op='question', command=command)
+            self.assertEqual(q['body'], '')
+            self.assertEqual(q['title'], command['title'])
+            self.assertEqual(self.call('alice', op='question', command=command)['id'], q['id'])
+        for title in ('', ' \n '):
+            with self.assertRaises(ValueError):
+                self.call('alice', op='question', command=dict(command, id=str(uuid.uuid4()), title=title, body=''))
+        with self.assertRaises(ValueError):
+            self.call('alice', op='question', command=dict(command, id=str(uuid.uuid4()), body='x' * 12001))
+
     def test_manual_question_answers_are_private_and_idempotent_without_session(self):
         q = self.call('alice', op='question', command=dict(kind='create', id=str(uuid.uuid4()), sessionId=str(uuid.uuid4()), title='版本', body='哪个版本？', recipients=['bob']))
         command = dict(kind='answer', id=q['id'], answerId=str(uuid.uuid4()), body='使用 v3')

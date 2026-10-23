@@ -11,8 +11,8 @@ import { LocalAdminConnection } from '../src/admin/local-connection';
 import { Workbench } from '../src/core/workbench';
 import { Questions } from '../src/core/questions';
 import { memberProfile } from './fixtures/member-profile';
-import { changeQuestion, questionView, type TeamQuestion, type QuestionCommand, type QuestionMember } from '../src/shared/questions';
-import { autoDialogueNotice, fillFollowNotice, incomingQuestionNotice, incomingReplyNotice, questionSuggestsEnd, sessionMessageText, sessionQuestionDraft, withoutQuestionFields } from '../src/shared/session-context-text';
+import { changeQuestion, questionCommandSchema, questionView, type TeamQuestion, type QuestionCommand, type QuestionMember } from '../src/shared/questions';
+import { autoDialogueNotice, fillFollowNotice, incomingQuestionNotice, incomingReplyNotice, questionControl, questionSuggestsEnd, sessionMessageText, sessionQuestionDraft, withoutQuestionFields } from '../src/shared/session-context-text';
 import { historyMarkdown } from '../src/core/artifacts';
 import { QuestionDetail, QuestionCard, QuestionPanel, questionUnread } from '../src/renderer/team-questions';
 import type { AgentSession } from '../src/shared/types';
@@ -24,32 +24,52 @@ const projectId = 'project_' + 'a'.repeat(32);
 const create = () => ({ kind: 'create' as const, id: randomUUID(), sessionId: randomUUID(), title: '验收口径', body: '需要使用哪一版数据？', context: '任务 A', recipients: ['bob', 'carol'] });
 const mutate = (items: TeamQuestion[], username: string, command: QuestionCommand) => changeQuestion(items, projectId, members.find(m => m.username === username)!, members, command, new Date().toISOString());
 
+test('title-only help requests accept missing or blank content while titles and follow-up messages remain required', () => {
+  for (const body of [undefined, '', ' \n ']) {
+    const command = questionCommandSchema.parse({ ...create(), body });
+    const q = mutate([], 'alice', command);
+    assert.equal(q.title, '验收口径'); assert.equal(q.body, '');
+    assert.equal(questionView(q, 'bob')!.title, q.title);
+  }
+  for (const title of ['', ' \n ']) assert.throws(() => questionCommandSchema.parse({ ...create(), title, body: '' }));
+  assert.throws(() => questionCommandSchema.parse({ ...create(), body: '字'.repeat(12001) }));
+  assert.throws(() => questionCommandSchema.parse({ kind: 'follow', id: randomUUID(), followId: randomUUID(), body: '' }));
+});
+
 test('incoming question notice is hidden from the visible transcript and does not swallow later prose', () => {
   const session = { id: 's', provider: 'codex', title: 't', cwd: 'D:/test', purpose: 'work', createdAt: '', status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: 'D:/test/handoff.md' } as AgentSession;
   const notice = incomingQuestionNotice('李\n四」');
   assert.match(notice, /团队成员「李 四」发来的信息/);
   const visible = '问题：验收口径\n需要使用哪一版数据？\n\n附带资料：\n任务 A';
   assert.equal(sessionMessageText(session, { id: '1', role: 'user', text: notice + visible, createdAt: '' }), visible);
+  assert.doesNotMatch(notice, /提问/);
+  const legacyNotice = notice.replaceAll('求助', '提问');
+  assert.equal(sessionMessageText(session, { id: 'legacy', role: 'user', text: legacyNotice + visible, createdAt: '' }), visible);
   const quoted = '请保留这段说明：' + notice;
   assert.equal(sessionMessageText(session, { id: '2', role: 'user', text: quoted, createdAt: '' }), quoted);
-  assert.doesNotMatch(historyMarkdown({ ...session, messages: [{ id: '1', role: 'user', text: notice + visible, createdAt: '' }] }), /成员提问接入/);
+  assert.doesNotMatch(historyMarkdown({ ...session, messages: [{ id: '1', role: 'user', text: notice + visible, createdAt: '' }] }), /成员求助接入/);
   const reply = incomingReplyNotice('王五');
-  assert.match(reply, /对同一提问的回复/);
+  assert.match(reply, /对同一求助的回复/);
   assert.equal(sessionMessageText(session, { id: '3', role: 'user', text: reply + '回复人：王五\n用 v2', createdAt: '' }), '回复人：王五\n用 v2');
   assert.doesNotMatch(historyMarkdown({ ...session, messages: [{ id: '3', role: 'user', text: reply + '回复人：王五\n用 v2', createdAt: '' }] }), /成员回复接入/);
   const draft = fillFollowNotice('bob');
-  assert.match(draft, /起草继续提问/);
+  assert.match(draft, /起草继续求助/);
   assert.equal(sessionMessageText(session, { id: '4', role: 'user', text: draft + '问题：验收口径', createdAt: '' }), '问题：验收口径');
   const hidden = historyMarkdown({ ...session, messages: [
     { id: '4', role: 'user', text: draft + '问题：验收口径', createdAt: '', context: { nativeId: 'n', accepted: true, workRecord: false, sourceHashes: {}, questionFill: true } },
     { id: '5', role: 'assistant', text: '请补充样本', createdAt: '' },
     { id: '6', role: 'user', text: '继续看结果', createdAt: '' },
   ] });
-  assert.doesNotMatch(hidden, /请补充样本|起草继续提问/);
+  assert.doesNotMatch(hidden, /请补充样本|起草继续求助/);
   assert.match(hidden, /继续看结果/);
   assert.equal(questionSuggestsEnd('请补充样本\n[[建议结束]]'), true);
   assert.equal(questionSuggestsEnd('请补充样本'), false);
-  assert.equal(withoutQuestionFields('[[继续提问]]\n请改成 v3'), '请改成 v3');
+  assert.equal(withoutQuestionFields('[[继续求助]]\n请改成 v3'), '请改成 v3');
+  for (const marker of ['[[继续求助]]', '[[继续提问]]']) {
+    assert.equal(withoutQuestionFields(marker + '\n请改成 v3'), '请改成 v3');
+    assert.deepEqual(questionControl(marker + '\n请改成 v3'), { kind: 'continue', body: '请改成 v3' });
+    assert.equal(sessionMessageText(session, { id: marker, role: 'assistant', text: marker + '\n请改成 v3', createdAt: '' }), '请改成 v3');
+  }
   assert.equal(withoutQuestionFields('正文\n[[建议结束]]\n说明'), '正文\n说明');
   const oldAuto = '[自动对话]\n这个 Session 只和团队成员「周祺智」自动对话，不能加入其他人的回答。请只根据下面这条回复决定下一步，并在回复第一行单独写一个标记：还要向对方提问时写 [[继续提问]]，从第二行写要发给对方的内容；认为提问可以结束时写 [[建议结束]]，后面可以写给当前用户看的简短说明。结束标记只停止自动对话，不会直接关闭提问。不要提及其他成员，也不要覆盖当前会话已有约定。\n\n回复人：周祺智\n用 v2';
   assert.equal(sessionMessageText(session, { id: '7', role: 'user', text: oldAuto, createdAt: '' }), '回复人：周祺智\n用 v2');
@@ -65,7 +85,7 @@ test('question permissions, append-only replies, retry deduplication, explicit c
   assert.throws(() => mutate(items, 'alice', { ...create(), recipients: ['outside'] }), /其他有效成员/);
   assert.throws(() => mutate(items, 'alice', { ...create(), recipients: ['alice'] }), /其他有效成员/);
   assert.equal(questionView(q, 'dave'), undefined);
-  assert.throws(() => mutate(items, 'bob', { kind: 'close', id: q.id }), /发问人/);
+  assert.throws(() => mutate(items, 'bob', { kind: 'close', id: q.id }), /求助人/);
   const runs = new Map<string, string>(), sessions = new Map<string, string>();
   for (const username of ['bob', 'carol']) {
     const sessionId = randomUUID(), runId = randomUUID(); runs.set(username, runId); sessions.set(username, sessionId);
@@ -89,7 +109,7 @@ test('question permissions, append-only replies, retry deduplication, explicit c
   mutate(items, 'alice', { kind: 'follow', id: q.id, followId, body: '请改成 v3' });
   assert.equal(q.followUps?.[0].body, '请改成 v3');
   assert.equal(mutate(items, 'alice', { kind: 'follow', id: q.id, followId, body: '请改成 v3' }).revision, q.revision);
-  assert.throws(() => mutate(items, 'bob', { kind: 'follow', id: q.id, followId: randomUUID(), body: '越权' }), /发问人/);
+  assert.throws(() => mutate(items, 'bob', { kind: 'follow', id: q.id, followId: randomUUID(), body: '越权' }), /求助人/);
   assert.equal(questionView(q, 'bob')!.followUps?.[0].body, '请改成 v3');
   const hidden = randomUUID();
   mutate(items, 'alice', { kind: 'follow', id: q.id, followId: hidden, body: '只给 bob', target: 'bob' });
@@ -192,11 +212,11 @@ test('a new question can be filled from the latest idle reply and renders markdo
   const detail = renderToStaticMarkup(React.createElement(QuestionDetail, { question: questionView(q, 'alice')!, username: 'alice', inbox: { items, jobs: [], read: {} }, sessions: [], changed: async () => {} }));
   assert.match(detail, /<strong>v2<\/strong>/);
   assert.match(detail, /<li>任务 A<\/li>/);
-  const idle = { id: randomUUID(), purpose: 'work', status: 'idle', binding: { project: { id: projectId } }, messages: [{ id: 'a', role: 'assistant', text: '[[继续提问]]\n请改成 v3', createdAt: '' }] } as AgentSession;
+  const idle = { id: randomUUID(), purpose: 'work', status: 'idle', binding: { project: { id: projectId } }, messages: [{ id: 'a', role: 'assistant', text: '[[继续求助]]\n请改成 v3', createdAt: '' }] } as AgentSession;
   const panel = (session: AgentSession) => renderToStaticMarkup(React.createElement(QuestionPanel, { inbox: { items: [], jobs: [], read: {} }, selectedId: '', session, username: 'alice', sessions: [session], connected: true, select: () => {}, close: () => {}, changed: async () => {} }));
   assert.equal(sessionQuestionDraft(idle), '请改成 v3');
   assert.match(panel(idle), />填入 AI 建议</);
-  assert.doesNotMatch(panel({ ...idle, status: 'running' }), /填入 AI 建议|还没有 AI 生成的提问/);
+  assert.doesNotMatch(panel({ ...idle, status: 'running' }), /填入 AI 建议|还没有 AI 生成的求助/);
 });
 test('both sides share the conversation composer; recipient can type before linking a Session', () => {
   const items: TeamQuestion[] = [], q = mutate(items, 'alice', create());
@@ -204,7 +224,7 @@ test('both sides share the conversation composer; recipient can type before link
   for (const markup of [render('alice'), render('bob')]) {
     assert.match(markup, /team-question-thread/);
     assert.match(markup, /team-question-detail-scroll[\s\S]*team-question-thread/);
-    assert.match(markup, /team-question-dock[\s\S]*team-question-composer[\s\S]*<textarea[\s\S]*team-question-composer-bar[\s\S]*结束提问[\s\S]*team-question-send[\s\S]*发送/);
+    assert.match(markup, /team-question-dock[\s\S]*team-question-composer[\s\S]*<textarea[\s\S]*team-question-composer-bar[\s\S]*结束求助[\s\S]*team-question-send[\s\S]*发送/);
     assert.doesNotMatch(markup.slice(0, markup.indexOf('team-question-dock')), /team-question-composer/);
     assert.doesNotMatch(markup, /team-question-answer|关联并回答|选择回答问题的 Session/);
   }
@@ -297,7 +317,7 @@ test('queued answers run one per Session, survive lost reply receipts, and closu
   assert.equal(bob.questions.view().jobs[1].phase, 'closed');
   assert.equal(bob.questions.view().items.find(q => q.id === second.id)!.recipients[0].answers.length, 0);
   assert(responder.messages.some(m => m.text === '关闭后完成的本地结果'));
-  assert(notices.some(n => n.startsWith('问题已关闭：')));
+  assert(notices.some(n => n.startsWith('求助已关闭：')));
   await bob.questions.read(second.id, 1);
   assert(questionUnread(bob.questions.view().items.find(q => q.id === second.id)!, bob.questions.view()), 'old read receipt cannot clear closure');
   await bob.questions.read(second.id, bob.questions.view().items.find(q => q.id === second.id)!.activityRevision);
@@ -312,9 +332,9 @@ test('closed question UI retains link and answers, removes answer and closure ac
   const inbox = { items, jobs: [], read: {} };
   const recipient = renderToStaticMarkup(React.createElement(QuestionDetail, { question: questionView(q, 'bob')!, inbox, username: 'bob', sessions: [session], changed: async () => {} }));
   assert.match(recipient, /已关闭/); assert.match(recipient, /手动关闭/);
-  assert.doesNotMatch(recipient, /打开关联 Session|关联并回答|回答 Session<\/option>|>结束提问<|发送后续信息|填入对话框/);
+  assert.doesNotMatch(recipient, /打开关联 Session|关联并回答|回答 Session<\/option>|>结束求助<|发送后续信息|填入对话框/);
   const author = renderToStaticMarkup(React.createElement(QuestionDetail, { question: q, inbox, username: 'alice', sessions: [{ id: q.sessionId, title: '发问 Session', purpose: 'work', binding: { project: { id: projectId } } } as AgentSession], changed: async () => {} }));
-  assert.match(author, /已关闭/); assert.doesNotMatch(author, /打开关联 Session|发送后续信息|继续同一问题|填入对话框|结束提问|与bob自动对话/);
+  assert.match(author, /已关闭/); assert.doesNotMatch(author, /打开关联 Session|发送后续信息|继续同一问题|填入对话框|结束求助|与bob自动对话/);
   const openItems: TeamQuestion[] = [], openQuestion = mutate(openItems, 'alice', create()), openRun = randomUUID();
   mutate(openItems, 'bob', { kind: 'link', id: openQuestion.id, sessionId: randomUUID() });
   mutate(openItems, 'bob', { kind: 'run', id: openQuestion.id, sessionId: openQuestion.recipients[0].sessionId!, runId: openRun });
@@ -322,7 +342,7 @@ test('closed question UI retains link and answers, removes answer and closure ac
   mutate(openItems, 'alice', { kind: 'follow', id: openQuestion.id, followId: randomUUID(), body: '请改成 v3', target: 'bob' });
   const thread = renderToStaticMarkup(React.createElement(QuestionDetail, { question: openQuestion, inbox: { items: openItems, jobs: [], read: {} }, username: 'alice', sessions: [], changed: async () => {} }));
   assert.match(thread, /我/); assert.match(thread, /请改成 v3/); assert.match(thread, /先用 v2/);
-  assert.match(thread, /team-question-resize[\s\S]*title="结束提问"[\s\S]*>自动对话<[\s\S]*>AI填入<[\s\S]*team-question-send[\s\S]*发送/);
+  assert.match(thread, /team-question-resize[\s\S]*title="结束求助"[\s\S]*>自动对话<[\s\S]*>AI填入<[\s\S]*team-question-send[\s\S]*发送/);
   assert.match(thread, /disabled=""[^>]*还没有 AI 生成的追问/);
   assert.doesNotMatch(thread, /team-question-session-choice|打开关联 Session|>关联</);
   assert.doesNotMatch(thread, /发给bob|发送给|<select|question\.fill/);
@@ -345,8 +365,8 @@ test('closed question UI retains link and answers, removes answer and closure ac
   const panel = (current: AgentSession, selectedId: string) => renderToStaticMarkup(React.createElement(QuestionPanel, { inbox: { items: openItems, jobs: [], read: {} }, selectedId, session: current, username: 'alice', sessions: [sessionA, sessionB], connected: false, select: () => {}, close: () => {}, changed: async () => {} }));
   assert.match(panel(sessionA, openQuestion.id), /team-question-detail/);
   assert.doesNotMatch(panel(sessionB, openQuestion.id), /team-question-detail/);
-  assert.match(panel(sessionB, openQuestion.id), /暂无提问/);
-  assert.doesNotMatch(panel(sessionB, openQuestion.id), /<h3>当前会话的提问<\/h3>/);
+  assert.match(panel(sessionB, openQuestion.id), /暂无求助/);
+  assert.doesNotMatch(panel(sessionB, openQuestion.id), /<h3>当前会话的求助<\/h3>/);
   const card = renderToStaticMarkup(React.createElement(QuestionCard, { question: q, unread: true, open: () => {} }));
   assert.match(card, /已关闭/); assert.match(card, /有新动态/);
 });
@@ -403,7 +423,7 @@ test('replies stay manual until one auto session tracks a single person', () => 
   const answerId = aliceQ.view().items[0].recipients.find(item => item.username === 'bob')!.answers[0].id;
   const messagesBefore = structuredClone(ask.messages), jobsBefore = structuredClone(aliceQ.view().jobs);
   const imported = await aliceQ.importReply(project, q.id, ask.id, answerId); await aliceQ.sync();
-  assert.match(imported, /问题：验收口径\n回复人：bob\n答复 /);
+  assert.match(imported, /求助：验收口径\n回复人：bob\n答复 /);
   assert.equal(prompts.filter(item => item.who === 'alice').length, 0, 'preparing a reply never starts a model turn');
   assert.deepEqual(ask.messages, messagesBefore, 'unsent replies do not appear in chat history');
   assert.deepEqual(aliceQ.view().jobs, jobsBefore, 'draft preparation does not enqueue or consume a reply');
@@ -413,7 +433,7 @@ test('replies stay manual until one auto session tracks a single person', () => 
   delete ask.cursorNative;
   ask.closedAt = new Date().toISOString();
   await assert.rejects(aliceQ.importReply(project, q.id, ask.id, answerId), /自己打开的工作/); delete ask.closedAt;
-  await assert.rejects(bobQ.importReply(project, q.id, responder.id, answerId), /只有发问人/);
+  await assert.rejects(bobQ.importReply(project, q.id, responder.id, answerId), /只有求助人/);
   const legacy = { questionId: q.id, projectId: project, sessionId: ask.id, runId: randomUUID(), mode: 'import' as const, phase: 'queued' as const, sourceId: answerId, peer: 'bob' };
   (aliceQ as any).inbox().jobs.push(legacy);
   await aliceQ.sync(); await until(() => legacy.phase as string === 'closed');
@@ -421,9 +441,9 @@ test('replies stay manual until one auto session tracks a single person', () => 
   const settle = async (check: () => boolean) => { for (let n = 0; !check(); n++) { if (n > 40) throw new Error('timed out'); await bobQ.sync(); await aliceQ.sync(); await new Promise(r => setTimeout(r, 20)); } };
   await aliceQ.startAuto(project, q.id, 'bob', autoSession.id);
   await settle(() => prompts.filter(item => item.who === 'bob').length >= 2);
-  assert.match(prompts.filter(item => item.who === 'bob')[0].text, /问题：验收口径/);
+  assert.match(prompts.filter(item => item.who === 'bob')[0].text, /求助：验收口径/);
   assert.match(prompts.filter(item => item.who === 'bob')[1].text, /请改成 v3/);
-  assert.doesNotMatch(prompts.filter(item => item.who === 'bob')[1].text, /问题：/);
+  assert.doesNotMatch(prompts.filter(item => item.who === 'bob')[1].text, /求助：/);
   assert.match(prompts.filter(item => item.who === 'bob')[1].notice, /继续发来的信息/);
   await settle(() => !!aliceQ.view().items[0].recipients.find(item => item.username === 'bob')?.endSuggestedAt);
   assert.equal(prompts.filter(item => item.who === 'bob').length, 2);
@@ -441,7 +461,7 @@ test('replies stay manual until one auto session tracks a single person', () => 
   await bobQ.closeQuestion(project, q.id); await aliceQ.sync();
   assert.ok(aliceQ.view().items[0].closedAt);
   assert.equal(autoSession.messages.length, before);
-  assert(notices.some(item => item.startsWith('问题已关闭：')));
+  assert(notices.some(item => item.startsWith('求助已关闭：')));
   assert.equal(aliceQ.lockedPeer(autoSession.id), undefined);
 }));
 
@@ -483,7 +503,7 @@ test('a previous reply is stored locally for fill and is not sent', () => fixtur
   assert.equal(questions.view().fills?.[q.id]?.bob, undefined);
   const inbox = (questions as any).inbox();
   inbox.jobs.push({ questionId: q.id, projectId: project, sessionId: ask.id, runId, phase: 'running', mode: 'import', sourceId: 'answer', peer: 'bob' });
-  ask.messages.push({ id: randomUUID(), role: 'assistant', text: '[[继续提问]]\n请补充样本', createdAt: new Date().toISOString() });
+  ask.messages.push({ id: randomUUID(), role: 'assistant', text: '[[继续求助]]\n请补充样本', createdAt: new Date().toISOString() });
   await questions.completed(ask);
   assert.equal(questions.view().fills?.[q.id]?.bob, '请补充样本');
   const summaryRun = randomUUID();
@@ -500,7 +520,7 @@ test('a previous reply is stored locally for fill and is not sent', () => fixtur
   assert.equal(questions.view().fills?.[q.id]?.bob, '先确认授权再继续。');
   assert.equal(questions.view().items.find(item => item.id === q.id)?.followUps?.length || 0, 0);
   assert.equal(sent, false);
-  assert.doesNotMatch(historyMarkdown(ask), /起草继续提问/);
+  assert.doesNotMatch(historyMarkdown(ask), /起草继续求助/);
 }));
 
 test('automatic dialogue attaches files created during that turn', () => fixture(async ({ alice, bob, project, root }) => {
@@ -530,7 +550,7 @@ test('automatic dialogue attaches files created during that turn', () => fixture
         }
         s.status = 'idle';
         s.messages.push({ id: randomUUID(), role: 'user', text, createdAt: new Date().toISOString(), context: { nativeId: 'test', accepted: true, workRecord: false, sourceHashes: {}, questionRunId: runId } });
-        s.messages.push({ id: randomUUID(), role: 'assistant', text: who === 'alice' ? '[[继续提问]]\n请看我附的文件' : '结果见附件', createdAt: new Date().toISOString() });
+        s.messages.push({ id: randomUUID(), role: 'assistant', text: who === 'alice' ? '[[继续求助]]\n请看我附的文件' : '结果见附件', createdAt: new Date().toISOString() });
         await questions.completed(s); return true;
       },
     });
@@ -670,9 +690,9 @@ test('Codex and Cursor protocol runtimes preserve question context and return co
     const notice = incomingQuestionNotice('alice');
     assert(prompt.text.startsWith(notice));
     assert.match(prompt.text, /需要使用哪一版数据/);
-    assert.equal(prompt.userText?.includes('成员提问接入'), false);
+    assert.equal(prompt.userText?.includes('成员求助接入'), false);
     assert.match(sessionMessageText(responder, prompt), /需要使用哪一版数据/);
-    assert.doesNotMatch(sessionMessageText(responder, prompt), /成员提问接入|不是当前用户本人输入/);
-    assert.doesNotMatch(historyMarkdown(responder), /成员提问接入|不是当前用户本人输入/);
+    assert.doesNotMatch(sessionMessageText(responder, prompt), /成员求助接入|不是当前用户本人输入/);
+    assert.doesNotMatch(historyMarkdown(responder), /成员求助接入|不是当前用户本人输入/);
   }
 }));

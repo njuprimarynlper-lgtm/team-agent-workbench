@@ -24,7 +24,7 @@ test('collapsed project panel keeps explicit reopen controls and children share 
   const collapsed = renderToStaticMarkup(React.createElement(ProjectInteractionPanel, { ...props, active: '' }));
   assert.match(collapsed, /class="icon interaction-toggle" aria-label="展开侧栏"[^>]*aria-expanded="false" aria-controls="project-interaction-panel"/);
   assert.match(collapsed, /aria-label="展开 AI推荐"/);
-  assert.match(collapsed, /aria-label="展开提问"/); assert.match(collapsed, /aria-label="展开子会话"/);
+  assert.match(collapsed, /aria-label="展开寻求帮助"/); assert.match(collapsed, /aria-label="展开子会话"/);
   assert.match(collapsed, /<aside[^>]+hidden=""/);
   assert.doesNotMatch(collapsed, /role="separator"/);
   const expanded = renderToStaticMarkup(React.createElement(ProjectInteractionPanel, { ...props, active: 'subsessions' }));
@@ -51,5 +51,5 @@ test('accepted optional supplements, rejected feedback, and independent closure 
 });
 test('embedded questions reuse the shared panel without an extra header or close control', () => {
   const html = renderToStaticMarkup(React.createElement(QuestionPanel, { embedded: true, active: false, projectId: 'p', selectedId: 'session', username: 'alice', sessions: [], connected: false, select() {}, close() {}, changed: reload }));
-  assert.match(html, /本项目的提问/); assert.doesNotMatch(html, /关闭提问窗口/);
+  assert.match(html, /aria-label="寻求帮助"/); assert.match(html, /暂无求助/); assert.doesNotMatch(html, /<header|关闭求助窗口/);
 });

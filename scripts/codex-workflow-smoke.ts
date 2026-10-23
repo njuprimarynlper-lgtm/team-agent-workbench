@@ -179,7 +179,7 @@ async function main(){
       console.log('UI logged in; selecting shared session.');
       await page.locator('[data-session-id="'+sessions[1].id+'"]').click();
       assert(!(await page.getByRole('button',{name:'在 Codex 中打开',exact:true}).isVisible()));
-      assert(await page.getByRole('button',{name:'提问',exact:true}).isVisible());assert(await page.getByRole('button',{name:'整理成果',exact:true}).isVisible());
+      assert(await page.getByRole('button',{name:'寻求帮助',exact:true}).isVisible());assert(await page.getByRole('button',{name:'整理成果',exact:true}).isVisible());
       await page.getByRole('button',{name:'更多会话操作',exact:true}).click();assert(await page.getByRole('button',{name:'在 Codex 中打开',exact:true}).isVisible());await page.screenshot({path:path.join(root,'sync-menu.png')});await page.keyboard.press('Escape');
       await page.getByRole('button',{name:'Beta 功能',exact:false}).click();assert.equal(await page.getByRole('switch',{name:'开启 Codex 桌面联动',exact:true}).count(),0);await page.getByRole('button',{name:'完成',exact:true}).click();
       console.log('UI sync menu and ordinary option passed; creating a new linked session.');

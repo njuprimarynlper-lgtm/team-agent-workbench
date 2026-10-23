@@ -408,27 +408,27 @@ def question_operation(root, state, username, request, project, group_name):
     if command is None:
         return [v for q in items if (v := view(q)) is not None]
     if not isinstance(command, dict):
-        raise ValueError('问题操作格式无效')
+        raise ValueError('求助操作格式无效')
     def identifier(key):
         value = command.get(key)
         if not isinstance(value, str) or not re.fullmatch(r'[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}', value):
-            raise ValueError('问题或会话编号无效')
+            raise ValueError('求助或会话编号无效')
         return value
     def field(key, limit, required=True):
         value = command.get(key, '')
         if not isinstance(value, str) or len(value) > limit or required and not value.strip():
-            raise ValueError('问题内容为空或过长')
+            raise ValueError('求助内容为空或过长')
         return value.strip() if key != 'context' else value
     kind, qid, stamp = command.get('kind'), identifier('id'), now()
     q = next((q for q in items if q['id'] == qid), None)
     if kind == 'create':
-        values = dict(title=field('title', 200), body=field('body', 12000), context=field('context', 24000, False), sessionId=identifier('sessionId'))
+        values = dict(title=field('title', 200), body=field('body', 12000, False), context=field('context', 24000, False), sessionId=identifier('sessionId'))
         names = command.get('recipients')
         if not isinstance(names, list) or not 1 <= len(names) <= 50 or any(not isinstance(name, str) or name not in eligible or name == username for name in names) or len(set(names)) != len(names):
             raise ValueError('请选择当前用户组的其他有效成员')
         if q:
             if q['author'] != username or any(q[key] != value for key, value in values.items()) or names != [r['username'] for r in q['recipients']]:
-                raise ValueError('问题编号已使用')
+                raise ValueError('求助编号已使用')
             return view(q)
         q = dict(id=qid, projectId=project['id'], author=username, authorName=eligible[username].get('name') or username, **values,
                  createdAt=stamp, updatedAt=stamp, revision=1, activityRevision=1, recipientCount=len(names),
@@ -436,22 +436,22 @@ def question_operation(root, state, username, request, project, group_name):
         items.append(q)
     else:
         if not q or view(q) is None:
-            raise PermissionError('问题不存在或无权访问')
+            raise PermissionError('求助不存在或无权访问')
         def named(target):
             return next((item for item in q['recipients'] if item['username'] == target), None)
         if kind == 'close':
             recipient = named(username)
             in_dialogue = bool(recipient and (recipient.get('sessionId') or recipient.get('answers') or recipient.get('state') != 'pending'))
             if q['author'] != username and not in_dialogue:
-                raise PermissionError('只有发问人或已参与对话的回答者可以结束提问')
+                raise PermissionError('只有求助人或已参与对话的回答者可以结束求助')
             if q.get('closedAt'):
                 return view(q)
             q['closedAt'] = stamp
         elif kind == 'follow':
             if q['author'] != username:
-                raise PermissionError('只有发问人可以继续同一问题')
+                raise PermissionError('只有求助人可以继续同一求助')
             if q.get('closedAt'):
-                raise ValueError('问题已关闭，不能继续补充')
+                raise ValueError('求助已关闭，不能继续补充')
             follow_id, body = identifier('followId'), field('body', 12000)
             target = command.get('target') or ''
             if target and not named(target):
@@ -469,21 +469,21 @@ def question_operation(root, state, username, request, project, group_name):
             follows.append(item)
         elif kind == 'suggest':
             if q.get('closedAt'):
-                raise ValueError('问题已关闭')
+                raise ValueError('求助已关闭')
             target = command.get('username')
             recipient = named(target) if isinstance(target, str) else None
             if not recipient:
                 raise PermissionError('对话成员不存在')
             if username != q['author'] and username != target:
-                raise PermissionError('只有发问人或这位回答者可以建议结束')
+                raise PermissionError('只有求助人或这位回答者可以建议结束')
             if recipient.get('endSuggestedAt'):
                 return view(q)
             recipient['endSuggestedAt'] = stamp
         elif kind == 'resume':
             if q['author'] != username:
-                raise PermissionError('只有发问人可以继续自动对话')
+                raise PermissionError('只有求助人可以继续自动对话')
             if q.get('closedAt'):
-                raise ValueError('问题已关闭')
+                raise ValueError('求助已关闭')
             target = command.get('username')
             recipient = named(target) if isinstance(target, str) else None
             if not recipient:
@@ -504,7 +504,7 @@ def question_operation(root, state, username, request, project, group_name):
                         raise ValueError('答复编号已使用')
                     return view(q)
             if q.get('closedAt'):
-                raise ValueError('问题已关闭，答案保留在自己的 Session 中，不再回传')
+                raise ValueError('求助已关闭，答案保留在自己的 Session 中，不再回传')
             if kind == 'answer':
                 recipient['answers'].append(dict(id=run_id, body=body, createdAt=stamp))
                 recipient.pop('endSuggestedAt', None)
@@ -513,7 +513,7 @@ def question_operation(root, state, username, request, project, group_name):
             elif kind == 'link':
                 session_id = identifier('sessionId')
                 if recipient['state'] == 'running':
-                    raise ValueError('此问题正在回答，不能更换关联')
+                    raise ValueError('此求助正在回答，不能更换关联')
                 if recipient.get('sessionId') == session_id and not recipient.get('endSuggestedAt'):
                     return view(q)
                 recipient.pop('endSuggestedAt', None)
@@ -524,7 +524,7 @@ def question_operation(root, state, username, request, project, group_name):
                 if recipient.get('runId') == run_id:
                     return view(q)
                 if recipient['state'] == 'running':
-                    raise ValueError('此问题已在其他窗口回答中')
+                    raise ValueError('此求助已在其他窗口回答中')
                 recipient.update(runId=run_id, state='running')
             elif kind in ('reply', 'fail'):
                 if recipient.get('runId') != run_id:
@@ -537,7 +537,7 @@ def question_operation(root, state, username, request, project, group_name):
                 else:
                     return view(q)
             else:
-                raise ValueError('不支持的问题操作')
+                raise ValueError('不支持的求助操作')
         q['revision'] += 1
         if kind in ('reply', 'answer', 'close', 'follow', 'suggest', 'resume'):
             q['activityRevision'] = q['revision']

@@ -199,13 +199,13 @@ async function userScene(page,data){
  if(id==='case-member-questions'){
   if(data.stage==='received'){
    await page.getByRole('button',{name:'团队动态',exact:true}).click();
-   await page.getByRole('region',{name:'提问动态'}).waitFor();
+   await page.getByRole('region',{name:'求助动态'}).waitFor();
   }else{
    await openSession(page);
-   await click(page,'提问');
+   await click(page,'寻求帮助');
    if(data.stage==='compose'){
-    await page.getByLabel('问题标题',{exact:true}).fill(data.question.title);
-    await page.getByLabel('问题内容',{exact:true}).fill(data.question.body);
+    await page.getByLabel('求助标题',{exact:true}).fill(data.question.title);
+    await page.getByLabel('求助内容（选填）',{exact:true}).fill(data.question.body);
     await page.locator('.team-question-extra summary').click();
     await page.getByLabel('补充资料（选填）',{exact:true}).fill(data.question.context);
     await click(page,'添加附件');
