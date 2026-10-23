@@ -73,7 +73,11 @@ export class Questions {
   async init() {
     try { this.buckets = JSON.parse(await fs.readFile(this.file, 'utf8')); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
     // A crashed submit is ambiguous: retain it for inspection, never automatically resend a model task.
-    for (const inbox of Object.values(this.buckets)) for (const job of inbox.jobs) if (job.phase === 'running') { job.phase = 'error'; job.error = '上次回答中断，请检查 Session 中的结果后重新回答'; }
+    for (const inbox of Object.values(this.buckets)) for (const job of inbox.jobs) {
+      if (job.phase === 'running') { job.phase = 'error'; job.error = '上次回答中断，请检查 Session 中的结果后重新回答'; }
+      // Older versions queued manual imports as model turns. Do not resume them.
+      if (job.mode === 'import' && job.phase === 'queued') { job.phase = 'closed'; job.error = '请将回复填入对话框，确认后发送'; }
+    }
     this.timer = setInterval(() => void this.sync().catch(() => {}), 5000); this.timer.unref();
   }
   async members(projectId: string) { return this.remote.questionRequest(this.remote.binding(projectId), 'members'); }
@@ -179,10 +183,10 @@ export class Questions {
     if (!dialogue) return inbox?.items.find(q => !q.closedAt && q.author !== this.hooks.profile()?.username && inbox.replyModes?.[q.id] === 'auto' && q.recipients.some(r => r.sessionId === sessionId))?.authorName;
     return inbox?.items.find(item => item.id === dialogue.questionId)?.recipients.find(item => item.username === dialogue.peer)?.name || dialogue.peer;
   }
-  private assertWorkSession(sessionId: string, projectId: string) {
+  private assertWorkSession(sessionId: string, projectId: string, automatic = true) {
     const session = this.hooks.session(sessionId), owner = this.owner();
     if (!session.binding || session.binding.project.id !== projectId || session.closedAt || session.purpose !== 'work' || !owner || accountIdentity(session.binding) !== owner) throw new Error('只能使用同项目中自己打开的工作 Session');
-    if (session.cursorNative) throw new Error('此 Cursor 桌面接入暂不支持自动对话，请选择其他工作 Session');
+    if (automatic && session.cursorNative) throw new Error('此 Cursor 桌面接入暂不支持自动对话，请选择其他工作 Session');
   }
   async importReply(projectId: string, id: string, sessionId: string, answerId: string) {
     const inbox = this.inbox(), profile = this.hooks.profile();
@@ -192,14 +196,13 @@ export class Questions {
     if (question.closedAt) throw new Error('问题已关闭');
     const recipient = question.recipients.find(item => item.answers.some(answer => answer.id === answerId));
     if (!recipient) throw new Error('要引入的回复不存在');
-    this.assertWorkSession(sessionId, projectId);
+    this.assertWorkSession(sessionId, projectId, false);
     const bound = inbox.dialogues?.find(item => item.sessionId === sessionId);
     if (bound && bound.peer !== recipient.username) throw new Error('这个自动 Session 只跟一个人进行，不能加入其他人的回答');
     if (bound) throw new Error('自动对话中的 Session 会自行接收这一位成员的回复');
-    if (inbox.jobs.some(job => job.sessionId === sessionId && job.phase !== 'error' && job.phase !== 'closed' && (job.sourceId === answerId || job.covered?.includes(answerId)))) throw new Error('这条回复已经引入当前 Session');
-    inbox.jobs.push({ questionId: id, projectId, sessionId, runId: randomUUID(), phase: 'queued', mode: 'import', sourceId: answerId, peer: recipient.username });
-    await this.save(); this.hooks.changed(); void this.sync().catch(() => {});
-    return question;
+    const answer = recipient.answers.find(item => item.id === answerId)!;
+    // Preparing a draft must not create a model job or mark the reply as consumed.
+    return visibleImportedReply(false, question.title, recipient.name, answer.body, answer.files);
   }
   async startAuto(projectId: string, id: string, peer: string, sessionId: string) {
     const inbox = this.inbox(), profile = this.hooks.profile();
@@ -425,7 +428,8 @@ export class Questions {
   }
   private async start(job: QuestionJob, q: TeamQuestion, owner: string) {
     try {
-      const incoming = job.mode === 'import' || job.mode === 'auto' || job.mode === 'ingest';
+      if (job.mode === 'import') { job.phase = 'closed'; job.error = '请将回复填入对话框，确认后发送'; await this.save(); this.hooks.changed(); return; }
+      const incoming = job.mode === 'auto' || job.mode === 'ingest';
       if (job.mode === 'fill') {
         if (owner !== this.owner() || this.stopped) return;
         job.phase = 'running'; await this.save(); this.hooks.changed();
@@ -449,9 +453,7 @@ export class Questions {
       const introduced = (this.inbox()?.jobs || []).some(item => item.runId !== job.runId && item.questionId === q.id && item.sessionId === job.sessionId && ['tracked', 'sent', 'ready'].includes(item.phase));
       const followText = follows.map(item => `${item.body}${questionFileNote(item.files)}`).join('\n\n');
       const replyText = replies.map(answer => `回复人：${answer.name}\n${answer.body}${questionFileNote(answer.files)}`).join('\n\n');
-      const text = job.mode === 'import'
-        ? visibleImportedReply(introduced, q.title, replies[0].name, replies[0].body, replies[0].files)
-        : incoming
+      const text = incoming
         ? `${introduced ? '' : `问题：${q.title}\n`}${replyText}`
         : introduced && followText
           ? followText

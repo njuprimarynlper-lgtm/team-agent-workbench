@@ -24,8 +24,7 @@ export function questionFixture(data) {
   if (stage === 'receiver-auto') snapshot.questions.replyModes[question.id] = 'auto';
   if (stage === 'author-auto') snapshot.questions.dialogues = [{ questionId: question.id, projectId: project.id, peer: 'carol', sessionId: session.id, mode: 'auto' }];
   if (stage === 'imported') {
-    snapshot.questions.jobs = [{ questionId: question.id, projectId: project.id, sessionId: session.id, runId: 'import-carol', mode: 'import', phase: 'tracked', sourceId: answer.id }];
-    session.messages.push({ id: 'imported-reply', role: 'user', text: '问题：确认本轮验证范围\n回复人：Carol\n' + answer.body, createdAt: later });
+    snapshot.inputs[session.id].text = '问题：确认本轮验证范围\n回复人：Carol\n' + answer.body;
   }
   data.question = question;
   return data;

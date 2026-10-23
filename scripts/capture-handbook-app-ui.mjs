@@ -205,10 +205,13 @@ async function userScene(page,data){
    await click(page,'提问');
    if(data.stage==='compose'){
     await page.getByLabel('问题标题',{exact:true}).fill(data.question.title);
-    await page.getByLabel('需要补充什么',{exact:true}).fill(data.question.body);
-    await page.getByLabel('补充资料（可选）',{exact:true}).fill(data.question.context);
+    await page.getByLabel('问题内容',{exact:true}).fill(data.question.body);
+    await page.locator('.team-question-extra summary').click();
+    await page.getByLabel('补充资料（选填）',{exact:true}).fill(data.question.context);
     await click(page,'添加附件');
+    await click(page,'选择成员');
     await page.getByRole('checkbox',{name:'Carol carol',exact:true}).check();
+    await click(page,'完成选择');
    }else{
     await page.locator('.team-question-card').filter({hasText:data.question.title}).click();
     if(data.stage==='reply')await page.getByLabel('回复Bob',{exact:true}).fill('需要增加大输入样本。沿用本轮设备与代码版本，分别记录普通输入和大输入的耗时，并标明未验证项。');

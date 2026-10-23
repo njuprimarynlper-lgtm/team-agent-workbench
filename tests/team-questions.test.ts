@@ -195,8 +195,8 @@ test('a new question can be filled from the latest idle reply and renders markdo
   const idle = { id: randomUUID(), purpose: 'work', status: 'idle', binding: { project: { id: projectId } }, messages: [{ id: 'a', role: 'assistant', text: '[[继续提问]]\n请改成 v3', createdAt: '' }] } as AgentSession;
   const panel = (session: AgentSession) => renderToStaticMarkup(React.createElement(QuestionPanel, { inbox: { items: [], jobs: [], read: {} }, selectedId: '', session, username: 'alice', sessions: [session], connected: true, select: () => {}, close: () => {}, changed: async () => {} }));
   assert.equal(sessionQuestionDraft(idle), '请改成 v3');
-  assert.match(panel(idle), /title="把 AI 生成的提问填进输入框"/);
-  assert.match(panel({ ...idle, status: 'running' }), /disabled="" title="还没有 AI 生成的提问"/);
+  assert.match(panel(idle), />填入 AI 建议</);
+  assert.doesNotMatch(panel({ ...idle, status: 'running' }), /填入 AI 建议|还没有 AI 生成的提问/);
 });
 test('both sides share the conversation composer; recipient can type before linking a Session', () => {
   const items: TeamQuestion[] = [], q = mutate(items, 'alice', create());
@@ -312,9 +312,9 @@ test('closed question UI retains link and answers, removes answer and closure ac
   const inbox = { items, jobs: [], read: {} };
   const recipient = renderToStaticMarkup(React.createElement(QuestionDetail, { question: questionView(q, 'bob')!, inbox, username: 'bob', sessions: [session], changed: async () => {} }));
   assert.match(recipient, /已关闭/); assert.match(recipient, /手动关闭/);
-  assert.doesNotMatch(recipient, /打开关联 Session|关联并回答|回答 Session<\/option>|>结束提问<|发送后续信息|引入到 Session/);
+  assert.doesNotMatch(recipient, /打开关联 Session|关联并回答|回答 Session<\/option>|>结束提问<|发送后续信息|填入对话框/);
   const author = renderToStaticMarkup(React.createElement(QuestionDetail, { question: q, inbox, username: 'alice', sessions: [{ id: q.sessionId, title: '发问 Session', purpose: 'work', binding: { project: { id: projectId } } } as AgentSession], changed: async () => {} }));
-  assert.match(author, /已关闭/); assert.doesNotMatch(author, /打开关联 Session|发送后续信息|继续同一问题|引入到 Session|结束提问|与bob自动对话/);
+  assert.match(author, /已关闭/); assert.doesNotMatch(author, /打开关联 Session|发送后续信息|继续同一问题|填入对话框|结束提问|与bob自动对话/);
   const openItems: TeamQuestion[] = [], openQuestion = mutate(openItems, 'alice', create()), openRun = randomUUID();
   mutate(openItems, 'bob', { kind: 'link', id: openQuestion.id, sessionId: randomUUID() });
   mutate(openItems, 'bob', { kind: 'run', id: openQuestion.id, sessionId: openQuestion.recipients[0].sessionId!, runId: openRun });
@@ -345,7 +345,8 @@ test('closed question UI retains link and answers, removes answer and closure ac
   const panel = (current: AgentSession, selectedId: string) => renderToStaticMarkup(React.createElement(QuestionPanel, { inbox: { items: openItems, jobs: [], read: {} }, selectedId, session: current, username: 'alice', sessions: [sessionA, sessionB], connected: false, select: () => {}, close: () => {}, changed: async () => {} }));
   assert.match(panel(sessionA, openQuestion.id), /team-question-detail/);
   assert.doesNotMatch(panel(sessionB, openQuestion.id), /team-question-detail/);
-  assert.match(panel(sessionB, openQuestion.id), /与当前 Session 有关的问题/);
+  assert.match(panel(sessionB, openQuestion.id), /暂无提问/);
+  assert.doesNotMatch(panel(sessionB, openQuestion.id), /<h3>当前会话的提问<\/h3>/);
   const card = renderToStaticMarkup(React.createElement(QuestionCard, { question: q, unread: true, open: () => {} }));
   assert.match(card, /已关闭/); assert.match(card, /有新动态/);
 });
@@ -385,7 +386,7 @@ test('replies stay manual until one auto session tracks a single person', () => 
       send: async (id, text, runId, notice) => {
         prompts.push({ who, text, notice });
         const mine = prompts.filter(item => item.who === who).length;
-        const script = ['看到了', '请改成 v3', '最新判断如下\n[[建议结束]]\n可以收尾'];
+        const script = ['请改成 v3', '最新判断如下\n[[建议结束]]\n可以收尾'];
         const s = wb.session(id); s.status = 'running';
         s.messages.push({ id: randomUUID(), role: 'user', text: notice + text, userText: text, createdAt: new Date().toISOString(), context: { nativeId: 'test', accepted: true, workRecord: false, sourceHashes: {}, questionRunId: runId } });
         s.messages.push({ id: randomUUID(), role: 'assistant', text: who === 'alice' ? script[mine - 1] || '不再继续' : '答复 ' + mine, createdAt: new Date().toISOString() });
@@ -400,14 +401,23 @@ test('replies stay manual until one auto session tracks a single person', () => 
   await until(() => prompts.some(item => item.who === 'bob')); await bobQ.sync(); await aliceQ.sync();
   assert.equal(prompts.filter(item => item.who === 'alice').length, 0, 'a reply waits for manual import');
   const answerId = aliceQ.view().items[0].recipients.find(item => item.username === 'bob')!.answers[0].id;
-  await aliceQ.importReply(project, q.id, ask.id, answerId); await aliceQ.sync();
-  await until(() => prompts.some(item => item.who === 'alice'));
-  const imported = prompts.find(item => item.who === 'alice')!;
-  assert.match(imported.text, /答复 /); assert.match(imported.notice, /对同一提问的回复/); assert.doesNotMatch(imported.notice, /自动对话/);
-  const visible = ask.messages.find(message => message.context?.questionRunId)!;
-  assert.match(sessionMessageText(ask, visible), /答复 /);
-  assert.doesNotMatch(sessionMessageText(ask, visible), /成员回复接入/);
-  assert.doesNotMatch(historyMarkdown(ask), /成员回复接入/);
+  const messagesBefore = structuredClone(ask.messages), jobsBefore = structuredClone(aliceQ.view().jobs);
+  const imported = await aliceQ.importReply(project, q.id, ask.id, answerId); await aliceQ.sync();
+  assert.match(imported, /问题：验收口径\n回复人：bob\n答复 /);
+  assert.equal(prompts.filter(item => item.who === 'alice').length, 0, 'preparing a reply never starts a model turn');
+  assert.deepEqual(ask.messages, messagesBefore, 'unsent replies do not appear in chat history');
+  assert.deepEqual(aliceQ.view().jobs, jobsBefore, 'draft preparation does not enqueue or consume a reply');
+  assert.equal(await aliceQ.importReply(project, q.id, ask.id, answerId), imported, 'discarded drafts can be filled again');
+  ask.cursorNative = {} as NonNullable<AgentSession['cursorNative']>;
+  assert.equal(await aliceQ.importReply(project, q.id, ask.id, answerId), imported, 'drafts do not require an automatic-dialogue runtime');
+  delete ask.cursorNative;
+  ask.closedAt = new Date().toISOString();
+  await assert.rejects(aliceQ.importReply(project, q.id, ask.id, answerId), /自己打开的工作/); delete ask.closedAt;
+  await assert.rejects(bobQ.importReply(project, q.id, responder.id, answerId), /只有发问人/);
+  const legacy = { questionId: q.id, projectId: project, sessionId: ask.id, runId: randomUUID(), mode: 'import' as const, phase: 'queued' as const, sourceId: answerId, peer: 'bob' };
+  (aliceQ as any).inbox().jobs.push(legacy);
+  await aliceQ.sync(); await until(() => legacy.phase as string === 'closed');
+  assert.equal(prompts.filter(item => item.who === 'alice').length, 0, 'legacy import queues cannot auto-send');
   const settle = async (check: () => boolean) => { for (let n = 0; !check(); n++) { if (n > 40) throw new Error('timed out'); await bobQ.sync(); await aliceQ.sync(); await new Promise(r => setTimeout(r, 20)); } };
   await aliceQ.startAuto(project, q.id, 'bob', autoSession.id);
   await settle(() => prompts.filter(item => item.who === 'bob').length >= 2);
@@ -433,6 +443,26 @@ test('replies stay manual until one auto session tracks a single person', () => 
   assert.equal(autoSession.messages.length, before);
   assert(notices.some(item => item.startsWith('问题已关闭：')));
   assert.equal(aliceQ.lockedPeer(autoSession.id), undefined);
+}));
+
+test('restart retires legacy queued reply imports without sending them', () => fixture(async ({ alice, project }) => {
+  const session = newSession(alice, project), q = await alice.questions.create(session.id, create());
+  await alice.questions.close();
+  const file = path.join(alice.store.root, 'questions.json');
+  const saved = JSON.parse(await fs.readFile(file, 'utf8'));
+  for (const inbox of Object.values(saved) as any[]) inbox.jobs.push({ questionId: q.id, projectId: project, sessionId: session.id, runId: randomUUID(), mode: 'import', phase: 'queued', sourceId: 'old-answer' });
+  await fs.writeFile(file, JSON.stringify(saved));
+  let sends = 0;
+  const restored = new Questions(alice.store, alice.remote, {
+    profile: () => alice.remote.profile, session: id => alice.session(id), changed: () => {}, notice: () => {},
+    send: async () => { sends++; return true; },
+  });
+  try {
+    await restored.init();
+    assert.equal(restored.view().jobs[0].phase, 'closed');
+    await restored.sync();
+    assert.equal(sends, 0); assert.equal(session.messages.length, 0);
+  } finally { await restored.close(); }
 }));
 
 test('a previous reply is stored locally for fill and is not sent', () => fixture(async ({ alice, project }) => {
