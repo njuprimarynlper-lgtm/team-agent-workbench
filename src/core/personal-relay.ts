@@ -1,5 +1,12 @@
 import type { AgentSession, SessionNetworkRoute } from '../shared/types';
 
+// These actions read/import conversation records, not model execution. Remote
+// records use their own SSH connection, independently of the model's relay.
+const nativeRecordActions = new Set(['session.native.list', 'session.native.link', 'session.native.linkMany', 'session.native.refresh']);
+export function isNativeSessionRecordAction(action: string) {
+  return nativeRecordActions.has(action);
+}
+
 /** Check the execution identity, including cached runtimes and background summaries. */
 export function assertPersonalRelay(route: SessionNetworkRoute | undefined, central: boolean | undefined,
   account: string | undefined, session?: Pick<AgentSession, 'relayAccount'>) {

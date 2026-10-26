@@ -1,5 +1,5 @@
 import { reusableProjectConnections, connectionProject, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, type ProjectCreationIntent } from '../shared/project-connection';
-import { assertPersonalRelay } from '../core/personal-relay';
+import { assertPersonalRelay, isNativeSessionRecordAction } from '../core/personal-relay';
 import { PERSONAL_PROJECT_ID, isPersonalBinding } from '../shared/personal-workspace';
 import { newAccountPasswordSchema } from '../shared/accounts';
 import { clientWindowTitle } from '../shared/client-version';
@@ -91,7 +91,8 @@ function actionContext(action: string, raw: any, owner: BrowserWindow, preferPer
   return team;
 }
 async function alignPersonalRelay(team: DataContext, action: string, raw: any) {
-  if (!personalContext) return;
+  // Importing history must not inherit, validate, or switch the model's relay.
+  if (!personalContext || isNativeSessionRecordAction(action)) return;
   const local = personalContext.workbench;
   if (!local.store.settings.egress && team.workbench.store.settings.egress) {
     const settings = structuredClone(team.workbench.store.settings.egress), accessCode = await readProtected(team.egressSecretFile);
