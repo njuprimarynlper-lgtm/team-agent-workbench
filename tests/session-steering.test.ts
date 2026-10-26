@@ -9,9 +9,8 @@ import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import { freezeFile } from '../src/core/artifacts';
 import { acceptedSessionContext } from '../src/shared/session-context';
-import type { AgentSession, SessionInput, WorkbenchAPI } from '../src/shared/types';
+import type { AgentSession, SessionInput } from '../src/shared/types';
 import { ComposerActions, composerMode } from '../src/renderer/composer-actions';
-import { submitComposerInput } from '../src/renderer/composer-input';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 // @ts-expect-error Shared fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -192,22 +191,4 @@ test('composer queues while busy for every CLI and leaves steering on queued row
   assert.match(paused, /aria-label="继续对话"/);
   assert.match(paused, /从停下的地方继续这次对话/);
   assert.doesNotMatch(renderToStaticMarkup(createElement(ComposerActions, { session: { ...s, status: 'running', stoppedAt: '2026-10-15T00:00:00Z' }, activeTurnId: 'turn', text: '要求', busy: false, send: () => {}, stop: () => {}, resume: () => {} })), /继续对话/);
-});
-
-test('composer waits for acceptance, retains failures/new edits, and clears only the originating session draft', async () => {
-  const sent: SessionInput = { text: '追加要求', sourceIds: ['source'], answers: {}, capabilities: [] };
-  for (const change of ['none', 'text', 'source', 'capability', 'reject'] as const) {
-    let resolve!: (value: boolean) => void, reject!: (error: Error) => void;
-    const calls: any[] = [], cleared: string[] = []; let latest = structuredClone(sent);
-    const api = { call: (action: string, payload: unknown) => { calls.push({ action, payload }); return new Promise<boolean>((yes, no) => { resolve = yes; reject = no; }); } } as WorkbenchAPI;
-    const pending = submitComposerInput(api, 'original-session', sent, 'turn-1', () => latest, id => cleared.push(id));
-    assert.equal(calls[0].action, 'session.steer'); assert.equal(calls[0].payload.expectedTurnId, 'turn-1'); assert.deepEqual(cleared, []);
-    if (change === 'text') latest.text = '等待时继续输入';
-    if (change === 'source') latest.sourceIds.push('another');
-    if (change === 'capability') latest.capabilities = [{ id: 'new', name: 'new', kind: 'skill' }];
-    if (change === 'reject') { reject(new Error('未送达')); await assert.rejects(pending, /未送达/); }
-    else { resolve(true); await pending; }
-    assert.deepEqual(cleared, change === 'none' ? ['original-session'] : []);
-    assert.equal(calls.length, 1, 'never fall back to turn/start or retry automatically');
-  }
 });

@@ -2,7 +2,7 @@ import {chromium,expect} from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL,fileURLToPath} from 'node:url';
-const root=process.cwd(), url=pathToFileURL(process.env.HANDBOOK_FILE || path.join(root,'docs/handbook/index.html')).href;
+const root=process.cwd(), url=pathToFileURL(process.env.HANDBOOK_FILE || path.join(root,'用户手册.html')).href;
 const output=path.join(root,'.test-data',process.env.HANDBOOK_FILE?'handbook-package-ui':'handbook-ui');await fs.mkdir(output,{recursive:true});
 const browser=await chromium.launch({channel:'msedge',headless:true});
 const context=await browser.newContext({viewport:{width:1440,height:1000}});
@@ -11,7 +11,7 @@ const page=await context.newPage();const errors=[];const requests=[];
 page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(/^https?:/.test(r.url()))requests.push(r.url());});
 try{
  await page.goto(url);await expect(page.locator('article h1')).toHaveText('开始使用');
- await expect(page.getByRole('heading',{name:'按任务查找',exact:true})).toBeVisible();
+ await expect(page.locator('#common-actions')).toBeVisible();
  await expect(page.locator('#navigation .nav-group-home')).toHaveText('开始使用');
  await expect(page.locator('#navigation .nav-group-home')).toHaveAttribute('aria-current','page');
  await page.locator('.download-menu summary').click();
@@ -20,17 +20,17 @@ try{
  for(const link of editionLinks) await fs.access(fileURLToPath(link));
  await page.locator('.download-menu summary').click();
  await page.screenshot({path:path.join(output,'home.png'),fullPage:false});
- await page.locator('.role-card[href="#quickstart-member"]').click();await expect(page.locator('article h1')).toHaveText('成员快速上手');
+ await page.locator('.role-card[href="#quickstart-member"]').click();await expect(page.locator('article h1')).toHaveText('项目组成员快速上手');
  await page.locator('.path-list a[href="#section-4-1"]').click();await expect(page).toHaveURL(/#section-4-1$/);
  await expect(page.locator('#section-4-1')).toBeVisible();
- await page.goBack();await expect(page.locator('article h1')).toHaveText('成员快速上手');
+ await page.goBack();await expect(page.locator('article h1')).toHaveText('项目组成员快速上手');
  await page.keyboard.press('Control+k');await page.getByRole('searchbox').fill('怎么加人');
  await expect(page.locator('.search-result').first()).toContainText(/成员|账号/);
  await page.screenshot({path:path.join(output,'search.png'),fullPage:false});
  await page.getByRole('searchbox').fill('上传成果');await expect(page.locator('.search-result')).not.toHaveCount(0);
  await page.getByRole('searchbox').press('Enter');await expect(page.getByRole('dialog',{name:'搜索手册',exact:true})).not.toBeVisible();
  await page.goto(url+'#section-6-3');await expect(page.locator('#section-6-3')).toBeVisible();
- await expect(page.locator('#section-6-3')).toHaveText(/核对并上传团队成果/);
+ await expect(page.locator('#section-6-3')).toHaveText(/审阅并保存整理结果/);
  await page.waitForTimeout(150);
  await page.screenshot({path:path.join(output,'steps.png'),fullPage:false});
  await page.getByRole('button',{name:'复制链接',exact:true}).click();
@@ -38,8 +38,8 @@ try{
  if(await copyDialog.isVisible()){await expect(page.getByLabel('当前链接',{exact:true})).toHaveValue(/#section-6-3$/);await copyDialog.getByRole('button',{name:'关闭',exact:true}).click();}
  else await expect(page.getByRole('status').last()).toContainText('当前链接已复制');
  for(const [section,alt] of [
-  ['roles','正式部署中总管理员、项目组管理员、成员 A 和 B 独立节点及两类服务的拓扑图'],
-  ['deployment','正式部署中总管理员、项目组管理员、成员 A 和 B 独立节点及两类服务的拓扑图'],
+  ['roles','正式部署中总管理员、项目组管理员、项目组成员 A 和 B 独立节点及两类服务的拓扑图'],
+  ['deployment','正式部署中总管理员、项目组管理员、项目组成员 A 和 B 独立节点及两类服务的拓扑图'],
   ['references','项目成果进入会话的四步流程示意'],
   ['share-results','成果整理、审核、附件上传和发布的流程示意'],
   ['conclusions','本地项目成果的账号同步范围示意'],
@@ -59,7 +59,7 @@ try{
  await expect(page.getByRole('dialog',{name:'放大查看配图',exact:true})).toBeVisible();await page.keyboard.press('Escape');
  await expect(page.getByRole('dialog',{name:'放大查看配图',exact:true})).not.toBeVisible();
  await page.goto(url+'#not-a-section');await expect(page.getByRole('heading',{name:'没有找到这个位置'})).toBeVisible();
- await page.getByRole('link',{name:'开始使用',exact:true}).click();await expect(page.locator('article h1')).toHaveText('开始使用');
+ await page.locator('article').getByRole('link',{name:'开始使用',exact:true}).click();await expect(page.locator('article h1')).toHaveText('开始使用');
  // Every topic and every section target can be opened from a fresh hash.
  const targets=await page.evaluate(()=>{const data=JSON.parse(document.getElementById('manual-data').textContent);return data.flatMap(a=>[a.id,...a.headings.map(h=>h.id)]);});
  const brokenLinks=await page.evaluate(valid=>{
@@ -70,7 +70,7 @@ try{
  for(const target of targets){
   await page.evaluate(hash=>{location.hash=hash;},target);
   await expect(page.getByRole('heading',{name:'没有找到这个位置'})).toHaveCount(0);
-  await expect.poll(()=>page.evaluate(t=>{const data=JSON.parse(document.getElementById('manual-data').textContent);const topic=data.find(a=>a.id===t);const quickstarts={'quickstart-member':'成员快速上手','quickstart-lead':'项目组管理员快速上手','quickstart-admin':'总管理员快速上手'};return topic?document.querySelector('article h1')?.textContent===topic.title:quickstarts[t]?document.querySelector('article h1')?.textContent===quickstarts[t]:!!document.getElementById(t);},target)).toBe(true);
+  await expect.poll(()=>page.evaluate(t=>{const data=JSON.parse(document.getElementById('manual-data').textContent);const topic=data.find(a=>a.id===t);return topic?document.querySelector('article h1')?.textContent===topic.title:!!document.getElementById(t);},target)).toBe(true);
  }
  const sidebarLinks=await page.locator('#navigation a[data-page]').evaluateAll(links=>links.map(a=>({id:a.dataset.page,label:a.textContent.trim()})));
  for(const {id,label} of sidebarLinks){
@@ -83,13 +83,15 @@ try{
  await expect(page.locator('#breadcrumb')).toContainText('无 systemd 的容器');
  await page.goto(url+'#gateway');
  await expect(page.locator('.network-route')).toBeVisible();
- await expect(page.locator('.network-route')).toContainText('管理员电脑');
+ await expect(page.locator('.network-route')).toContainText('管理端出口');
  await page.goto(url+'#case-egress-mixed');
- await expect(page.locator('article h1')).toHaveText('成员 A 直连，成员 B 通过管理端访问模型');
- for(const scenario of ['example','case-new-member','case-egress-mixed']){
+ await expect(page.locator('article h1')).toHaveText('创建工作会话');
+ await expect(page.locator('#case-egress-mixed')).toBeVisible();
+ await expect(page.locator('#case-egress-mixed')).toContainText('网络权限不足时接入管理端');
+ for(const scenario of ['example','case-first-session','case-project-sync','case-session-routes']){
   await page.goto(url+'#'+scenario);
-  await expect(page.locator('.case-diagram')).toBeVisible();
-  await expect(page.locator('.table-scroll.cols-2')).toBeVisible();
+  await expect(page.locator(`.ui-scenario-guide[data-scenario="${scenario}"]`)).toBeVisible();
+  await expect(page.locator('.table-scroll.cols-2').first()).toBeVisible();
  }
  await page.setViewportSize({width:390,height:844});await page.goto(url+'#start');
  await page.getByRole('button',{name:'目录',exact:true}).click();await expect(page.locator('#sidebar')).toBeVisible();

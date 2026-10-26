@@ -33,9 +33,26 @@ async function atomic(file, text, readonly = false) {
     if (readonly) await fs.chmod(file, 0o444);
   } finally { await fs.rm(temporary, { force: true }).catch(() => {}); if (readonly) await fs.chmod(file, 0o444).catch(() => {}); }
 }
-function sessionDirectory(session) {
+async function sessionDirectory(session) {
   if (!idOK(session.id) || !path.isAbsolute(session.cwd)) throw new Error('无效会话目录');
-  return path.join(session.cwd, '.workbench', 'sessions', session.id);
+  const logicalRoot = path.join(session.cwd, '.workbench');
+  // A workspace can expose its metadata through a junction (e.g. an old
+  // workspace pointing at the project directory). Resolve that entry once;
+  // all I/O stays anchored there and nested redirects remain disallowed.
+  await fs.mkdir(logicalRoot, { recursive: true });
+  const metadataRoot = await fs.realpath(logicalRoot);
+  if (!(await fs.stat(metadataRoot)).isDirectory()) throw new Error('会话数据目录不是文件夹');
+  return {
+    metadataRoot,
+    base: path.join(metadataRoot, 'sessions', session.id),
+    logicalBase: path.join(logicalRoot, 'sessions', session.id),
+  };
+}
+function handoffFile(session, location) {
+  const file = path.join(location.base, 'handoff.md');
+  const supplied = path.resolve(session.handoffPath);
+  if (path.relative(supplied, file) !== '' && path.relative(supplied, path.join(location.logicalBase, 'handoff.md')) !== '') throw new Error('摘要路径必须位于本会话目录');
+  return file;
 }
 async function execute(message) {
   await directory(root, recordsDir);
@@ -54,12 +71,13 @@ async function execute(message) {
     await fs.rm(path.join(recordsDir, message.sessionId + '.json'), { force: true });
     return true;
   }
-  const session = message.session, base = sessionDirectory(session);
+  const session = message.session, location = await sessionDirectory(session);
+  const { base, metadataRoot, logicalBase } = location;
   if (message.action === 'clear') {
     const target = path.join(base, 'project-journal');
     const stat = await fs.lstat(target).catch(e => { if (e.code !== 'ENOENT') throw e; });
     if (!stat) return true;
-    await directory(session.cwd, target);
+    await directory(metadataRoot, target);
     for (const name of await fs.readdir(target)) if (name === 'index.md' || /^[a-f0-9-]{36}\.md$/.test(name)) {
       const file = path.join(target, name);
       if (!(await fs.lstat(file)).isSymbolicLink()) await fs.chmod(file, 0o600);
@@ -68,10 +86,9 @@ async function execute(message) {
     await fs.rmdir(target).catch(e => { if (e.code !== 'ENOTEMPTY') throw e; });
     return true;
   }
-  await directory(session.cwd, base);
+  await directory(metadataRoot, base);
   if (message.action === 'commit') {
-    const file = path.join(base, 'handoff.md');
-    if (path.resolve(session.handoffPath) !== file) throw new Error('摘要路径必须位于本会话目录');
+    const file = handoffFile(session, location);
     const stat = await fs.lstat(file).catch(e => { if (e.code !== 'ENOENT') throw e; });
     if (stat?.isSymbolicLink()) throw new Error('摘要不能使用符号链接');
     const current = await fs.readFile(file, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
@@ -83,8 +100,7 @@ async function execute(message) {
     return { projectionError };
   }
   if (message.action === 'repair') {
-    const file = path.join(base, 'handoff.md');
-    if (path.resolve(session.handoffPath) !== file) throw new Error('摘要路径必须位于本会话目录');
+    const file = handoffFile(session, location);
     const stat = await fs.lstat(file).catch(e => { if (e.code !== 'ENOENT') throw e; });
     if (stat && (!stat.isFile() || stat.isSymbolicLink())) throw new Error('摘要路径不安全');
     const current = await fs.readFile(file, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
@@ -93,7 +109,7 @@ async function execute(message) {
   }
   if (message.action === 'project') {
     const target = path.join(base, 'project-journal');
-    await directory(session.cwd, target);
+    await directory(metadataRoot, target);
     const keep = new Set(['index.md']);
     for (const source of message.sources) {
       if (!idOK(source.id)) throw new Error('无效来源会话 ID');
@@ -112,7 +128,7 @@ async function execute(message) {
       }
     }
     await atomic(path.join(target, 'index.md'), message.text, true);
-    return path.join(target, 'index.md');
+    return path.join(logicalBase, 'project-journal', 'index.md');
   }
   throw new Error('未知日志操作');
 }

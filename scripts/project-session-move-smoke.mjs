@@ -27,7 +27,7 @@ await write(account, 'settings.json', { ...settings, workspaceSnapshot: { profil
 const now = new Date().toISOString();
 const session = (title, directory, binding) => {
   const id = randomUUID();
-  return { id, title, provider: 'codex', purpose: 'work', cwd: workspace, createdAt: now, status: 'idle', sources: [], approvals: [], autoUpload: false, handoffPath: path.join(directory, 'sessions', id, 'handoff.md'), binding, messages: [{ id: randomUUID(), role: 'user', text: '之前的讨论', createdAt: now }, { id: randomUUID(), role: 'assistant', text: '保留迁移前的结论。', createdAt: now }] };
+  return { id, title, provider: 'codex', purpose: 'work', directoryMode: 'project', cwd: workspace, createdAt: now, status: 'idle', sources: [], approvals: [], autoUpload: false, handoffPath: path.join(directory, 'sessions', id, 'handoff.md'), binding, messages: [{ id: randomUUID(), role: 'user', text: '之前的讨论', createdAt: now }, { id: randomUUID(), role: 'assistant', text: '保留迁移前的结论。', createdAt: now }] };
 };
 const parent = session('项目里的会话', account, { connectionId: profile.id, ...profile, project: projects[0] });
 const child = session('关联子会话', account, parent.binding);
@@ -109,8 +109,50 @@ try {
   await expect.poll(async () => (await call('snapshot')).sessions.find(s => s.id === parent.id).cwd).toBe(await fs.realpath(directoryTarget));
   await page.screenshot({ path: path.join(data, 'directory-mode.png') });
   await page.getByRole('button', { name: '取消', exact: true }).click();
+  // Recover a real filesystem failure directly from both conversation composers.
+  const nextDirectory = path.join(data, 'next-project-files'); await fs.mkdir(nextDirectory);
+  const loop = path.join(directoryTarget, 'loop');
+  await fs.symlink(directoryTarget, loop, process.platform === 'win32' ? 'junction' : 'dir');
+  await page.getByRole('button', { name: '项目设置：' + projects[0].name, exact: true }).click();
+  await page.getByLabel('代码目录（选填）', { exact: true }).fill(nextDirectory);
+  await page.getByRole('button', { name: '保存代码目录', exact: true }).click();
+  await expect(page.getByText('目录已保存，部分会话迁移待处理', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  const recovery = page.locator('main').getByRole('status', { name: '工作目录切换', exact: true });
+  await expect(recovery).toBeVisible(); await expect(recovery.getByText('工作目录未切换', { exact: true })).toBeVisible();
+  await expect(recovery.locator('details')).not.toHaveAttribute('open', '');
+  await page.screenshot({ path: path.join(data, 'directory-recovery.png') });
+  const beforeRecovery = await call('snapshot'), priorInput = beforeRecovery.inputs[parent.id], priorMessages = beforeRecovery.sessions.find(s => s.id === parent.id).messages;
+  await recovery.getByRole('button', { name: '继续使用原目录', exact: true }).click();
+  await expect(recovery).toHaveCount(0);
+  snapshot = await call('snapshot');
+  for (const id of [parent.id, child.id]) { const s = snapshot.sessions.find(s => s.id === id); assert.equal(s.cwd, directoryTarget); assert.equal(s.directoryMode, 'fixed'); assert(!s.directoryMove); }
+  assert.deepEqual(snapshot.inputs[parent.id], priorInput); assert.deepEqual(snapshot.sessions.find(s => s.id === parent.id).messages, priorMessages);
+  // The independent session keeps its pending move and can explicitly retry.
+  await page.locator(`[data-session-id="${unassigned.id}"]`).click();
+  await expect(recovery).toBeVisible();
+  assert.equal(path.dirname(loop), directoryTarget); assert(directoryTarget.startsWith(data + path.sep));
+  await fs.unlink(loop); // Remove only this fixture's junction, never its target.
+  await recovery.getByRole('button', { name: '重试切换', exact: true }).click();
+  await expect(recovery).toHaveCount(0);
+  snapshot = await call('snapshot'); assert.equal(snapshot.sessions.find(s => s.id === unassigned.id).cwd, nextDirectory);
+  assert.equal(await fs.readFile(path.join(directoryTarget, 'download.txt'), 'utf8'), 'downloaded output');
+  // Reproduce a linked .workbench root in the built application, then send a
+  // real UI turn through the fixture CLI. The native directory stays intact.
+  const metadata = path.join(nextDirectory, '.workbench'), physicalMetadata = path.join(data, 'linked-session-data');
+  assert(metadata.startsWith(data + path.sep) && physicalMetadata.startsWith(data + path.sep));
+  await fs.rename(metadata, physicalMetadata); await fs.symlink(physicalMetadata, metadata, process.platform === 'win32' ? 'junction' : 'dir');
+  await cli.write({ status: 'ready', turn: 'success', confirmCwd: true });
+  const input = page.getByLabel('任务输入', { exact: true });
+  await input.fill('验证链接目录下继续对话'); await input.press('Enter');
+  await expect.poll(async () => {
+    const current = (await call('snapshot')).sessions.find(s => s.id === unassigned.id);
+    return current.status === 'idle' && current.messages.some(m => m.role === 'user' && (m.userText || m.text).includes('验证链接目录下继续对话')) && current.messages.filter(m => m.role === 'assistant').length > 1;
+  }, { timeout: 30000 }).toBe(true);
+  await fs.stat(path.join(physicalMetadata, 'sessions', unassigned.id, 'project-journal', 'index.md'));
+  assert((await fs.lstat(metadata)).isSymbolicLink());
   assert.deepEqual(errors, []);
   await page.screenshot({ path: path.join(data, 'moved.png') });
-  console.log(JSON.stringify({ passed: true, data, cases: ['project entry shares the unassigned migration flow', 'current project excluded', 'family count includes children', 'offline team project migration', 'history and unsent input preserved', 'ownership survives reload', 'child-initiated migration opens the original hierarchy', 'unassigned migration still works', 'project folder follows into actual session cwd and files', 'fixed directory opt-out and opt-in'] }));
+  console.log(JSON.stringify({ passed: true, data, cases: ['project entry shares the unassigned migration flow', 'current project excluded', 'family count includes children', 'offline team project migration', 'history and unsent input preserved', 'ownership survives reload', 'child-initiated migration opens the original hierarchy', 'unassigned migration still works', 'project folder follows into actual session cwd and files', 'fixed directory opt-out and opt-in', 'directory failure offers direct recovery', 'continuing preserves family directories, drafts and history', 'explicit retry completes without deleting original files', 'linked metadata root supports sending from the UI and preserves journal files'] }));
 } catch (error) { await page?.screenshot({ path: path.join(data, 'failure.png') }).catch(() => {}); throw error; }
 finally { await app?.close().catch(() => {}); await server.close(); }

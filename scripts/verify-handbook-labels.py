@@ -7,7 +7,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = ROOT / 'docs/handbook/index.html'
+HTML = ROOT / '用户手册.html'
 
 
 class Links(HTMLParser):

@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOG = ROOT / "docs" / "handbook" / "revisions.json"
+HTML_PATHS = ("用户手册.html", "docs/handbook/index.html")
 PANEL = re.compile(
     r'<span class="revision-stamp">.*?</span><details class="revision-history">.*?</details>',
     re.S,
@@ -24,10 +25,15 @@ def git(*args: str) -> str:
 
 def committed_source(commit: str) -> str:
     """Preserve HTML whitespace so its fingerprint matches the saved source."""
-    return subprocess.check_output(
-        ["git", "show", f"{commit}:docs/handbook/index.html"],
-        cwd=ROOT, text=True, encoding="utf-8",
-    )
+    for filename in HTML_PATHS:
+        try:
+            return subprocess.check_output(
+                ["git", "show", f"{commit}:{filename}"],
+                cwd=ROOT, text=True, encoding="utf-8", stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            continue
+    raise ValueError(f"No handbook HTML at commit {commit}")
 
 
 def content_without_history(source: str) -> str:
@@ -40,7 +46,7 @@ def fingerprint(source: str) -> str:
 
 def historical_revisions() -> list[dict]:
     """Seed only Git commits that actually changed the handbook HTML."""
-    lines = git("log", "--format=%H%x1f%cI%x1f%s", "--", "docs/handbook/index.html").splitlines()
+    lines = git("log", "--format=%H%x1f%cI%x1f%s", "--", *HTML_PATHS).splitlines()
     entries = []
     for line in reversed(lines):
         commit, updated_at, summary = line.split("\x1f", 2)
@@ -70,7 +76,7 @@ def finalize_committed_revisions(entries: list[dict]) -> bool:
     if not pending:
         return False
     changed = False
-    for commit in git("log", "--format=%H", "--", "docs/handbook/index.html").splitlines():
+    for commit in git("log", "--format=%H", "--", *HTML_PATHS).splitlines():
         digest = fingerprint(committed_source(commit))
         if digest in pending:
             pending[digest]["document_commit"] = commit

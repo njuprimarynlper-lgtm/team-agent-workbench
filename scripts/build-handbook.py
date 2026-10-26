@@ -32,6 +32,7 @@ def plain(value):
  return re.sub(r'[*`#]','',value).strip()
 
 def destination(target):
+ if target == '../用户手册.html': return '#start'
  filename,_,fragment=target.partition('#')
  if filename in RELATED:
   if fragment:
@@ -436,10 +437,10 @@ def main(capture_ui=True):
  output=(template.replace('/*__STYLE__*/',(WEB/'handbook.css').read_text(encoding='utf-8'))
          .replace('/*__SCRIPT__*/',script).replace('/*__ARTICLES__*/',data)
          .replace('/*__STRUCTURE__*/',navigation))
- (WEB/'index.html').write_text(output,encoding='utf-8')
+ (ROOT/'用户手册.html').write_text(output,encoding='utf-8')
  # Preserve the interface walkthroughs whenever the handbook is rebuilt.
  from handbook_ui_scenarios import enhance_html
- enhance_html(WEB/'index.html',capture_ui=False)
+ enhance_html(ROOT/'用户手册.html',capture_ui=False)
  print(f'Built {len(articles)} topics, {sum(len(a["sections"]) for a in articles)} sections; {len(output.encode())} bytes. No external runtime dependencies.')
 
 if __name__=='__main__':

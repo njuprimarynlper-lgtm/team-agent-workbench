@@ -55,6 +55,26 @@ export class SessionInputQueue {
       this.host.changed(); return true;
     });
   }
+  async move(id: string, itemId: string, beforeId?: string) {
+    return this.edit(async () => {
+      const queue = this.host.session(id).inputQueue;
+      const item = queue?.items.find(value => value.id === itemId);
+      const target = beforeId ? queue?.items.find(value => value.id === beforeId) : undefined;
+      if (!queue || !item || item.state !== 'queued' || (beforeId && (!target || target.state !== 'queued'))) throw new Error('消息已开始发送或队列已变化，请重试');
+      if (itemId === beforeId) return true;
+      const previous = [...queue.items];
+      queue.items = queue.items.filter(value => value.id !== itemId);
+      queue.items.splice(target ? queue.items.indexOf(target) : queue.items.length, 0, item);
+      try { await this.host.save(); } catch (error) {
+        // A provider acknowledgement can consume its reserved row while this
+        // save is pending. Restore order, never resurrect a consumed message.
+        const order = new Map(previous.map((value, index) => [value.id, index]));
+        queue.items.sort((a, b) => (order.get(a.id) ?? previous.length) - (order.get(b.id) ?? previous.length));
+        throw error;
+      }
+      this.host.changed(); return true;
+    });
+  }
   async steer(id: string, itemId: string, turnId: string) {
     // Lock synchronously against the dispatcher before awaiting disk or provider IO.
     if (this.active.has(id)) throw new Error('消息正在提交，请稍后引导');

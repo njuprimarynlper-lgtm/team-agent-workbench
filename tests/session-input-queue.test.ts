@@ -101,3 +101,44 @@ test('stop during persistence prevents provider invocation; a reserved row canno
   f.session.inputQueue!.paused = true; f.host.save = async () => {}; release(); await pumping;
   assert.equal(f.sent.length, 0); assert.equal(f.session.inputQueue!.items[0].state, 'queued');
 });
+
+test('reordering only changes pending dispatch order and preserves each complete input', async () => {
+  const f = fixture();
+  for (const text of ['first', 'second', 'third']) await f.queue.enqueue('s', input(text));
+  const [a, b, c] = f.session.inputQueue!.items;
+  await f.queue.move('s', c.id, a.id); await f.queue.move('s', a.id);
+  assert.deepEqual(f.session.inputQueue!.items.map(i => i.id), [c.id, b.id, a.id]);
+  assert.equal(f.sent.length, 0);
+  for (let i = 0; i < 3; i++) { f.session.status = 'idle'; await f.queue.pump('s'); }
+  assert.deepEqual(f.sent.map(i => i.text), ['third', 'second', 'first']);
+});
+test('failed reorder restores order; stale or sending rows cannot be moved', async () => {
+  const f = fixture(); await f.queue.enqueue('s', input('a')); await f.queue.enqueue('s', input('b'));
+  const [a, b] = f.session.inputQueue!.items; f.setSaveFail(true);
+  await assert.rejects(f.queue.move('s', b.id, a.id), /磁盘/);
+  assert.deepEqual(f.session.inputQueue!.items.map(i => i.id), [a.id, b.id]); f.setSaveFail(false);
+  a.state = 'sending';
+  await assert.rejects(f.queue.move('s', a.id), /开始发送/);
+  await assert.rejects(f.queue.move('s', b.id, a.id), /开始发送/);
+  await assert.rejects(f.queue.move('s', b.id, 'missing'), /队列已变化/);
+  a.state = 'queued'; await f.queue.move('s', a.id, a.id);
+  assert.deepEqual(f.session.inputQueue!.items.map(i => i.id), [a.id, b.id]);
+});
+
+test('a failed reorder cannot resurrect a message accepted while persistence was pending', async () => {
+  const f = fixture(); for (const text of ['a', 'b', 'c']) await f.queue.enqueue('s', input(text));
+  const [a, b, c] = f.session.inputQueue!.items;
+  let accept!: (value: boolean) => void;
+  f.host.send = async (_id, value) => { f.sent.push(value); return new Promise<boolean>(resolve => { accept = resolve; }); };
+  f.session.status = 'idle'; const pumping = f.queue.pump('s');
+  while (!accept) await new Promise(resolve => setImmediate(resolve));
+  let failSave!: (reason: Error) => void;
+  f.host.save = () => new Promise<void>((_resolve, reject) => { failSave = reject; });
+  const moving = f.queue.move('s', c.id, b.id);
+  const rejected = assert.rejects(moving, /磁盘/);
+  while (!failSave) await new Promise(resolve => setImmediate(resolve));
+  f.host.save = async () => {}; accept(true); await pumping;
+  failSave(new Error('磁盘已满')); await rejected;
+  assert.deepEqual(f.session.inputQueue!.items.map(item => item.id), [b.id, c.id]);
+  assert.equal(f.session.inputQueue!.items.some(item => item.id === a.id), false);
+});

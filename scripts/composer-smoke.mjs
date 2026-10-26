@@ -16,6 +16,9 @@ const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', e => errors.push(e.message));
   await dismissStartupLogin(page);
+  await page.locator('[data-project-id="' + offlineProjectId + '"]').click();
+  await page.getByLabel('代码目录（选填）', { exact: true }).fill(data);
+  await page.getByRole('button', { name: '保存并进入项目', exact: true }).click();
   const call = (action, payload) => page.evaluate(([a, p]) => window.workbench.call(a, p), [action, payload]);
   const rpcCalls = async () => (await fs.readFile(path.join(data, 'cli', 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   await page.setViewportSize({ width: 1100, height: 760 });

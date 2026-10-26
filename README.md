@@ -304,7 +304,7 @@ powershell.exe -NoLogo -NoProfile -STA -NonInteractive -ExecutionPolicy Bypass -
 
 ## 使用手册
 
-[Markdown 在线阅读](docs/user-guide.md) · [网页手册](docs/handbook/index.html) · [离线手册 ZIP](docs/manuals/团队工作台使用手册_v1.3.zip) · [Word](docs/manuals/团队工作台使用手册_v1.3.docx) · [PDF](docs/manuals/团队工作台使用手册_v1.3.pdf)
+[Codex 功能对照表](Codex功能对照表.md) · [Markdown 在线阅读](docs/user-guide.md) · [用户手册 HTML](用户手册.html) · [离线手册 ZIP](docs/manuals/团队工作台使用手册_v1.3.zip) · [Word](docs/manuals/团队工作台使用手册_v1.3.docx) · [PDF](docs/manuals/团队工作台使用手册_v1.3.pdf)
 
 v1.3 离线手册对应 0.7.0 / 5fe696d，早于本次项目目录、成果库交互和 Claude Code 接入更新；最新步骤以本 README、Markdown 使用手册及 [Claude Code 接入](docs/claude-code.md)为准。离线包解压后双击 `使用手册.html`，可搜索并按章节导航；它是操作文档，不包含工作台程序。在 GitHub 上直接阅读请使用 Markdown，HTML 需下载后打开。后续维护见[手册维护说明](docs/manual-maintenance.md)。
 

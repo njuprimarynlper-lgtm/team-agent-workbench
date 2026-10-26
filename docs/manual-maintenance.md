@@ -6,7 +6,7 @@
 
 可维护的配图在 `docs/images/user-manual/`。其中 5 张流程示意图由 `scripts/build-manual-diagrams.py` 绘制；3 张管理员界面图来自隔离演示环境，不含真实团队或模型数据。网页的版式源文件是 `docs/handbook/template.html`、`handbook.css` 和 `handbook.js`。
 
-生成物包括 `docs/handbook/index.html`，以及 `docs/manuals/团队工作台使用手册_v<版本>.docx`、同名 PDF 和 ZIP。网页可以单独离线打开；ZIP 包含互相可打开的网页、Word、PDF、Markdown 与配图。Word/PDF 的配套资料链接指向源稿所标注代码版本的仓库，需要联网。
+生成物包括 根目录的 `用户手册.html`，以及 `docs/manuals/团队工作台使用手册_v<版本>.docx`、同名 PDF 和 ZIP。网页可以单独离线打开；ZIP 包含互相可打开的网页、Word、PDF、Markdown 与配图。Word/PDF 的配套资料链接指向源稿所标注代码版本的仓库，需要联网。
 
 部署操作维护在 `docs/deployment-guide.md`，网络出口维护在 `docs/network-egress.md`。它们作为网页独立主题和离线包 Markdown 收录，不复制成长篇手册正文。安装包无需因为手册刷新而重建。
 

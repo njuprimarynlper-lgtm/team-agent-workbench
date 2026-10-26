@@ -24,7 +24,7 @@ from handbook_screenshots import screenshot_caption, screenshot_search
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "docs" / "handbook"
 DATA = WEB / "ui-scenarios.json"
-HTML = WEB / "index.html"
+HTML = ROOT / "用户手册.html"
 SCREENS = WEB / "ui-screens"
 
 

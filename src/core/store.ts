@@ -9,7 +9,7 @@ import { migrateSessionContext } from './session-context';
 import { repairConclusionImports } from './conclusion-import-repair';
 import { accountIdentity } from '../shared/account-data';
 import { rememberPreparationProgress } from '../shared/preparation-progress';
-import { migrateProjectDirectories } from '../shared/project-directory';
+import { migrateProjectDirectories, followsProjectDirectory } from '../shared/project-directory';
 import { linkConclusionPublications } from './conclusion-publications';
 import { recoverInputQueue } from './session-input-queue';
 export async function atomicJson(file: string, data: unknown, ascii = false) {
@@ -58,6 +58,10 @@ export class Store {
     try { this.inputs = JSON.parse(await fs.readFile(path.join(this.root, 'inputs.json'), 'utf8')); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地 inputs.json 无法读取'); }
     this.sessions.forEach(s => { delete s.cliConnection; delete s.desktopSyncPending; delete s.desktopWaitingApproval; delete s.desktopSyncState; delete s.desktopSyncError; if (['starting', 'running', 'approval'].includes(s.status)) { s.status = s.closedAt || s.stoppedAt || s.codexDesktop || s.cursorNative || s.codexRemote ? 'idle' : 'error'; if(s.codexDesktop || s.cursorNative || s.codexRemote)s.error=undefined; if (s.status === 'error') s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } s.approvals = []; migrateSessionContext(s); });
     this.sessions.forEach(recoverInputQueue);
+    for (const session of this.sessions) {
+      session.directoryMode ??= 'fixed';
+      if (!followsProjectDirectory(session)) delete session.directoryMove;
+    }
     // MCP now belongs to configuration, not the next-message selection. Keep historic messages intact.
     for (const session of this.sessions) if (session.provider === 'cursor' && this.inputs[session.id]?.capabilities) {
       this.inputs[session.id].capabilities = this.inputs[session.id].capabilities!.filter(item => !item.id.startsWith('plugin:mcp:'));

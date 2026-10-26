@@ -23,7 +23,7 @@ IMAGES = DOCS / 'images/user-manual'
 DIAGRAMS = [IMAGES / name for name in (
     'reference-flow.png', 'publish-flow.png', 'sync-scope.png',
     'task-lifecycle.png', 'deployment-logic.png')]
-HTML = DOCS / 'handbook/index.html'
+HTML = ROOT / '用户手册.html'
 DOCX = DOCS / 'manuals' / f'{META.filename}.docx'
 PDF = DOCX.with_suffix('.pdf')
 PACKAGE = DOCX.with_suffix('.zip')

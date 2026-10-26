@@ -162,7 +162,7 @@ async function userScene(page,data){
    await page.locator('[data-project-id="handbook-project"]').first().click();
    await page.getByTitle('项目设置：'+data.project.name,{exact:true}).first().click();
    await page.getByRole('tab',{name:'中央节点',exact:true}).click();
-   await page.getByLabel('同步到工作组',{exact:false}).selectOption('team_one');
+   const groupChoice = page.getByLabel('关联工作组', { exact: true }); if (await groupChoice.count()) await groupChoice.selectOption('team_one');
   }else{
    await page.locator('.topbar-actions > button').first().click();
    await page.getByRole('dialog',{name:'账号资料同步'}).waitFor();

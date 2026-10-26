@@ -57,7 +57,7 @@ try {
   await row(b.id).locator('.project-connection-entry').click();
   const central=page.getByLabel('项目中央节点',{exact:true});
   await expect(central).toContainText('未连接');
-  await central.getByRole('button',{name:'连接本项目',exact:true}).click();
+  await central.getByRole('button',{name:'连接',exact:true}).click();
   const modal=page.locator('.modal').filter({has:page.getByRole('heading',{name:'项目中央节点',exact:true})});
   await expect(modal.getByLabel('选择中央节点连接')).toBeVisible();
   await expect(modal.getByLabel('登录密码',{exact:true})).toHaveCount(0);
@@ -75,7 +75,7 @@ try {
   await settings.getByRole('button',{name:'关闭窗口',exact:true}).click();
   await expect(page.locator('[data-session-id="'+data.session.id+'"]').first()).toBeVisible();
   await page.evaluate(()=>window.centralFixture.offline());
-  await row(a.id).locator('.project-connection-entry').click();await central.getByRole('button',{name:'连接本项目',exact:true}).click();
+  await row(a.id).locator('.project-connection-entry').click();await central.getByRole('button',{name:'连接',exact:true}).click();
   await expect(modal.getByLabel('中央节点地址',{exact:true})).toHaveValue(data.profile.host);
   await expect(modal.getByLabel('成员账号',{exact:true})).toHaveValue(data.profile.username);
   await expect(modal.getByLabel('登录密码',{exact:true})).toHaveValue('');

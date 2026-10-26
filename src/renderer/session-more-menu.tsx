@@ -14,6 +14,15 @@ export function SessionMoreMenu({ label = '更多会话操作', children }: { la
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) event.currentTarget.open = false; }}
     onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        const root = event.currentTarget;
+        root.open = true;
+        const options = [...root.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+        const index = options.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1 : event.key === 'ArrowDown' ? (index + 1) % options.length : (index <= 0 ? options.length : index) - 1;
+        options[next]?.focus();
+      }
     }}>
     <summary role="button" aria-label={label} title={label}><Ellipsis size={18}/></summary>
     <div className="session-more-actions" onClick={event => {

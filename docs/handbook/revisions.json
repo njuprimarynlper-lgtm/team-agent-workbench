@@ -613,9 +613,30 @@
     {
       "updated_at": "2026-10-23T12:00:19+08:00",
       "base_commit": "518ce4e398434a39f0d9d4f3176c6663967ef988",
-      "document_commit": null,
+      "document_commit": "27b072fa246dc31c8722fedd5cda0d67d64a7de6",
       "summary": "按项目连接中央节点、复用登录连接；补充消息排队和项目会话迁移说明，并同步寻求帮助文案。",
       "content_sha256": "f11d2a35ee4c07ef1edf0d297b52f16136bd18d2d8ce82eecd9b77332e53ca0e"
+    },
+    {
+      "updated_at": "2026-10-26T10:08:25+08:00",
+      "base_commit": "27b072fa246dc31c8722fedd5cda0d67d64a7de6",
+      "document_commit": null,
+      "summary": "补充目录链接迁移、旧会话保持原目录，以及对话区继续原目录和重试切换的操作。",
+      "content_sha256": "5f010a7c27cbaf37eab474b000e6114403321332f1bb6916f37db87d0028b57c"
+    },
+    {
+      "updated_at": "2026-10-26T18:37:29+08:00",
+      "base_commit": "27b072fa246dc31c8722fedd5cda0d67d64a7de6",
+      "document_commit": null,
+      "summary": "v2.2.31：简化项目关联与会话交互，用户手册移至根目录",
+      "content_sha256": "561edca7386e8ef6d25169b96e8aa07500d6481411d109320d6ad8729e19ba5f"
+    },
+    {
+      "updated_at": "2026-10-26T18:42:00+08:00",
+      "base_commit": "27b072fa246dc31c8722fedd5cda0d67d64a7de6",
+      "document_commit": null,
+      "summary": "v2.2.31：简化项目关联与会话交互，用户手册移至根目录",
+      "content_sha256": "91226edc14c14f634e3c2b6c956c40669b4efca551bb58b5aa7ecfd8393485f8"
     }
   ]
 }

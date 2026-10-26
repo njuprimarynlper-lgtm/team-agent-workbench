@@ -7,6 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Workbench } from '../src/core/workbench';
 import { ProjectSettingsDialog, ProjectDirectoryDialog } from '../src/renderer/project-directory';
+import { DirectoryMoveNotice } from '../src/renderer/directory-move-notice';
 import { migrateProjectDirectories, projectDirectory, projectDirectoryKey } from '../src/shared/project-directory';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 
@@ -101,4 +102,18 @@ test('ordinary members can edit their local directory even when shared project s
   assert.match(withMembers, /成员与权限对项目组「研发组」内所有项目生效/);
   assert.match(withMembers, /连接中央节点后，可查看和管理成员与权限/);
   assert.equal((withMembers.match(/role="dialog"/g) || []).length, 1);
+}));
+
+test('directory recovery is available in the conversation, with details folded and no automatic sends', async () => fixture(async (wb, root) => {
+  const s = await wb.createSession('codex', root, offlineProjectId);
+  const api = { call: async () => { throw new Error('render must never choose a directory or send'); }, onEvent: () => () => {} } as any;
+  const render = () => renderToStaticMarkup(createElement(DirectoryMoveNotice, { session: s, api, changed: async () => {} }));
+  assert.equal(render(), '');
+  s.directoryMove = { id: 'move', from: root, to: root + '-next', error: '循环链接的技术原因' };
+  const failed = render();
+  assert.match(failed, /工作目录未切换/); assert.match(failed, /继续使用原目录/); assert.match(failed, /重试切换/);
+  assert.match(failed, /<details><summary>查看原因与目录<\/summary>/); assert.doesNotMatch(failed, /<details[^>]*open/);
+  delete s.directoryMove.error;
+  const pending = render(); assert.match(pending, /继续使用原目录/); assert.doesNotMatch(pending, /重试切换/);
+  s.closedAt = new Date().toISOString(); assert.equal(render(), '');
 }));

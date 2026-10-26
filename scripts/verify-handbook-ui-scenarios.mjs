@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
 
 const root = path.resolve(import.meta.dirname, '..');
-const html = path.join(root, 'docs/handbook/index.html');
+const html = path.join(root, '用户手册.html');
 const scenarios = JSON.parse(await fs.readFile(path.join(root, 'docs/handbook/ui-scenarios.json'), 'utf8'));
 const screenshotManifest = JSON.parse(await fs.readFile(path.join(root, 'docs/handbook/ui-screens/manifest.json'), 'utf8'));
 const guides = JSON.parse(await fs.readFile(path.join(root, 'docs/handbook/screenshot-guides.json'), 'utf8'));

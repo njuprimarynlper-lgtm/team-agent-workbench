@@ -434,6 +434,9 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.queue.remove': {
       const p = z.object({ id, itemId: id }).parse(raw); return workbench.inputQueue.update(p.id, p.itemId);
     }
+    case 'session.queue.move': {
+      const p = z.object({ id, itemId: id, beforeId: id.optional() }).parse(raw); return workbench.inputQueue.move(p.id, p.itemId, p.beforeId);
+    }
     case 'session.queue.pause':
     case 'session.queue.resume': return workbench.inputQueue.pause(sessionInput.parse(raw).id, action === 'session.queue.pause');
     case 'session.queue.steer': {

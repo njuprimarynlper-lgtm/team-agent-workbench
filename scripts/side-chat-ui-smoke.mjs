@@ -24,6 +24,7 @@ import ${modulePath('src/renderer/styles.css')};
 import ${modulePath('src/renderer/subsession-chat.css')};
 import ${modulePath('src/renderer/session-transcript.css')};
 import ${modulePath('src/renderer/project-interactions.css')};
+import ${modulePath('src/renderer/desktop-interactions.css')};
 const parent={id:'parent',provider:'codex',title:'测试主会话',status:'running',messages:[],sources:[],approvals:[],cwd:'C:/fixture',purpose:'work'};
 let chats=[],seq=0;window.fixture={parent,subsessions:0,quote:'',calls:[]};
 function App(){
@@ -101,7 +102,8 @@ createRoot(document.getElementById('root')).render(<App/>);
   assert.equal(await page.evaluate(() => window.fixture.subsessions), 1);
   await page.screenshot({ path: path.join(out, 'side-chat.png'), fullPage: true });
   await page.evaluate(() => window.fixture.expire());
-  assert(await page.getByRole('button', { name: '发送', exact: true }).isDisabled());
+  assert(await page.getByRole('button', { name: '发送侧聊', exact: true }).isDisabled());
+  assert(await input.isDisabled());
   assert.deepEqual(errors, []);
   console.log('PASS: separate subsession/selection entries, text selection, draft retention, multiple chats, final folding, close isolation, expiration');
   console.log('Screenshot: ' + path.join(out, 'side-chat.png'));

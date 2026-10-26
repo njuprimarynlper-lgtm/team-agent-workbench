@@ -6,7 +6,7 @@ import { accountIdentity } from '../src/shared/account-data';
 import { connectionProject, connectedProjectSelection, reusableProjectConnections, separateProjectWindow, projectCreationInputSchema, projectConnectionError } from '../src/shared/project-connection';
 import { ProjectRefreshButton } from '../src/renderer/project-refresh';
 import { ProjectBriefEditor } from '../src/renderer/project-brief-editor';
-import { ProjectCentralConnection } from '../src/renderer/project-connection';
+import { ProjectCentralConnection, LocalProjectConnection } from '../src/renderer/project-connection';
 import { ProjectSettingsDialog } from '../src/renderer/project-directory';
 import type { ConnectionProfile } from '../src/shared/types';
 
@@ -66,10 +66,21 @@ test('project settings show the actual server and account with the shared connec
   const central = createElement(ProjectCentralConnection, { profile, connected: false, configure() {} });
   const html = renderToStaticMarkup(createElement(ProjectSettingsDialog, { project, contextKey: 'scope', admin: false, central, close() {}, directorySaved: async () => {}, briefSaved: async () => {} }));
   assert.match(html, /role="tab"[^>]*>中央节点/);
-  assert.match(html, /node-a:22/); assert.match(html, /成员账号：alice/); assert.match(html, /连接本项目/);
+  assert.match(html, /node-a:22/); assert.match(html, /成员账号：alice/); assert.match(html, />连接<\/button>/);
   const connected = renderToStaticMarkup(createElement(ProjectCentralConnection, { profile, connected: true, configure() {} }));
   assert.match(connected, /已连接/); assert.match(connected, /断开本项目/);
   assert.doesNotMatch(connected, /type="password"/);
+});
+
+test('local project association only requires missing choices, and does not offer a separate sync mode', () => {
+  const group = { path: '/projects/research', canonicalPath: '/projects/research', groupName: 'research', groupLabel: '研究组', canCreateProject: true };
+  const render = (groups: typeof group[], connected = true) => renderToStaticMarkup(createElement(LocalProjectConnection, { projectId: 'local', profile: connected ? profile : undefined, groups, configure() {}, linked: async () => {} }));
+  const one = render([group]); assert.match(one, /研究组/); assert.doesNotMatch(one, /<select|disabled|关联并自动同步|选择其他连接/);
+  assert.match(one, />关联项目<\/button>/); assert.match(one, /aria-label="更换中央节点"/);
+  const many = render([group, { ...group, groupName: 'software', groupLabel: '开发组' }]);
+  assert.match(many, /aria-label="关联工作组"/); assert.match(many, /disabled=""[^>]*>关联项目/);
+  const none = render([{ ...group, canCreateProject: false }]); assert.match(none, /没有可关联的工作组/); assert.match(none, /disabled=""[^>]*>关联项目/);
+  assert.doesNotMatch(render([group], false), /关联项目<\/button>|<select|自动同步/);
 });
 
 test('project creation accepts a name before authentication without accepting passwords into the continuation', () => {

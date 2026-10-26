@@ -146,6 +146,7 @@ export function installFixture(data) {
     if(action==='conclusion.list') return copy(data.pane.screen.includes('个人成果')||data.pane.screen.includes('项目成果库 › 个人')||data.pane.screen.includes('AI 参考内容') ? data.conclusions : []);
     if(action==='content.sync' || action==='content.updates') return copy(data.updates);
     if(action==='project.brief') return {brief:copy(data.brief),revision:1,updatedAt:data.at};
+    if(action==='project.directory.impact') return {following:0,fixed:0,pending:0,failed:0,sessions:[]};
     if(action==='result.rules') return {owner:data.username,version:'example-1',preferences:{combinations:[],projects:{}},combination:{id:'research',name:'算法研究',categories:['finding','project_standard','method_exploration','verification','issue','baseline_change_proposal']}};
     if(action==='remote.manifest') return copy(data.profile);
     if(action==='remote.list') return [{name:'项目说明.md',path:data.project.remoteRoot+'/项目说明.md',kind:'file',size:2400,modified:Date.parse(data.at)},{name:'samples',path:data.project.remoteRoot+'/samples',kind:'directory',size:0,modified:Date.parse(data.at)}];

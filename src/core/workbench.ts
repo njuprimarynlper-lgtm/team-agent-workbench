@@ -1125,15 +1125,14 @@ export class Workbench {
     return { pendingReload: sessions.filter((s, index) => s.settingsPending || results[index].status === 'rejected').length };
   }
   assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady && !this.localProfile()?.projects.length) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先连接中央节点并验证成员身份'); }
-  private queueDirectoryMove(session: AgentSession, directory?: string) {
-    if (session.purpose !== 'work' || !followsProjectDirectory(session)) return;
+  private queueDirectoryMove(session: AgentSession, directory?: string, retry = false) {
+    if (session.purpose !== 'work' || !followsProjectDirectory(session)) { delete session.directoryMove; return; }
     // "Unassigned" is a virtual container; its sessions can have unrelated roots.
     if (session.binding?.project.id === PERSONAL_PROJECT_ID) { delete session.directoryMove; return; }
     if (!directory || path.resolve(session.cwd) === path.resolve(directory)) { delete session.directoryMove; return; }
-    if (session.directoryMove?.to !== directory || session.directoryMove.error) session.directoryMove = { id: randomUUID(), from: session.cwd, to: directory };
+    if (session.directoryMove?.to !== directory || retry && session.directoryMove.error) session.directoryMove = { id: randomUUID(), from: session.cwd, to: directory };
   }
-  // Includes legacy managed sessions which already belong to a project but still
-  // run in their original research workspace. Imported roots remain opt-in.
+  // Only sessions with an explicit follow-project choice may be moved.
   async reconcileProjectDirectories() {
     const profile = this.localProfile(); if (!profile) return;
     await this.edit('directory-reconcile', async () => {
@@ -1163,13 +1162,14 @@ export class Workbench {
       }
       const family = candidates.filter(s => ids.has(s.id));
       if (mode === 'project' && family.some(s => !canFollowProjectDirectory(s))) throw new Error('关联会话含外部管理的目录，不能跟随项目');
-      const previous = family.map(s => ({ session: s, mode: s.directoryMode, move: s.directoryMove })), profile = this.localProfile();
+      const previous = family.map(s => ({ session: s, mode: s.directoryMode, move: s.directoryMove, queuePaused: !!s.inputQueue?.paused })), profile = this.localProfile();
       for (const s of family) {
+        if (s.directoryMove && s.inputQueue?.items.length) s.inputQueue.paused = true;
         s.directoryMode = mode;
         if (mode === 'fixed') delete s.directoryMove;
-        else this.queueDirectoryMove(s, profile && projectDirectory(this.store.settings, profile, s.binding!.project.id));
+        else this.queueDirectoryMove(s, profile && projectDirectory(this.store.settings, profile, s.binding!.project.id), true);
       }
-      try { await this.store.save(); } catch (error) { for (const old of previous) { old.session.directoryMode = old.mode; old.session.directoryMove = old.move; } throw error; }
+      try { await this.store.save(); } catch (error) { for (const old of previous) { old.session.directoryMode = old.mode; old.session.directoryMove = old.move; if (old.session.inputQueue) old.session.inputQueue.paused = old.queuePaused; } throw error; }
       this.broadcast();
     }, false);
     await this.flushProjectDirectories(); return session;
@@ -1181,7 +1181,7 @@ export class Workbench {
       for (const session of this.store.sessions) {
         if (this.closing || this.configuring || this.personalMoving) break;
         const move = session.directoryMove;
-        if (!move || session.closedAt || !this.ownsLocal(session.binding) || (move.retryAt || 0) > Date.now()) continue;
+        if (!move || move.error || session.closedAt || !this.ownsLocal(session.binding) || (move.retryAt || 0) > Date.now()) continue;
         // Any session sharing the source or destination may still be writing files.
         const roots = await Promise.all([move.from, move.to].map(dir => fs.realpath(dir).catch(() => path.resolve(dir))));
         const peerCandidates = await Promise.all(this.store.sessions.map(async s => ({ s, cwd: await fs.realpath(s.cwd).catch(() => path.resolve(s.cwd)) })));
@@ -1189,8 +1189,9 @@ export class Workbench {
         try { this.assertMoveIdle(peers, false); } catch { continue; }
         const ids = new Set(peers.map(s => s.id)); ids.add(session.id);
         ids.forEach(id => this.movingIds.add(id));
-        const resumeQuestions = this.questions.pauseSessions(ids);
+        let resumeQuestions = () => {};
         try {
+          resumeQuestions = this.questions.pauseSessions(ids);
           await this.rsi.pause(); await this.activity.pause();
           let externalBusy = false;
           for (const peer of peers.filter(s => s.codexDesktop && s.nativeId && !s.closedAt)) {
@@ -1226,7 +1227,12 @@ export class Workbench {
           await this.journal.invalidate();
           for (const entry of this.sideChats.values()) if (ids.has(entry.view.parentId)) entry.view.expired = true;
         } catch (error: any) {
-          if (session.directoryMove) { session.directoryMove.error = error.message; session.directoryMove.retryAt = Date.now() + 60000; await this.store.save(); }
+          if (session.directoryMove) {
+            session.directoryMove.error = error.message; delete session.directoryMove.retryAt;
+            // Recovery must not unexpectedly run a queued task in a different cwd.
+            if (session.inputQueue?.items.length) session.inputQueue.paused = true;
+            await this.store.save();
+          }
         } finally { resumeQuestions(); ids.forEach(id => this.movingIds.delete(id)); this.activity.resume(); this.broadcast(); }
       }
     }, false).finally(() => { this.directoryJob = undefined; });
@@ -1251,7 +1257,7 @@ export class Workbench {
       const sessions = this.store.sessions.filter(s => !s.closedAt && s.binding?.project.id === projectId && this.ownsLocal(s.binding));
       const oldMoves = sessions.map(s => [s, s.directoryMove] as const);
       directories[contextKey] = canonical;
-      for (const session of sessions) this.queueDirectoryMove(session, canonical);
+      for (const session of sessions) this.queueDirectoryMove(session, canonical, true);
       try { await this.store.save(); }
       catch (error) { if (previous === undefined) delete directories[contextKey]; else directories[contextKey] = previous; for (const [s, move] of oldMoves) s.directoryMove = move; throw error; }
       this.broadcast(); return canonical;
@@ -1864,7 +1870,7 @@ export class Workbench {
     if (!userText.trim()) throw new Error('请输入任务内容');
     if (this.store.sessions.find(s => s.id === id)?.directoryMove) await this.flushProjectDirectories();
     const s = this.session(id); this.assertCanWork(s.binding);
-    if (s.directoryMove) throw new Error('工作目录尚未切换完成：' + (s.directoryMove.error || '等待当前任务结束') + '。可在会话归属中查看目录状态。');
+    if (s.directoryMove) throw new Error(s.directoryMove.error ? '工作目录尚未切换完成，消息未发送。请在输入框上方选择“继续使用原目录”或“重试切换”。' : '工作目录正在等待切换，消息未发送。可等待切换完成，或在输入框上方选择“继续使用原目录”。');
     this.providerEnvironment(s.networkRoute, s);
     if (!questionRunId) { const autoPeer = this.questions.lockedPeer(id); if (autoPeer) throw new Error(`这个 Session 正在与${autoPeer}自动对话，不能手动发送`); }
     if (s.cursorNative) {

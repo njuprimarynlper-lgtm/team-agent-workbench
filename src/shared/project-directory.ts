@@ -6,7 +6,8 @@ export function canFollowProjectDirectory(session: AgentSession) {
 }
 export function followsProjectDirectory(session: AgentSession) {
   if (!canFollowProjectDirectory(session)) return false;
-  return session.directoryMode ? session.directoryMode === 'project' : !session.nativeLive;
+  // Existing records without a choice must not move files during an upgrade.
+  return session.directoryMode === 'project';
 }
 
 export const projectDirectoryKey = (profile: ConnectionProfile, projectId: string) => projectSetupIdentity(profile, projectId);

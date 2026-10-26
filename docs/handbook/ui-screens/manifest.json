@@ -4609,26 +4609,26 @@
         "callouts": [
           {
             "number": 1,
-            "text": "先登录自己的团队账号，再选工作组并确认关联。",
+            "text": "核对中央节点与账号，确认工作组后关联项目；单一工作组自动选中。",
             "box": {
               "x": 330,
-              "y": 433.5,
+              "y": 454.8125,
               "width": 780,
-              "height": 252
+              "height": 209.375
             },
             "badge": {
               "x": 299,
-              "y": 430.5,
+              "y": 451.8125,
               "width": 26,
               "height": 26
             }
           }
         ]
       },
-      "guide_sha256": "3036c58b1ce1da294813c2742f7faf3d65febee6e52c03eb167fd30426d4ef39",
-      "image_sha256": "c16f9144bd5c737c17c52f4065e83f96fe2ec1dc630ea8276cf4fb9f48410060",
-      "source_digest": "25099475bb9bd678b9597eb805198a0f05db7d29728654065f1eef5126ad89b7",
-      "base_commit": "e03f40818aab80a6fd3e7a478ab6f7a050f8ed12"
+      "guide_sha256": "58d28f91b099bbcca7dfa9e19f03a39a0ae2d1b26f58cf33d186153f0a3435a0",
+      "image_sha256": "ce48afdac919353385dbb924212558d79fa9a02ff2fee12c3067fb4a750d3638",
+      "source_digest": "31e384e9c39d43c384fd22eab8c25cc5211a7e8fc7eebcac17580bb45ba8c472",
+      "base_commit": "27b072fa246dc31c8722fedd5cda0d67d64a7de6"
     }
   ]
 }

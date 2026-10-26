@@ -1399,11 +1399,11 @@
   },
   "case-project-sync-link.png": {
     "kind": "instruction",
-    "purpose": "先登录自己的团队账号，再选工作组并确认关联。",
+    "purpose": "核对中央节点与账号，确认工作组后关联项目；单一工作组自动选中。",
     "callouts": [
       {
         "selector": "#project-settings-central-panel",
-        "text": "先登录自己的团队账号，再选工作组并确认关联。",
+        "text": "核对中央节点与账号，确认工作组后关联项目；单一工作组自动选中。",
         "show_caption": true
       }
     ]

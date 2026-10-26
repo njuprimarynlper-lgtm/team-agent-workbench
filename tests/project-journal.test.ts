@@ -11,6 +11,8 @@ import { textHash } from '../src/core/activity-assistant';
 import { preparationSnapshot } from '../src/core/preparation-snapshot';
 import type { AgentSession } from '../src/shared/types';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
+// @ts-expect-error Shared JavaScript CLI fixture.
+import { authLauncher } from './fixtures/auth-launcher.mjs';
 
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-project-journal-'));
@@ -23,7 +25,8 @@ async function fixture() {
   wb.activity.setProject('window', offlineProjectId);
   const create = async (provider: 'codex' | 'cursor' = 'codex') => {
     const cwd = path.join(root, randomUUID()); await fs.mkdir(cwd);
-    return wb.createSession(provider, cwd, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+    const session = await wb.createSession(provider, cwd, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+    session.directoryMode = 'fixed'; return session;
   };
   return { root, wb, prompts, create, close: async () => { await wb.close(); await fs.rm(root, { recursive: true, force: true }); } };
 }
@@ -36,6 +39,79 @@ function accept(s: AgentSession, journal: NonNullable<Awaited<ReturnType<Workben
   const input = sessionContext(s, '继续', [], journal);
   s.messages.push({ id: randomUUID(), role: 'user', text: input.text, userText: '继续', createdAt: new Date().toISOString(), context: { ...input.context, nativeId: s.nativeId!, accepted } });
 }
+
+async function linkMetadata(root: string, session: AgentSession) {
+  const logical = path.join(session.cwd, '.workbench'), physical = path.join(root, 'metadata-' + session.id);
+  await fs.rename(logical, physical);
+  await fs.symlink(physical, logical, process.platform === 'win32' ? 'junction' : 'dir');
+  return physical;
+}
+
+test('metadata root junction supports summary commits, read-only project copies and a subsequent CLI conversation', async () => {
+  const x = await fixture();
+  try {
+    const a = await x.create(), b = await x.create();
+    const physicalA = await linkMetadata(x.root, a), physicalB = await linkMetadata(x.root, b);
+    round(a, '链接目录内保存项目进展'); await x.wb.activity.tick();
+    assert.equal(a.handoffState?.error, undefined);
+    const summary = await x.wb.readHandoff(a.id); assert(summary.includes('链接目录内保存项目进展'));
+    assert.equal(await fs.readFile(path.join(physicalA, 'sessions', a.id, 'handoff.md'), 'utf8'), summary);
+    const context = (await x.wb.journal.context(b))!;
+    const copy = path.join(physicalB, 'sessions', b.id, 'project-journal', a.id + '.md');
+    assert(context.text.includes('链接目录内保存项目进展'));
+    assert.equal(await fs.readFile(copy, 'utf8'), summary); assert.equal((await fs.stat(copy)).mode & 0o222, 0);
+    await x.wb.saveHandoff(a.id, '修正后的项目进展');
+    await x.wb.journal.context(b); assert.equal(await fs.readFile(copy, 'utf8'), '修正后的项目进展');
+    const cli = await authLauncher(path.join(x.root, 'cli'), { status: 'ready', turn: 'success' });
+    x.wb.store.settings.providerPaths.codex = cli.launcher;
+    assert.equal(await x.wb.send(b.id, '继续验证日志目录链接', []), true);
+    const deadline = Date.now() + 8000;
+    while (['starting', 'running', 'approval'].includes(b.status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+    assert.equal(b.status, 'idle', b.error || 'linked metadata must not block the next turn'); assert(b.messages.some(message => message.role === 'assistant'));
+    await x.wb.closeSession(a.id); await x.wb.deleteSession(a.id);
+    await assert.rejects(fs.stat(copy), { code: 'ENOENT' });
+    assert((await fs.lstat(path.join(a.cwd, '.workbench'))).isSymbolicLink());
+    await assert.rejects(fs.stat(path.join(physicalA, 'sessions', a.id, 'project-journal')), { code: 'ENOENT' });
+  } finally { await x.close(); }
+});
+
+test('journal restart repairs the summary through a metadata root junction', async () => {
+  const x = await fixture(); let restored: Workbench | undefined;
+  try {
+    const s = await x.create(); await linkMetadata(x.root, s);
+    const before = await x.wb.readHandoff(s.id); round(s, '链接目录重启恢复'); await x.wb.activity.tick();
+    assert.equal(s.handoffState?.error, undefined);
+    const after = await x.wb.readHandoff(s.id); assert(after.includes('链接目录重启恢复'));
+    await x.wb.store.save(); await x.wb.close(); await fs.writeFile(s.handoffPath, before);
+    restored = new Workbench(x.root, () => {}, () => {}); await restored.store.init(); grantTestWorkspace(restored, x.root);
+    await restored.journal.ready(); assert.equal(await restored.readHandoff(s.id), after);
+    assert.equal(restored.session(s.id).handoffState?.error, undefined);
+    assert((await restored.projectJournal(s.id)).text.includes('链接目录重启恢复'));
+  } finally { await restored?.close(); await x.close(); }
+});
+
+test('metadata root junction does not permit a linked sessions container', async () => {
+  const x = await fixture();
+  try {
+    const a = await x.create(); const metadata = await linkMetadata(x.root, a);
+    const sessions = path.join(metadata, 'sessions'), outside = path.join(x.root, 'nested-sessions');
+    await fs.rename(sessions, outside); await fs.symlink(outside, sessions, process.platform === 'win32' ? 'junction' : 'dir');
+    const handoff = await fs.readFile(a.handoffPath, 'utf8');
+    await assert.rejects(x.wb.journal.context(a), /符号链接/);
+    await assert.rejects(x.wb.saveHandoff(a.id, '不应写入'), /符号链接/);
+    assert.equal(await fs.readFile(a.handoffPath, 'utf8'), handoff);
+  } finally { await x.close(); }
+});
+
+test('metadata root junction does not permit a linked journal directory', async () => {
+  const x = await fixture();
+  try {
+    const b = await x.create(); const metadata = await linkMetadata(x.root, b);
+    const other = path.join(x.root, 'outside-journal'); await fs.mkdir(other);
+    await fs.symlink(other, path.join(metadata, 'sessions', b.id, 'project-journal'), process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(x.wb.journal.context(b), /符号链接/); assert.deepEqual(await fs.readdir(other), []);
+  } finally { await x.close(); }
+});
 
 test('worker serializes per-turn summary and log commits, caps each session at five, and survives restart', async () => {
   const x = await fixture();

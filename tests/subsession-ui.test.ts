@@ -38,7 +38,9 @@ test('child chat keeps management actions folded, presents inherited context fol
   assert.match(html, /aria-label="修改会话名称：child"/);
   assert.match(html, /共用工作目录/); assert.match(html, /继续问/);
   assert.match(html, /<details class="inherited-conversation">/);
-  assert.match(html, /<button class="primary">加入队列/);
+  assert.match(html, /aria-label="加入队列"/);
+  assert.match(html, /aria-label="选择模型"/);
+  assert.match(html, /aria-label="当前执行权限"/);
 });
 
 test('closed child chats remain readable in history but do not appear as active descendant links', () => {

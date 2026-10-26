@@ -20,7 +20,7 @@ def markdown_for_package(name):
         if target.startswith(('#', 'https://', 'http://', 'mailto:')):
             return match[0]
         filename, _, fragment = target.partition('#')
-        if filename in FILES or filename.startswith('images/user-manual/'):
+        if filename in FILES or filename == '../用户手册.html' or filename.startswith('images/user-manual/'):
             return match[0]
         resolved = (DOCS / filename).resolve()
         try:
@@ -32,14 +32,14 @@ def markdown_for_package(name):
 
 
 def main():
-    handbook = (DOCS / 'handbook/index.html').read_text(encoding='utf-8')
-    handbook = handbook.replace('../manuals/', '').replace('../user-guide.md', 'Markdown/user-guide.md')
+    handbook = (ROOT / '用户手册.html').read_text(encoding='utf-8')
+    handbook = handbook.replace('docs/manuals/', '').replace('docs/user-guide.md', 'Markdown/user-guide.md')
     output = DOCS / 'manuals' / f'{NAME}.zip'
     with ZipFile(output, 'w', ZIP_DEFLATED, compresslevel=9) as archive:
-        archive.writestr('使用手册.html', handbook)
+        archive.writestr('用户手册.html', handbook)
         archive.writestr('先读我.txt',
             f'团队工作台使用手册 {META.version}\n\n'
-            '1. 请先解压整个压缩包，再双击“使用手册.html”。\n'
+            '1. 请先解压整个压缩包，再双击“用户手册.html”。\n'
             '2. 按角色或任务进入，用页面顶部搜索查找操作，点击配图可放大。\n'
             '3. 右上角“其他格式”可打开 Word、PDF 或 Markdown。\n'
             '4. 网页正文、搜索、配图和部署指导均可离线使用；官网和仓库外链需要联网。\n'

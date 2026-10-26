@@ -10,6 +10,8 @@ import { projectDirectoryKey } from '../src/shared/project-directory';
 import { sessionContext } from '../src/core/session-context';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 import { PERSONAL_PROJECT_ID } from '../src/shared/personal-workspace';
+// @ts-expect-error Shared JavaScript CLI fixture.
+import { authLauncher } from './fixtures/auth-launcher.mjs';
 
 async function fixture(run: (f: { wb: Workbench; root: string; source: string; target: string; save(): Promise<string> }) => Promise<void>) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workspace-relocation-')));
@@ -99,14 +101,13 @@ test('root Git repositories also remain coherent when the destination already co
   await assert.rejects(fs.access(path.join(target, 'code.txt')));
 }));
 
-test('persisted pending moves recover after restart, including legacy managed sessions', () => fixture(async ({ wb, root, source, target, save }) => {
+test('explicit pending moves recover after restart', () => fixture(async ({ wb, source, target, save }) => {
   const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
-  delete s.directoryMode; s.status = 'running'; await fs.writeFile(path.join(source, 'artifact.txt'), 'artifact'); await save();
+  s.status = 'running'; await fs.writeFile(path.join(source, 'artifact.txt'), 'artifact'); await save();
   const restored = new Workbench(wb.store.root, () => {}, () => {});
   try {
     await restored.store.init(); grantTestWorkspace(restored, source);
     const current = restored.store.sessions.find(item => item.id === s.id)!; current.status = 'idle';
-    delete current.directoryMove; // Simulate upgrading a legacy record with only the project setting.
     await restored.reconcileProjectDirectories(); assert(current.directoryMove);
     await restored.flushProjectDirectories(); assert.equal(current.cwd, target);
     assert.equal(await fs.readFile(path.join(target, 'artifact.txt'), 'utf8'), 'artifact');
@@ -121,7 +122,8 @@ test('failed persistence keeps the original cwd; verified copies can be retried 
   wb.store.save = async () => { if (s.cwd === target && fail) { fail = false; throw new Error('disk unavailable'); } await originalSave(); };
   await save(); assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /disk unavailable/);
   assert.equal(await fs.readFile(path.join(source, 'output.txt'), 'utf8'), 'keep me');
-  s.directoryMove!.retryAt = 0; await wb.flushProjectDirectories();
+  await wb.flushProjectDirectories(); assert(s.directoryMove?.error, 'failed migrations wait for an explicit retry');
+  await wb.setSessionDirectoryMode(s.id, 'project');
   assert.equal(s.cwd, target); assert.equal(s.directoryMove, undefined);
   assert.equal(await fs.readFile(path.join(target, 'output.txt'), 'utf8'), 'keep me');
 }));
@@ -147,7 +149,7 @@ test('moving project ownership adopts the target directory without changing conv
   assert.equal(await fs.readFile(path.join(target, 'download.zip'), 'utf8'), 'download');
 }));
 
-test('nested targets and symbolic links cannot escape or recursively copy a workspace', () => fixture(async ({ wb, root, source, target }) => {
+test('nested targets are rejected; external directory links are preserved without copying their contents', () => fixture(async ({ wb, root, source, target }) => {
   const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
   const nested = path.join(source, 'nested'); await fs.mkdir(nested);
   s.directoryMove = { id: randomUUID(), from: source, to: nested };
@@ -155,6 +157,185 @@ test('nested targets and symbolic links cannot escape or recursively copy a work
   s.directoryMove = { id: randomUUID(), from: source, to: target };
   const outside = path.join(root, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'private.txt'), 'private');
   await fs.symlink(outside, path.join(source, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
-  await assert.rejects(relocateWorkspace(wb.store.root, s), /符号链接/);
+  await relocateWorkspace(wb.store.root, s);
+  assert((await fs.lstat(path.join(target, 'linked'))).isSymbolicLink());
+  assert.equal(await fs.realpath(path.join(target, 'linked')), outside);
+  assert.deepEqual(await fs.readdir(outside), ['private.txt']);
+  assert.equal(await fs.readFile(path.join(outside, 'private.txt'), 'utf8'), 'private');
+}));
+
+test('old records retain their original directory and discard implicit pending moves on upgrade', () => fixture(async ({ wb, source, target }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  delete s.directoryMode; s.directoryMove = { id: randomUUID(), from: source, to: target, error: 'legacy unsupported link' };
+  wb.store.inputs[s.id] = { text: '未发送的任务', sourceIds: [], answers: {} };
+  await wb.store.save();
+  const restored = new Workbench(wb.store.root, () => {}, () => {});
+  try {
+    await restored.store.init(); grantTestWorkspace(restored, source);
+    const current = restored.session(s.id);
+    assert.equal(current.directoryMode, 'fixed'); assert.equal(current.directoryMove, undefined);
+    await restored.saveProjectDirectory(offlineProjectId, target, projectDirectoryKey(restored.store.settings.workspaceSnapshot!.profile, offlineProjectId));
+    await restored.reconcileProjectDirectories(); await restored.flushProjectDirectories();
+    assert.equal(current.cwd, source); assert.equal(current.directoryMove, undefined);
+    assert.equal(restored.store.inputs[s.id].text, '未发送的任务');
+    await restored.setSessionDirectoryMode(s.id, 'project'); assert.equal(current.cwd, target);
+  } finally { await restored.close(); }
+}));
+
+test('old docs pointing at new/docs converges on the existing directory without replacing or copying it', () => fixture(async ({ wb, source, target, save }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const docs = path.join(target, 'docs'); await fs.mkdir(docs); await fs.writeFile(path.join(docs, 'guide.md'), 'existing project documentation');
+  const inode = (await fs.stat(docs)).ino;
+  await fs.symlink(docs, path.join(source, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+  await save();
+  assert.equal(s.cwd, target); assert.equal(s.directoryMove, undefined); assert.equal((await fs.stat(docs)).ino, inode);
+  assert(!(await fs.lstat(docs)).isSymbolicLink()); assert.equal(s.directoryChange!.conflicts.length, 0);
+  assert.equal(await fs.realpath(path.join(source, 'docs')), docs);
+  assert.deepEqual(await fs.readdir(docs), ['guide.md']);
+}));
+
+test('internal links follow copied conflict directories, including sibling links and subsequent sessions', () => fixture(async ({ wb, source, target, save }) => {
+  const one = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const two = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const original = path.join(source, 'z-docs'), existing = path.join(target, 'z-docs');
+  await fs.mkdir(original); await fs.mkdir(existing);
+  await fs.writeFile(path.join(original, 'note.txt'), 'original'); await fs.writeFile(path.join(existing, 'note.txt'), 'existing');
+  await fs.symlink(original, path.join(source, 'a-link'), process.platform === 'win32' ? 'junction' : 'dir');
+  await fs.symlink(existing, path.join(target, 'a-link'), process.platform === 'win32' ? 'junction' : 'dir');
+  one.outputFiles = [path.join(source, 'a-link', 'note.txt')];
+  await save();
+  assert.equal(one.cwd, target); assert.equal(two.cwd, target);
+  assert.deepEqual(one.directoryChange!.conflicts, two.directoryChange!.conflicts);
+  assert.equal(await fs.readFile(one.outputFiles[0], 'utf8'), 'original');
+  assert.equal(await fs.readFile(path.join(target, 'a-link', 'note.txt'), 'utf8'), 'existing');
+  assert((await fs.realpath(path.dirname(one.outputFiles[0]))).startsWith(target));
+}));
+
+test('internal directory cycles fail before copying; continuing in the old directory preserves drafts and pauses queued input', () => fixture(async ({ wb, root, source, target, save }) => {
+  const cli = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' }); wb.store.settings.providerPaths.codex = cli.launcher;
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const a = path.join(source, 'a'), b = path.join(source, 'b'); await fs.mkdir(a); await fs.mkdir(b);
+  await fs.symlink(b, path.join(a, 'to-b'), process.platform === 'win32' ? 'junction' : 'dir');
+  await fs.symlink(a, path.join(b, 'to-a'), process.platform === 'win32' ? 'junction' : 'dir');
+  wb.store.inputs[s.id] = { text: '保留草稿', sourceIds: [], answers: {} };
+  await wb.inputQueue.enqueue(s.id, { text: '排队任务', sourceIds: [], answers: {} });
+  await save(); assert.match(s.directoryMove!.error!, /循环/); assert.equal(s.cwd, source);
+  assert.deepEqual(await fs.readdir(target), []); assert.equal(s.inputQueue?.paused, true);
+  await assert.rejects(wb.send(s.id, '尚未选择'), /继续使用原目录/);
+  await wb.setSessionDirectoryMode(s.id, 'fixed'); assert.equal(s.directoryMove, undefined);
+  assert.equal(wb.store.inputs[s.id].text, '保留草稿'); assert.equal(s.inputQueue?.items[0].input.text, '排队任务');
+  await wb.inputQueue.pump(s.id); assert.equal(s.messages.length, 0, 'choosing a directory never sends a queued message');
+  await wb.send(s.id, '继续使用原目录');
+  const deadline = Date.now() + 10000;
+  while (['starting', 'running'].includes(s.status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(s.cwd, source); assert(s.messages.some(message => message.role === 'user'));
+  assert.equal(s.status, 'idle', s.error || 'resumed conversation should finish'); assert(s.messages.some(message => message.role === 'assistant'));
+}));
+
+test('a destination link is never used as a writable directory for ordinary source files', () => fixture(async ({ wb, root, source, target, save }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const outside = path.join(root, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'keep.txt'), 'external');
+  await fs.mkdir(path.join(source, 'docs')); await fs.writeFile(path.join(source, 'docs', 'new.txt'), 'local');
+  await fs.symlink(outside, path.join(target, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+  await save(); assert.equal(s.cwd, target);
+  assert.deepEqual(await fs.readdir(outside), ['keep.txt']);
+  assert.equal(await fs.readFile(path.join(s.directoryChange!.conflicts[0], 'new.txt'), 'utf8'), 'local');
+}));
+
+test('a source link changed after an interrupted copy cannot redirect a resumed migration', () => fixture(async ({ wb, root, source, target }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const first = path.join(root, 'first'), second = path.join(root, 'second'); await fs.mkdir(first); await fs.mkdir(second);
+  const link = path.join(source, 'docs'); await fs.symlink(first, link, process.platform === 'win32' ? 'junction' : 'dir');
+  s.directoryMove = { id: randomUUID(), from: source, to: target };
+  await relocateWorkspace(wb.store.root, s);
+  await fs.unlink(link); await fs.symlink(second, link, process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(relocateWorkspace(wb.store.root, s), /链接在迁移期间发生变化/);
+  assert.equal(await fs.realpath(path.join(target, 'docs')), first); assert.equal(s.cwd, source);
+}));
+
+test('a link to the new workspace root is refused before creating a new recursive directory', () => fixture(async ({ wb, source, target }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  await fs.writeFile(path.join(source, 'a-note.txt'), 'must not partially copy');
+  await fs.symlink(target, path.join(source, 'z-loop'), process.platform === 'win32' ? 'junction' : 'dir');
+  s.directoryMove = { id: randomUUID(), from: source, to: target };
+  await assert.rejects(relocateWorkspace(wb.store.root, s), /自身或上级目录/);
   assert.deepEqual(await fs.readdir(target), []);
+}));
+
+test('link creation failure retains the original workspace; explicit retry succeeds without touching the external target', () => fixture(async ({ wb, root, source, target, save }) => {
+  const s = await wb.createSession('cursor', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const outside = path.join(root, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'keep.txt'), 'keep');
+  await fs.symlink(outside, path.join(source, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+  const original = fs.symlink;
+  fs.symlink = async (...args: Parameters<typeof fs.symlink>) => { if (args[1] === path.join(target, 'docs')) throw Object.assign(new Error('denied'), { code: 'EPERM' }); return original(...args); };
+  try { await save(); } finally { fs.symlink = original; }
+  assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /无法.*保留文件链接/);
+  await wb.setSessionDirectoryMode(s.id, 'project');
+  assert.equal(s.cwd, target); assert.equal(await fs.realpath(path.join(target, 'docs')), outside);
+  assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
+}));
+
+test('metadata already linked to the target project is reused and conversation logs still work after switching', () => fixture(async ({ wb, root, source, target, save }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const metadata = path.join(source, '.workbench'), destination = path.join(target, '.workbench');
+  await fs.rename(metadata, destination); await fs.symlink(destination, metadata, process.platform === 'win32' ? 'junction' : 'dir');
+  const original = await fs.readFile(s.handoffPath, 'utf8'), inode = (await fs.stat(s.handoffPath)).ino;
+  await fs.mkdir(path.join(target, 'docs')); await fs.writeFile(path.join(target, 'docs', 'note.txt'), 'project file');
+  await fs.symlink(path.join(target, 'docs'), path.join(source, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+  await save(); assert.equal(s.cwd, target, s.directoryMove?.error || 'metadata alias should be reused'); assert.equal(s.directoryMove, undefined);
+  assert.equal(await fs.readFile(s.handoffPath, 'utf8'), original); assert.equal((await fs.stat(s.handoffPath)).ino, inode);
+  assert((await fs.lstat(metadata)).isSymbolicLink()); assert.equal(await fs.readFile(path.join(source, 'docs', 'note.txt'), 'utf8'), 'project file');
+  await wb.saveHandoff(s.id, '切换后保存的摘要'); assert((await wb.projectJournal(s.id)).text.includes(s.id));
+  const cli = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success', confirmCwd: true }); wb.store.settings.providerPaths.codex = cli.launcher;
+  await wb.send(s.id, '继续项目工作');
+  const deadline = Date.now() + 8000;
+  while (['starting', 'running', 'approval'].includes(s.status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(s.status, 'idle', s.error || 'conversation should continue after the directory switch'); assert(s.messages.some(message => message.role === 'assistant'));
+}));
+
+test('moving from a linked metadata root copies only the selected session and preserves other sessions', () => fixture(async ({ wb, root, source, target, save }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const other = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false); other.directoryMode = 'fixed';
+  const physical = path.join(root, 'shared-metadata'), logical = path.join(source, '.workbench');
+  await fs.rename(logical, physical); await fs.symlink(physical, logical, process.platform === 'win32' ? 'junction' : 'dir');
+  await fs.writeFile(other.handoffPath, 'other session remains unchanged');
+  await fs.writeFile(path.join(physical, 'unrelated.txt'), 'shared root file');
+  await save(); assert.equal(s.cwd, target, s.directoryMove?.error || 'session metadata should copy'); assert.equal(other.cwd, source);
+  assert.equal(await fs.readFile(s.handoffPath, 'utf8'), await fs.readFile(path.join(physical, 'sessions', s.id, 'handoff.md'), 'utf8'));
+  assert.equal(await fs.readFile(other.handoffPath, 'utf8'), 'other session remains unchanged');
+  await assert.rejects(fs.stat(path.join(target, '.workbench', 'sessions', other.id)), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(path.join(target, '.workbench', 'unrelated.txt')), { code: 'ENOENT' });
+  assert.equal(await fs.readFile(path.join(physical, 'unrelated.txt'), 'utf8'), 'shared root file');
+}));
+
+test('the target metadata root may be an existing junction without replacing other session data', () => fixture(async ({ wb, root, source, target, save }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const physical = path.join(root, 'target-metadata'); await fs.mkdir(physical); await fs.writeFile(path.join(physical, 'keep.txt'), 'keep');
+  await fs.symlink(physical, path.join(target, '.workbench'), process.platform === 'win32' ? 'junction' : 'dir');
+  const before = await fs.readFile(s.handoffPath, 'utf8');
+  await save(); assert.equal(s.cwd, target, s.directoryMove?.error || 'target metadata alias should be supported');
+  assert.equal(await fs.readFile(path.join(physical, 'sessions', s.id, 'handoff.md'), 'utf8'), before);
+  assert.equal(await fs.readFile(path.join(physical, 'keep.txt'), 'utf8'), 'keep');
+  await wb.saveHandoff(s.id, '新摘要'); assert.equal(await fs.readFile(s.handoffPath, 'utf8'), '新摘要');
+}));
+
+test('a metadata root retargeted between migration attempts is refused', () => fixture(async ({ wb, root, source, target }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const physical = path.join(root, 'original-metadata'), changed = path.join(root, 'changed-metadata'), logical = path.join(source, '.workbench');
+  await fs.rename(logical, physical); await fs.symlink(physical, logical, process.platform === 'win32' ? 'junction' : 'dir');
+  s.directoryMove = { id: randomUUID(), from: source, to: target }; await relocateWorkspace(wb.store.root, s);
+  const handoff = path.join(target, '.workbench', 'sessions', s.id, 'handoff.md'), original = await fs.readFile(handoff, 'utf8');
+  await fs.mkdir(changed); await fs.unlink(logical); await fs.symlink(changed, logical, process.platform === 'win32' ? 'junction' : 'dir');
+  await assert.rejects(relocateWorkspace(wb.store.root, s), /会话数据目录链接已变化/);
+  assert.equal(await fs.readFile(handoff, 'utf8'), original); assert.deepEqual(await fs.readdir(changed), []); assert.equal(s.cwd, source);
+}));
+
+test('metadata root support does not allow nested journal links during migration', () => fixture(async ({ wb, root, source, target, save }) => {
+  const s = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
+  const metadata = path.join(root, 'shared-metadata'), logical = path.join(source, '.workbench');
+  await fs.rename(logical, metadata); await fs.symlink(metadata, logical, process.platform === 'win32' ? 'junction' : 'dir');
+  const outside = path.join(root, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'keep.txt'), 'keep');
+  await fs.symlink(outside, path.join(metadata, 'sessions', s.id, 'project-journal'), process.platform === 'win32' ? 'junction' : 'dir');
+  await save(); assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /会话数据内部包含符号链接/);
+  assert.deepEqual(await fs.readdir(target), []); assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
 }));

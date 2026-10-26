@@ -16,6 +16,9 @@ const app = await electron.launch({ args: ['dist/user'], cwd: root, env, timeout
 try {
   const page = await app.firstWindow(), errors = []; page.on('pageerror', error => errors.push(error.message));
   await dismissStartupLogin(page);
+  await page.locator('[data-project-id="' + offlineProjectId + '"]').click();
+  await page.getByLabel('代码目录（选填）', { exact: true }).fill(data);
+  await page.getByRole('button', { name: '保存并进入项目', exact: true }).click();
   const call = (action, payload) => page.evaluate(([name, value]) => window.workbench.call(name, value), [action, payload]);
   const snap = () => call('snapshot');
   const send = async text => { await page.getByLabel('任务输入', { exact: true }).fill(text); await page.getByRole('button', { name: '发送任务', exact: true }).click(); };
@@ -28,7 +31,7 @@ try {
   const codexCard = page.locator('.question-request');
   await expect(codexCard.getByRole('button', { name: '提交回答' })).toBeDisabled();
   await expect(codexCard.getByRole('button', { name: '不提供信息，继续' })).toBeVisible();
-  await codexCard.locator('input[list]').fill('先整理');
+  await codexCard.getByRole('textbox').fill('先整理');
   await codexCard.getByRole('button', { name: '提交回答' }).click();
   await expect.poll(async () => (await snap()).sessions.find(session => session.id === codex.id).status).toBe('idle');
 
@@ -38,7 +41,7 @@ try {
   await expect(page.getByLabel('待回答提醒')).toContainText('2 个问题');
   const cursorCard = page.locator('.question-request');
   await expect(cursorCard.getByRole('button', { name: '提交回答' })).toBeDisabled();
-  await cursorCard.getByRole('combobox').selectOption('verify');
+  await cursorCard.getByRole('radio', { name: '验证', exact: true }).check();
   await cursorCard.getByRole('checkbox', { name: '单元测试' }).check();
   await cursorCard.getByRole('checkbox', { name: '界面测试' }).check();
   await cursorCard.getByRole('button', { name: '提交回答' }).click();

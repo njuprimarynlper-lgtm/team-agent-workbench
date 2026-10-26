@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ComposerActions } from '../src/renderer/composer-actions';
-import { PendingSessionMessage } from '../src/renderer/pending-session-message';
+import { PendingSessionMessage, PendingQueueMessage } from '../src/renderer/pending-session-message';
 import type { AgentSession, Message } from '../src/shared/types';
 
 test('sending immediately shows the original message and a visible acknowledgement state', () => {
@@ -11,10 +11,18 @@ test('sending immediately shows the original message and a visible acknowledgeme
   const html = renderToStaticMarkup(React.createElement(PendingSessionMessage, { pending, messages: [] }));
   assert.match(html, /aria-label="消息正在提交"/);
   assert.match(html, /第一行\n第二行/);
-  assert.match(html, /等待 CLI 确认/);
+  assert.match(html, /正在发送/);
   const button = renderToStaticMarkup(React.createElement(ComposerActions, { session: { provider: 'codex', status: 'idle' } as AgentSession, text: pending.text, busy: true, send: () => {}, stop: () => {} }));
   assert.match(button, /aria-label="正在提交消息"/);
   assert.match(button, /disabled=""/);
+});
+
+test('queue submission appears above the composer, never as a dispatched conversation message', () => {
+  const pending = { text: '稍后\n再执行', beforeMessageCount: 0, phase: 'queueing' as const };
+  assert.equal(renderToStaticMarkup(React.createElement(PendingSessionMessage, { pending, messages: [] })), '');
+  const html = renderToStaticMarkup(React.createElement(PendingQueueMessage, { pending }));
+  assert.match(html, /正在加入待发送队列/); assert.match(html, /稍后 再执行/);
+  assert.equal(renderToStaticMarkup(React.createElement(PendingQueueMessage, {})), '');
 });
 
 test('the temporary bubble disappears when the accepted user message arrives', () => {

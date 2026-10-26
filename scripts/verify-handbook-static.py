@@ -9,7 +9,7 @@ from urllib.parse import unquote
 from manual_meta import read_meta
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = ROOT / 'docs/handbook/index.html'
+HTML = ROOT / '用户手册.html'
 META = read_meta()
 PACKAGE = ROOT / 'docs/manuals' / f'{META.filename}.zip'
 STRUCTURE = json.loads((ROOT / 'docs/handbook/structure.json').read_text(encoding='utf-8'))
@@ -101,15 +101,16 @@ def check(html, names, prefix):
 def main(html_only=False):
     source = HTML.read_text(encoding='utf-8')
     local_names = {p.relative_to(ROOT / 'docs').as_posix() for p in (ROOT / 'docs').rglob('*') if p.is_file()}
-    result = {'html': check(source, local_names, '../')}
+    result = {'html': check(source, {'docs/' + name for name in local_names}, '')}
     if not html_only:
         with ZipFile(PACKAGE) as archive:
             assert archive.testzip() is None
             names = set(archive.namelist())
-            assert {'使用手册.html', f'{META.filename}.docx',
+            entry = '用户手册.html' if '用户手册.html' in names else '使用手册.html'
+            assert {entry, f'{META.filename}.docx',
                     f'{META.filename}.pdf', 'Markdown/user-guide.md',
                     'Markdown/result-classification.md', 'Markdown/background-testing.md'} <= names
-            result['package'] = check(archive.read('使用手册.html').decode('utf-8'), names, '')
+            result['package'] = check(archive.read(entry).decode('utf-8'), names, '')
             result['package_files'] = len(names)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
