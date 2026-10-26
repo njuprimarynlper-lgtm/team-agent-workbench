@@ -146,8 +146,8 @@ def enhance_html(path: Path = HTML, summary: str | None = None, capture_ui: bool
         article = by_id[page_id]
         if spec.get('page', identifier) != page_id:
             raise ValueError(f'Scenario owner differs from handbook structure: {identifier}')
-        if not spec["steps"] or any(not 1 <= len(step["panes"]) <= 3 for step in spec["steps"]):
-            raise ValueError(f"Every {identifier} step needs one to three distinct interface panels")
+        if not spec["steps"] or any(not (1 <= len(step["panes"]) <= 3 or step.get('textOnly') is True and not step['panes']) for step in spec["steps"]):
+            raise ValueError(f"Every {identifier} step needs interface panels or an explicit text-only walkthrough")
         old = article["html"]
         pattern = (r'<figure class="case-diagram" data-scenario="' + re.escape(identifier) + r'".*?</figure><ol class="case-steps">.*?</ol>'
                    if context is not None else r'<figure class="(?:case-diagram|ui-scenario-guide)".*?</figure>')

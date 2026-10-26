@@ -12,6 +12,17 @@ spec=importlib.util.spec_from_file_location('group_ops',pathlib.Path(__file__).p
 groups=importlib.util.module_from_spec(spec);spec.loader.exec_module(groups)
 
 class TeamGroupRules(unittest.TestCase):
+    def test_project_creation_retry_is_scoped_to_identity_name_and_lifecycle(self):
+        request_id='project_'+'a'*32
+        first=self.call('alice',action='create',label='算法实验',requestId=request_id)
+        again=self.call('alice',action='create',label='算法实验',requestId=request_id)
+        self.assertEqual(first['id'],again['id'])
+        self.assertEqual(len(self.state['groups']),1)
+        with self.assertRaises(PermissionError):self.call('bob',action='create',label='算法实验',requestId=request_id)
+        with self.assertRaises(PermissionError):self.call('alice',action='create',label='其他项目',requestId=request_id)
+        self.call('alice',action='delete',group=again['id'],revision=again['revision'])
+        with self.assertRaises(ValueError):self.call('alice',action='create',label='算法实验',requestId=request_id)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=pathlib.Path(self.temp.name)
         (self.root/'projects').mkdir();(self.root/'.workbench/admin').mkdir(parents=True)

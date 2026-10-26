@@ -1,3 +1,4 @@
+import { legacyLocalProject } from './fixtures/legacy-local-project';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -18,7 +19,7 @@ test('local project selection survives startup with and without a server account
   const base = path.join(root, 'data'), server = await teamServer();
   const local = new Workbench(path.join(base, 'personal'), () => {}, () => {}, undefined, () => ({}), undefined, undefined, undefined, true);
   await local.store.init(); await local.restoreLocalWorkspace();
-  const projectA = await local.createProject('算法研究'), projectB = await local.createProject('软件开发');
+  const projectA = await legacyLocalProject(local, '算法研究'), projectB = await legacyLocalProject(local, '软件开发');
   const session = await local.createSession('codex', root, projectA.id); await local.close();
   const seed = new Workbench(path.join(base, 'instances', '2'), () => {}, () => {});
   await seed.store.init(); await seed.configureWorkspace(server.profile('alice'), 'test-password', '', async () => true);

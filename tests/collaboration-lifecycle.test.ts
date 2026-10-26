@@ -236,10 +236,10 @@ test('one SSH identity spans groups; author revisions, admin curation, merge and
     assert.equal(item.state, 'curated'); assert.equal(item.author, 'bob'); assert.equal(item.updatedBy, 'alice');
     await assert.rejects(x.bob.remote.contentEdit(b, { id: item.id, revision: item.revision, action: 'delete', curate: false, merge: [] }), /尚未被/);
     await assert.rejects(x.bob.remote.upload(b, file, item.path, () => {}), /自己的公共/);
-    await assert.rejects(x.newbie.createSession('codex', x.root, x.project.id), /没有加入工作组/);
+    await assert.rejects(x.newbie.createSession('codex', x.root, x.project.id), /没有加入项目/);
     assert.equal(x.newbie.workspaceReady, false);
     const other = await syncedProject(x.bob, 'OCR', 'local_ocr'); await x.alice.refreshGroups(); await x.alice.connectProject(other.id);
-    await assert.rejects(x.alice.remote.saveProjectBrief(x.alice.remote.binding(other.id), brief, 0), /组管理员/);
+    await assert.rejects(x.alice.remote.saveProjectBrief(x.alice.remote.binding(other.id), brief, 0), /管理员|管理者/);
     await x.bob.remote.upload(b, file, b.project.uploadPath + '/补充.md', () => {}, { kind: 'contribution', title: '新的补充', description: '补充' });
     const second = (await x.bob.remote.contentList(b)).find(i => i.id !== item.id)!;
     await assert.rejects(x.alice.remote.contentEdit(a, { id: item.id, revision: item.revision, action: 'save', title: '旧式合并', description: '不应保存', curate: true, merge: [{ id: second.id, revision: second.revision }] }), /旧版合并入口/);
@@ -294,7 +294,7 @@ test('last subadministrator changes require a successor or explicit vacancy, pre
     assert(x.admin.snapshot.state!.users.alice.contentAdminGroups?.includes('local_relation'));
     await x.admin.operation({ ...op, handoffs: { local_relation: 'bob' } });
     assert.deepEqual(new Set(x.admin.snapshot.state!.users.bob.contentAdminGroups), new Set(['local_relation', 'local_ocr']));
-    await assert.rejects(x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false }), /组管理员/);
+    await assert.rejects(x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false }), /管理员|管理者/);
     await x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false, handoffs: { local_relation: null, local_ocr: null } });
     assert.equal(x.admin.snapshot.state!.users.bob.enabled, false);
   } finally { await x.close(); }
@@ -341,7 +341,7 @@ test('file replacement respects author/admin revisions and reusable text snapsho
     assert.match(await fs.readFile(source.localPath, 'utf8'), /统一口径/); assert.equal(source.sourcePath, replacement?.path);
     assert.match(await fs.readFile(source.localPath, 'utf8'), /维护人：alice/);
     const legacy = path.join(x.shared, ...b.project.remoteRoot.slice(1).split('/'), 'legacy.txt'); await fs.writeFile(legacy, '旧版共享资料');
-    await assert.rejects(x.bob.remote.contentAdopt(b, b.project.remoteRoot + '/legacy.txt'), /组管理员/);
+    await assert.rejects(x.bob.remote.contentAdopt(b, b.project.remoteRoot + '/legacy.txt'), /管理员|管理者/);
     const adopted = await x.alice.remote.contentAdopt(x.alice.remote.binding(x.project.id), b.project.remoteRoot + '/legacy.txt');
     assert.equal(adopted?.state, 'curated'); assert.match(adopted?.description || '', /旧版共享资料/);
   } finally { await x.close(); }

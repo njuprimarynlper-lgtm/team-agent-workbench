@@ -322,7 +322,7 @@ export class Workbench {
       if (!this.remote.connected) throw new Error('无法刷新最新账号身份：' + error.message);
       throw error;
     }
-    if (this.remote.profile !== profileBefore || this.configuring) throw new Error('账号已改变，请重新刷新工作组');
+    if (this.remote.profile !== profileBefore || this.configuring) throw new Error('账号已改变，请重新刷新项目');
     const profile = this.remote.profile!;
     const accessible = new Set(this.connectableProjects().map(p => p.id));
     for (const id of this.connectedProjects) if (!accessible.has(id)) { this.connectedProjects.delete(id); this.accountSync.connectionChanged(); }
@@ -1124,7 +1124,7 @@ export class Workbench {
     // A reload failure must not present a successfully saved config as an unsaved failure.
     return { pendingReload: sessions.filter((s, index) => s.settingsPending || results[index].status === 'rejected').length };
   }
-  assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady && !this.localProfile()?.projects.length) throw new Error(this.remote.connected ? '还没有加入工作组，请联系管理员；未分组账号没有工作台' : '请先连接中央节点并验证成员身份'); }
+  assertWorkspace() { this.assertAccountReady(); if (!this.workspaceReady && !this.localProfile()?.projects.length) throw new Error(this.remote.connected ? '还没有加入项目，请联系管理员；可创建项目或由创建者添加成员' : '请先连接中央节点并验证成员身份'); }
   private queueDirectoryMove(session: AgentSession, directory?: string, retry = false) {
     if (session.purpose !== 'work' || !followsProjectDirectory(session)) { delete session.directoryMove; return; }
     // "Unassigned" is a virtual container; its sessions can have unrelated roots.
@@ -1312,7 +1312,8 @@ export class Workbench {
     const checkIdentity = () => { const profile = this.localProfile(); if (!profile || projectSetupIdentity(profile, groupName) !== contextKey) throw new Error('共享区或账号已改变，请重新打开项目引导'); };
     checkIdentity();
     const workspace = (this.remote.connected ? this.remote.workspaces : this.store.settings.workspaceSnapshot?.workspaces || []).find(w => w.groupName === groupName);
-    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('当前账号不是此工作组的项目组管理员，或目录无法访问');
+    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('当前账号不是此项目的管理者，或目录无法访问');
+    if (this.localProfile()?.projects.some(project => project.groupName === groupName)) throw new Error('项目已初始化，请在项目设置中修改资料');
     return this.createProject(name, groupName, projectBriefSchema.parse(brief));
   }
   async groupCommand(raw: GroupCommand) {
@@ -1321,18 +1322,29 @@ export class Workbench {
     if (!['list','details','directory'].includes(raw.action)) await this.refreshGroups();
     this.broadcast(); return result;
   }
-  async createProject(name: string, groupName?: string, brief?: ProjectBrief) {
+  async createManagedProject(name: string, brief?: ProjectBrief, requestId = 'project_' + randomUUID().replace(/-/g, '')) {
     this.assertAccountReady();
-    if (!this.personal) {
-      const groups = this.remote.connected ? this.remote.workspaces : this.store.settings.workspaceSnapshot?.workspaces || [];
-      if (!groups.length) throw new Error('还没有加入工作组，可先在本机创建项目');
-      if (!groupName) { if (groups.length !== 1) throw new Error('请选择所属工作组'); groupName = groups[0].groupName; }
-      const group = groups.find(item => item.groupName === groupName);
-      if (!group?.canCreateProject) throw new Error('当前账号不是此工作组的项目组管理员，可先在本机创建项目');
-    }
-    const project = await this.projectSync.create(name, groupName, brief, this.personal);
-    if (this.personal) await this.restoreLocalWorkspace();
-    else if (this.remote.connected) await this.connectProject(project.id);
+    if (this.personal || !this.remote.connected) throw new Error('创建项目需要连接中央节点，请选择或填写连接后重试');
+    const command = groupCommandSchema.parse({ action: 'create', label: name, requestId });
+    if (brief) brief = projectBriefSchema.parse(brief);
+    const group = await this.groupCommand(command) as import('../shared/team-groups').TeamGroup;
+    return this.createProject(name.trim().normalize('NFC'), group.id, brief, requestId);
+  }
+  async createProject(name: string, groupName?: string, brief?: ProjectBrief, requestId = 'project_' + randomUUID().replace(/-/g, '')) {
+    this.assertAccountReady();
+    if (this.personal || !this.remote.connected) throw new Error('创建项目需要连接中央节点，请选择或填写连接后重试');
+    const groups = this.remote.workspaces, profile = this.remote.profile!;
+    if (!groups.length) throw new Error('还没有可用项目，请先新建项目或联系管理者加入');
+    if (!groupName) { if (groups.length !== 1) throw new Error('请选择所属项目'); groupName = groups[0].groupName; }
+    const group = groups.find(item => item.groupName === groupName);
+    if (!group?.canCreateProject || group.accessError) throw new Error('当前账号不是此项目的管理者，或项目无法访问');
+    if (brief) brief = projectBriefSchema.parse(brief);
+    const project = await this.remote.createProject(name, groupName, brief, requestId);
+    if (!this.remote.connected || this.remote.profile !== profile) throw new Error('中央节点连接已改变，请重新连接并刷新项目列表');
+    this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
+    await this.store.save();
+    await this.projectSync.rememberCreated(project, brief);
+    await this.connectProject(project.id);
     this.broadcast(); return project;
   }
   changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
@@ -1609,7 +1621,7 @@ export class Workbench {
     try {
       const brief = await this.projectSync.read(projectId);
       const existing = target.projectSync.projects().find(item => item.id === projectId);
-      if (existing && existing.groupName !== groupName) throw new Error('此项目已关联其他工作组');
+      if (existing && existing.groupName !== groupName) throw new Error('此项目已关联其他项目');
       if (!existing) await target.projectSync.create(project.name, groupName, brief.brief, false, projectId);
       const directory = projectDirectory(this.store.settings, this.localProfile()!, projectId);
       if (directory !== undefined) {
@@ -3215,7 +3227,7 @@ export class Workbench {
     const data = await this.projectSync.read(session.binding.project.id); if (!data.brief) return false;
     if (session.projectBrief?.revision === data.revision) return false;
     const local = path.join(this.store.sessionDir(id), 'project-brief-' + randomUUID() + '.md'); await fs.mkdir(path.dirname(local), { recursive: true });
-    await fs.writeFile(local, projectBriefMarkdown(session.binding.project.name, data.brief, '项目组管理员', data.updatedAt || ''));
+    await fs.writeFile(local, projectBriefMarkdown(session.binding.project.name, data.brief, '项目管理者', data.updatedAt || ''));
     const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local);
     source.name = `项目说明 · v${data.revision}`;
     source.sourcePath = session.binding.project.remoteRoot + '/项目说明.md';

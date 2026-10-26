@@ -8,7 +8,7 @@ const group = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
 const revision = z.string().regex(/^[a-f0-9]{64}$/);
 export const groupCommandSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list') }),
-  z.object({ action: z.literal('create'), label: z.string().trim().transform(value => value.normalize('NFC')).refine(value => groupLabelPattern.test(value), groupLabelMessage), creator: accountNameSchema.optional() }),
+  z.object({ action: z.literal('create'), label: z.string().trim().transform(value => value.normalize('NFC')).refine(value => groupLabelPattern.test(value), groupLabelMessage), creator: accountNameSchema.optional(), requestId: z.string().regex(/^project_[a-f0-9]{32}$/).optional() }),
   z.object({ action: z.literal('details'), group }),
   z.object({ action: z.literal('directory'), group }),
   z.object({ action: z.literal('member'), group, revision, username: accountNameSchema, role: z.enum(['manager', 'member', 'remove']) }),

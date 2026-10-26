@@ -641,9 +641,30 @@
     {
       "updated_at": "2026-10-26T19:42:55+08:00",
       "base_commit": "5956567900c6ac28e8567f1803fe76749401dbd7",
-      "document_commit": null,
+      "document_commit": "60f17ca26d06411ee38c33e5a2c5a55f0264878f",
       "summary": "v2.2.33：本机项目独立分组，显示项目名称并恢复上次选择",
       "content_sha256": "c7861fa8f7b8741837ce03a4b588343b4a77c6ef0f1e128d0b71ee0d3dd525fc"
+    },
+    {
+      "updated_at": "2026-10-26T20:14:41+08:00",
+      "base_commit": "60f17ca26d06411ee38c33e5a2c5a55f0264878f",
+      "document_commit": null,
+      "summary": "统一项目与成员权限为单层入口，更新中央节点创建流程及旧数据兼容说明，移除过时关联界面截图",
+      "content_sha256": "00bcecdbce4d05a51097c6a512f9d81215c4df9e2fbdfad07e8b274ff637e35c"
+    },
+    {
+      "updated_at": "2026-10-26T20:19:41+08:00",
+      "base_commit": "60f17ca26d06411ee38c33e5a2c5a55f0264878f",
+      "document_commit": null,
+      "summary": "统一项目与成员权限为单层入口，更新中央节点创建流程及旧数据兼容说明，移除过时关联界面截图",
+      "content_sha256": "66f08e40f09cb97933c0b326d159fd563a25cc181f29d70932b6b1c3be2a9b04"
+    },
+    {
+      "updated_at": "2026-10-26T20:22:02+08:00",
+      "base_commit": "60f17ca26d06411ee38c33e5a2c5a55f0264878f",
+      "document_commit": null,
+      "summary": "v2.2.34：项目与成员权限统一为单层入口，创建时连接中央节点，取消本机创建和后续关联流程",
+      "content_sha256": "12c547a098d00b1f12e472aec76958e61d95653263547c31564eb70ac4163873"
     }
   ]
 }

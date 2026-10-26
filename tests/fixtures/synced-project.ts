@@ -1,7 +1,7 @@
 import type { Workbench } from '../../src/core/workbench';
 
 // Tests that operate on shared files explicitly await the background creation.
-// Production createProject returns as soon as its local transaction is saved.
+// Creation is confirmed by the central node; await subsequent sync for shared-file assertions.
 export async function syncedProject(workbench: Workbench, ...args: Parameters<Workbench['createProject']>) {
   const project = await workbench.createProject(...args);
   await workbench.projectSync.sync();

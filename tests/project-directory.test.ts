@@ -90,7 +90,7 @@ test('ordinary members can edit their local directory even when shared project s
   const initial = renderToStaticMarkup(createElement(ProjectDirectoryDialog, props));
   assert.match(initial, /暂不设置/); assert.match(initial, /保存并进入项目/);
   const settings = renderToStaticMarkup(createElement(ProjectSettingsDialog, { project, admin: false, contextKey: props.contextKey, directory: 'D:/project/code', directorySaved: async () => {}, briefSaved: async () => {}, close: () => {} }));
-  assert.match(settings, /只读，仅本组创建者或管理者可修改/);
+  assert.match(settings, /只读，仅本项目创建者或管理者可修改/);
   assert.match(settings, /<input aria-label="代码目录（选填）"[^>]*value="D:\/project\/code"/);
   assert.doesNotMatch(settings, /<input aria-label="代码目录（选填）"[^>]*disabled/);
   assert.match(settings, /<button class="primary">保存代码目录<\/button>/);
@@ -99,7 +99,7 @@ test('ordinary members can edit their local directory even when shared project s
   assert.doesNotMatch(settings, /暂不设置/);
   const withMembers = renderToStaticMarkup(createElement(ProjectSettingsDialog, { project, admin: false, contextKey: props.contextKey, directorySaved: async () => {}, briefSaved: async () => {}, close() {}, members: { groupId: 'group-test', groupLabel: '研发组', connected: false, call: async () => { throw Error('SSR must not call the server'); }, changed: async () => {} } }));
   assert.match(withMembers, /role="tab"[^>]*>成员与权限/);
-  assert.match(withMembers, /成员与权限对项目组「研发组」内所有项目生效/);
+  assert.match(withMembers, /管理「测试项目」的成员与角色/);
   assert.match(withMembers, /连接中央节点后，可查看和管理成员与权限/);
   assert.equal((withMembers.match(/role="dialog"/g) || []).length, 1);
 }));

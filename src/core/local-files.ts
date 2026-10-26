@@ -125,8 +125,8 @@ export class LocalFileConnection {
     if (connection !== this.channel() || proof !== this.proof || profile !== this.profile) throw new Error('连接已改变');
     const user = authorizeUser(data, profile.username, proof);
     const group = Object.values(data.state.groups).find(g => !g.deletedAt && !g.purgedAt && g.workspace && withinRemote(g.workspace, target));
-    if (!group || group.deletedAt || group.purgedAt || !user.groups?.includes(group.name)) throw new Error('模拟权限拒绝：不属于此项目组');
-    if (create && !user.contentAdminGroups?.includes(group.name)) throw new Error('当前账号不是此工作路径的项目组管理员');
+    if (!group || group.deletedAt || group.purgedAt || !user.groups?.includes(group.name)) throw new Error('模拟权限拒绝：不属于此项目');
+    if (create && !user.contentAdminGroups?.includes(group.name)) throw new Error('当前账号不是此工作路径的项目管理者');
     return { user, group };
   }
   binding(id: string): RemoteBinding {
@@ -141,7 +141,7 @@ export class LocalFileConnection {
   }
   async verifyWorkspace(target: string): Promise<WorkspaceAccess> {
     const checked = await this.verifyDirectory(target), { user, group } = await this.access(target);
-    if (checked.path !== group.workspace) throw new Error('共享工作路径由所属工作组分配');
+    if (checked.path !== group.workspace) throw new Error('共享工作路径由所属项目分配');
     this.workspace = { ...checked, canCreateProject: !!user.contentAdminGroups?.includes(group.name), groupName: group.name, groupLabel: group.label };
     this.changed(); return this.workspace;
   }
@@ -167,13 +167,13 @@ export class LocalFileConnection {
       const workspace: WorkspaceAccess = { path: group.workspace || '', canonicalPath: group.workspace || '', groupName: group.name, groupLabel: group.label, canCreateProject: false };
       workspaces.push(workspace);
       try {
-        if (!group.workspace || group.provisioning) throw new Error('管理员尚未完成工作组目录配置');
+        if (!group.workspace || group.provisioning) throw new Error('管理员尚未完成项目目录配置');
         await this.verifyDirectory(group.workspace);
         workspace.role = groupRole(data.state, group, user.username); workspace.creator = group.creator?.username;
         workspace.canCreateProject = ['creator','manager'].includes(workspace.role || '');
         const entries = await fs.readdir(await diskPath(this.root, group.workspace), { withFileTypes: true });
         workspace.isEmpty = false;
-        if (entries.length > 500) throw new Error('工作组目录超过 500 项，请联系管理员整理');
+        if (entries.length > 500) throw new Error('项目目录超过 500 项，请联系管理员整理');
         const found: Project[] = [];
         for (const e of entries) if (!e.name.startsWith('.') && e.isDirectory() && !e.isSymbolicLink()) { const p = await this.readProject(childRemote(group.workspace, e.name), workspace); if (p) found.push(p); }
         workspace.isEmpty = found.length === 0;
@@ -200,13 +200,13 @@ export class LocalFileConnection {
     const brief = rawBrief === undefined ? undefined : projectBriefSchema.parse(rawBrief);
     await this.loadManifest();
     const workspace = groupName ? this.workspaces.find(w => w.groupName === groupName) : this.workspaces.length === 1 ? this.workspaces[0] : undefined;
-    if (!workspace) throw new Error(this.workspaces.length ? '请选择要创建项目的工作组' : '还没有加入工作组，请联系管理员');
+    if (!workspace) throw new Error(this.workspaces.length ? '请选择要完善资料的项目' : '还没有加入项目，请联系管理员');
     if (workspace.accessError) throw new Error(workspace.accessError);
     const base = workspace.canonicalPath, { group } = await this.access(base, true);
     if (identifier && !/^project_[a-f0-9]{32}$/.test(identifier)) throw new Error('项目标识无效');
     const prior = identifier && this.profile!.projects.find(item => item.id === identifier);
-    if (prior) { if (prior.groupName !== group.name) throw new Error('项目已关联到其他工作组'); return prior; }
-    if (base !== group.workspace) throw new Error('只能在项目组工作路径中创建项目');
+    if (prior) { if (prior.groupName !== group.name) throw new Error('项目已关联到其他项目'); return prior; }
+    if (base !== group.workspace) throw new Error('项目目录与权限范围不一致');
     const project = newProjectLayout(base, name), root = await diskPath(this.root, project.remoteRoot, true);
     if (identifier) project.id = identifier;
     const directories: string[] = [], files: string[] = [], createdAt = new Date().toISOString();

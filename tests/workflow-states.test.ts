@@ -92,7 +92,7 @@ for (const failure of ['enqueue', 'running', 'completed'] as const) test('transf
   try {
     await store.init(); const file = path.join(root, 'source.txt'); await fs.writeFile(file, 'payload');
     let uploads = 0, injected = false; const targets: string[] = [], byteStates: number[] = [];
-    const remote = { channel: () => {}, loadManifest: async () => [], ensurePersonalFolder: async () => {}, upload: async (_binding: RemoteBinding, _local: string, target: string, progress: (bytes: number, total: number) => void, _metadata: unknown, hash: string, _requestId: string, phase: (value: string) => Promise<void>) => { await phase('streaming'); uploads++; targets.push(target); progress(7, 7); await phase('verifying'); return { path: target, sha256: hash, size: 7, author: 'alice' }; } } as unknown as SharedFiles;
+    const remote = { projectConnected: (id: string) => id === binding.project.id, channel: () => {}, loadManifest: async () => [], ensurePersonalFolder: async () => {}, upload: async (_binding: RemoteBinding, _local: string, target: string, progress: (bytes: number, total: number) => void, _metadata: unknown, hash: string, _requestId: string, phase: (value: string) => Promise<void>) => { await phase('streaming'); uploads++; targets.push(target); progress(7, 7); await phase('verifying'); return { path: target, sha256: hash, size: 7, author: 'alice' }; } } as unknown as SharedFiles;
     const queue = new TransferQueue(store, remote, () => { if (store.transfers[0]?.status === 'queued') byteStates.push(store.transfers[0].bytes); });
     const save = store.save.bind(store); store.save = async () => {
       const task = store.transfers[0];

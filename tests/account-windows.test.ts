@@ -215,7 +215,7 @@ test('production window routing reuses project connections, separates nodes and 
   assert.equal((await snapshot(second)).projectCreation, undefined, 'draft belongs to a window, not all windows sharing the account');
   await call(creationWindow, 'project.creation.dismiss', { id: 'stale-draft' });
   assert.equal((await snapshot(creationWindow)).projectCreation?.id, creationState.projectCreation!.id);
-  const newProject = await call(creationWindow, 'project.create', { name: creationState.projectCreation!.name, groupName: creationState.connection!.workspaces.find(w => w.canCreateProject)!.groupName });
+  const newProject = await call(creationWindow, 'project.create', { name: creationState.projectCreation!.name });
   assert(newProject.id);
   await call(creationWindow, 'project.creation.dismiss', { id: creationState.projectCreation!.id });
   assert.equal((await snapshot(creationWindow)).projectCreation, undefined);

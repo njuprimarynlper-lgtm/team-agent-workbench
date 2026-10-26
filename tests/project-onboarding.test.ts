@@ -42,7 +42,7 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_existing')!.isEmpty, true);
     await owner.initializeProject('不覆盖', 'local_existing', brief, key(owner, 'local_existing')); assert.equal(await fs.readFile(path.join(share, 'projects/existing/原有资料.txt'), 'utf8'), 'keep');
     await assert.rejects(owner.initializeProject('错误账号', 'local_one', brief, key(member, 'local_one')), /账号已改变/);
-    await assert.rejects(member.initializeProject('越权', 'local_one', brief, key(member, 'local_one')), /组管理员/);
+    await assert.rejects(member.initializeProject('越权', 'local_one', brief, key(member, 'local_one')), /管理者/);
     await assert.rejects(owner.initializeProject('缺少说明', 'local_one', { ...brief, acceptance: ' ' }, key(owner, 'local_one')));
     assert.deepEqual(await fs.readdir(path.join(share, 'projects/one')), []);
     const created = await owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one'));
@@ -52,12 +52,11 @@ test('local onboarding: empty detection, required brief, identity binding, reada
     for (const dir of ['trajectories', 'submissions']) assert((await fs.stat(path.join(share, 'projects/one/客户信息整理', dir))).isDirectory());
     await member.remote.loadManifest(); await member.connectProject(project.id); const preview = await member.remote.preview(member.remote.binding(project.id), project.remoteRoot + '/' + PROJECT_BRIEF_FILE); assert.equal(preview.content, text);
     await owner.configureWorkspace(config('alice'), '1', root, async () => false); await owner.connectProject(project.id); assert.equal(owner.remote.workspaces.find(w => w.groupName === 'local_one')!.isEmpty, false);
-    await assert.rejects(owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one')), /EEXIST|已存在/);
+    await assert.rejects(owner.initializeProject('客户信息整理', 'local_one', brief, key(owner, 'local_one')), /已初始化/);
     assert.equal(await fs.readFile(path.join(share, 'projects/one/客户信息整理', PROJECT_BRIEF_FILE), 'utf8'), text);
     await admin.operation({ op: 'group_member', username: 'alice', group: 'local_two', role: 'member', handoffs: { 'local_two': null } });
-    const revoked = await owner.initializeProject('撤权后创建', 'local_two', brief, key(owner, 'local_two'));
-    await owner.projectSync.sync(); assert.match(owner.projectSync.states()[revoked.id].error!, /管理员|管理者/);
-    assert.equal((await owner.projectSync.read(revoked.id)).brief?.background, brief.background);
+    await assert.rejects(owner.initializeProject('撤权后创建', 'local_two', brief, key(owner, 'local_two')), /管理员|管理者/);
+    assert(!owner.projectSync.projects().some(project => project.name === '撤权后创建'), 'revoked creation must not leave a phantom local project');
     assert.deepEqual(await fs.readdir(path.join(share, 'projects/two')), []);
   } finally { admin.disconnect(); await owner.close(); await member.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });
@@ -70,7 +69,7 @@ test('SFTP onboarding publishes complete UTF-8 brief, respects permissions, remo
     await owner.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
     await member.configureWorkspace(server.profile('bob'), 'test-password', root, async () => true);
     const key = projectSetupIdentity(owner.remote.profile!, 'wb_test_ocr'); assert(owner.remote.workspace!.isEmpty);
-    await assert.rejects(member.initializeProject('越权', 'wb_test_ocr', brief, projectSetupIdentity(member.remote.profile!, 'wb_test_ocr')), /组管理员/);
+    await assert.rejects(member.initializeProject('越权', 'wb_test_ocr', brief, projectSetupIdentity(member.remote.profile!, 'wb_test_ocr')), /管理者/);
     server.state.failWrite = PROJECT_BRIEF_FILE;
     await assert.rejects(owner.remote.createProject('失败项目', 'wb_test_ocr', brief), /未创建成功/);
     assert(![...server.nodes.keys()].some((p: string) => p.startsWith('/projects/ocr/失败项目')));
@@ -83,7 +82,7 @@ test('SFTP onboarding publishes complete UTF-8 brief, respects permissions, remo
     const file = project.remoteRoot + '/' + PROJECT_BRIEF_FILE;
     assert.equal(server.nodes.get(file).mode & 0o777, 0o640); assert.equal(owner.remote.workspace!.isEmpty, false);
     await member.remote.loadManifest(); await member.connectProject(project.id); const preview = await member.remote.preview(member.remote.binding(project.id), file); assert(preview.content.includes(brief.background));
-    const another = await owner.initializeProject('新项目', 'wb_test_ocr', brief, key); assert.notEqual(another.id, project.id); await owner.projectSync.sync(); assert.equal(owner.remote.profile!.projects.length, 2);
+    await assert.rejects(owner.initializeProject('新项目', 'wb_test_ocr', brief, key), /项目已初始化/); assert.equal(owner.remote.profile!.projects.length, 1);
   } finally { await owner.close(); await member.close(); await server.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 });
 
@@ -93,10 +92,12 @@ test('old central nodes reject stable-ID creation before creating any directory;
   try {
     await workbench.store.init(); await workbench.configureWorkspace(server.profile('alice'), 'test-password', root, async () => true);
     server.state.legacyProjectCreation = true;
-    const project = await workbench.createProject('升级后同步', 'wb_test_ocr', brief); await workbench.projectSync.sync();
-    assert.match(workbench.projectSync.states()[project.id].error!, /更新项目同步服务/);
+    const requestId = 'project_' + 'a'.repeat(32);
+    await assert.rejects(workbench.createProject('升级后同步', 'wb_test_ocr', brief, requestId), /更新项目同步服务/);
     assert(!server.nodes.has('/projects/ocr/升级后同步'));
-    server.state.legacyProjectCreation = false; await workbench.projectSync.sync(); await workbench.projectSync.sync();
+    assert(!workbench.snapshot().settings.workspaceSnapshot?.profile.projects.some(p => p.id === requestId));
+    server.state.legacyProjectCreation = false;
+    const project = await workbench.createProject('升级后同步', 'wb_test_ocr', brief, requestId);
     assert.equal(workbench.remote.profile!.projects.filter(item => item.id === project.id).length, 1);
   } finally { await workbench.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { accountIdentity } from '../src/shared/account-data';
-import { connectionProject, connectedProjectSelection, reusableProjectConnections, separateProjectWindow, projectCreationInputSchema, projectConnectionError } from '../src/shared/project-connection';
+import { connectionProject, connectedProjectSelection, reusableProjectConnections, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, projectConnectionError } from '../src/shared/project-connection';
 import { ProjectRefreshButton } from '../src/renderer/project-refresh';
 import { ProjectBriefEditor } from '../src/renderer/project-brief-editor';
 import { ProjectCentralConnection, LocalProjectConnection } from '../src/renderer/project-connection';
@@ -55,7 +55,7 @@ test('project refresh remains usable while disconnected and only disables for an
   for (const connected of [false, true]) {
     const html = renderToStaticMarkup(createElement(ProjectRefreshButton, { connected, busy: false, refresh() {} }));
     assert.doesNotMatch(html, /disabled/);
-    assert.match(html, /aria-label="刷新工作组、项目和文件"/);
+    assert.match(html, /aria-label="刷新项目和文件"/);
     if (!connected) assert.match(html, /连接中央节点并刷新/);
     const busy = renderToStaticMarkup(createElement(ProjectRefreshButton, { connected, busy: true, refresh() {} }));
     assert.match(busy, /disabled/);
@@ -72,30 +72,26 @@ test('project settings show the actual server and account with the shared connec
   assert.doesNotMatch(connected, /type="password"/);
 });
 
-test('local project association only requires missing choices, and does not offer a separate sync mode', () => {
-  const group = { path: '/projects/research', canonicalPath: '/projects/research', groupName: 'research', groupLabel: '研究组', canCreateProject: true };
-  const render = (groups: typeof group[], connected = true) => renderToStaticMarkup(createElement(LocalProjectConnection, { projectId: 'local', profile: connected ? profile : undefined, groups, configure() {}, linked: async () => {} }));
-  const one = render([group]); assert.match(one, /研究组/); assert.doesNotMatch(one, /<select|disabled|关联并自动同步|选择其他连接/);
-  assert.match(one, />关联项目<\/button>/); assert.match(one, /aria-label="更换中央节点"/);
-  const many = render([group, { ...group, groupName: 'software', groupLabel: '开发组' }]);
-  assert.match(many, /aria-label="关联工作组"/); assert.match(many, /disabled=""[^>]*>关联项目/);
-  const none = render([{ ...group, canCreateProject: false }]); assert.match(none, /没有可关联的工作组/); assert.match(none, /disabled=""[^>]*>关联项目/);
-  assert.doesNotMatch(render([group], false), /关联项目<\/button>|<select|自动同步/);
+test('legacy local projects retain a recovery path without an association or workgroup selector', () => {
+  const html = renderToStaticMarkup(createElement(LocalProjectConnection, { create() {} }));
+  assert.match(html, /创建中央节点项目/); assert.match(html, /旧版本/);
+  assert.doesNotMatch(html, /关联项目|工作组|<select/);
 });
 
 test('project creation accepts a name before authentication without accepting passwords into the continuation', () => {
   assert.deepEqual(projectCreationInputSchema.parse({ name: ' 新项目 ', password: 'must-not-transfer' }), { name: '新项目' });
   assert.throws(() => projectCreationInputSchema.parse({ name: '   ' }));
-  assert.throws(() => projectCreationInputSchema.parse({ name: 'x'.repeat(181) }));
+  assert.throws(() => projectCreationInputSchema.parse({ name: 'x'.repeat(25) }));
 });
 
-test('creation after login retains its name, displays its destination and offers a new group to an unassigned member', () => {
-  const html = renderToStaticMarkup(createElement(ProjectBriefEditor, { groups: [], initialName: '算法实验', connectionLabel: 'node-b:22 · alice', admin: true, close() {}, saved: async () => {} }));
+test('creation after login is a single project form without group selection or local-only creation', () => {
+  const html = renderToStaticMarkup(createElement(ProjectBriefEditor, { initialName: '算法实验', connectionLabel: 'node-b:22 · alice', admin: true, close() {}, saved: async () => {} }));
   assert.match(html, /value="算法实验"/);
   assert.match(html, /node-b:22 · alice/);
-  assert.match(html, /value="local" selected/);
-  assert.match(html, /仅在本机创建/);
-  assert.doesNotMatch(html, /登录密码/);
+  assert.match(html, /项目的创建者/);
+  assert.doesNotMatch(html, /登录密码|工作组|<select|仅在本机|关联/);
+  assert.throws(() => projectCreateSchema.parse({ name: '项目', localOnly: true }));
+  assert.throws(() => projectCreateSchema.parse({ name: '项目', groupName: 'old-group' }));
 });
 
 test('SSH connection errors explain how to continue and retain server identity warnings', () => {

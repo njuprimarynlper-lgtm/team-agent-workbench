@@ -22,7 +22,7 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     assert(server.nodes.has('/projects/ocr/实体抽取/trajectories'));
     assert.equal(project.historyPath, '/projects/ocr/实体抽取/trajectories/alice');
     assert.equal(project.uploadPath, '/projects/ocr/实体抽取/submissions/alice');
-    await assert.rejects(syncedProject(alice, '实体抽取'), /已存在/);
+    await assert.rejects(syncedProject(alice, '实体抽取'), /已存在|同名目录不会覆盖/);
     assert(server.nodes.has('/projects/ocr/实体抽取/.workbench-project.json'));
     server.state.failFolder = 'trajectories';
     await assert.rejects(alice.remote.createProject('失败项目'), /未创建成功/);
@@ -37,9 +37,9 @@ test('automatic assigned workspace discovery, scoped project creation and trajec
     assert.equal(bob.remote.workspace!.canCreateProject, false);
     assert.equal(bob.remote.profile!.projects[0].id, project.id);
     assert.equal(bob.remote.profile!.projects[0].historyPath, '/projects/ocr/实体抽取/trajectories/bob');
-    await assert.rejects(syncedProject(bob, '越权'), /组管理员/);
+    await assert.rejects(syncedProject(bob, '越权'), /管理者/);
     server.state.admins = [];
-    await assert.rejects(syncedProject(alice, '已撤权'), /组管理员/);
+    await assert.rejects(syncedProject(alice, '已撤权'), /管理者/);
     assert.equal(alice.remote.workspace!.canCreateProject, false);
     const before = alice.store.settings.localWorkspace;
     const attempted = { ...server.profile('alice'), username: 'new-account' };

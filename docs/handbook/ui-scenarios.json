@@ -1230,493 +1230,61 @@
     "page": "case-session-routes"
   },
   "case-first-session": {
-    "caption": "建立项目一组并开展首次协作",
+    "caption": "建立项目并完成首次协作",
     "steps": [
       {
-        "title": "总管理员创建“项目一组”工作组",
+        "title": "总管理员建立项目",
         "result": "",
-        "panes": [
-          {
-            "actor": "总管理员",
-            "screen": "管理员版 › 用户管理 › 创建项目组",
-            "status": "正在创建",
-            "rows": [
-              [
-                "项目组名称",
-                "项目一组"
-              ],
-              [
-                "说明",
-                "远端 Linux 组名由工作台生成"
-              ]
-            ],
-            "action": "确认执行",
-            "image": "case-first-session-01-1.png",
-            "capture": {
-              "step": 1,
-              "pane": 1
-            },
-            "heading": "总管理员创建工作组"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
-        "title": "总管理员开通三人账号，指定 Alice 为项目组管理员",
+        "title": "总管理员加入成员并指定角色",
         "result": "",
-        "panes": [
-          {
-            "actor": "总管理员",
-            "screen": "管理员版 › 用户管理 › 组与组管理员",
-            "status": "设置 Alice",
-            "rows": [
-              [
-                "成员",
-                "Alice（alice）"
-              ],
-              [
-                "所属用户组",
-                "☑ 项目一组"
-              ],
-              [
-                "项目组管理员",
-                "☑ 项目一组 · 内容组管理员"
-              ]
-            ],
-            "action": "确认执行",
-            "image": "case-first-session-02-1.png",
-            "capture": {
-              "step": 2,
-              "pane": 1
-            },
-            "heading": "总管理员：为 Alice 配置所属组和项目组管理员身份"
-          },
-          {
-            "actor": "总管理员",
-            "screen": "管理员版 › 用户管理 › 按组查看",
-            "status": "权限已配置",
-            "rows": [
-              [
-                "Alice",
-                "项目一组 · 项目组管理员"
-              ],
-              [
-                "Bob",
-                "项目一组 · 普通成员"
-              ],
-              [
-                "Carol",
-                "项目一组 · 普通成员"
-              ]
-            ],
-            "action": "",
-            "image": "case-first-session-02-2.png",
-            "capture": {
-              "step": 2,
-              "pane": 2
-            },
-            "heading": "总管理员：核对三位成员的角色"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "三人各自登录并确认所属组",
         "result": "",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "screen": "用户版 › 连接团队空间",
-            "status": "登录项目一组",
-            "rows": [
-              [
-                "成员账号",
-                "alice"
-              ],
-              [
-                "服务器地址",
-                "team.example.internal"
-              ],
-              [
-                "工作组角色",
-                "项目一组 · 组管理员"
-              ]
-            ],
-            "action": "登录",
-            "image": "case-first-session-03-1.png",
-            "capture": {
-              "step": 3,
-              "pane": 1
-            },
-            "heading": "Alice 登录团队工作台"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
-        "title": "Alice 建项目，Bob 与 Carol 打开项目",
+        "title": "完善项目资料",
         "result": "",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "screen": "我的工作组 › 建立第一个项目",
-            "status": "正在填写",
-            "rows": [
-              [
-                "项目名称",
-                "票据 OCR 优化"
-              ],
-              [
-                "项目背景",
-                "识别结果需要降低字段漏检"
-              ],
-              [
-                "项目目标",
-                "建立基线并改进票据字段识别"
-              ],
-              [
-                "验收标准",
-                "统一样本集、字段准确率与复核记录"
-              ]
-            ],
-            "action": "保存并创建项目",
-            "image": "case-first-session-04-1.png",
-            "capture": {
-              "step": 4,
-              "pane": 1
-            },
-            "heading": "Alice 创建项目并说明交付要求"
-          },
-          {
-            "actor": "Bob · 项目组成员",
-            "screen": "我的工作组 › 票据 OCR 优化",
-            "status": "项目已可见",
-            "rows": [
-              [
-                "工作组",
-                "项目一组"
-              ],
-              [
-                "项目",
-                "票据 OCR 优化"
-              ],
-              [
-                "项目说明",
-                "可阅读背景、目标和验收标准"
-              ]
-            ],
-            "action": "查看项目说明",
-            "image": "case-first-session-04-2.png",
-            "capture": {
-              "step": 4,
-              "pane": 2
-            },
-            "heading": "Bob 阅读共同目标与验收标准"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "Alice 创建并派发 Bob 的任务（可选）",
         "result": "",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "screen": "项目任务 › 派发任务",
-            "status": "正在派发",
-            "rows": [
-              [
-                "负责人",
-                "Bob"
-              ],
-              [
-                "任务标题",
-                "复核票据 OCR 漏检样本"
-              ],
-              [
-                "验收要求",
-                "记录样本、版本、方法与结果"
-              ],
-              [
-                "关联资料",
-                "基线说明与样本文件"
-              ]
-            ],
-            "action": "确认派发",
-            "image": "case-first-session-05-1.png",
-            "capture": {
-              "step": 5,
-              "pane": 1
-            },
-            "heading": "Alice 派发 Bob 的任务（可选）"
-          },
-          {
-            "actor": "Bob · 项目组成员",
-            "screen": "我的任务 › 任务详情",
-            "status": "待开始",
-            "rows": [
-              [
-                "任务",
-                "复核票据 OCR 漏检样本"
-              ],
-              [
-                "派发人",
-                "Alice"
-              ],
-              [
-                "工作内容",
-                "阅读目标、验收要求和资料"
-              ],
-              [
-                "验收人",
-                "Alice"
-              ]
-            ],
-            "action": "开始工作",
-            "image": "case-first-session-05-2.png",
-            "capture": {
-              "step": 5,
-              "pane": 2
-            },
-            "heading": "Bob 阅读任务并开始工作"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "Alice、Carol 从项目创建会话并开展工作",
         "result": "",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "screen": "工作会话 › 新建工作会话",
-            "status": "待创建",
-            "rows": [
-              [
-                "绑定共享项目",
-                "项目一组 / 票据 OCR 优化"
-              ],
-              [
-                "代码目录（选填）",
-                "Alice 本机目录，或留空"
-              ],
-              [
-                "模型与权限",
-                "检查自己的 Codex 账号和权限"
-              ]
-            ],
-            "action": "创建会话",
-            "image": "case-first-session-06-1.png",
-            "capture": {
-              "step": 6,
-              "pane": 1
-            },
-            "heading": "Alice 创建第一次工作会话"
-          },
-          {
-            "actor": "Carol · 项目组成员",
-            "screen": "工作会话 › 首次输入",
-            "status": "等待首次发送",
-            "rows": [
-              [
-                "AI 参考内容",
-                "检查项目说明是否带入"
-              ],
-              [
-                "输入草稿",
-                "请从样本标注质量开始设计排查步骤"
-              ],
-              [
-                "发送方式",
-                "确认后本人点击发送"
-              ]
-            ],
-            "action": "发送任务",
-            "image": "case-first-session-08-2.png",
-            "capture": {
-              "step": 8,
-              "pane": 2
-            },
-            "heading": "Carol 核对首次输入并发送"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "Bob 从任务创建会话并执行复核",
         "result": "",
-        "panes": [
-          {
-            "actor": "Bob · 项目组成员",
-            "screen": "我的任务 › 新建工作会话",
-            "status": "任务待开始",
-            "rows": [
-              [
-                "任务",
-                "复核票据 OCR 漏检样本"
-              ],
-              [
-                "任务资料",
-                "目标、验收要求、关联成果与文件"
-              ],
-              [
-                "本机目录",
-                "Bob 自己的项目目录"
-              ],
-              [
-                "模型与权限",
-                "Bob 自己的 Codex 账号"
-              ]
-            ],
-            "action": "创建会话",
-            "image": "case-first-session-07-1.png",
-            "capture": {
-              "step": 7,
-              "pane": 1
-            },
-            "heading": "Bob 从任务创建关联会话"
-          },
-          {
-            "actor": "Bob · 项目组成员",
-            "screen": "工作会话 › 首次输入",
-            "status": "已关联任务",
-            "rows": [
-              [
-                "AI 参考内容",
-                "任务说明、验收要求和关联资料"
-              ],
-              [
-                "输入草稿",
-                "请逐项复核票据 OCR 漏检样本并记录证据"
-              ],
-              [
-                "发送方式",
-                "确认后本人点击发送"
-              ]
-            ],
-            "action": "发送任务",
-            "image": "case-first-session-07-2.png",
-            "capture": {
-              "step": 7,
-              "pane": 2
-            },
-            "heading": "Bob 核对首次输入并发送"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "完成工作后提交验收和团队成果",
         "result": "Bob 的任务进入待验收；Carol 上传完成后，Alice 刷新动态即可查看成果。",
-        "panes": [
-          {
-            "actor": "Bob · 项目组成员",
-            "screen": "我的任务 › 提交验收",
-            "status": "提交任务结果",
-            "rows": [
-              [
-                "结果说明",
-                "完成内容、证据、限制和未完成项"
-              ],
-              [
-                "关联成果",
-                "票据漏检复核结论"
-              ],
-              [
-                "验收附件",
-                "复核清单与日志"
-              ]
-            ],
-            "action": "提交验收",
-            "image": "case-first-session-09-1.png",
-            "capture": {
-              "step": 9,
-              "pane": 1
-            },
-            "heading": "Bob 提交可验收的任务结果"
-          },
-          {
-            "actor": "Carol · 项目组成员",
-            "screen": "成果整理 › 提交到团队",
-            "status": "提交项目成果",
-            "rows": [
-              [
-                "成果",
-                "票据样本标注质量检查"
-              ],
-              [
-                "核对",
-                "证据、适用范围和不确定项"
-              ],
-              [
-                "共享内容",
-                "正文和明确选择的附件"
-              ]
-            ],
-            "action": "提交到 票据 OCR 优化",
-            "image": "case-first-session-09-2.png",
-            "capture": {
-              "step": 9,
-              "pane": 2
-            },
-            "heading": "Carol 核对成果后提交给团队"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "Alice 验收任务并采用共享成果",
         "result": "",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "screen": "项目任务 › 验收结果",
-            "status": "Bob 的任务待验收",
-            "rows": [
-              [
-                "任务",
-                "复核票据 OCR 漏检样本"
-              ],
-              [
-                "核对",
-                "目标、结果说明、关联成果与附件"
-              ],
-              [
-                "满足要求",
-                "验收通过"
-              ],
-              [
-                "需要补充",
-                "写明原因并退回"
-              ]
-            ],
-            "action": "退回继续工作",
-            "image": "case-first-session-10-1.png",
-            "capture": {
-              "step": 10,
-              "pane": 1
-            },
-            "heading": "Alice 验收 Bob 的提交"
-          },
-          {
-            "actor": "Alice · 项目组管理员",
-            "screen": "团队动态 › 上传成果",
-            "status": "Carol 的成果待处理",
-            "rows": [
-              [
-                "新成果",
-                "票据样本标注质量检查"
-              ],
-              [
-                "可查看",
-                "作者、版本、证据和附件"
-              ],
-              [
-                "下一步",
-                "采用、补测或创建后续任务"
-              ]
-            ],
-            "action": "查看结果",
-            "image": "case-first-session-10-2.png",
-            "capture": {
-              "step": 10,
-              "pane": 2
-            },
-            "heading": "Alice 查看 Carol 的共享成果"
-          }
-        ]
+        "panes": [],
+        "textOnly": true
       }
     ]
   },
@@ -2082,39 +1650,17 @@
     ]
   },
   "case-project-sync": {
-    "caption": "本机项目关联与同步",
+    "caption": "创建项目与自动同步",
     "steps": [
       {
-        "title": "先创建本机项目",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "stage": "create",
-            "screen": "用户版 › 项目同步",
-            "status": "待确认",
-            "rows": [],
-            "action": "先创建本机项目",
-            "image": "case-project-sync-create.png",
-            "heading": "先创建本机项目",
-            "captureHeight": 1000
-          }
-        ]
+        "title": "连接中央节点并创建项目",
+        "panes": [],
+        "textOnly": true
       },
       {
-        "title": "关联中央节点与工作组",
-        "panes": [
-          {
-            "actor": "Alice · 项目组管理员",
-            "stage": "link",
-            "screen": "用户版 › 项目同步",
-            "status": "待确认",
-            "rows": [],
-            "action": "关联中央节点与工作组",
-            "image": "case-project-sync-link.png",
-            "heading": "关联中央节点与工作组",
-            "captureHeight": 1000
-          }
-        ]
+        "title": "邀请成员并分别连接",
+        "panes": [],
+        "textOnly": true
       },
       {
         "title": "发现分歧后核对两个版本",

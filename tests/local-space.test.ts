@@ -8,8 +8,31 @@ import os from 'node:os';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { LocalFileConnection } from '../src/core/local-files';
 import { memberProfile } from './fixtures/member-profile';
-import { readRegistry, diskPath, writeRegistry, passwordHash } from '../src/core/local-space';
+import { readRegistry, diskPath, writeRegistry, passwordHash, registryLock } from '../src/core/local-space';
 import { Workbench } from '../src/core/workbench';
+
+test('parallel local project writes reserve one lock and tolerate repeated release and reacquisition', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-registry-lock-'));
+  const file = path.join(root, 'counter.json');
+  let active = 0;
+  try {
+    await fs.writeFile(file, '0');
+    await Promise.all(Array.from({ length: 6 }, async () => {
+      for (let round = 0; round < 8; round++) await registryLock(root, async () => {
+        assert.equal(++active, 1, 'only one writer owns the registry');
+        try {
+          const value = JSON.parse(await fs.readFile(file, 'utf8')) as number;
+          await new Promise(resolve => setTimeout(resolve, 1));
+          await fs.writeFile(file, JSON.stringify(value + 1));
+        } finally { active--; }
+      });
+    }));
+    assert.equal(JSON.parse(await fs.readFile(file, 'utf8')), 48);
+    await assert.rejects(fs.stat(path.join(root, '.workbench-local.lock')), { code: 'ENOENT' });
+    await assert.rejects(registryLock(root, async () => { throw new Error('interrupted write'); }), /interrupted write/);
+    assert.equal(await registryLock(root, async () => 'recovered'), 'recovered');
+  } finally { await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
 
 async function setup() {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-local-'));
@@ -60,7 +83,7 @@ test('unassigned users can join later; removing membership revokes live access a
     await member.ensurePersonalFolder(binding, binding.project.historyPath);
     const target = binding.project.historyPath + '/history.txt'; await member.upload(binding, source, target, () => {});
     await x.admin.operation({ op: 'group_member', username: 'newuser', group: 'local_workbench', role: 'remove' });
-    await assert.rejects(member.list(binding, p.remoteRoot), /不属于此项目组/);
+    await assert.rejects(member.list(binding, p.remoteRoot), /不属于此项目/);
     assert.equal(await fs.readFile(await diskPath(x.root, target), 'utf8'), 'keep-history');
     assert((await readRegistry(x.root)).state.users.newuser.enabled);
     await x.admin.operation({ op: 'group_member', username: 'newuser', group: 'local_workbench', role: 'member' });
@@ -131,7 +154,7 @@ test('local shared files: project roles, real disk transfers, team result and up
     await assert.rejects(alice.createProject(project.name), /EEXIST/);
     const bob = await x.connect('bob'), carol = await x.connect('carol');
     assert.equal(bob.profile!.projects[0].id, project.id); assert.equal(carol.profile!.projects.length, 0);
-    await assert.rejects(bob.createProject('拒绝'), /组管理员/);
+    await assert.rejects(bob.createProject('拒绝'), /管理者/);
     const binding = alice.binding(project.id), bb = bob.binding(project.id);
     const file = path.join(x.base, 'result.md'); await fs.writeFile(file, '# 改进工作台\n验证管理员与成员流程');
     await alice.ensurePersonalFolder(binding, project.uploadPath);
@@ -167,7 +190,7 @@ test('local download verifies the selected remote version before replacing a des
     await bob.download(binding, target, destination, () => {}, current);
     assert.equal(await fs.readFile(destination, 'utf8'), 'version two');
     await x.admin.operation({ op: 'user_groups', username: 'bob', groups: [], contentAdminGroups: [] });
-    await assert.rejects(bob.downloadInfo(binding, target), /不属于此项目组|项目入口/);
+    await assert.rejects(bob.downloadInfo(binding, target), /不属于此项目|项目入口/);
     alice.disconnect(); bob.disconnect();
   } finally { await x.clean(); }
 });
@@ -177,12 +200,12 @@ test('local permission changes apply to live user connections, including passwor
     const alice = await x.connect('alice'), p = await alice.createProject('工作台'), bob = await x.connect('bob'), binding = bob.binding(p.id);
     await x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: false }); await assert.rejects(bob.list(binding, p.remoteRoot), /已停用/);
     await x.admin.operation({ op: 'user_enabled', username: 'bob', enabled: true }); assert((await bob.list(binding, p.remoteRoot)).length);
-    await x.admin.operation({ op: 'user_groups', username: 'bob', groups: [], contentAdminGroups: [] }); await assert.rejects(bob.list(binding, p.remoteRoot), /不属于此项目组/);
+    await x.admin.operation({ op: 'user_groups', username: 'bob', groups: [], contentAdminGroups: [] }); await assert.rejects(bob.list(binding, p.remoteRoot), /不属于此项目/);
     await x.admin.operation({ op: 'user_groups', username: 'bob', groups: ['local_workbench'], contentAdminGroups: [] });
     await x.admin.operation({ op: 'user_password', username: 'bob', password: 'replacement-password' }); await assert.rejects(bob.list(binding, p.remoteRoot), /凭据已改变/);
     await assert.rejects(bob.connect(x.config('bob'), 'member-test-password', async () => false), /密码错误/);
     await bob.connect(x.config('bob'), 'replacement-password', async () => false); await bob.verifyWorkspace('/projects/workbench');
-    await x.admin.operation({ op: 'user_groups', username: 'alice', groups: ['local_workbench'], contentAdminGroups: [], handoffs: { local_workbench: null } }); await assert.rejects(alice.createProject('revoked'), /组管理员/);
+    await x.admin.operation({ op: 'user_groups', username: 'alice', groups: ['local_workbench'], contentAdminGroups: [], handoffs: { local_workbench: null } }); await assert.rejects(alice.createProject('revoked'), /管理者/);
     await alice.loadManifest(); assert.equal(alice.workspace!.canCreateProject, false);
     alice.disconnect(); bob.disconnect();
   } finally { await x.clean(); }
@@ -230,7 +253,7 @@ test('local stub derives a Linux group name from a Chinese group name and keeps 
     await assert.rejects(x.admin.operation({ op: 'group_create', label: '实体抽取' }), /项目组已存在/);
     await assert.rejects(x.admin.operation({ op: 'group_create', label: 'WorkBench' }), /仅大小写不同/);
     // The client schema rejects before the request leaves, so Python and TypeScript stay in step.
-    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'a b' }), /项目组名称支持中文/);
+    await assert.rejects(x.admin.operation({ op: 'group_create', label: 'a b' }), /项目名称支持中文/);
     await x.admin.operation({ op: 'group_create', label: 'café' });
     assert.equal(Object.values(x.admin.snapshot.state!.groups).find(g => g.label === 'café')!.workspace, '/projects/café');
     // The same visible name in a decomposed Unicode form must land on the one record.

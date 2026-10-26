@@ -206,7 +206,7 @@ test('legacy unknown sources stay unknown and full origin/destination details ar
   assert.equal(sourceLabel({ kind: 'unknown' }), '未记录来源'); assert.equal(sourceLabel({ kind: 'manual' }), '手动编写');
   assert.equal(activityText({ title: '误差评估', author: 'bob', updatedBy: 'alice', change: 'updated' }), 'alice 更新了《误差评估》');
   const p = { id: 'a', name: '优化', groupName: 'g1', groupLabel: '竞赛组', remoteRoot: '/a', uploadPath: '/a/s', historyPath: '/a/t' };
-  assert.equal(destinationLabel(p, [p]), '优化'); assert.equal(destinationLabel(p, [p, { ...p, id: 'b', groupName: 'g2' }]), '竞赛组 / 优化');
+  assert.equal(destinationLabel(p, [p]), '优化'); assert.equal(destinationLabel(p, [p, { ...p, id: 'b', groupName: 'g2' }]), '优化');
   const binding = { username: 'bob', project: p } as RemoteBinding;
   const task = { id: 't', kind: 'upload', name: 'internal.zip', metadata: { title: '误差评估', description: '', kind: 'contribution' }, binding, target: '/a/s/report.zip', status: 'done', bytes: 10, total: 10, createdAt: new Date().toISOString(), projectName: '优化' } as Transfer;
   const transferHtml = renderToStaticMarkup(createElement(TransferRecords, { transfers: [task], retry: () => {} }));

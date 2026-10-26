@@ -26,6 +26,13 @@ export class ProjectSync {
   projects() { return [...new Map([...this.host.projects(), ...Object.values(this.entries).map(entry => entry.project)].map(project => [project.id, project])).values()]; }
   states() { return Object.fromEntries(Object.entries(this.entries).map(([id, entry]) => [id, { pending: !!entry.pendingCreate || canonicalSync(entry.brief) !== canonicalSync(entry.base), localOnly: !!entry.localOnly, error: entry.error, history: this.conflicts.history.filter(item => item.key === 'project:' + id && item.owner === this.owner()).slice(0, 30).map(({ id, at, method }) => ({ id, at, method })), conflict: entry.conflict && this.conflicts.view(entry.conflict) }])); }
   private persist() { const data = structuredClone({ accounts: this.accounts }); const next = this.writes.catch(() => {}).then(() => atomicJson(path.join(this.root, 'project-sync.json'), data)); this.writes = next; return next; }
+  // Cache only after the central node confirms creation. A retry must not replace
+  // later edits or turn a confirmed project back into a pending local creation.
+  async rememberCreated(project: Project, brief?: ProjectBrief) {
+    await this.init(); if (this.entries[project.id]) return;
+    this.entries[project.id] = { project: structuredClone(project), brief: structuredClone(brief), base: structuredClone(brief), revision: project.briefRevision || 0, centralRevision: project.briefRevision || 0 };
+    try { await this.persist(); } catch (error) { delete this.entries[project.id]; throw error; }
+  }
   async create(name: string, groupName?: string, brief?: ProjectBrief, localOnly = false, identifier?: string) {
     await this.init(); name = projectName(name); if (brief) brief = projectBriefSchema.parse(brief);
     const id = identifier || 'project_' + randomUUID().replace(/-/g, '');

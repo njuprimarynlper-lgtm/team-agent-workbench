@@ -4,7 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { workspaceSelection, restoredWorkspaceSelection } from '../src/shared/workspace-selection';
 import { PERSONAL_PROJECT_ID, personalProfile } from '../src/shared/personal-workspace';
-import { LocalProjectsSection, LocalWorkspaceNote, SidebarProjectItem } from '../src/renderer/sidebar-project-item';
+import { LocalWorkspaceNote, SidebarProjectItem } from '../src/renderer/sidebar-project-item';
 
 const local = { ...personalProfile.projects[0], id: 'local-project', name: '算法研究' };
 const team = { ...local, id: 'team-project', name: '算法研究' };
@@ -27,15 +27,13 @@ test('restart keeps valid local and team choices and falls back for removed proj
   assert.equal(restoredWorkspaceSelection(undefined, [local], [team]), undefined);
 });
 
-test('local projects render in a named workgroup section with existing project controls', () => {
-  const html = renderToStaticMarkup(React.createElement(LocalProjectsSection, { children: React.createElement(SidebarProjectItem, {
-    project: local, selected: false, select() {}, settings() {}, call: async () => { throw new Error('No IPC while rendering'); },
-  }) }));
-  assert.match(html, /<section class="workgroup local-projects" aria-label="本机项目">/);
-  assert.match(html, /<b>本机项目<\/b>/);
-  assert.match(html, /未关联工作组/);
-  assert.match(html, /data-project-id="local-project"/);
+test('a project row displays its role and controls without a second group heading', () => {
+  const html = renderToStaticMarkup(React.createElement(SidebarProjectItem, {
+    project: local, role: 'creator', selected: false, select() {}, settings() {}, call: async () => { throw new Error('No IPC while rendering'); },
+  }));
+  assert.match(html, /创建者/); assert.match(html, /data-project-id="local-project"/);
   assert.match(html, /aria-label="项目设置：算法研究"/);
+  assert.doesNotMatch(html, /工作组|未关联工作组|workgroup-title/);
 });
 
 test('the sidebar note names the selected local project while unassigned sessions retain personal group labels', () => {

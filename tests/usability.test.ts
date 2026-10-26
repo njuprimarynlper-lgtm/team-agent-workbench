@@ -78,7 +78,7 @@ test('#2/#3/#5 session inputs, handoffs and drafts persist independently and off
     await wb.createSession('codex', root, project.id);
     await assert.rejects(wb.configureWorkspace(server.profile('alice'), 'wrong-password', root, async () => true));
     assert.equal(wb.workspaceReady, true); await wb.createSession('cursor', root, project.id);
-    const offline = await wb.createProject('offline'); assert.equal(wb.projectSync.states()[offline.id].pending, true);
+    await assert.rejects(wb.createProject('offline'), /连接中央节点/);
   } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 

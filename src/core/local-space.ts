@@ -51,7 +51,11 @@ export function authorizeUser(data: LocalRegistry, username: string, proof: stri
   return user;
 }
 export async function registryLock<T>(root: string, action: () => Promise<T>) {
-  const file = await diskPath(root, '/.workbench-local.lock', true);
+  // Validate the stable parent, then reserve the fixed name exclusively. Another
+  // writer may remove its lock between lstat and readdir; checking that transient
+  // file with diskPath would misreport the normal release as a case mismatch.
+  // 'wx' rejects any existing file or link without following or adopting it.
+  const file = path.join(await diskPath(root, '/'), '.workbench-local.lock');
   let lock;
   const deadline = Date.now() + 5000;
   for (;;) {

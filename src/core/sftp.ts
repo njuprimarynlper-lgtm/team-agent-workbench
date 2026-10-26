@@ -124,32 +124,32 @@ export class SftpConnection {
     try {
       for (const target of ['/', '/.workbench', file]) {
         const info = await this.stat(s, target);
-        if (info.uid !== 0 || info.mode & 0o022 || info.isSymbolicLink() || (target === file && (!info.isFile() || info.size > 256 * 1024))) throw new Error('不可信的工作组记录');
+        if (info.uid !== 0 || info.mode & 0o022 || info.isSymbolicLink() || (target === file && (!info.isFile() || info.size > 256 * 1024))) throw new Error('不可信的项目记录');
       }
       const data = await this.readLimited(s, file, 256 * 1024);
-      if (data.truncated) throw new Error('工作组记录过大');
+      if (data.truncated) throw new Error('项目记录过大');
       const roles = JSON.parse(data.buffer.toString('utf8'));
       this.storageVersion = roles.storageVersion || 0;
       if (roles.version !== 1 || roles.membershipVersion !== 1) throw new Error('请管理员使用新版管理员端刷新成员信息');
       const user = Object.hasOwn(roles.users || {}, username) ? roles.users[username] : undefined;
       if (!user) throw new Error('当前账号未启用或不属于此团队，请联系管理员');
-      if (!Array.isArray(user.groups) || user.groups.length > 200) throw new Error('工作组记录格式无效');
+      if (!Array.isArray(user.groups) || user.groups.length > 200) throw new Error('项目记录格式无效');
       const seen = new Set<string>(), roots = new Set<string>();
       return user.groups.map((g: any) => {
-        if (typeof g.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(g.id) || typeof g.name !== 'string' || !g.name || g.name.length > 160 || seen.has(g.id)) throw new Error('工作组记录格式无效');
+        if (typeof g.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(g.id) || typeof g.name !== 'string' || !g.name || g.name.length > 160 || seen.has(g.id)) throw new Error('项目记录格式无效');
         const workspace = g.workspace || '';
         // An unrecognised path may simply be newer than this client; keep the reason visible instead of calling the record corrupt.
         if (typeof workspace !== 'string' || (workspace && (!groupWorkspacePattern.test(workspace) || roots.has(workspace)))) throw new Error('用户组的共享目录路径无法识别，请先升级用户版；若仍失败，请联系管理员核对成员信息');
         seen.add(g.id); if (workspace) roots.add(workspace);
-        return { role: ['creator','manager','member'].includes(g.role) ? g.role : undefined, creator: typeof g.creator === 'string' ? g.creator : undefined, groupName: g.id, groupLabel: g.name, path: workspace, canonicalPath: workspace, canCreateProject: !!workspace && Array.isArray(user.contentGroups) && user.contentGroups.some((a: any) => a.id === g.id && a.workspace === workspace), ...(!workspace ? { accessError: '管理员尚未完成工作组目录配置' } : {}) };
+        return { role: ['creator','manager','member'].includes(g.role) ? g.role : undefined, creator: typeof g.creator === 'string' ? g.creator : undefined, groupName: g.id, groupLabel: g.name, path: workspace, canonicalPath: workspace, canCreateProject: !!workspace && Array.isArray(user.contentGroups) && user.contentGroups.some((a: any) => a.id === g.id && a.workspace === workspace), ...(!workspace ? { accessError: '管理员尚未完成项目目录配置' } : {}) };
       });
-    } catch (e: any) { throw new Error('无法读取账号的工作组信息：' + e.message); }
+    } catch (e: any) { throw new Error('无法读取账号的项目信息：' + e.message); }
   }
   async verifyWorkspace(target: string): Promise<WorkspaceAccess> {
     const s = this.channel(), assigned = await this.assignedWorkspaces(), workspace = assigned.find(w => w.path === target);
-    if (!workspace) throw new Error('共享工作路径由所属工作组分配，当前账号未加入此组');
+    if (!workspace) throw new Error('当前账号未加入此项目，无法访问项目共享目录');
     const checked = await this.verifyDirectory(target);
-    if (checked.canonicalPath !== workspace.path) throw new Error('工作组目录不能指向其他路径');
+    if (checked.canonicalPath !== workspace.path) throw new Error('项目目录不能指向其他路径');
     if (this.channel() !== s) throw new Error('验证期间服务器连接已改变');
     this.workspace = { ...workspace, ...checked }; this.changed(); return this.workspace;
   }
@@ -181,11 +181,11 @@ export class SftpConnection {
       if (workspace.accessError) continue;
       try {
         const checked = await this.verifyDirectory(workspace.path);
-        if (checked.canonicalPath !== workspace.path) throw new Error('工作组目录不能指向其他路径');
+        if (checked.canonicalPath !== workspace.path) throw new Error('项目目录不能指向其他路径');
         const entries = await new Promise<import('ssh2').FileEntry[]>((resolve, reject) => s.readdir(workspace.path, (e, list) => e ? reject(friendlySftp(e)) : resolve(list)));
         workspace.isEmpty = false;
         const directories = entries.filter(e => !e.filename.startsWith('.') && (e.attrs.mode & 0o170000) === 0o040000);
-        if (directories.length > 500) throw new Error('工作组目录超过 500 项，请联系管理员整理');
+        if (directories.length > 500) throw new Error('项目目录超过 500 项，请联系管理员整理');
         const found: Project[] = [];
         for (const entry of directories) { const project = await this.readProject(childRemote(workspace.path, entry.filename), workspace); if (project) found.push(project); }
         workspace.isEmpty = found.length === 0;
@@ -204,7 +204,7 @@ export class SftpConnection {
   async groupCommand(raw: GroupCommand): Promise<TeamGroup | TeamGroup[] | {username:string;name:string}[]> {
     const command = groupCommandSchema.parse(raw);
     const result = await this.request({ op:'team_group', command }).catch((error:Error)=>{
-      if (/不支持的内容操作/.test(error.message)) throw new Error('服务器尚未支持项目组管理，请系统管理员在新版管理端点击“更新服务端功能”后重试');
+      if (/不支持的内容操作/.test(error.message)) throw new Error('服务器尚未支持项目管理，请系统管理员在新版管理端点击“更新服务端功能”后重试');
       throw error;
     });
     if (!['list','details','directory'].includes(command.action)) {
@@ -217,12 +217,12 @@ export class SftpConnection {
   async createProject(name: string, groupName?: string, brief?: ProjectBrief, id?: string): Promise<Project> {
     await this.loadManifest();
     const workspace = groupName ? this.workspaces.find(w => w.groupName === groupName) : this.workspaces.length === 1 ? this.workspaces[0] : undefined;
-    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('请选择可管理的工作组；只有本组组管理员可以创建项目');
+    if (!workspace?.canCreateProject || workspace.accessError) throw new Error('请选择可管理的项目；只有项目创建者或管理者可以完善资料');
     const result = await this.request({ op: id ? 'create_project_v2' : 'create_project', name: projectName(name), groupName: workspace.groupName, brief, ...(id ? { clientProjectId: id } : {}) }).catch(error => {
-      if (id && /不支持|unsupported|unknown op/i.test(error.message)) throw new Error('中央节点需更新项目同步服务，本机项目已保留');
+      if (id && /不支持|unsupported|unknown op/i.test(error.message)) throw new Error('中央节点需更新项目同步服务，请联系管理员更新后重试');
       throw error;
     });
-    await this.loadManifest(); const project = this.profile!.projects.find(p => p.id === result.projectId); if (!project) throw new Error('项目已创建，请刷新工作组查看'); return project;
+    await this.loadManifest(); const project = this.profile!.projects.find(p => p.id === result.projectId); if (!project) throw new Error('项目已创建，请刷新项目查看'); return project;
   }
   async ensurePersonalFolder(binding: RemoteBinding, _target: string) { this.channel(binding); this.requireStorage(); }
   async contentList(binding: RemoteBinding): Promise<SharedContent[]> {
@@ -299,12 +299,12 @@ export class SftpConnection {
         if (this.reconnecting) await this.reconnecting;
         else {
           const profile = this.profile && structuredClone(this.profile), password = this.sessionPassword;
-          if (!profile || !password) throw new Error('共享连接已失效，请重新登录后刷新账号身份与工作组');
+          if (!profile || !password) throw new Error('共享连接已失效，请重新登录后刷新账号身份与项目');
           this.reconnecting = this.connect(profile, password, async () => false).then(() => {}).finally(() => { this.reconnecting = undefined; });
           await this.reconnecting;
         }
       }
-      catch { throw new Error('共享连接已失效，自动恢复失败。请重新登录后刷新账号身份与工作组'); }
+      catch { throw new Error('共享连接已失效，自动恢复失败。请重新登录后刷新账号身份与项目'); }
     }
     return this.discoverProjects();
   }

@@ -137,7 +137,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             await mergeEditor.flush();
             await api.call('conclusion.merge.submit', { id: draft.id, confirmDuplicateTodos });
             setSubmitted(true);
-            notice('已开始提交团队成果；个人来源保持原状，上传完成后项目组成员可见');
+            notice('已开始提交团队成果；个人来源保持原状，上传完成后项目成员可见');
           } finally { setBusy(false); }
         })}><Check size={15}/>{busy ? '正在提交…' : uploadLabel}</button>}
         {draft.mergeCompletedAt && draft.mergeResultId && isLocalMerge ? <button className="primary" onClick={() => viewConclusion(draft.conclusionMergeProjectId!, draft.mergeResultId!)}>查看个人成果</button> :

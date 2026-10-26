@@ -2,10 +2,17 @@ import { accountIdentity } from './account-data';
 import { z } from 'zod';
 import { errorMessage } from './errors';
 import type { ConnectionProfile, WorkspaceAccess } from './types';
+import { projectBriefSchema } from './project-brief';
+import { groupLabelMessage, groupLabelPattern } from './groups';
 
 // A window-local continuation, never a saved project or an SSH credential.
-export const projectCreationInputSchema = z.object({ name: z.string().trim().min(1, '请填写项目名称').max(180) });
+const projectDisplayNameSchema = z.string().trim().transform(value => value.normalize('NFC')).refine(value => groupLabelPattern.test(value), groupLabelMessage);
+export const projectCreationInputSchema = z.object({ name: projectDisplayNameSchema });
 export interface ProjectCreationIntent { id: string; name: string }
+export const projectCreateSchema = z.object({
+  name: projectDisplayNameSchema,
+  brief: projectBriefSchema.optional(), requestId: z.string().regex(/^project_[a-f0-9]{32}$/).optional(),
+}).strict();
 
 export function projectConnectionError(error: unknown) {
   const message = errorMessage(error);
@@ -33,7 +40,7 @@ export function connectedProjectSelection(profile: ConnectionProfile, projectId?
   if (!projectId || profile.projects.some(project => project.id === projectId)) return { projectId: connectionProject(profile, projectId) };
   const failedGroups = workspaces.filter(group => group.accessError);
   return { notice: failedGroups.length
-    ? '已登录，但目标项目尚未读取到。工作组读取失败：' + failedGroups.slice(0, 3).map(group => `${group.groupLabel || group.groupName}（${group.accessError}）`).join('；') + '。请刷新列表后重试。'
+    ? '已登录，但目标项目尚未读取到。项目读取失败：' + failedGroups.slice(0, 3).map(group => `${group.groupLabel || group.groupName}（${group.accessError}）`).join('；') + '。请刷新列表后重试。'
     : '已登录，但目标项目未出现在当前账号的项目列表中。请刷新列表；若仍缺失，请联系项目管理者核对项目是否存在及访问权限。' };
 }
 export function separateProjectWindow(current: ConnectionProfile | undefined, next: ConnectionProfile) {

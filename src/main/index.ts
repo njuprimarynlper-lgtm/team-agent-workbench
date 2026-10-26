@@ -1,4 +1,4 @@
-import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, type ProjectCreationIntent } from '../shared/project-connection';
+import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, type ProjectCreationIntent } from '../shared/project-connection';
 import { assertPersonalRelay, isNativeSessionRecordAction } from '../core/personal-relay';
 import { PERSONAL_PROJECT_ID, isPersonalBinding } from '../shared/personal-workspace';
 import { restoredWorkspaceSelection, workspaceSelection } from '../shared/workspace-selection';
@@ -78,7 +78,7 @@ let personalRelay: DataContext | undefined;
 function actionContext(action: string, raw: any, owner: BrowserWindow, preferPersonal = false): DataContext {
   const team = contexts.get(owner)!;
   preferPersonal ||= personalWindows.has(owner);
-  if (personalContext && action !== 'project.link' && action !== 'local.move' && (raw?.localOnly || raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId))) return personalContext;
+  if (personalContext && !['project.link', 'project.create', 'project.initialize', 'local.move'].includes(action) && raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
   if (!personalContext || action === 'snapshot' || action === 'workspace.select' || action === 'layout.sidebar' || action.startsWith('account.') || action === 'local.move' || /^(remote\.|group\.|project\.|assignment\.|question\.|rsi\.|content\.)/.test(action)) return team;
   if (action.startsWith('local.')) return personalContext;
   if (raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
@@ -123,7 +123,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
   const { workbench, egress, broadcast, notice } = context;
   if (context === personalContext && active) await alignPersonalRelay(active, action, raw);
   if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(action)) workbench.assertAccountReady();
-  const setupActions = new Set(['project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
+  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'workspace.select': {
@@ -254,7 +254,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       const p = z.object({ host: z.string().min(1), port: z.number().int().min(1).max(65535) }).parse(raw), key = serverIdentityKey(p.host, p.port);
       await serverIdentities.forget(key); await syncServerIdentities(key); return true;
     }
-    case 'project.create': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().optional(), brief: projectBriefSchema.optional(), localOnly: z.boolean().optional() }).parse(raw); return workbench.createProject(p.name, p.groupName, p.brief); }
+    case 'project.create': { const p = projectCreateSchema.parse(raw); return workbench.createManagedProject(p.name, p.brief, p.requestId); }
     case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }
     case 'remote.password': { const p = z.object({ oldPassword: z.string().min(1).max(4096), newPassword: newAccountPasswordSchema }).parse(raw); return workbench.remote.changePassword(p.oldPassword, p.newPassword); }
     case 'remote.disconnect': if (personalRelay === active && personalContext?.workbench.store.sessions.some(session => session.networkRoute === 'management' && (['starting', 'running', 'approval'].includes(session.status) || (personalContext?.workbench.activity.busy || personalContext?.workbench.rsi.busy)))) throw new Error('请先结束使用中央中转的本机会话，再断开连接'); workbench.remote.disconnect(); broadcastConnections(); return true;

@@ -26,5 +26,5 @@ test('admin membership dialog shows the group name without exposing the generate
   const user = { username: 'alice', name: 'Alice', enabled: true, groups: [], contentAdminGroups: [] };
   const html = renderToStaticMarkup(React.createElement(MembershipDialog, { form: { kind: 'membership', group, user } as any, snapshot: { state: { groups: { [group.name]: group }, users: { alice: user } }, profile: { mode: 'local' } } as any, close() {}, done: async () => {} }));
   const text = html.replace(/<[^>]+>/g, '');
-  assert.match(text, /目标用户组：.*算法研究组/); assert.doesNotMatch(text, /wb_random_internal_7a91/);
+  assert.match(text, /目标项目：.*算法研究组/); assert.doesNotMatch(text, /wb_random_internal_7a91/);
 });

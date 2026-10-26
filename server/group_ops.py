@@ -34,14 +34,14 @@ def tg_role(state, group, username):
 
 def tg_safe(root, relative):
     if not isinstance(relative, str) or '\\' in relative or any(ord(c) < 32 for c in relative):
-        raise ValueError('非法项目组路径')
+        raise ValueError('非法项目路径')
     current = root
     for part in relative.lstrip('/').split('/'):
         if part in ('', '.', '..'):
-            raise ValueError('非法项目组路径')
+            raise ValueError('非法项目路径')
         current = current / part
         if current.is_symlink():
-            raise PermissionError('项目组操作不允许符号链接')
+            raise PermissionError('项目操作不允许符号链接')
     return current
 
 def tg_json(file, value, mode=0o600):
@@ -91,17 +91,17 @@ def tg_provision(root, state, group):
             else: raise PermissionError('同名 Linux 组已存在，拒绝接管')
             used = {native.gr_gid for native in grp.getgrall()} | {value.get(key) for value in state['groups'].values() for key in ('gid','adminGid')} | {state.get('loginGid')}
             group[field] = next((gid for gid in range(1000,60000) if gid not in used), None)
-            if group[field] is None: raise ValueError('没有可用的项目组 GID')
+            if group[field] is None: raise ValueError('没有可用的项目 GID')
             tg_save(root,state)  # Reserve the native identity before running groupadd.
         try: native = grp.getgrnam(name)
         except KeyError:
             tg_run(['groupadd','-g',str(group[field]),'--',name]); native=grp.getgrnam(name)
-        if native.gr_gid != group[field]: raise PermissionError('Linux 项目组身份已改变，拒绝继续创建')
+        if native.gr_gid != group[field]: raise PermissionError('Linux 项目身份已改变，拒绝继续创建')
     directory=tg_safe(root,group['workspace'])
     if directory.exists():
         stat=directory.stat()
         if not directory.is_dir() or stat.st_uid!=0 or stat.st_gid!=group['gid']:
-            raise PermissionError('项目组目录身份不符，拒绝接管')
+            raise PermissionError('项目目录身份不符，拒绝接管')
     else:
         directory.mkdir(mode=0o700); _tg_os.chown(directory,0,group['gid'])
     _tg_os.chmod(directory,0o2750)
@@ -110,7 +110,7 @@ def tg_provision(root, state, group):
 def tg_run(arguments, allowed=(0,)):
     result = _tg_process.run(arguments, stdin=_tg_process.DEVNULL, stdout=_tg_process.PIPE, stderr=_tg_process.PIPE, text=True, timeout=30)
     if result.returncode not in allowed:
-        raise RuntimeError('项目组系统权限设置未完成，请管理端核对后重试：' + arguments[0])
+        raise RuntimeError('项目系统权限设置未完成，请管理端核对后重试：' + arguments[0])
 
 def tg_account(user):
     import pwd
@@ -134,7 +134,7 @@ def tg_set_member(state, group, user, role):
     for name, gid, include in [(group['name'],group['gid'],role!='remove'), (group['adminGroup'],group['adminGid'],role=='manager')]:
         native = grp.getgrnam(name)
         if native.gr_gid != gid:
-            raise PermissionError('Linux 项目组身份已改变')
+            raise PermissionError('Linux 项目身份已改变')
         if include and gid not in gids: tg_run(['usermod','-a','-G',name,login])
         elif not include and gid in gids: tg_run(['gpasswd','-d',login,name])
     gids = set(_tg_os.getgrouplist(login, account.pw_gid))
@@ -151,7 +151,7 @@ def tg_creator_change(state, username, groups=None, admins=None):
     for group in state['groups'].values():
         if not group.get('deletedAt') and group.get('creator') and group.get('creator') == dict(username=username,identity=tg_identity(user)):
             if (groups is not None and group['name'] not in groups) or (admins is not None and group['name'] not in admins):
-                raise ValueError('请先在项目组管理中移交创建者权限：' + group['label'])
+                raise ValueError('请先在项目管理中移交创建者权限：' + group['label'])
 
 def tg_describe(root, state, group, actor=None):
     members = []
@@ -163,7 +163,7 @@ def tg_describe(root, state, group, actor=None):
     projects = []; size = 0; count = 0; fingerprint = _tg_hash.sha256()
     if directory.exists():
         for candidate in sorted(directory.iterdir()):
-            if candidate.is_symlink(): raise PermissionError('项目组包含符号链接，请管理员核对')
+            if candidate.is_symlink(): raise PermissionError('项目包含符号链接，请管理员核对')
             if candidate.is_dir() and not candidate.name.startswith('.'):
                 marker = candidate / '.workbench-project.json'
                 if marker.is_symlink(): raise PermissionError('项目身份文件不能是符号链接')
@@ -174,41 +174,50 @@ def tg_describe(root, state, group, actor=None):
             directories.sort()
             for name in sorted(directories + files):
                 target = _tg_path.Path(base) / name; count += 1
-                if count > 500000: raise ValueError('项目组文件过多，请管理员先核对空间统计')
-                if target.is_symlink(): raise PermissionError('项目组包含符号链接，请管理员核对')
+                if count > 500000: raise ValueError('项目文件过多，请管理员先核对空间统计')
+                if target.is_symlink(): raise PermissionError('项目包含符号链接，请管理员核对')
                 info=target.stat()
                 fingerprint.update(_tg_json.dumps([str(target.relative_to(directory)),info.st_ino,info.st_mtime_ns,info.st_size]).encode())
                 if target.is_file(): size += info.st_size
-    elif not group.get('purgeStartedAt') and not group.get('provisioning'): raise ValueError('项目组目录缺失，请管理端核对')
+    elif not group.get('purgeStartedAt') and not group.get('provisioning'): raise ValueError('项目目录缺失，请管理端核对')
     revision = _tg_hash.sha256(_tg_json.dumps([group,members,projects,size,fingerprint.hexdigest()],sort_keys=True).encode()).hexdigest()
     return dict(id=group['name'],label=group['label'],revision=revision,role=tg_role(state,group,actor) if actor else None,creator=group.get('creator',{}).get('username'),createdBy=group.get('createdBy'),deletedAt=group.get('deletedAt'),deletedBy=group.get('deletedBy'),members=members,projects=projects,bytes=size,purgeStartedAt=group.get('purgeStartedAt'),provisioning=group.get('provisioning',False))
 
 def tg_handle(root, state, actor, command, system=False):
-    if not isinstance(command,dict): raise ValueError('项目组请求格式无效')
+    if not isinstance(command,dict): raise ValueError('项目请求格式无效')
     state.setdefault('root', str(root))
     action = command.get('action'); user = state['users'].get(actor) if actor else None
-    if action not in ('list','create','details','directory','member','transfer','delete','restore','purge','resume'): raise ValueError('不支持的项目组操作')
+    if action not in ('list','create','details','directory','member','transfer','delete','restore','purge','resume'): raise ValueError('不支持的项目操作')
     if not system and not tg_enabled(user): raise PermissionError('账号未启用或身份已改变')
     if not system and action=='create' and 'creator' in command: raise PermissionError('创建者由当前登录身份确定')
     group = state['groups'].get(command.get('group')) if action not in ('list','create') else None
-    if action not in ('list','create') and (not group or group.get('purgedAt') or group.get('provisioning') and not (system and action in ('details','resume'))): raise ValueError('项目组不存在或尚未准备好')
+    if action not in ('list','create') and (not group or group.get('purgedAt') or group.get('provisioning') and not (system and action in ('details','resume'))): raise ValueError('项目不存在或尚未准备好')
     role = tg_role(state,group,actor) if group and actor else None
-    if group and not system and not role: raise PermissionError('没有此项目组的访问权限')
+    if group and not system and not role: raise PermissionError('没有此项目的访问权限')
     if action=='list': return [tg_describe(root,state,value,actor) for value in state['groups'].values() if value.get('workspace') and not value.get('purgedAt') and (system or tg_role(state,value,actor))]
     if action=='details': return tg_describe(root,state,group,actor)
-    if not system and role!='creator' and action!='create': raise PermissionError('只有本组创建者可以管理成员或删除项目组')
+    if not system and role!='creator' and action!='create': raise PermissionError('只有本组创建者可以管理成员或删除项目')
     if action=='directory': return [dict(username=name,name=value.get('name',name)) for name,value in state['users'].items() if tg_enabled(value)]
-    if group and command.get('revision')!=tg_describe(root,state,group,actor)['revision']: raise ValueError('项目组成员或内容已变化，请刷新后重新确认')
-    if group and group.get('deletedAt') and action not in ('restore','purge'): raise ValueError('项目组已删除，请由管理端恢复')
-    if action in ('restore','purge','resume') and not system: raise PermissionError('只有管理端可以恢复、继续创建或彻底清理项目组')
+    if group and command.get('revision')!=tg_describe(root,state,group,actor)['revision']: raise ValueError('项目成员或内容已变化，请刷新后重新确认')
+    if group and group.get('deletedAt') and action not in ('restore','purge'): raise ValueError('项目已删除，请由管理端恢复')
+    if action in ('restore','purge','resume') and not system: raise PermissionError('只有管理端可以恢复、继续创建或彻底清理项目')
     disconnect = []
     if action=='create':
         label = _tg_unicode.normalize('NFC',str(command.get('label','')).strip())
-        if not label or len(label)>24 or not label[0].isalnum() or any(not c.isalnum() and c not in '_·-' for c in label): raise ValueError('项目组名称不合法')
+        if not label or len(label)>24 or not label[0].isalnum() or any(not c.isalnum() and c not in '_·-' for c in label): raise ValueError('项目名称不合法')
         creator = command.get('creator') if system else actor; owner = state['users'].get(creator)
         if not tg_enabled(owner): raise ValueError('请选择已启用的创建者账号')
         tg_account(owner)
-        if any(value['label'].casefold()==label.casefold() for value in state['groups'].values() if not value.get('purgedAt')): raise ValueError('项目组名称已存在；删除的组需先恢复或彻底清理')
+        request_id = command.get('requestId')
+        if request_id is not None:
+            if not isinstance(request_id,str) or not __import__('re').fullmatch(r'project_[a-f0-9]{32}',request_id): raise ValueError('项目创建标识无效')
+            previous = next((value for value in state['groups'].values() if value.get('creationRequestId')==request_id),None)
+            if previous:
+                if previous.get('creator')!=dict(username=creator,identity=tg_identity(owner)) or previous['label']!=label: raise PermissionError('项目创建请求与原身份或名称不一致')
+                if previous.get('deletedAt') or previous.get('purgedAt'): raise ValueError('项目已删除，不能重复创建')
+                if previous.get('provisioning'): raise ValueError('项目创建尚未完成，请管理员继续未完成的操作')
+                return tg_describe(root,state,previous,actor)
+        if any(value['label'].casefold()==label.casefold() for value in state['groups'].values() if not value.get('purgedAt')): raise ValueError('项目名称已存在；删除的组需先恢复或彻底清理')
         name = 'wb_' + str(state['teamId'])[:12] + '_g' + _tg_uuid.uuid4().hex[:7]
         directory = tg_safe(root,'projects/'+label)
         if directory.exists(): raise ValueError('同名目录已存在，不会接管')
@@ -218,17 +227,18 @@ def tg_handle(root, state, actor, command, system=False):
             except KeyError: pass
             else: raise ValueError('同名 Linux 组已存在，不会接管')
         group = dict(name=name,label=label,adminGroup=name+'_admin',workspace='/projects/'+label,creator=dict(username=creator,identity=tg_identity(owner)),createdBy=creator,createdAt=tg_now(),provisioning=True)
+        if request_id is not None: group['creationRequestId']=request_id
         state['groups'][name]=group; tg_save(root,state)
         tg_provision(root,state,group)
     elif action=='resume':
-        if not group.get('provisioning'): raise ValueError('项目组已准备完成，无需继续创建')
+        if not group.get('provisioning'): raise ValueError('项目已准备完成，无需继续创建')
         tg_provision(root,state,group)
     elif action in ('member','transfer'):
         username=command.get('username'); target=state['users'].get(username)
         if not tg_enabled(target): raise ValueError('目标账号不存在或未启用；创建账号请使用管理端')
         tg_account(target)
         if action=='member':
-            if command.get('role') not in ('manager','member','remove'): raise ValueError('无效项目组角色')
+            if command.get('role') not in ('manager','member','remove'): raise ValueError('无效项目角色')
             if group.get('creator')==dict(username=username,identity=tg_identity(target)): raise PermissionError('请先移交创建者权限，不能直接移除或降级创建者')
             tg_set_member(state,group,target,command['role'])
         else:
@@ -249,7 +259,7 @@ def tg_handle(root, state, actor, command, system=False):
             raise
         disconnect=[value for name,value in state['users'].items() if name!=actor and group['name'] in value.get('groups',[]) and tg_enabled(value)]
     elif action=='restore':
-        if not group.get('deletedAt') or group.get('purgeStartedAt'): raise ValueError('项目组未删除或已经开始彻底清理')
+        if not group.get('deletedAt') or group.get('purgeStartedAt'): raise ValueError('项目未删除或已经开始彻底清理')
         source=tg_safe(root,group['recyclePath']); target=tg_safe(root,group['workspace'])
         if target.exists(): raise ValueError('原位置已被占用，不能覆盖恢复')
         _tg_os.rename(source,target); saved={key:group.pop(key) for key in ('deletedAt','deletedBy','recyclePath')}
@@ -258,7 +268,7 @@ def tg_handle(root, state, actor, command, system=False):
             if not tg_committed(root,group): group.update(saved); _tg_os.rename(target,source)
             raise
     elif action=='purge':
-        if not group.get('deletedAt'): raise ValueError('只能彻底清理回收站内的项目组')
+        if not group.get('deletedAt'): raise ValueError('只能彻底清理回收站内的项目')
         expected='/.workbench/admin/group-trash/'+group['name']
         if group.get('recyclePath')!=expected: raise PermissionError('回收路径不合法')
         target=tg_safe(root,expected)

@@ -8,8 +8,7 @@
 .group-member-add select { width:100%; }
 .group-operation-confirm { border:1px solid #e8d4c8; background:#fffaf7; border-radius:8px; padding:16px; margin-top:18px; font-size:12px; line-height:1.8; }
 .group-operation-confirm p { margin:8px 0 14px; }
-.group-projects,.group-view-tabs { margin:18px 0; }
-.group-projects p { margin:8px 0; font-size:12px; }
+.group-view-tabs { margin:18px 0; }
 .admin-group-overview { padding:24px; background:white; border:1px solid #e0e8e2; border-radius:10px; }
 .project-settings-tabs { display:flex; gap:20px; padding:0 25px; border-bottom:1px solid #e5ece7; flex:none; }
 .project-settings-tabs button { padding:13px 2px 11px; background:transparent; border-bottom:2px solid transparent; color:#7b8f82; font-size:12px; }

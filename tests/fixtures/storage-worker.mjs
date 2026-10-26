@@ -10,9 +10,20 @@ export function fixtureStorage(nodes, state, username, request) {
   const member = group => (state.memberships[username] || []).includes(group);
   const admin = group => (group === 'ocr' ? state.admins : state.groupAdmins[group] || []).includes(username);
   const brief = (root, meta, value) => { if (!value?.background || !value.objectives || !value.acceptance) throw new Error('项目背景、目标、验收标准不能为空'); file(root + '/项目说明.md', '# ' + meta.name + '\n\n' + Object.values(value).join('\n\n')); meta.brief = value; meta.briefRevision = (meta.briefRevision || 0) + 1; meta.briefUpdatedAt = new Date().toISOString(); };
+  if (request.op === 'team_group' && request.command.action === 'create') {
+    const command = request.command, label = command.label;
+    state.createdGroups ||= {};
+    const previous = Object.values(state.createdGroups).find(group => command.requestId && group.requestId === command.requestId);
+    if (previous) { if (previous.creator !== username || previous.label !== label) throw new Error('项目创建请求不一致'); return previous; }
+    if (nodes.has('/projects/' + label)) throw new Error('项目名称已存在');
+    const slug = /^[a-z][a-z0-9_-]{0,13}$/.test(label) ? label : 'g' + createHash('sha256').update(label).digest('hex').slice(0, 13);
+    const group = { id: 'wb_test_' + slug, label, creator: username, role: 'creator', revision: 'a'.repeat(64), requestId: command.requestId, members: [], projects: [], bytes: 0 };
+    state.createdGroups[group.id] = group; state.memberships[username].push(label); state.groupAdmins[label] = state.groupAdmins[slug] = [username]; dir('/projects/' + label);
+    return group;
+  }
   if (['create_project', 'create_project_v2'].includes(request.op)) {
     if (request.op === 'create_project_v2' && state.legacyProjectCreation) throw new Error('不支持的内容操作');
-    const group = request.groupName?.replace('wb_test_', '');
+    const group = state.createdGroups?.[request.groupName]?.label || request.groupName?.replace('wb_test_', '');
     if (!member(group) || !admin(group)) throw new Error('当前账号不是此工作组的项目组管理员');
     if (request.clientProjectId) {
       if (!/^project_[a-f0-9]{32}$/.test(request.clientProjectId)) throw new Error('项目标识无效');

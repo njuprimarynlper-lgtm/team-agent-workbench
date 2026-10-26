@@ -33,6 +33,7 @@ async function fixture(count = 2) {
   Object.defineProperty(wb.remote, 'workspaces', { get: () => wb.store.settings.workspaceSnapshot!.workspaces });
   wb.remote.binding = () => sessions[0].binding!;
   wb.remote.channel = () => undefined as any;
+  wb.remote.projectConnected = id => connected && id === offlineProjectId;
   const items: SharedContent[] = [];
   wb.remote.contentList = async () => structuredClone(items); wb.remote.contentHistory = async () => [];
   const prompts: string[] = [];

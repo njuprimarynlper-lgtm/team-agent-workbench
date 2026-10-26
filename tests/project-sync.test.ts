@@ -1,3 +1,4 @@
+import { legacyLocalProject } from './fixtures/legacy-local-project';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -85,12 +86,12 @@ test('edits during an in-flight remote write remain pending and are not overwrit
   } finally { await f.close(); }
 });
 
-test('standalone projects support sessions, local result editing and migration without any central account', async () => {
+test('legacy standalone projects still support sessions, local result editing and migration without any central account', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'local-project-'));
   let workbench = new Workbench(root, () => {}, () => {}, undefined, () => ({}), undefined, undefined, undefined, true);
   try {
     await workbench.store.init(); await workbench.restoreLocalWorkspace();
-    const project = await workbench.createProject('我的项目', undefined, brief());
+    const project = await legacyLocalProject(workbench, '我的项目', brief());
     const session = await workbench.createSession('codex', root, PERSONAL_PROJECT_ID);
     await workbench.moveWithinLocal(project.id, { sessionId: session.id });
     assert.equal(workbench.session(session.id).binding?.project.id, project.id);
@@ -139,7 +140,7 @@ test('linking a local project works offline and preserves directories, summaries
     await local.store.init(); await local.restoreLocalWorkspace(); await team.store.init();
     const profile = memberProfile(admin.snapshot.profile!, admin.snapshot.state!, 'alice');
     await team.configureWorkspace(profile, '1', root, async () => false); team.remote.disconnect();
-    const project = await local.createProject('本机项目', undefined, brief()), session = await local.createSession('codex', root, project.id);
+    const project = await legacyLocalProject(local, '本机项目', brief()), session = await local.createSession('codex', root, project.id);
     const old = await fs.readFile(session.handoffPath, 'utf8');
     assert(await local.journal.commit(session, createHash('sha256').update(old).digest('hex'), 1, '项目摘要', { turnId: 'turn-1', at: session.createdAt, text: '完成离线工作' }));
     const result = await local.createConclusion(project.id, '独立成果', '已保存');
@@ -161,7 +162,7 @@ test('moving into a local project retains shared results, rewrites copied refere
   const workbench = new Workbench(root, () => {}, () => {}, undefined, () => ({}), undefined, undefined, undefined, true);
   try {
     await workbench.store.init(); await workbench.restoreLocalWorkspace();
-    const project = await workbench.createProject('目标项目', undefined, brief());
+    const project = await legacyLocalProject(workbench, '目标项目', brief());
     const a = await workbench.createSession('codex', root, PERSONAL_PROJECT_ID), b = await workbench.createSession('codex', root, PERSONAL_PROJECT_ID);
     const original = await workbench.createConclusion(PERSONAL_PROJECT_ID, '共享引用', '保留正文');
     await workbench.attachConclusion(a.id, original.id); await workbench.attachConclusion(b.id, original.id);

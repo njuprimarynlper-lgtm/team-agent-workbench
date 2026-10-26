@@ -27,12 +27,10 @@ export function acceptedSubmission(record: SubmissionRecord | undefined, binding
   return submissionRecordSchema.parse({ version: 1, submittedBy: actor, submittedAt: new Date().toISOString(), destination, sources: sources || record?.sources || [{ kind: 'unknown' }] });
 }
 export function destinationLabel(project: Project, projects: Project[] = []): string {
-  const ambiguous = projects.some(other => other.name === project.name && (other.id !== project.id || other.groupName !== project.groupName));
-  const group = project.groupLabel || project.groupName;
-  return ambiguous && group ? `${group} / ${project.name}` : project.name;
+  return project.name;
 }
 export function fullDestination(destination: SubmissionDestination): string {
-  return [destination.groupLabel || destination.groupName, destination.projectName].filter(Boolean).join(' / ');
+  return destination.projectName;
 }
 export function sourceLabel(source: SubmissionSource): string {
   const name = source.title ? `“${source.title}”` : '';
