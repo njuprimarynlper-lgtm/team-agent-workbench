@@ -634,9 +634,16 @@
     {
       "updated_at": "2026-10-26T18:42:00+08:00",
       "base_commit": "27b072fa246dc31c8722fedd5cda0d67d64a7de6",
-      "document_commit": null,
+      "document_commit": "ac7d7abdbe4d5a3f31c51d96b04b968c11cdf29c",
       "summary": "v2.2.31：简化项目关联与会话交互，用户手册移至根目录",
       "content_sha256": "91226edc14c14f634e3c2b6c956c40669b4efca551bb58b5aa7ecfd8393485f8"
+    },
+    {
+      "updated_at": "2026-10-26T19:42:55+08:00",
+      "base_commit": "5956567900c6ac28e8567f1803fe76749401dbd7",
+      "document_commit": null,
+      "summary": "v2.2.33：本机项目独立分组，显示项目名称并恢复上次选择",
+      "content_sha256": "c7861fa8f7b8741837ce03a4b588343b4a77c6ef0f1e128d0b71ee0d3dd525fc"
     }
   ]
 }

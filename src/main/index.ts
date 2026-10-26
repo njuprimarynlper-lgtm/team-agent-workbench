@@ -1,6 +1,7 @@
-import { reusableProjectConnections, connectionProject, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, type ProjectCreationIntent } from '../shared/project-connection';
+import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, type ProjectCreationIntent } from '../shared/project-connection';
 import { assertPersonalRelay, isNativeSessionRecordAction } from '../core/personal-relay';
 import { PERSONAL_PROJECT_ID, isPersonalBinding } from '../shared/personal-workspace';
+import { restoredWorkspaceSelection, workspaceSelection } from '../shared/workspace-selection';
 import { newAccountPasswordSchema } from '../shared/accounts';
 import { clientWindowTitle } from '../shared/client-version';
 import { preparationCategoriesSchema } from '../shared/result-rules';
@@ -127,11 +128,15 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
   switch (action) {
     case 'workspace.select': {
       const p = z.object({ personal: z.boolean(), projectId: z.string().optional() }).parse(raw);
-      const profile = active!.workbench.snapshot().connection?.profile || active!.workbench.snapshot().settings.workspaceSnapshot?.profile;
-      if (!p.personal && p.projectId && profile) active!.selectedProjectId = connectionProject(profile, p.projectId);
-      if (p.personal) { personalWindows.add(owner); active!.selectedProjectId = undefined; } else personalWindows.delete(owner);
-      await atomicJson(windowStateFile(active!.slot), { profile, selectedProjectId: active!.selectedProjectId, sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes });
-      return true;
+      return routeAccount(async () => {
+        if (contexts.get(owner) !== active || owner.isDestroyed()) throw new Error('窗口已改变，请重新选择项目');
+        const profile = active!.workbench.snapshot().connection?.profile || active!.workbench.snapshot().settings.workspaceSnapshot?.profile;
+        const selectedProjectId = workspaceSelection(p.personal, p.projectId, personalContext?.workbench.projectSync.projects() || [], profile);
+        await atomicJson(windowStateFile(active!.slot), { profile, selectedProjectId, sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes });
+        active!.selectedProjectId = selectedProjectId;
+        if (p.personal) personalWindows.add(owner); else personalWindows.delete(owner);
+        return true;
+      });
     }
     case 'local.group.save': { const p = z.object({ id: id.optional(), name: z.string().max(120) }).parse(raw); return workbench.savePersonalGroup(p.name, p.id); }
     case 'local.group.delete': return workbench.dissolvePersonalGroup(z.object({ id }).parse(raw).id);
@@ -179,10 +184,13 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'layout.sidebar': {
       const pane = z.number().int().min(80).max(2000);
       const p = z.object({ height: z.number().int().min(180).max(4000).optional(), workgroups: pane.optional(), files: pane.optional(), sessions: pane.optional() }).refine(value => value.height !== undefined || value.workgroups !== undefined || value.files !== undefined || value.sessions !== undefined).parse(raw);
-      if (p.height !== undefined) active!.sidebarProjectHeight = p.height;
-      active!.sidebarPanes = { ...active!.sidebarPanes, ...(p.workgroups !== undefined ? { workgroups: p.workgroups } : {}), ...(p.files !== undefined ? { files: p.files } : {}), ...(p.sessions !== undefined ? { sessions: p.sessions } : {}) };
-      await atomicJson(windowStateFile(active!.slot), { profile: active!.workbench.store.settings.workspaceSnapshot?.profile, sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes, selectedProjectId: active!.selectedProjectId });
-      return true;
+      return routeAccount(async () => {
+        if (contexts.get(owner) !== active || owner.isDestroyed()) throw new Error('窗口已改变，请重新调整布局');
+        if (p.height !== undefined) active!.sidebarProjectHeight = p.height;
+        active!.sidebarPanes = { ...active!.sidebarPanes, ...(p.workgroups !== undefined ? { workgroups: p.workgroups } : {}), ...(p.files !== undefined ? { files: p.files } : {}), ...(p.sessions !== undefined ? { sessions: p.sessions } : {}) };
+        await atomicJson(windowStateFile(active!.slot), { profile: active!.workbench.store.settings.workspaceSnapshot?.profile, sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes, selectedProjectId: active!.selectedProjectId });
+        return true;
+      });
     }
     case 'beta.set': { const p = z.object({ feature: z.enum(['sessionHandoff', 'subsessions', 'cursorDesktopSync']), enabled: z.boolean() }).parse(raw); return workbench.setBetaFeature(p.feature, p.enabled); }
     case 'providers.detect': return workbench.detect();
@@ -756,12 +764,16 @@ async function createWindow(preferredSlot?: number, fresh = false, reuse?: { pro
     if (profile) {
       const acquired = await accountWorkspaces.acquire(profile, instanceRoot(slot));
       contexts.set(window, { ...acquired.value, projectCreation: reuse?.projectCreation, selectedProjectId, slot, sidebarProjectHeight, sidebarPanes, release: acquired.release });
-      if (reuse) { if (!acquired.value.workbench.remote.connected) throw new Error('中央节点连接已断开，请重新连接'); await atomicJson(windowStateFile(slot), { profile, selectedProjectId, sidebarProjectHeight, sidebarPanes }); }
+      if (reuse && !acquired.value.workbench.remote.connected) throw new Error('中央节点连接已断开，请重新连接');
     } else {
       const context = await createDataContext(path.join(app.getPath('userData'), 'window-state', String(slot)));
-      contexts.set(window, { ...context, slot, sidebarProjectHeight, sidebarPanes, release: async () => { await context.workbench.close(); await context.egress.stop(); } });
-      await atomicJson(windowStateFile(slot), {});
+      contexts.set(window, { ...context, selectedProjectId, slot, sidebarProjectHeight, sidebarPanes, release: async () => { await context.workbench.close(); await context.egress.stop(); } });
     }
+    const context = contexts.get(window)!;
+    const localProjects = personalContext?.workbench.projectSync.projects() || [];
+    context.selectedProjectId = restoredWorkspaceSelection(selectedProjectId, localProjects, context.workbench.snapshot().settings.workspaceSnapshot?.profile.projects || []);
+    if (context.selectedProjectId === PERSONAL_PROJECT_ID || localProjects.some(project => project.id === context.selectedProjectId)) personalWindows.add(window);
+    await atomicJson(windowStateFile(slot), { profile, selectedProjectId: context.selectedProjectId, sidebarProjectHeight, sidebarPanes });
   } catch (error) { await contexts.get(window)?.release().catch(() => {}); contexts.delete(window); windows.delete(window); activeSlots.delete(slot); window.destroy(); throw error; }
   window.setMenuBarVisibility(false);
   window.on('focus', () => window.flashFrame(false));
