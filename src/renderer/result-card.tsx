@@ -1,11 +1,12 @@
+import { MenuDetails } from './menu-details';
 import React, { useId } from 'react';
 import { ChevronDown } from 'lucide-react';
 
 export function ResultMoreMenu({ children, disabled = false }: { children: React.ReactNode; disabled?: boolean }) {
-  return <details className="result-more" onClick={event => { const menu = event.currentTarget; if ((event.target as HTMLElement).closest('.result-more-menu')) menu.open = false; }}>
+  return <MenuDetails className="result-more" onClick={event => { const menu = event.currentTarget; const button = (event.target as HTMLElement).closest('button'); if (button && !button.disabled && !button.closest('[data-menu-keep-open]')) menu.open = false; }}>
     <summary className="secondary compact" aria-disabled={disabled || undefined} onClick={event => { if (disabled) event.preventDefault(); }}>更多</summary>
     <div className="result-more-menu" role="menu">{children}</div>
-  </details>;
+  </MenuDetails>;
 }
 
 export function ResultCard({ id, title, badges, metadata, preview, expanded, selected, disabled, toggle, selection, children, actions, completed = false }: {

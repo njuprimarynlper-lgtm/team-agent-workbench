@@ -21,7 +21,7 @@ export function linkConclusionPublications(conclusions: ProjectConclusion[], dra
     for (const item of conclusions) {
       const direct = directPersonalUpload(item, transfer);
       if (item.deletedAt || !direct?.version) continue;
-      const publication = { version: direct.version, files: uploadFilesKey(transfer.metadata?.attachments), path: transfer.target, sha256: transfer.sha256, at: transfer.completedAt || transfer.createdAt };
+      const publication = { ...(transfer.contentReceipt ? { contentId: transfer.contentReceipt.id, revision: transfer.contentReceipt.revision } : {}), version: direct.version, files: uploadFilesKey(transfer.metadata?.attachments), path: transfer.target, sha256: transfer.sha256, at: transfer.completedAt || transfer.createdAt };
       if (item.publication && (item.publication.version > publication.version || item.publication.version === publication.version && item.publication.at >= publication.at)) continue;
       item.publication = publication; changed = true;
     }
@@ -32,9 +32,9 @@ export function linkConclusionPublications(conclusions: ProjectConclusion[], dra
         if (source.kind !== 'session' || source.id !== sourceId) continue;
         // Publishing a new artifact creates revision 1 on both sharing backends.
         // Never adopt a later team revision just because the upload path matches.
-        if (!source.publication) { source.publication = { path: transfer.target, sha256: transfer.sha256, revision: 1 }; changed = true; }
+        if (!source.publication) { source.publication = { path: transfer.target, sha256: transfer.sha256, revision: transfer.contentReceipt?.revision || 1, contentId: transfer.contentReceipt?.id }; changed = true; }
         if (source.publication.path === transfer.target && source.publication.sha256 === transfer.sha256 && sameUploadedConclusion(conclusion, transfer)) {
-          const publication = { version: conclusion.version, files: uploadFilesKey(transfer.metadata.attachments), path: transfer.target, sha256: transfer.sha256, at: transfer.completedAt || transfer.createdAt };
+          const publication = { ...(transfer.contentReceipt ? { contentId: transfer.contentReceipt.id, revision: transfer.contentReceipt.revision } : {}), version: conclusion.version, files: uploadFilesKey(transfer.metadata.attachments), path: transfer.target, sha256: transfer.sha256, at: transfer.completedAt || transfer.createdAt };
           if (!conclusion.publication || conclusion.publication.version < publication.version || conclusion.publication.version === publication.version && conclusion.publication.at < publication.at) {
             conclusion.publication = publication; changed = true;
           }

@@ -1,3 +1,4 @@
+import { MarkdownEditor } from './markdown-editor';
 import React, { useState } from 'react';
 import ReactMarkdown from './math-markdown';
 import remarkGfm from 'remark-gfm';
@@ -71,14 +72,14 @@ export function AssignmentLifecycle({ task, admin, username, projectId, refresh,
         {submitting && <>
           <p className="muted small">以任务目标和验收要求为准。探索得到有依据的否定结论也可以完成；未完成的部分请明确说明。</p>
           <p>验收要求：{task.acceptance || '未单独填写，请按任务目标核对；不明确时先与派发人确认。'}</p>
-          <label className="field">结果说明<textarea aria-label="任务结果说明" rows={5} maxLength={6000} value={summary} disabled={busy} onChange={e => setSummary(e.target.value)} placeholder="完成了什么、依据是什么、还有哪些限制。"/></label>
+          <label className="field">结果说明<MarkdownEditor aria-label="任务结果说明" rows={5} maxLength={6000} value={summary} disabled={busy} onChange={e => setSummary(e.target.value)} placeholder="完成了什么、依据是什么、还有哪些限制。"/></label>
           <details><summary>关联成果或共享文件（可选，已选 {referenceIds.length}/20）</summary><div className="assignment-choices">{choices.map(item => <label className="check-row" key={item.id}><input type="checkbox" disabled={busy || !referenceIds.includes(item.id) && referenceIds.length >= 20} checked={referenceIds.includes(item.id)} onChange={e => setReferenceIds(current => e.target.checked ? [...current, item.id] : current.filter(id => id !== item.id))}/><span>{item.kind === 'file' ? '【共享文件】 ' + item.title : projectResultTitle(item)} · v{item.revision}</span></label>)}</div><p className="muted small">所选内容及其附件保留本次提交时的版本，不会上传整个 Session。</p></details>
           <button className="secondary" disabled={busy} onClick={() => void pick()}>添加验收附件</button>
           {uploads.map(file => <label className="check-row" key={file.id}><input type="checkbox" disabled={busy} checked={uploadIds.includes(file.id)} onChange={e => setUploadIds(current => e.target.checked ? [...current, file.id] : current.filter(id => id !== file.id))}/><span>{file.name}</span></label>)}
           {fileCount > 30 && <p className="inline-error">一次验收最多关联 30 个文件。</p>}
         </>}
         {action === 'completed' && !submitting && <p>确认已达到任务目标和验收要求。通过后任务变为“已完成”，记录本次验收人。</p>}
-        {(reasonRequired || action === 'completed' && !submitting) && <label className="field">{action === 'cancelled' ? '取消原因' : action === 'in_progress' ? '退回原因' : '验收意见（可选）'}<textarea aria-label="任务处理说明" rows={3} maxLength={6000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)}/></label>}
+        {(reasonRequired || action === 'completed' && !submitting) && <label className="field">{action === 'cancelled' ? '取消原因' : action === 'in_progress' ? '退回原因' : '验收意见（可选）'}<MarkdownEditor aria-label="任务处理说明" rows={3} maxLength={6000} value={reason} disabled={busy} onChange={e => setReason(e.target.value)}/></label>}
         {action === 'cancelled' && <p>任务不再继续，不计为完成。不会停止正在运行的会话。</p>}
         {action === 'deleted' && <p>任务将从双方正常列表移入“已删除”，组管理员可恢复。任务记录和附件暂时保留。</p>}
         {action === 'restored' && <p>恢复任务记录和附件，保留原来的“已完成”或“已取消”状态，不重新开始工作。</p>}

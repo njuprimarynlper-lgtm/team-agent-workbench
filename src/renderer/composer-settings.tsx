@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ExternalLink, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import type { AgentSession, ModelOption, PermissionMode, PermissionReport, ProviderCatalog } from '../shared/types';
@@ -35,13 +36,7 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
   };
   useEffect(() => { if (open) void refresh(open); return () => { sequence.current++; }; }, [open, session.provider, session.cwd, session.networkRoute, authCheckedAt]);
   useEffect(() => { setCatalog(undefined); }, [session.provider, session.cwd, session.networkRoute, authCheckedAt]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (e: PointerEvent) => { if (!saving && !root.current?.contains(e.target as Node)) close(); };
-    const escape = (e: KeyboardEvent) => { if (e.key === 'Escape' && !saving) { e.preventDefault(); close(); (open === 'model' ? modelButton : permissionButton).current?.focus(); } };
-    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [open, saving]);
+  usePopupDismiss(!!open, root, reason => { close(); if (reason === 'escape') (open === 'model' ? modelButton : permissionButton).current?.focus(); });
   const apply = async (choice: Choice) => {
     if (disabled) return;
     if ((choice.kind === 'model' ? session.model : session.permissionMode || 'inherit') === choice.value) { close(); return; }

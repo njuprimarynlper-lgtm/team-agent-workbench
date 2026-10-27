@@ -1,13 +1,16 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useRef, useState } from 'react';
 
 export function SelectionActions({ sessionId, add, sideChat, children }: {
   sessionId: string; add?: (text: string) => void; sideChat?: (text: string) => void; children: React.ReactNode;
 }) {
-  const root = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null), popup = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<{ text: string; x: number; y: number }>();
   useEffect(() => {
     setSelection(undefined);
     const capture = () => {
+      // A delayed selectionchange from right-click must not replace its context menu.
+      if (document.querySelector('.interaction-context-menu')) { setSelection(undefined); return; }
       const selected = window.getSelection();
       if (!selected || selected.isCollapsed || !root.current?.contains(selected.anchorNode) || !root.current.contains(selected.focusNode)) { setSelection(undefined); return; }
       if (selected.anchorNode?.parentElement?.closest('textarea,input,button,[role=toolbar]')) return;
@@ -17,19 +20,18 @@ export function SelectionActions({ sessionId, add, sideChat, children }: {
       setSelection({ text, x: Math.max(8, Math.min(rect.left, window.innerWidth - 400)), y: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 46)) });
     };
     const clear = () => setSelection(undefined);
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') clear(); };
     document.addEventListener('selectionchange', capture);
-    document.addEventListener('keydown', escape);
     window.addEventListener('resize', clear);
     window.addEventListener('scroll', clear, true);
-    return () => { document.removeEventListener('selectionchange', capture); document.removeEventListener('keydown', escape); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
+    return () => { document.removeEventListener('selectionchange', capture); window.removeEventListener('resize', clear); window.removeEventListener('scroll', clear, true); };
   }, [sessionId]);
+  usePopupDismiss(!!selection && !!(add || sideChat), popup, () => setSelection(undefined));
   const act = (callback: (text: string) => void) => {
     if (!selection) return;
     const text = selection.text; setSelection(undefined); window.getSelection()?.removeAllRanges(); callback(text);
   };
   return <div className="selection-content" ref={root}>{children}
-    {selection && (add || sideChat) && <div className="selection-actions" role="toolbar" aria-label="选中文字操作" style={{ left: selection.x, top: selection.y }} onPointerDown={event => event.preventDefault()}>
+    {selection && (add || sideChat) && <div ref={popup} className="selection-actions" role="toolbar" aria-label="选中文字操作" style={{ left: selection.x, top: selection.y }} onPointerDown={event => event.preventDefault()}>
       {add && <button type="button" onClick={() => act(add)}>添加到会话</button>}
       {sideChat && <button type="button" onClick={() => act(sideChat)}>侧边提问</button>}
     </div>}

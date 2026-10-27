@@ -1,3 +1,4 @@
+import { MarkdownEditor } from './markdown-editor';
 import React, { useId, useState } from 'react';
 import { X } from 'lucide-react';
 import type { AgentSession, PreparationCheckpoint, PreparationScope } from '../shared/types';
@@ -18,7 +19,7 @@ export function PreparationCategoryChoices({ categories, selected, directions, d
       <label className="preparation-category-toggle"><input type="checkbox" checked={checked} disabled={disabled} onChange={event => select(category, event.target.checked)}/><span>{label}<small>{resultCategoryBoundaries[category].question}</small></span></label>
       {checked && <details className="preparation-direction"><summary>补充整理要求（选填）</summary>
         <label htmlFor={fieldId}>整理方向<span>选填 · 留空使用默认提示词</span></label>
-        <textarea id={fieldId} aria-label={`${label}的整理方向`} rows={3} maxLength={preparationDirectionLimit} disabled={disabled} value={directions[category] || ''} placeholder={defaultPreparationDirections[category]} onChange={event => changeDirection(category, event.target.value)}/>
+        <MarkdownEditor id={fieldId} aria-label={`${label}的整理方向`} rows={3} maxLength={preparationDirectionLimit} disabled={disabled} value={directions[category] || ''} placeholder={defaultPreparationDirections[category]} onChange={event => changeDirection(category, event.target.value)}/>
       </details>}
     </div>;
   })}</div>;

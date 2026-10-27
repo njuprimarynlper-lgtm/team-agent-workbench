@@ -923,6 +923,8 @@ def handle(root, state, username, request, incoming=None):
     directory, project, group_name, group = locate(root, state, user, request.get('projectId'))
     admin = tg_role(state, group, username) in ('creator','manager')
     gid = group['gid']
+    if op == 'content_capabilities':
+        return {'publicationUpdate': 1}
     if op == 'publish_attachment':
         sha = request.get('sha256')
         if not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha) or not incoming or not incoming.is_file() or incoming.stat().st_size > MAX_FILE or digest(incoming) != sha:
@@ -1154,6 +1156,20 @@ def handle(root, state, username, request, incoming=None):
             if previous['author'] == username and previous['sha256'] == request['sha256']:
                 return previous
             raise ValueError('目标已存在，请从公共成果中修订并核对版本')
+        publication_target = meta.get('publicationTarget')
+        replacing = None
+        if publication_target is not None:
+            if not isinstance(publication_target, dict) or not isinstance(publication_target.get('id'), str) or not re.fullmatch(r'[a-f0-9-]{36}', publication_target['id']) or type(publication_target.get('revision')) is not int or publication_target['revision'] < 1:
+                raise ValueError('原成果身份或版本无效')
+            replacing = next((entry for entry in items if entry['id'] == publication_target['id']), None)
+            if not replacing:
+                raise ValueError('团队中的原成果已不存在；本次未新增或覆盖成果')
+            if replacing['author'] != username or replacing['state'] != 'submitted' or replacing['kind'] != 'contribution' or meta.get('kind') != 'contribution':
+                raise PermissionError('只能从本地更新自己发布且尚未被管理员整理的文字成果')
+            if replacing['revision'] != publication_target['revision']:
+                raise ValueError('团队成果已有新版本，本次未覆盖；请查看团队最新版本后处理')
+            if result_category(replacing) == 'todo' and linked_result_tasks(root, project['id'], replacing['id']) and (result_category(meta) != result_category(replacing) or meta.get('resultStatus') != replacing.get('resultStatus')):
+                raise ValueError('已关联项目任务，请在项目任务中调整状态')
         file = safe(root, target)
         if file.exists() and digest(file) != request['sha256']:
             raise ValueError('目标已有其他内容，不会覆盖')
@@ -1180,8 +1196,18 @@ def handle(root, state, username, request, incoming=None):
             item['resultOwner'] = text(meta['resultOwner'], 160)
         if disclosed:
             item['disclosedSources'] = disclosed
+        history = read_json(history_index, [])
+        if replacing:
+            item.update(id=replacing['id'], revision=replacing['revision'] + 1, createdAt=replacing['createdAt'])
+            items.remove(replacing)
+            atom(history_index, [replacing] + history, gid)
         items.insert(0, item)
-        atom(index, items, gid)
+        try:
+            atom(index, items, gid)
+        except Exception:
+            if replacing:
+                atom(history_index, history, gid)
+            raise
         receipts[key] = item
         atom(receipt_file, receipts)
         return item
@@ -1192,6 +1218,8 @@ def handle(root, state, username, request, incoming=None):
     if op != 'edit_content':
         raise ValueError('不支持的内容操作')
     change = request.get('change', {})
+    if not admin and (change.get('action') == 'save' or not change.get('fromPersonal')):
+        raise PermissionError('成员不能直接修改团队成果，请在个人成果库修改后分享或同步删除')
     item = next((i for i in items if i['id'] == change.get('id')), None)
     if not item and change.get('action') == 'delete':
         return purge_history_content(root, directory, history_index, items, change, username, admin, gid)

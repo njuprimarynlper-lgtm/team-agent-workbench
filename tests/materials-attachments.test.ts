@@ -89,7 +89,7 @@ test('sharing a personal result creates an independent team ID and discloses onl
     await wb.saveConclusion(result.id, result.title, '公开给项目组的结论，补充新的验证结果');
     await wb.publishConclusion(result.id, result.derivedFrom); await settled(wb);
     const published = await wb.remote.contentList(binding);
-    assert.equal(published.length, 2);
+    assert.equal(published.length, 1); assert.equal(published[0].id, first.id); assert.equal(published[0].revision, 2);
     assert.deepEqual(published[0].disclosedSources, result.derivedFrom);
     assert.equal(published[0].replaces, undefined);
     assert.equal(wb.conclusions(projectId).find(item => item.id === privateSource.id)?.content, '仅自己可见的原文');

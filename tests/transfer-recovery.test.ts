@@ -35,7 +35,7 @@ test('lost upload acknowledgement survives restart and retry reads the same rece
         sends++; assert.equal(hash, sha('同一份成果'));
         if (receipts.has(requestId)) { await phase('verifying'); return receipts.get(requestId); }
         await phase('streaming'); progress(15, 15); await phase('awaiting_receipt');
-        const receipt = { path: target, sha256: hash, size: 15, author: 'alice', id: 'published-once' };
+        const receipt = { path: target, sha256: hash, size: 15, author: 'alice', id: 'published-once', revision: 1 };
         receipts.set(requestId, receipt); commits++;
         if (loseAck) { loseAck = false; throw new Error('连接在回执送达前断开'); }
         await phase('verifying'); return receipt;
@@ -97,7 +97,7 @@ test('partial upload restarts from the immutable snapshot; changed local bytes b
       upload: async (_binding: RemoteBinding, _local: string, target: string, _progress: unknown, _metadata: unknown, hash: string, requestId: string, phase: (value: TransferPhase) => Promise<void>) => {
         sends++; requestIds.push(requestId); await phase('streaming');
         if (fail) { fail = false; throw new Error('上传中途断线'); }
-        await phase('verifying'); return { path: target, sha256: hash, size: 8, author: 'alice' };
+        await phase('verifying'); return { id: requestId, revision: 1, path: target, sha256: hash, size: 8, author: 'alice' };
       },
     } as unknown as SharedFiles;
     const store = new Store(root); await store.init(); const queue = new TransferQueue(store, remote, () => {});
@@ -122,7 +122,7 @@ test('a definitive server rejection uses a fresh request after permission is res
       upload: async (_binding: RemoteBinding, _local: string, target: string, _progress: unknown, _metadata: unknown, hash: string, requestId: string, phase: (value: TransferPhase) => Promise<void>) => {
         requestIds.push(requestId);
         if (reject) { await phase('rejected'); throw new Error('项目权限被撤销'); }
-        await phase('verifying'); return { path: target, sha256: hash, size: 7, author: 'alice' };
+        await phase('verifying'); return { id: requestId, revision: 1, path: target, sha256: hash, size: 7, author: 'alice' };
       },
     } as unknown as SharedFiles;
     const store = new Store(root); await store.init(); const queue = new TransferQueue(store, remote, () => {});

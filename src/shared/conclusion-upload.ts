@@ -4,7 +4,7 @@ import { titleSubject } from './content';
 import { canonicalCategory, resultDefaultStatus } from './result-model';
 import type { ProjectConclusion, Transfer } from './types';
 
-export interface ConclusionPublication { version: number; files: string; path: string; sha256: string; at: string }
+export interface ConclusionPublication { contentId?: string; revision?: number; version: number; files: string; path: string; sha256: string; at: string }
 export interface ConclusionUploadState { status: 'ready' | 'queued' | 'running' | 'done' | 'error'; transferId?: string }
 export function uploadFilesKey(files?: { name: string; sha256: string; size: number }[]) {
   return JSON.stringify((files || []).map(({ name, sha256, size }) => [name, sha256, size]).sort((a, b) => {
@@ -56,3 +56,10 @@ export function uploadAction(state: ConclusionUploadState) {
   return ({ ready: '分享至团队', queued: '等待上传', running: '上传中', done: '已上传', error: '重试上传' } as const)[state.status];
 }
 export const uploadBlocked = (state: ConclusionUploadState) => ['done', 'queued', 'running'].includes(state.status);
+
+export interface ConclusionDeletePreview { localId: string; title: string; projectId: string; status: 'linked' | 'missing' | 'reference' | 'error'; contentId?: string; revision?: number; message?: string }
+
+export function unfinishedConclusionUploads(item: ProjectConclusion, transfers: Transfer[]) {
+  return transfers.filter(transfer => ownsUpload(item, transfer) && ['queued', 'running', 'error'].includes(transfer.status)
+    && (directPersonalUpload(item, transfer) || item.sources.some(source => source.kind === 'session' && (source.id === transfer.conclusionSourceId || source.publication?.path === transfer.target)) || item.publication?.path === transfer.target));
+}

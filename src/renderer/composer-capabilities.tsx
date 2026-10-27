@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Puzzle, RefreshCw, Search, X } from 'lucide-react';
 import type { AgentCapabilityCatalog, AgentCapabilityKind, AgentCapabilityOption, AgentCapabilitySelection, AgentSession } from '../shared/types';
@@ -27,13 +28,7 @@ function LegacyComposerCapabilities({ session, selected, change }: { session: Ag
   };
   useEffect(() => { setCatalog(undefined); }, [session.id, session.cwd, session.networkRoute, session.provider]);
   useEffect(() => { if (open) void refresh(); return () => { sequence.current++; }; }, [open, session.id, session.cwd, session.networkRoute, session.provider]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); close(); button.current?.focus(); } };
-    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [open]);
+  usePopupDismiss(open, root, reason => { close(); if (reason === 'escape') button.current?.focus(); });
   const toggle = (item: AgentCapabilityOption) => {
     if (!item.enabled) return;
     if (selected.some(value => value.id === item.id)) { change(selected.filter(value => value.id !== item.id)); return; }

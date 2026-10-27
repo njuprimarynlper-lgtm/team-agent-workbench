@@ -3,7 +3,7 @@
 以下通用设置针对 CLI 会话。**Cursor 原生联动 Beta** 使用另一条原生控制链路：模型、模式和权限直接读取并修改关联的 IDE 会话，原生确认后才显示为生效；不使用 CLI 的选项或配置。Skill、MCP、规则、参考资料和模型详细参数统一在 Cursor 中管理。详见 [Cursor 原生联动](cursor-desktop-sync.md#模型模式与权限)。
 
 - Codex 与 Cursor 的模式、模型和执行权限放在输入框底部；文件引用、Skill 和 MCP 状态查看收入“＋”菜单。Codex 支持 `$名称` 引用 Skill、`@名称` 引用插件；Cursor 支持 `/技能名` 调用、`@名称` 选择 Skill。输入 `/` 可搜索命令和已启用 Skills。Claude Code 保留自己的能力菜单。
-- 模式切换使用原生协议：Codex 查询 `collaborationMode/list`，每轮传入 `turn/start.collaborationMode` 并使用内置模式指令；Cursor 查询 ACP 的可用模式，使用 `session/set_mode`。未支持的模式不会通过提示词伪造。输入框支持 Shift+Tab，Codex `/plan` 开关 Plan，Cursor `/plan`、`/agent`、`/ask` 切换对应模式。
+- 模式切换使用原生协议：Codex 查询 `collaborationMode/list`，每轮传入 `turn/start.collaborationMode` 并使用内置模式指令；Cursor 查询 ACP 的可用模式，使用 `session/set_mode`。未支持的模式不会通过提示词伪造。正文输入框的 Tab / Shift+Tab 用于缩进 / 反缩进；Codex `/plan` 开关 Plan，Cursor `/plan`、`/agent`、`/ask` 切换对应模式。
 - 模式与执行权限独立。原生计划正文及进度直接展示；Codex 计划完成后可修改或执行，在原会话中重新制定计划或切回 Agent。Cursor 计划确认可执行、提交修订或取消；执行前原生切换 Agent，修订作为 `cursor/create_plan` 的拒绝理由回传，等待新计划。旧计划、未完成计划和已执行计划不能重复执行。
 - 工具管理与对话分离：设置 → 本机与 CLI，或会话“更多”菜单打开 **Codex 设置／Cursor 自定义**，浏览 MCP、Skills、插件；`/mcp` 只显示状态与工具，可跳转设置。设置支持 Esc、关闭与键盘焦点限制，不消耗输入草稿。
 - 空闲时选择即应用；正在执行或等待授权时，当前回复和待授权操作继续按原设置运行，新设置从下一轮生效。修改不发起推理、不重发任务、不创建新会话。
@@ -22,7 +22,7 @@
 
 - `tests/session-settings.test.ts`：两个提供方的模型参数、原生会话延续、引用保留、无自动重发、草稿、运行中切换及持久化。
 - `scripts/composer-smoke.mjs`：两个提供方的模型/权限/能力菜单、Codex 结构化 Skill 与 Plugin 提及、Cursor `/skill`、MCP 状态与独立设置、单条消息清空、失败重试、运行中切换、草稿、键盘与 1100×760 布局。
-- `scripts/composer-tools-smoke.mjs`：两家的“＋”菜单、命令、Skill 引用、Shift+Tab、计划展示/修改/执行、MCP 状态与独立管理、键盘及中文输入法和草稿保留。
+- `scripts/composer-tools-smoke.mjs`：两家的“＋”菜单、命令、Skill 引用、正文缩进、计划展示/修改/执行、MCP 状态与独立管理、键盘及中文输入法和草稿保留。
 - `scripts/codex-mcp-protocol-smoke.ts`：独立测试目录中的真实 Codex 配置写入、版本校验、重载、STDIO 工具发现、启停、编辑、删除和模式查询，不登录账号、不发起模型任务。
 - `tests/codex-mcp.test.ts`：分页、配置来源边界、精确写入、OAuth 完成/失败、输入校验及敏感信息过滤。
 - `tests/provider-capabilities.test.ts`：Codex 原生目录解析、不可调用应用状态、Cursor 命令过滤、真实插件发现与 MCP 分离。

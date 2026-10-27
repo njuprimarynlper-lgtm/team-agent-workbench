@@ -145,6 +145,13 @@ export class ContentFiles {
         if (existing.sha256 === sha256 && existing.author === actor.username) return existing;
         throw new Error('目标已有内容，请从团队项目成果库中修改，并核对最新版本');
       }
+      const replacing = metadata.publicationTarget && items.find(item => item.id === metadata.publicationTarget!.id);
+      if (metadata.publicationTarget) {
+        if (!replacing) throw new Error('团队中的原成果已不存在；本次未新增或覆盖成果');
+        if (replacing.author !== actor.username || replacing.state !== 'submitted' || replacing.kind !== 'contribution' || metadata.kind !== 'contribution') throw new Error('只能从本地更新自己发布且尚未被管理员整理的文字成果');
+        if (replacing.revision !== metadata.publicationTarget.revision) throw new Error('团队成果已有新版本，本次未覆盖；请查看团队最新版本后处理');
+        if (resultCategory(replacing) === 'todo' && (await this.linked(binding, replacing.id)).length && (resultCategory(metadata) !== resultCategory(replacing) || metadata.resultStatus !== replacing.resultStatus)) throw new Error('已关联项目任务，请在项目任务中调整状态');
+      }
       const submission = acceptedSubmission(metadata.submission, binding, actor.username, actor.destination, metadata.submission?.sources || (metadata.sourceSessionTitle ? [{ kind: 'session', id: metadata.sourceSessionId, title: metadata.sourceSessionTitle, snapshotHash: metadata.snapshotHash }] : undefined));
       for (const ref of submission.sources.filter(source => source.kind === 'team_result')) {
         const source = [...items, ...await this.historyRead(binding)].find(item => item.id === ref.id && item.revision === ref.version);
@@ -155,13 +162,24 @@ export class ContentFiles {
       try { await fs.copyFile(source, file, fs.constants.COPYFILE_EXCL); }
       catch (e: any) { if (e.code !== 'EEXIST' || await hashFile(file) !== sha256) throw e; }
       const now = new Date().toISOString(), item: SharedContent = { ...metadata, submission, id: randomUUID(), path: target, author: actor.username, revision: 1, state: 'submitted', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256, size: (await fs.stat(file)).size };
-      items.unshift(item); await atomicJson(await this.index(binding), items); receipts[requestKey] = item; await atomicJson(receiptFile, receipts); return item;
+      delete item.publicationTarget;
+      const history = await this.historyRead(binding);
+      if (replacing) {
+        Object.assign(item, { id: replacing.id, revision: replacing.revision + 1, createdAt: replacing.createdAt });
+        items.splice(items.indexOf(replacing), 1);
+        await atomicJson(await this.historyIndex(binding), [structuredClone(replacing), ...history]);
+      }
+      items.unshift(item);
+      try { await atomicJson(await this.index(binding), items); }
+      catch (error) { if (replacing) await atomicJson(await this.historyIndex(binding), history); throw error; }
+      receipts[requestKey] = item; await atomicJson(receiptFile, receipts); return item;
     });
   }
   async edit(binding: RemoteBinding, input: ContentEdit, replacement?: string) {
     const change = contentEditSchema.parse(input);
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), items = await this.read(binding), history = await this.historyRead(binding);
+      if (!actor.admin && (change.action === 'save' || !change.fromPersonal)) throw new Error('成员不能直接修改团队成果，请在个人成果库修改后分享或同步删除');
       const current = items.find(i => i.id === change.id);
       if (!current && change.action === 'delete') return this.purgeHistory(binding, actor, items, history, change);
       const item = current;

@@ -92,9 +92,13 @@ export class TransferQueue {
             const receipt = await this.remote.uploadAttachment(task.binding, task.localPath, task.sha256!, progress, task.requestId || task.id, phase);
             if (receipt?.path !== task.target || receipt.sha256 !== task.sha256 || receipt.size !== task.total) throw new Error('附件上传回执校验失败，请确认服务端已更新');
           } else {
+            if (task.metadata?.publicationTarget && (await this.remote.contentPublicationSupport(task.binding)).publicationUpdate !== 1) throw new Error('中央节点尚不支持更新原成果，请管理员更新服务端功能');
             await this.remote.ensurePersonalFolder(task.binding, path.posix.dirname(task.target));
             const receipt = await this.remote.upload(task.binding, task.localPath, task.target, progress, task.metadata, task.sha256, task.requestId || task.id, phase);
             if (receipt?.path !== task.target || receipt.sha256 !== task.sha256 || receipt.size !== task.total || receipt.author !== task.binding.username) throw new Error('上传回执与原账号、目标或内容不一致；已保留失败记录');
+            if (task.metadata?.publicationTarget && (receipt.id !== task.metadata.publicationTarget.id || receipt.revision !== task.metadata.publicationTarget.revision + 1)) throw new Error('更新原成果回执不一致，未确认成功');
+            if (typeof receipt.id !== 'string' || !Number.isInteger(receipt.revision) || receipt.revision < 1) throw new Error('上传回执缺少成果身份或版本');
+            task.contentReceipt = { id: receipt.id, revision: receipt.revision };
             if (receipt.submission) {
               const accepted = submissionRecordSchema.parse(receipt.submission);
               if (accepted.submittedBy !== task.binding.username || accepted.destination.projectId !== task.binding.project.id || accepted.destination.groupName !== task.binding.project.groupName) throw new Error('上传回执的提交账号或项目不一致');

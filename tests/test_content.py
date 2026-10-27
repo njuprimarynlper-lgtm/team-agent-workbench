@@ -257,7 +257,7 @@ class ContentRules(unittest.TestCase):
         items = content.read_json(self.directory / '.workbench-content.json')
         del items[0]['submission']
         content.atom(self.directory / '.workbench-content.json', items, 100)
-        updated = self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='旧记录补充', description='只更新正文'))
+        updated = self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='旧记录补充', description='只更新正文'))
         self.assertNotIn('submission', updated)
 
     def test_team_merge_creates_new_identity_and_readable_history(self):
@@ -355,7 +355,7 @@ class ContentRules(unittest.TestCase):
         item = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata={'title': '轨迹', 'description': '快照', 'kind': 'trajectory'})
         orphan = self.directory / 'trajectories' / 'bob' / 'left-behind.txt'
         orphan.write_bytes(b'orphan')
-        self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='delete'))
+        self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='delete'))
         self.assertFalse(content.safe(self.root, target).exists())
         self.assertFalse(orphan.exists())
         self.assertTrue((self.directory / '项目说明.md').is_file())
@@ -546,8 +546,44 @@ class ContentRules(unittest.TestCase):
     def edit(self, actor, item, **change):
         return self.call(actor, op='edit_content', change={'id': item['id'], 'revision': item['revision'], 'action': 'save', 'title': '新标题', 'description': '新证据', **change})
 
+    def republish(self, item, actor='bob', suffix=None):
+        return self.call(actor, op='publish', target='/projects/relation/实体抽取/submissions/' + actor + '/' + (suffix or str(uuid.uuid4())) + '.md', sha256=content.digest(self.incoming), metadata=dict(kind='contribution', title='本地更新', description='新正文', publicationTarget=dict(id=item['id'], revision=item['revision'])))
+
+    def test_republication_preserves_identity_and_rejects_stale_foreign_missing(self):
+        self.assertEqual(self.call('bob', op='content_capabilities'), {'publicationUpdate': 1})
+        first = self.publish()
+        updated = self.republish(first, suffix='repeat')
+        self.assertEqual(updated['id'], first['id']); self.assertEqual(updated['revision'], 2)
+        self.assertEqual(self.republish(first, suffix='repeat'), updated)
+        self.assertEqual(self.call('bob', op='content_history', id=first['id'], revision=1)[0]['description'], first['description'])
+        with self.assertRaisesRegex(ValueError, '已有新版本'):
+            self.republish(first)
+        with self.assertRaisesRegex(PermissionError, '自己发布'):
+            self.republish(updated, actor='alice')
+        self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
+        self.edit('bob', updated, action='delete', fromPersonal=True)
+        with self.assertRaisesRegex(ValueError, '已不存在'):
+            self.republish(updated)
+        self.assertEqual(content.read_json(self.directory / '.workbench-content.json'), [])
+
+    def test_republication_index_failure_keeps_original_and_history(self):
+        first = self.publish()
+        original_atom = content.atom
+        def fail_index(file, value, *args):
+            if file == self.directory / '.workbench-content.json':
+                raise OSError('index failure')
+            return original_atom(file, value, *args)
+        with patch.object(content, 'atom', side_effect=fail_index):
+            with self.assertRaisesRegex(OSError, 'index failure'):
+                self.republish(first)
+        self.assertEqual(content.read_json(self.directory / '.workbench-content.json'), [first])
+        self.assertEqual(self.call('bob', op='content_history', id=first['id']), [])
+
     def test_owner_updates_then_admin_locks(self):
-        item = self.edit('bob', self.publish())
+        original = self.publish()
+        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
+            self.edit('bob', original)
+        item = self.republish(original)
         self.assertEqual(item['revision'], 2)
         curated = self.edit('alice', item, curate=True)
         self.assertEqual(curated['author'], 'bob'); self.assertEqual(curated['state'], 'curated')
@@ -577,7 +613,7 @@ class ContentRules(unittest.TestCase):
 
     def test_stale_revision_rejected_and_merge_preserves_source_history(self):
         one = self.publish(); two = self.publish(name='second.zip')
-        updated = self.edit('bob', one)
+        updated = self.republish(one)
         with self.assertRaises(ValueError): self.edit('alice', one)
         with self.assertRaisesRegex(ValueError, '旧版合并入口'):
             self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}])
@@ -592,7 +628,9 @@ class ContentRules(unittest.TestCase):
 
     def test_author_can_delete_only_pending(self):
         item = self.publish()
-        self.assertIsNone(self.edit('bob', item, action='delete'))
+        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
+            self.edit('bob', item, action='delete')
+        self.assertIsNone(self.edit('bob', item, action='delete', fromPersonal=True))
         self.assertEqual(content.read_json(self.directory / '.workbench-content.json'), [])
 
     def test_replacement_creates_new_revision_and_locks_for_admin(self):

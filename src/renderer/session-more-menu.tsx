@@ -1,17 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import { useDetailsMenu } from './popup-dismiss';
+import React, { useRef } from 'react';
 import { Ellipsis } from 'lucide-react';
 
 export function SessionMoreMenu({ label = '更多会话操作', children }: { label?: string; children: React.ReactNode }) {
   const menu = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    const outside = (event: PointerEvent) => {
-      if (menu.current?.open && !menu.current.contains(event.target as Node)) menu.current.open = false;
-    };
-    document.addEventListener('pointerdown', outside);
-    return () => document.removeEventListener('pointerdown', outside);
-  }, []);
+  useDetailsMenu(menu);
   return <details className="session-more" ref={menu}
-    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) event.currentTarget.open = false; }}
     onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
       if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {

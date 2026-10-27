@@ -123,7 +123,7 @@ test('personal upload blocks double clicks, persists success and allows a genuin
     assert.equal(x.bob.conclusionUploadState(result.id).status, 'ready');
     const next = await x.bob.publishConclusion(result.id, [], updated.version); await completed(next);
     assert.equal(next.submission!.sources[0].version, 2);
-    assert.equal((await x.bob.remote.contentList(task.binding)).length, 2);
+    const shared = await x.bob.remote.contentList(task.binding); assert.equal(shared.length, 1); assert.equal(shared[0].id, task.contentReceipt!.id); assert.equal(shared[0].revision, 2);
     const imported = await x.alice.importContentConclusion(x.first.id, (await x.alice.remote.contentList(x.alice.remote.binding(x.first.id)))[0].id);
     assert.equal(x.alice.conclusionUploadState(imported.conclusion.id).status, 'done');
     await assert.rejects(x.alice.publishConclusion(imported.conclusion.id), /当前版本已上传/);
@@ -227,7 +227,7 @@ test('queue captures origin and destination before async hashing; later caller m
         assert.equal(received.project.id, 'p1'); assert.equal(received.project.name, '原项目');
         assert.equal(meta.title, '原成果'); assert.equal(meta.submission.sources[0].version, 2);
         const size = (await fs.stat(file)).size; progress(size, size);
-        return { path: target, author: 'alice', size, sha256, submission: meta.submission };
+        return { id: randomUUID(), revision: 1, path: target, author: 'alice', size, sha256, submission: meta.submission };
       }
     } as unknown as SharedFiles;
     const queue = new TransferQueue(store, remote, () => {}), pending = queue.enqueue(file, binding, binding.project.uploadPath, 'upload', undefined, metadata);

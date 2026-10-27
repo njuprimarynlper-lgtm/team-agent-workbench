@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import type { AgentSession, WorkbenchAPI } from '../shared/types';
@@ -38,18 +39,7 @@ export function SessionSyncFrame({ session, api, changed, locked = false, refere
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null), pending = useRef(false);
   const panelId = useId(), noteId = useId();
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => {
-      if (!trigger.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
-    };
-    document.addEventListener('pointerdown', outside);
-    document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [open]);
+  usePopupDismiss(open, panel, reason => { setOpen(false); if (reason === 'escape') trigger.current?.focus(); }, { inside: () => [trigger.current] });
   if (session.closedAt || session.purpose !== 'work') return <>{children}</>;
   const { tone, label, detail } = syncPresentation(session);
   const localCodex = session.provider === 'codex' && !session.codexRemote;

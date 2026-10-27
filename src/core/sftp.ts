@@ -1,3 +1,4 @@
+import { teamAccessRevoked, teamManifestUntrusted, teamTransportFailure } from '../shared/team-cache';
 import type { QuestionCommand, QuestionMember, TeamQuestion } from '../shared/questions';
 import { groupCommandSchema, type GroupCommand, type TeamGroup } from '../shared/team-groups';
 import { storageRequest } from './storage-requests';
@@ -175,7 +176,7 @@ export class SftpConnection {
     const s = this.channel(), profile = this.profile!;
     let workspaces: WorkspaceAccess[];
     try { workspaces = await this.assignedWorkspaces(); }
-    catch (e) { if (this.profile === profile) { this.workspaces = []; this.workspace = undefined; profile.projects = []; this.changed(); } throw e; }
+    catch (e) { if (this.profile === profile && (teamAccessRevoked(e) || teamManifestUntrusted(e))) { this.workspaces = []; this.workspace = undefined; profile.projects = []; this.changed(); } throw e; }
     const projects: Project[] = [];
     for (const workspace of workspaces) {
       if (workspace.accessError) continue;
@@ -190,7 +191,7 @@ export class SftpConnection {
         for (const entry of directories) { const project = await this.readProject(childRemote(workspace.path, entry.filename), workspace); if (project) found.push(project); }
         workspace.isEmpty = found.length === 0;
         projects.push(...found);
-      } catch (e: any) { workspace.accessError = e.message; workspace.canCreateProject = false; }
+      } catch (e: any) { workspace.accessError = e.message; workspace.canCreateProject = false; if (teamTransportFailure(e) && !teamAccessRevoked(e)) projects.push(...profile.projects.filter(project => project.groupName === workspace.groupName)); }
     }
     if (this.channel() !== s || this.profile !== profile) throw new Error('刷新期间连接已改变');
     this.workspaces = workspaces; this.workspace = workspaces[0]; profile.projects = projects; profile.workPath = ''; profile.manifestPath = '';
@@ -278,6 +279,7 @@ export class SftpConnection {
     return result;
   }
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_lifecycle', change: input }); }
+  contentPublicationSupport(binding: RemoteBinding) { return this.request({ op: 'content_capabilities', projectId: binding.project.id }, binding) as Promise<{ publicationUpdate: number }>; }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.request({ op: 'edit_content', projectId: binding.project.id, change }, binding) as Promise<SharedContent | undefined>; }
   contentReap(binding: RemoteBinding) { return this.request({ op: 'reap_project_files', projectId: binding.project.id }, binding) as Promise<{ removed: number }>; }
   contentAdopt(binding: RemoteBinding, target: string) { return this.request({ op: 'adopt_content', projectId: binding.project.id, target }, binding); }

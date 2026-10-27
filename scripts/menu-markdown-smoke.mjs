@@ -1,0 +1,46 @@
+// Isolated renderer fixture; no account data, network or model processes.
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
+import { chromium, expect } from '@playwright/test';
+const output = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-menu-markdown-'));
+await build({ entryPoints: ['tests/fixtures/menu-markdown-ui.tsx'], outdir: output, bundle: true, platform: 'browser', format: 'iife', target: 'chrome130', loader: { '.woff': 'file', '.woff2': 'file', '.ttf': 'file' }, logLevel: 'silent' });
+await fs.writeFile(path.join(output, 'index.html'), '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="menu-markdown-ui.css"><div id="root"></div><script src="menu-markdown-ui.js"></script>');
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } }); const errors = [];
+  page.on('pageerror', error => errors.push(error.message)); await page.context().setOffline(true);
+  await page.addInitScript(() => { window.workbench = {}; });
+  await page.goto(pathToFileURL(path.join(output, 'index.html')).href);
+  const input = page.getByLabel('测试正文', { exact: true }), a = page.locator('details').filter({ has: page.getByText('菜单 A', { exact: true }) }), b = page.locator('details').filter({ has: page.getByText('菜单 B', { exact: true }) });
+  await input.fill('one\ntwo\nthree'); await input.evaluate(el => el.setSelectionRange(0, 8)); await input.press('Tab'); await expect(input).toHaveValue('\tone\n\ttwo\nthree'); await expect(input).toBeFocused();
+  await input.press('Control+z'); await expect(input).toHaveValue('one\ntwo\nthree'); await input.press('Control+y'); await expect(input).toHaveValue('\tone\n\ttwo\nthree');
+  await input.evaluate(el => el.setSelectionRange(1, 10)); await input.press('Shift+Tab'); await expect(input).toHaveValue('one\ntwo\nthree'); await expect(input).toBeFocused();
+  await input.fill('# 标题\n\n**重点**\n\n- 项目\n\n```js\nconst a = 1;\n```'); await input.locator('..').getByRole('button', { name: '预览 Markdown', exact: true }).click();
+  const preview = page.getByRole('region', { name: '测试正文 Markdown 预览' }); await expect(preview.getByRole('heading', { name: '标题' })).toBeVisible(); await expect(preview.locator('strong')).toHaveText('重点'); await expect(preview.locator('code')).toContainText('const a');
+  await input.locator('..').getByRole('button', { name: '编辑 Markdown', exact: true }).click(); await expect(input).toBeFocused();
+  await page.getByLabel('单行名称').focus(); await page.keyboard.press('Tab'); await expect(page.getByRole('button', { name: '下一个控件' })).toBeFocused();
+  await page.getByText('菜单 A', { exact: true }).click(); await page.getByLabel('菜单搜索').fill('保持'); await expect(a).toHaveAttribute('open', '');
+  await page.getByLabel('选择一').check(); await expect(a).toHaveAttribute('open', '');
+  await page.getByRole('button', { name: '打开二级菜单' }).click(); const child = page.getByRole('menu', { name: '二级菜单' }); await child.getByLabel('子菜单搜索').fill('搜索'); await expect(a).toHaveAttribute('open', '');
+  await page.keyboard.press('Escape'); await expect(child).toHaveCount(0); await expect(a).toHaveAttribute('open', ''); await expect(page.getByRole('dialog', { name: '编辑弹窗' })).toHaveAttribute('data-open', 'true');
+  await page.keyboard.press('Escape'); await expect(a).not.toHaveAttribute('open', ''); await expect(page.getByRole('dialog', { name: '编辑弹窗' })).toHaveAttribute('data-open', 'true');
+  await page.getByText('菜单 A', { exact: true }).click(); await page.getByText('菜单 B', { exact: true }).click(); await expect(a).not.toHaveAttribute('open', ''); await expect(b).toHaveAttribute('open', '');
+  await page.getByRole('button', { name: '外部操作 0' }).click(); await expect(page.getByRole('button', { name: '外部操作 1' })).toBeVisible(); await expect(b).not.toHaveAttribute('open', '');
+  await page.getByRole('button', { name: '选择模型', exact: true }).click(); await expect(page.getByRole('dialog', { name: '模型与额度' })).toBeVisible();
+  const composer = page.getByLabel('任务输入', { exact: true }); await composer.click(); await expect(page.getByRole('dialog', { name: '模型与额度' })).toHaveCount(0); await expect(composer).toBeFocused();
+  await composer.fill('\t正文'); await composer.evaluate(el => el.setSelectionRange(3, 3)); await composer.press('Shift+Tab'); await expect(composer).toHaveValue('正文');
+  await composer.fill('$'); await expect(page.getByRole('dialog', { name: '选择 Skill' })).toBeVisible(); await composer.press('Tab'); await expect(composer).toHaveValue(''); await expect(page.getByRole('dialog', { name: '选择 Skill' })).toHaveCount(0);
+  await composer.fill('下一条'); await composer.press('Enter'); await expect(page.getByRole('button', { name: '外部操作 11' })).toBeVisible();
+  await page.getByText('补充整理要求（选填）').click(); const direction = page.getByRole('textbox', { name: /的整理方向/ }); await direction.fill('- 第一项'); await direction.press('Tab'); await expect(direction).toHaveValue('- 第一项\t');
+  await page.screenshot({ path: path.join(output, 'editing.png'), fullPage: true });
+  await page.getByRole('button', { name: '检查项目资料' }).click(); const projectBody = page.locator('textarea').first(); await expect(projectBody).toBeEnabled(); await projectBody.fill('## 项目目标\n\n- 验证一'); await projectBody.press('Tab'); await expect(projectBody).toHaveValue('## 项目目标\n\n- 验证一\t');
+  await page.getByRole('button', { name: '预览 Markdown', exact: true }).first().click(); await expect(page.getByRole('heading', { name: '项目目标', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '返回编辑检查' }).click(); await page.getByRole('button', { name: '检查个人成果' }).click(); await page.getByRole('button', { name: /新建/ }).click();
+  const resultBody = page.getByLabel('项目成果内容', { exact: true }); await resultBody.fill('## 成果要点\n\n**已验证**'); await resultBody.locator('..').getByRole('button', { name: '预览 Markdown', exact: true }).click(); await expect(page.getByRole('heading', { name: '成果要点' })).toBeVisible();
+  await page.screenshot({ path: path.join(output, 'result-preview.png'), fullPage: true }); assert.deepEqual(errors, []);
+  console.log('Menu and Markdown checks passed; screenshot: ' + path.join(output, 'editing.png'));
+} finally { await browser.close(); }

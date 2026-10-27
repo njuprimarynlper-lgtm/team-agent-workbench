@@ -1,3 +1,5 @@
+import { MarkdownEditor } from './markdown-editor';
+import { Markdown } from './markdown';
 import { errorMessage } from '../shared/errors';
 import React, { useEffect, useRef, useState } from 'react';
 import type { Project, ProjectBriefState } from '../shared/types';
@@ -11,9 +13,9 @@ function BriefFields({ brief, setBrief, busy, readOnly }: { brief: ProjectBrief;
     if (busy && briefFields.every(field => !brief[field.key].trim())) return <p className="muted">正在读取项目说明…</p>;
     const visible = briefFields.filter(field => field.required || brief[field.key].trim());
     if (!visible.length) return <p className="muted">项目说明尚未填写。</p>;
-    return <>{visible.map(field => <section className="brief-reading" key={field.key} aria-label={field.label}><h3>{field.label}</h3><p>{brief[field.key].trim() || '尚未填写'}</p></section>)}</>;
+    return <>{visible.map(field => <section className="brief-reading" key={field.key} aria-label={field.label}><h3>{field.label}</h3><Markdown text={brief[field.key].trim() || '尚未填写'}/></section>)}</>;
   }
-  return <>{briefFields.map(field => <label className="field" key={field.key}>{field.label}{field.required ? ' *' : '（可选）'}<textarea aria-label={field.label} rows={field.required ? 3 : 2} maxLength={6000} disabled={busy} value={brief[field.key]} placeholder={field.placeholder} onChange={event => { const value = event.target.value; setBrief(previous => ({ ...previous, [field.key]: value })); }}/></label>)}</>;
+  return <>{briefFields.map(field => <label className="field" key={field.key}>{field.label}{field.required ? ' *' : '（可选）'}<MarkdownEditor aria-label={field.label} rows={field.required ? 3 : 2} maxLength={6000} disabled={busy} value={brief[field.key]} placeholder={field.placeholder} onChange={event => { const value = event.target.value; setBrief(previous => ({ ...previous, [field.key]: value })); }}/></label>)}</>;
 }
 
 export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel = '保存新版本', localSettings }: { project: Project; admin: boolean; cancel?: () => void; saved: (revision: number) => Promise<void>; saveLabel?: string; localSettings?: React.ReactNode }) {

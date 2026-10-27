@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -17,12 +18,8 @@ export function ContextMenu({ anchor, label, actions, close }: { anchor: Context
     setPoint({ ...anchor, x: Math.max(8, Math.min(anchor.x, innerWidth - rect.width - 8)), y: Math.max(8, Math.min(anchor.y, innerHeight - rect.height - 8)) });
     panel.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }, [anchor]);
-  useEffect(() => {
-    const outside = (event: PointerEvent) => { if (!panel.current?.contains(event.target as Node)) closeRef.current(); };
-    const dismiss = () => closeRef.current();
-    document.addEventListener('pointerdown', outside); window.addEventListener('resize', dismiss);
-    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', dismiss); };
-  }, []);
+  usePopupDismiss(true, panel, reason => { closeRef.current(); if (reason === 'escape' && anchor.target.isConnected) anchor.target.focus(); }, { owner: () => anchor.target });
+  useEffect(() => { const dismiss = () => closeRef.current(); window.addEventListener('resize', dismiss); return () => window.removeEventListener('resize', dismiss); }, []);
   const dismiss = () => { close(); if (anchor.target.isConnected) anchor.target.focus(); };
   return createPortal(<div ref={panel} role="menu" aria-label={label} className="interaction-context-menu" style={{ left: point.x, top: point.y }} onContextMenu={event => event.preventDefault()} onKeyDown={event => {
     if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); dismiss(); }

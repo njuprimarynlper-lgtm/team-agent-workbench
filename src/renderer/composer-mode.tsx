@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, RefreshCw } from 'lucide-react';
 import { modeOption, type SessionMode, type SessionModeCatalog } from '../shared/session-mode';
@@ -20,26 +21,8 @@ export function ComposerMode({ session }: { session: AgentSession }) {
   };
   useEffect(() => { if (open && !catalog) void load(); }, [open]);
   useEffect(() => () => { generation.current++; }, [session.id]);
-  useEffect(() => {
-    const textarea = root.current?.closest('.composer')?.querySelector('textarea');
-    const key = async (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || !event.shiftKey || event.ctrlKey || event.metaKey || event.isComposing || event.repeat) return;
-      event.preventDefault(); event.stopImmediatePropagation(); if (busy || session.status === 'starting') return;
-      const value = catalog || await load(); if (!value || value.modes.length < 2) { setOpen(true); return; }
-      const index = value.modes.findIndex(mode => mode.id === (session.mode || 'default'));
-      await apply(value.modes[(index + 1) % value.modes.length].id);
-    };
-    textarea?.addEventListener('keydown', key, true);
-    return () => textarea?.removeEventListener('keydown', key, true);
-  });
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
-    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [open]);
-  return <div className="composer-mode" ref={root}><button className="composer-setting" aria-label="选择对话模式" aria-expanded={open} disabled={busy || session.status === 'starting'} title="Shift+Tab 切换模式" onClick={() => setOpen(!open)}>{modeOption(session.mode || 'default').name}<ChevronDown size={12}/></button>
+  usePopupDismiss(open, root, reason => { setOpen(false); if (reason === 'escape') root.current?.querySelector('button')?.focus(); });
+  return <div className="composer-mode" ref={root}><button className="composer-setting" aria-label="选择对话模式" aria-expanded={open} disabled={busy || session.status === 'starting'} onClick={() => setOpen(!open)}>{modeOption(session.mode || 'default').name}<ChevronDown size={12}/></button>
     {open && <section className="composer-popover" role="dialog" aria-label="对话模式"><header><strong>对话模式</strong><span className="spacer"/><button className="icon" aria-label="刷新模式" disabled={busy} onClick={() => void load()}><RefreshCw size={14}/></button></header><div className="composer-options">
       {busy && <p role="status">读取中…</p>}{(error || catalog?.error) && <p role="alert" className="inline-error">{error || catalog?.error}</p>}
       {catalog?.modes.map(mode => <button className="setting-option" key={mode.id} aria-pressed={(session.mode || 'default') === mode.id} disabled={busy} onClick={() => void apply(mode.id)}><span>{mode.name}<small>{mode.description}</small></span>{(session.mode || 'default') === mode.id && <Check size={14}/>}</button>)}

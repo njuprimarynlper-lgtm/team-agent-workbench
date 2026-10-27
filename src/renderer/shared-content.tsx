@@ -1,3 +1,5 @@
+import { MarkdownEditor } from './markdown-editor';
+import { cachedTeamRead } from './team-cache';
 import { matchesTeamHistory, teamHistoryLabels, teamHistoryReason, type TeamHistoryFilter } from '../shared/team-result-history';
 import { contentFileNotice } from '../shared/content-files-state';
 import { effectiveResultStatus, canonicalCategory, matchesResultCategory, orderedResults, resultCategory, resultDefaultStatus, resultStateLabel, type ResultStatus } from '../shared/result-model';
@@ -27,9 +29,11 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   const [revealedId, setRevealedId] = useState('');
   const [personal, setPersonal] = useState<ProjectConclusion[]>([]), [showAll, setShowAll] = useState(true), [savingId, setSavingId] = useState('');
   const loadSequence = useRef(0), personalSequence = useRef(0);
+  const editingSnapshot = useRef<SharedContent | undefined>(undefined);
   const [editing, setEditing] = useState(false), [title, setTitle] = useState(''), [body, setBody] = useState(''), [repo, setRepo] = useState('');
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [pendingDelete, setPendingDelete] = useState<SharedContent>(), [pendingReap, setPendingReap] = useState(false);
-  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
+  const [mutating, setBusy] = useState(false), [error, setError] = useState(''), [pendingDelete, setPendingDelete] = useState<SharedContent>(), [pendingReap, setPendingReap] = useState(false);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false), [hasCache, setHasCache] = useState(false);
+  const busy = mutating || backgroundRefreshing && !hasCache;
   const [selectingMerge, setSelectingMerge] = useState(false), [mergeSelection, setMergeSelection] = useState<string[]>([]), [mergeSessionId, setMergeSessionId] = useState('');
   const [selectingDelete, setSelectingDelete] = useState(false), [deleteSelection, setDeleteSelection] = useState<string[]>([]), [pendingDeleteMany, setPendingDeleteMany] = useState<SharedContent[]>([]);
   const bulkDeleteRunning = useRef(false);
@@ -43,16 +47,20 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   }, [candidateSessions, project.id]);
   const [aliasItem, setAliasItem] = useState<SharedContent>(), [aliasValue, setAliasValue] = useState('');
   const load = async (resetSelection = true) => {
-    const scope = contentScope.current, sequence = ++loadSequence.current, localSequence = ++personalSequence.current; setBusy(true); setBackgroundRefreshing(!resetSelection); if (resetSelection) setDeleteSelection([]);
+    const scope = contentScope.current, sequence = ++loadSequence.current, localSequence = ++personalSequence.current; setBackgroundRefreshing(true); if (resetSelection) setDeleteSelection([]);
+    const current = () => scope === contentScope.current && sequence === loadSequence.current;
     try {
-      const [items, history, personal] = await Promise.all([window.workbench.call<SharedContent[]>('content.list', { projectId: project.id }), window.workbench.call<SharedContent[]>('content.history', { projectId: project.id }).catch(error => { if (/不支持的内容操作/.test(error.message || '')) return [] as SharedContent[]; throw error; }), window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true })]);
-      if (scope !== contentScope.current || sequence !== loadSequence.current) return false;
-      setItems(items); setHistory(history); if (localSequence === personalSequence.current) setPersonal(personal); setError(''); return true;
-    }
-    catch (e: any) { if (scope === contentScope.current && sequence === loadSequence.current) setError(e.message); return false; }
-    finally { if (scope === contentScope.current && sequence === loadSequence.current) { setBusy(false); setBackgroundRefreshing(false); } }
+      const results = await Promise.allSettled([
+        cachedTeamRead<SharedContent[]>(window.workbench, { action: 'content.list', projectId: project.id }, value => { if (current()) { setItems(value || []); setHasCache(value !== undefined); } }),
+        cachedTeamRead<SharedContent[]>(window.workbench, { action: 'content.history', projectId: project.id }, value => { if (current()) setHistory(value || []); }),
+        window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true }).then(value => { if (current() && localSequence === personalSequence.current) setPersonal(value); }),
+      ]);
+      if (!current()) return false;
+      const failed = results.find((result, index) => result.status === 'rejected' && !(index === 1 && /不支持的内容操作/.test(result.reason?.message || '')));
+      setError(failed?.status === 'rejected' ? '最新团队信息暂未更新：' + failed.reason.message : ''); return !failed;
+    } finally { if (current()) setBackgroundRefreshing(false); }
   };
-  useEffect(() => { setClassifying(undefined); setHistoryItem(undefined); setItems([]); setHistory([]); setShowHistory(false); setPersonal([]); setShowAll(true); setSavingId(''); setSelected(''); setEditing(false); setLabelFilter('all'); setSearch(''); setKind('all'); setSelectingMerge(false); setMergeSelection([]); setAttachItem(undefined); setAttachSelection([]); setPendingDelete(undefined); setAliasItem(undefined); void load(); return () => { loadSequence.current++; personalSequence.current++; }; }, [project.id, username, admin, resultId]);
+  useEffect(() => { editingSnapshot.current = undefined; setClassifying(undefined); setHistoryItem(undefined); setHasCache(false); setItems([]); setHistory([]); setShowHistory(false); setPersonal([]); setShowAll(true); setSavingId(''); setSelected(''); setEditing(false); setLabelFilter('all'); setSearch(''); setKind('all'); setSelectingMerge(false); setMergeSelection([]); setAttachItem(undefined); setAttachSelection([]); setPendingDelete(undefined); setAliasItem(undefined); void load(); return () => { loadSequence.current++; personalSequence.current++; }; }, [project.id, username, admin, resultId]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = window.workbench.subscribe(event => {
@@ -64,7 +72,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     });
     return () => { clearTimeout(timer); unsubscribe(); personalSequence.current++; };
   }, [project.id, username, resultId]);
-  useEffect(() => { const timer = setInterval(() => { if (!editing && !busy && !savingId && document.visibilityState === 'visible') void load(false); }, 30000); return () => clearInterval(timer); }, [project.id, username, resultId, editing, busy, savingId]);
+  useEffect(() => { const timer = setInterval(() => { if (!editing && !busy && !backgroundRefreshing && !savingId && document.visibilityState === 'visible') void load(false); }, 30000); return () => clearInterval(timer); }, [project.id, username, resultId, editing, busy, backgroundRefreshing, savingId]);
   const storePersonal = async (value: SharedContent) => {
     if (savingId || busy) return;
     const scope = contentScope.current; setSavingId(value.id); setError('');
@@ -85,12 +93,13 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   useEffect(() => { if (!mergeSessions.some(session => session.id === mergeSessionId)) setMergeSessionId(mergeSessions[0]?.id || ''); }, [mergeSessionId, mergeSessions]);
   useEffect(() => { setSelectingDelete(false); setDeleteSelection([]); setPendingDeleteMany([]); }, [project.id, username, admin, resultId]);
   const item = items.find(i => i.id === (resultId || selected)) || history.find(i => i.id === (resultId || selected));
-  const open = (value: SharedContent) => { setSelected(value.id); setRevealedId(current => current === value.id ? current : ''); setEditing(false); setTitle(value.title); setBody(value.description); setRepo(value.repoUrl || ''); setEditCategory(resultCategory(value) || 'exploration'); setEditStatus(effectiveResultStatus(value)); setEditOwner(value.resultOwner || ''); };
-  const edit = (value: SharedContent) => { open(value); setEditing(true); };
+  const open = (value: SharedContent) => { editingSnapshot.current = undefined; setSelected(value.id); setRevealedId(current => current === value.id ? current : ''); setEditing(false); setTitle(value.title); setBody(value.description); setRepo(value.repoUrl || ''); setEditCategory(resultCategory(value) || 'exploration'); setEditStatus(effectiveResultStatus(value)); setEditOwner(value.resultOwner || ''); };
+  const edit = (value: SharedContent) => { open(value); editingSnapshot.current = structuredClone(value); setEditing(true); };
   useEffect(() => { if (!focusPath) return; const target = items.find(value => value.path === focusPath); if (target) { setLabelFilter('all'); setSearch(''); setKind('all'); setMergeSelection([]); open(target); setRevealedId(target.id); focusHandled?.(); } }, [focusPath, items]);
   // A direct source link may reveal an existing personal copy until it is closed.
   useEffect(() => { if (!selected) setRevealedId(''); }, [selected, project.id, username, admin, resultId]);
   const save = async (action: 'save' | 'delete') => {
+    const item = editingSnapshot.current;
     if (!item) return; setBusy(true); setError('');
     try { const savedTitle = title.trim(); await window.workbench.call('content.edit', { projectId: project.id, change: { id: item.id, revision: item.revision, action, title: savedTitle, description: body, repoUrl: repo, ...(item.kind === 'contribution' ? { category: editCategory, resultStatus: item.linkedAssignments?.length ? undefined : editStatus, resultOwner: editOwner } : {}), curate: admin, merge: [] } }); setEditing(false); await load(); notice(action === 'delete' ? '团队成果已删除' : '团队成果已更新'); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -168,7 +177,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     {alias(value) && <p className="muted small">本地别名，仅你可见 · 远端标题：{titleSubject(value.title) || value.title}</p>}
     {isEditing ? <>
       <ResultStatusSelect category={canonicalCategory(editCategory)!} value={editStatus} disabled={!!value.linkedAssignments?.length} change={setEditStatus}/>{resultCategory(value) === 'todo' && <label className="field">负责人<input aria-label="待办负责人" value={editOwner} onChange={event => setEditOwner(event.target.value)}/></label>}<label className="field">标题<input aria-label="团队成果标题" value={title} onChange={e => setTitle(e.target.value)}/></label>
-      <label className="field">内容 / 说明<textarea aria-label="团队成果内容" rows={14} value={body} onChange={e => setBody(e.target.value)}/></label>
+      <label className="field">内容 / 说明<MarkdownEditor aria-label="团队成果内容" rows={14} value={body} onChange={e => setBody(e.target.value)}/></label>
       <label className="field">仓库链接（可选）<input value={repo} onChange={e => setRepo(e.target.value)}/></label>
     </> : <>
       {contentFileNotice(value) && <p className="update-processing-note" role="status">{contentFileNotice(value)}{value.files?.body === 'missing' && ' 以下文字为此前保存的成果记录。'}</p>}
@@ -185,20 +194,20 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   </>;
   const renderActions = (value: SharedContent, isEditing: boolean) => {
     if (history.includes(value)) {
-      const writable = admin || value.author === username && value.state === 'submitted';
+      const writable = admin;
       if (!writable) return null;
       return <button className="secondary compact danger" aria-label={`删除历史成果：${displayTitle(value)}`} disabled={busy || editing || selectingDelete} onClick={() => setPendingDelete(value)}>删除历史成果</button>;
     }
     if (isEditing) return <>
       <button className="secondary compact" disabled={busy} onClick={() => open(value)}>取消编辑</button>
-      {value.kind !== 'contribution' && <button className="secondary compact" disabled={busy || !title.trim()} onClick={async () => { setBusy(true); try { const saved = await window.workbench.call('content.replace', { projectId: project.id, change: { id: value.id, revision: value.revision, action: 'save', title, description: body, curate: admin } }); if (saved) { setEditing(false); await load(); notice('文件已替换为新修订'); } } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>选择文件并保存替换</button>}
+      {value.kind !== 'contribution' && <button className="secondary compact" disabled={busy || !title.trim()} onClick={async () => { setBusy(true); try { const saved = await window.workbench.call('content.replace', { projectId: project.id, change: { id: editingSnapshot.current?.id, revision: editingSnapshot.current?.revision, action: 'save', title, description: body, curate: admin } }); if (saved) { setEditing(false); await load(); notice('文件已替换为新修订'); } } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>选择文件并保存替换</button>}
       <button className="primary compact" disabled={busy || !title.trim()} onClick={() => void save('save')}>保存修改</button>
     </>;
     const fileBlocked = !!value.files && value.files.body !== 'ok';
     const disabled = busy || editing || !!savingId || selectingMerge || selectingDelete;
     const difference = differences[value.id];
     const keepSaveAppearance = backgroundRefreshing && !editing && !savingId && !selectingMerge && !selectingDelete && !!difference;
-    const writable = admin || value.author === username && value.state === 'submitted';
+    const writable = admin;
     return <>
       {value.linkedAssignments?.length ? <span className="muted small">已关联项目任务 · {value.linkedAssignments.map(task => task.status === 'pending_review' ? '待验收' : task.status === 'completed' ? '已完成' : '按任务进度处理').join('、')}</span> : null}
       {!activity && difference && <button className={'primary compact' + (keepSaveAppearance ? ' result-save-refreshing' : '')} aria-label={resultId ? undefined : `存入个人成果库：${displayTitle(value)}`} title={contentFileNotice(value)} disabled={disabled || fileBlocked} onClick={() => void storePersonal(value)}>{savingId === value.id ? '正在存入…' : '存入个人成果库'}</button>}
@@ -224,7 +233,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
         <div className="team-results-actions">
           <button className="secondary compact" disabled={busy || editing} onClick={() => { setShowHistory(!showHistory); setHistoryFilter('all'); setSelected(''); setSearch(''); setLabelFilter('all'); setKind('all'); setSelectingMerge(false); setMergeSelection([]); setSelectingDelete(false); setDeleteSelection([]); }}>{showHistory ? '返回当前成果' : '查看团队历史'}</button>
           {admin && !showHistory && <button className="secondary compact" disabled={editing || busy} onClick={() => { setSelectingMerge(!selectingMerge); setMergeSelection([]); setSelectingDelete(false); setDeleteSelection([]); }}>{selectingMerge ? '退出多选' : '合并整理'}</button>}
-          <button className="secondary compact" aria-label={selectingDelete ? '取消批量删除' : showHistory ? '批量删除历史成果' : '批量删除团队成果'} disabled={busy || editing || !deletion.eligible.length} onClick={() => { setSelectingDelete(!selectingDelete); setDeleteSelection([]); setSelectingMerge(false); setMergeSelection([]); setError(''); }}>{selectingDelete ? '取消多选' : '批量删除'}</button>
+          {admin && <button className="secondary compact" aria-label={selectingDelete ? '取消批量删除' : showHistory ? '批量删除历史成果' : '批量删除团队成果'} disabled={busy || editing || !deletion.eligible.length} onClick={() => { setSelectingDelete(!selectingDelete); setDeleteSelection([]); setSelectingMerge(false); setMergeSelection([]); setError(''); }}>{selectingDelete ? '取消多选' : '批量删除'}</button>}
           {admin && <button className="secondary compact" disabled={busy || editing} onClick={() => setPendingReap(true)}>清理未引用文件</button>}
           <button className="secondary compact" disabled={busy || editing} onClick={() => void load()}>刷新</button>
 
@@ -233,6 +242,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
       <div className="result-library-filters">{showHistory && <label className="result-history-filter">历史类型<select aria-label="团队历史类型" value={historyFilter} disabled={busy || editing} onChange={event => { setHistoryFilter(event.target.value as TeamHistoryFilter); setSelected(''); setDeleteSelection([]); setMergeSelection([]); }}><option value="all">全部历史</option><option value="merged">合并历史</option><option value="deleted">删除历史</option></select></label>}<input aria-label="搜索团队成果" placeholder="搜索标题或内容" value={search} disabled={busy || editing} onChange={e => { setSearch(e.target.value); setSelected(''); setDeleteSelection([]); setMergeSelection([]); }}/><ResultCategoryFilter items={visibleItems} label="团队成果类别" value={labelFilter} disabled={busy || editing || !!mergeSelection.length} onChange={value => { setLabelFilter(value); setSelected(''); setMergeSelection([]); setDeleteSelection([]); }}/>{(availableKinds.length > 1 || kind !== 'all') && <select aria-label="团队成果内容形式" value={kind} disabled={busy || editing} onChange={e => { setKind(e.target.value); setSelected(''); setDeleteSelection([]); setMergeSelection([]); }}><option value="all">全部内容形式</option>{availableKinds.map(value => <option key={value} value={value}>{{ contribution: '文字成果', file: '共享文件', trajectory: '会话轨迹' }[value]}</option>)}</select>}{hasFilters && <button className="team-results-clear" disabled={busy || editing} onClick={() => { setSearch(''); setKind('all'); setLabelFilter('all'); setHistoryFilter('all'); setSelected(''); setDeleteSelection([]); setMergeSelection([]); }}>清除筛选</button>}</div>
     </>}
     {!resultId && labelFilter === 'todo' && <div className="row result-category-description"><span>已完成事项保留在下方，仍可查看和重新打开。</span><select aria-label="待办状态筛选" value={todoFilter} onChange={event => setTodoFilter(event.target.value)}><option value="all">全部状态</option><option value="active">未完成</option><option value="completed">已完成</option></select></div>}
+    {backgroundRefreshing && hasCache && <p className="muted small" role="status">正在更新团队信息，当前内容可继续查看和操作。</p>}
     {error && <div className="inline-error" role="alert">{error}</div>}
     {admin && !resultId && selectingMerge && <section className="semantic-merge-bar" aria-label="语义合并设置"><div><b>已选择 {visibleMergeSelection.length} 条文字成果</b><small>至少选择 2 条同类成果；待办只合并同一事项的重复记录。</small></div>{mergeSessions.length ? <label>使用模型环境<select aria-label="合并使用的模型环境" value={mergeSessionId} onChange={e => setMergeSessionId(e.target.value)}>{mergeSessions.map(session => <option value={session.id} key={session.id}>{session.title} · {session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor'}{session.model ? ' · ' + session.model : ''}</option>)}</select></label> : <p className="inline-error">请先为此项目创建一个工作会话，用于提供已登录的 AI 模型环境。</p>}<button className="primary" disabled={busy || visibleMergeSelection.length < 2 || !mergeSessionId} onClick={() => void startMerge()}>{busy ? '正在启动…' : `开始语义合并${visibleMergeSelection.length ? `（${visibleMergeSelection.length} 条）` : ''}`}</button></section>}
     {selectingDelete && !resultId && <section className="semantic-merge-bar" aria-label="团队成果批量删除设置"><label className="check-row"><input type="checkbox" aria-label="全选当前可删除的团队成果" disabled={busy || !deletion.eligible.length} checked={!!deletion.eligible.length && deletion.selected.length === Math.min(100, deletion.eligible.length)} onChange={event => setDeleteSelection(event.target.checked ? deletion.eligible.slice(0, 100).map(item => item.id) : [])}/><span>全选当前可删除项（最多 100 项）</span></label><span>已选择 {deletion.selected.length} 项；切换分组、筛选或刷新后会清空选择</span><button className="primary danger" disabled={busy || !deletion.selected.length} onClick={() => { setError(''); setPendingDeleteMany(structuredClone(deletion.selected)); }}>删除选中的 {deletion.selected.length} 项</button></section>}

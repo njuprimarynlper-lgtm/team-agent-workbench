@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ExternalLink, RefreshCw, X } from 'lucide-react';
 import type { AgentSession } from '../shared/types';
@@ -8,7 +9,7 @@ export function CursorNativeSettingsControls({ session }: { session: AgentSessio
   const [open,setOpen]=useState<CursorSettingKind>(),[catalog,setCatalog]=useState<CursorNativeSettings>(),[loading,setLoading]=useState(false),[saving,setSaving]=useState(false),[error,setError]=useState('');
   const root=useRef<HTMLDivElement>(null),sequence=useRef(0);
   const actual=session.cursorSettings,connected=session.desktopSyncState==='connected',pending=actual?.pending;
-  useEffect(()=>{const dismiss=(event:MouseEvent)=>{if(!root.current?.contains(event.target as Node)){sequence.current++;setOpen(undefined);}};const key=(event:KeyboardEvent)=>{if(event.key==='Escape'){sequence.current++;setOpen(undefined);}};document.addEventListener('mousedown',dismiss);document.addEventListener('keydown',key);return()=>{sequence.current++;document.removeEventListener('mousedown',dismiss);document.removeEventListener('keydown',key);};},[]);
+  usePopupDismiss(!!open, root, reason => { sequence.current++; setOpen(undefined); if (reason === 'escape') root.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus(); });
   const call=(extra:object)=>window.workbench.call<CursorNativeSettings>('session.cursorNative.settings',{id:session.id,...extra});
   const refresh=async(kind:CursorSettingKind)=>{const n=++sequence.current;setOpen(kind);setLoading(true);setError('');try{const result=await call({kind});if(n===sequence.current)setCatalog(result);}catch(e:any){if(n===sequence.current)setError(e.message);}finally{if(n===sequence.current)setLoading(false);}};
   const apply=async(value:string)=>{if(!open||!catalog)return;setSaving(true);setError('');try{await call({kind:open,value,revision:catalog.revision});setOpen(undefined);}catch(e:any){setError(e.message);}finally{setSaving(false);}};

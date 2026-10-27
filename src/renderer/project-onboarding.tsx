@@ -1,3 +1,4 @@
+import { MarkdownEditor } from './markdown-editor';
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import type { ConnectionProfile, Project, WorkspaceAccess } from '../shared/types';
@@ -20,8 +21,8 @@ export function ProjectOnboarding({ profile, workspace, close, created }: { prof
 
       {error && <div className="inline-error" role="alert">{error}</div>}{draftError && <p className="inline-error">{draftError}</p>}
       <label className="field">项目名称 *<input readOnly aria-label="引导项目名称" maxLength={180} placeholder="例如 客户信息抽取、OCR 质量提升、内部工具迭代" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}/></label>
-      <div className="project-brief-fields">{briefFields.filter(f => f.required).map(field => <label className="field" key={field.key}>{field.label} *<textarea disabled={busy} aria-label={field.label} rows={3} maxLength={6000} placeholder={field.placeholder} value={form.brief[field.key]} onChange={e => setForm({ ...form, brief: { ...form.brief, [field.key]: e.target.value } })}/></label>)}</div>
-      <details className="project-brief-optional"><summary>补充范围、资料与协作约定（可选）</summary>{briefFields.filter(f => !f.required).map(field => <label className="field" key={field.key}>{field.label}<textarea disabled={busy} aria-label={field.label} rows={3} maxLength={6000} placeholder={field.placeholder} value={form.brief[field.key]} onChange={e => setForm({ ...form, brief: { ...form.brief, [field.key]: e.target.value } })}/></label>)}</details>
+      <div className="project-brief-fields">{briefFields.filter(f => f.required).map(field => <label className="field" key={field.key}>{field.label} *<MarkdownEditor disabled={busy} aria-label={field.label} rows={3} maxLength={6000} placeholder={field.placeholder} value={form.brief[field.key]} onChange={e => setForm({ ...form, brief: { ...form.brief, [field.key]: e.target.value } })}/></label>)}</div>
+      <details className="project-brief-optional"><summary>补充范围、资料与协作约定（可选）</summary>{briefFields.filter(f => !f.required).map(field => <label className="field" key={field.key}>{field.label}<MarkdownEditor disabled={busy} aria-label={field.label} rows={3} maxLength={6000} placeholder={field.placeholder} value={form.brief[field.key]} onChange={e => setForm({ ...form, brief: { ...form.brief, [field.key]: e.target.value } })}/></label>)}</details>
 
     </div><footer><button className="secondary" disabled={busy} onClick={close}>稍后填写</button><button className="primary" disabled={busy || !requiredReady || unavailable} onClick={async () => { setBusy(true); setError(''); try { const brief = projectBriefSchema.parse(form.brief); const project = await window.workbench.call<Project>('project.initialize', { name: form.name, groupName: workspace.groupName, brief, contextKey }); try { localStorage.removeItem(storageKey); } catch { /* A successful shared save is not reversed by a local storage error. */ } await created(project); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>{busy ? '正在创建并保存…' : '保存项目资料'}</button></footer>
   </section></div>;

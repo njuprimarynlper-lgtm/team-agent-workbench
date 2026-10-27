@@ -1,3 +1,4 @@
+import { MarkdownEditor } from './markdown-editor';
 import React, { useState } from 'react';
 import { briefFields } from '../shared/project-brief';
 import type { AccountSyncState } from '../shared/account-data';
@@ -12,7 +13,7 @@ export function SyncConflictCard({ conflict, busy, resolve }: { conflict: SyncCo
   return <section className="sync-conflict" aria-label={'同步冲突：' + title}>
     <h3>{title}</h3><p className="muted small">此项等待处理，其他资料继续自动同步。</p>
     {conflict.fields.map(field => <div key={JSON.stringify(field.path)}><b>{field.path.map(part => briefFields.find(field => field.key === part)?.label || ({ content: '内容', title: '标题', body: '正文' } as Record<string, string>)[part] || part).join(' / ') || '整份资料'}</b><div className="form-grid"><div>本机<pre style={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>{describe(field.local)}</pre></div><div>中央<pre style={{ whiteSpace: 'pre-wrap', maxHeight: 200, overflow: 'auto' }}>{describe(field.remote)}</pre></div></div>
-      {editing && <label className="field">合并稿<textarea rows={6} value={fields.find(item => JSON.stringify(item.path) === JSON.stringify(field.path))!.text} onChange={event => setChanges({ ...changes, [JSON.stringify(field.path)]: event.target.value })}/></label>}
+      {editing && <label className="field">合并稿<MarkdownEditor rows={6} value={fields.find(item => JSON.stringify(item.path) === JSON.stringify(field.path))!.text} onChange={event => setChanges({ ...changes, [JSON.stringify(field.path)]: event.target.value })}/></label>}
     </div>)}
     {['queued', 'running'].includes(conflict.ai?.status || '') && <p role="status">AI 正在分析双方修改…</p>}
     {conflict.ai?.status === 'error' && <p className="muted small">{conflict.ai.error}；可直接处理，后台会自动重试。</p>}

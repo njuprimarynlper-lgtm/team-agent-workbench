@@ -1,3 +1,4 @@
+import { teamAccessRevoked, teamManifestUntrusted, teamTransportFailure } from '../shared/team-cache';
 import { newAccountPasswordSchema } from '../shared/accounts';
 import { QuestionFiles } from './question-files';
 import type { QuestionCommand } from '../shared/questions';
@@ -160,7 +161,7 @@ export class LocalFileConnection {
     const profile = this.channel().profile!, proof = this.proof;
     let data: Awaited<ReturnType<typeof readRegistry>>, user: ReturnType<typeof authorizeUser>;
     try { data = await readRegistry(this.root); user = authorizeUser(data, profile.username, proof); }
-    catch (e) { if (this.profile === profile && this.proof === proof) { this.workspaces = []; this.workspace = undefined; profile.projects = []; this.changed(); } throw e; }
+    catch (e) { if (this.profile === profile && this.proof === proof && (teamAccessRevoked(e) || teamManifestUntrusted(e))) { this.workspaces = []; this.workspace = undefined; profile.projects = []; this.changed(); } throw e; }
     const workspaces: WorkspaceAccess[] = [], projects: Project[] = [];
     for (const name of user.groups || []) {
       const group = data.state.groups[name]; if (!group || group.deletedAt || group.purgedAt) continue;
@@ -178,7 +179,7 @@ export class LocalFileConnection {
         for (const e of entries) if (!e.name.startsWith('.') && e.isDirectory() && !e.isSymbolicLink()) { const p = await this.readProject(childRemote(group.workspace, e.name), workspace); if (p) found.push(p); }
         workspace.isEmpty = found.length === 0;
         projects.push(...found);
-      } catch (e: any) { workspace.accessError = e.message; workspace.canCreateProject = false; }
+      } catch (e: any) { workspace.accessError = e.message; workspace.canCreateProject = false; if (teamTransportFailure(e) && !teamAccessRevoked(e)) projects.push(...profile.projects.filter(project => project.groupName === workspace.groupName)); }
     }
     if (this.profile !== profile || this.proof !== proof || !this.connected) throw new Error('刷新期间连接已改变');
     this.workspaces = workspaces; this.workspace = workspaces[0]; profile.projects = projects; profile.workPath = ''; profile.manifestPath = '';
@@ -331,6 +332,7 @@ export class LocalFileConnection {
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange) { return this.assignments().status(binding, input); }
   private content() { return new ContentFiles(this.root, async binding => { this.channel(binding); const { user, group } = await this.access(binding.project.remoteRoot); const project = await this.readProject(binding.project.remoteRoot); if (project?.id !== binding.project.id) throw new Error('项目身份已改变'); return { username: user.username, admin: !!user.contentAdminGroups?.includes(group.name), destination: { projectId: project.id, projectName: project.name, groupName: group.name, groupLabel: group.label || group.name } }; }); }
   contentList(binding: RemoteBinding) { return this.content().list(binding); }
+  async contentPublicationSupport(binding: RemoteBinding) { await this.content().list(binding); return { publicationUpdate: 1 }; }
   contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false) { return this.content().history(binding, id, revision, summary); }
   contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.content().merge(binding, change); }
   contentAdopt(binding: RemoteBinding, target: string) { return this.content().adopt(binding, target); }

@@ -50,7 +50,7 @@ export function ProjectDirectoryDialog(props: React.ComponentProps<typeof Projec
   return <div className="modal-backdrop"><section className="modal" role="dialog" aria-label="设置项目代码目录"><header><h2>设置项目代码目录</h2></header><ProjectDirectoryForm {...props} initial/></section></div>;
 }
 
-type ProjectMembers = { groupId: string; groupLabel: string; connected: boolean; call: (command: GroupCommand) => Promise<any>; changed: () => Promise<void> };
+type ProjectMembers = { accessKey?: string; groupId: string; groupLabel: string; connected: boolean; call: (command: GroupCommand) => Promise<any>; changed: () => Promise<void> };
 
 export function ProjectSettingsDialog({ project, admin, contextKey, directory, members, central, syncState, initialTab = 'project', close, directorySaved, briefSaved }: { project: Project; admin: boolean; contextKey: string; directory?: string; members?: ProjectMembers; central?: React.ReactNode; initialTab?: 'project' | 'central'; syncState?: NonNullable<Snapshot['projectSync']>[string]; close: () => void; directorySaved: () => Promise<void>; briefSaved: (revision: number) => Promise<void> }) {
   const [tab, setTab] = useState<'project' | 'members' | 'recommendations' | 'central'>(initialTab), [membersOpened, setMembersOpened] = useState(false), [recommendationsOpened, setRecommendationsOpened] = useState(false);
@@ -72,7 +72,7 @@ export function ProjectSettingsDialog({ project, admin, contextKey, directory, m
     <div className="project-settings-pane" id="project-settings-ai-panel" role="tabpanel" aria-labelledby="project-settings-ai-tab" hidden={tab !== 'recommendations'}>{recommendationsOpened && <RsiProjectSettings projectId={project.id}/>}</div>
     {members && <div className="project-settings-pane" id="project-settings-members-panel" role="tabpanel" aria-labelledby="project-settings-members-tab" hidden={tab !== 'members'}>
       <p className="project-members-scope">管理「{project.name}」的成员与角色。</p>
-      {members.connected ? membersOpened && <TeamGroupDialog embedded groupId={members.groupId} call={members.call} close={close} changed={members.changed}/> : <div className="modal-body"><p className="muted small">连接中央节点后，可查看和管理成员与权限。</p></div>}
+      {!members.connected && <p className="muted small">当前显示本地缓存；连接中央节点后更新成员与权限。</p>}{membersOpened && <TeamGroupDialog key={members.accessKey} embedded groupId={members.groupId} call={members.call} close={close} changed={members.changed}/>}
     </div>}
   </section></div>;
 }

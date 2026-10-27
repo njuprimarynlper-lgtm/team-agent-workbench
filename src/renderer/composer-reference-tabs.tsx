@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, X } from 'lucide-react';
 import type { AgentSession, FilePreview, SourceFile, WorkbenchAPI } from '../shared/types';
@@ -31,13 +32,7 @@ export function ComposerReferenceTabs({ session, api, controls, locked, removalL
   useEffect(() => { if (syncOpen) close(); }, [syncOpen]);
   useEffect(() => () => { request.current++; }, []);
   useEffect(() => { if (open && (open === 'all' ? !items.length : !selected)) close(); }, [open, !!selected, items.length]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) close(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); close(true); } };
-    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [open]);
+  usePopupDismiss(!!open, root, reason => close(reason === 'escape'));
   const show = (source: SourceFile, button: HTMLButtonElement) => {
     trigger.current = button; onOpen(); setOpen(source.id); setPreview(undefined); setError(''); setLoading(true);
     const sequence = ++request.current;

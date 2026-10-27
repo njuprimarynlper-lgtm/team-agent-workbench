@@ -145,7 +145,7 @@ test('disk storage enforces same-category merges, version races, author permissi
     const combined = await files.merge(binding, { ...merge, sources: [a, edited].map(item => ({ id: item.id, revision: item.revision })), replaceIds: [a.id, edited.id], category: 'capability' });
     assert.equal(combined.category, 'capability'); assert.equal((await files.list(binding)).length, 1); assert.equal(combined.derivedFrom!.length, 2);
     actor = { username: 'alice', admin: false };
-    await assert.rejects(files.edit(binding, { id: combined.id, revision: 1, action: 'save', title: 'bad', description: 'bad', curate: false, merge: [] }), /整理/);
+    await assert.rejects(files.edit(binding, { id: combined.id, revision: 1, action: 'save', title: 'bad', description: 'bad', curate: false, merge: [] }), /成员不能直接修改/);
     actor.admin = true; const todo = await publish('todo', 'todo');
     const duplicate = await publish('todo', 'duplicate');
     await assert.rejects(files.merge(binding, { sources: [todo, duplicate].map(item => ({ id: item.id, revision: 1 })), replaceIds: [], title: '合并待办', description: '同一事项' }), /独立事项/);

@@ -1,3 +1,7 @@
+import { teamAccessRevoked } from '../shared/team-cache';
+import { pruneTeamCache, refreshTeamCache } from './team-cache';
+import { conclusionPublicationOrigin, resolveConclusionPublication } from './conclusion-sharing';
+import type { ConclusionDeletePreview } from '../shared/conclusion-upload';
 import { workbenchRsi } from './rsi-workbench';
 import { ProjectSync } from './project-sync';
 import type { RsiEngine } from './rsi';
@@ -6,7 +10,7 @@ import { personalWorkspace, personalBinding, personalFamilyIds, PERSONAL_PROJECT
 import { Questions } from './questions';
 import { groupCommandSchema, type GroupCommand } from '../shared/team-groups';
 import { assertCursorSharedSessionAvailable } from '../shared/cursor-session-consistency';
-import { conclusionUploadState, uploadBlocked } from '../shared/conclusion-upload';
+import { conclusionUploadState, unfinishedConclusionUploads, uploadBlocked } from '../shared/conclusion-upload';
 import { buildPreparationContext, cachedPreparationBrief, personalContextResults, preparationContextLimit, type PreparationContext } from './preparation-context';
 import { submissionRecord } from '../shared/submission';
 import { assertTodoMerge, canonicalCategory, resultCategory, resultDefaultStatus, sameResultCategory, validateResultStatus, type ResultStatus } from '../shared/result-model';
@@ -173,7 +177,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'project.connection.open'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -320,11 +324,17 @@ export class Workbench {
     let projects;
     try { projects = await this.remote.loadManifest(); }
     catch (error: any) {
+      if (teamAccessRevoked(error) && this.remote.profile === profileBefore && profileBefore) {
+        this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profileBefore, this.remote.workspaces);
+        await pruneTeamCache(this);
+        await this.store.save(); this.broadcast();
+      }
       if (!this.remote.connected) throw new Error('无法刷新最新账号身份：' + error.message);
       throw error;
     }
     if (this.remote.profile !== profileBefore || this.configuring) throw new Error('账号已改变，请重新刷新项目');
     const profile = this.remote.profile!;
+    await pruneTeamCache(this);
     const accessible = new Set(this.connectableProjects().map(p => p.id));
     for (const id of this.connectedProjects) if (!accessible.has(id)) { this.connectedProjects.delete(id); this.accountSync.connectionChanged(); }
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
@@ -435,11 +445,26 @@ export class Workbench {
       if (expectedVersion !== undefined && conclusion.version !== expectedVersion) throw new Error('个人成果已更新，请刷新后重新确认提交');
       if (conclusion.archived) throw new Error('请先恢复这条个人成果再分享');
       const state = conclusionUploadState(conclusion, this.store.transfers);
+      const unfinished = unfinishedConclusionUploads(conclusion, this.store.transfers);
+      if (unfinished.some(transfer => transfer.status !== 'error')) throw new Error('这条成果的先前版本仍在上传，请等待完成后再分享当前版本');
+      if (unfinished.some(transfer => state.status !== 'error' || state.transferId !== transfer.id)) throw new Error('这条成果的旧版本上传尚未完成确认，请在传输列表重试原请求，确认后再分享当前版本；不会另建重复成果');
       if (uploadBlocked(state)) throw new Error(state.status === 'done' ? '这条成果的当前版本已上传' : '这条成果正在上传，请等待完成');
       if (state.status === 'error' && state.transferId) { await this.queue.retry(state.transferId); return this.store.transfers.find(task => task.id === state.transferId)!; }
       const allowed = conclusion.derivedFrom || [];
       if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
       const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
+      let publicationTarget: { id: string; revision: number } | undefined;
+      if (conclusionPublicationOrigin(conclusion)) {
+        const origin = resolveConclusionPublication(conclusion, binding.username, await this.remote.contentList(binding), await this.remote.contentHistory(binding));
+        if (origin?.status === 'missing') throw new Error('团队中的原成果已不存在；本次未新增成果，请先核对团队成果');
+        if (origin?.status === 'linked') {
+          if (origin.entry.kind !== 'contribution') throw new Error('原成果是共享文件，不能用本地文字替换；请由管理员维护原文件');
+          if (origin.entry.revision !== origin.revision) throw new Error('团队成果已有新版本，本次未覆盖；请查看团队最新版本后处理');
+          publicationTarget = { id: origin.id, revision: origin.revision };
+          try { if ((await this.remote.contentPublicationSupport(binding)).publicationUpdate !== 1) throw new Error('unsupported'); }
+          catch (error: any) { throw new Error('无法确认中央节点支持更新原成果，请检查连接或由管理员更新服务端功能：' + error.message); }
+        } else if (origin?.status === 'reference' && origin.entry?.author === binding.username) throw new Error('原团队成果已由管理员整理，不能从本地覆盖；请由管理员处理');
+      }
       const category = resultCategory(conclusion) || 'exploration';
       const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
       await fs.mkdir(path.dirname(local), { recursive: true });
@@ -450,7 +475,7 @@ export class Workbench {
         const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
         attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
       }
-      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { ...(publicationTarget ? { publicationTarget } : {}), kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
     } finally { this.publishingConclusions.delete(id); this.broadcast(); }
   }
   async archiveConclusion(id: string, archived: boolean) {
@@ -458,10 +483,31 @@ export class Workbench {
     if (!archived && conclusion.supersededBy) throw new Error('这条成果已被新成果替代，不能恢复到当前列表；可从历史查看或另建成果');
     conclusion.archived = archived || undefined; conclusion.updatedAt = new Date().toISOString(); await this.store.save(); this.broadcast(); return conclusion;
   }
+  async previewConclusionDeletion(selections: { id: string; version: number }[]): Promise<ConclusionDeletePreview[]> {
+    const selected = selections.map(selection => { const item = this.conclusion(selection.id); if (item.version !== selection.version) throw new Error('成果已更新，请重新确认删除'); return item; });
+    const projects = new Map<string, { current: SharedContent[]; history: SharedContent[]; username: string } | Error>();
+    const results: ConclusionDeletePreview[] = [];
+    for (const item of selected) {
+      if (!conclusionPublicationOrigin(item)) continue;
+      if (!projects.has(item.projectId)) {
+        try { const binding = this.projectBinding(item.projectId); projects.set(item.projectId, { current: await this.remote.contentList(binding), history: await this.remote.contentHistory(binding), username: binding.username }); }
+        catch (error: any) { projects.set(item.projectId, new Error(error.message)); }
+      }
+      const state = projects.get(item.projectId)!;
+      const base = { localId: item.id, projectId: item.projectId, title: conclusionTitle(item) };
+      if (state instanceof Error) { results.push({ ...base, status: 'error', message: '无法查询团队成果：' + state.message }); continue; }
+      try {
+        const origin = resolveConclusionPublication(item, state.username, state.current, state.history)!;
+        if (origin.status === 'linked' && origin.entry.revision !== origin.revision) results.push({ ...base, status: 'error', message: '团队成果已有新版本，请查看后再处理；本次不会同步删除' });
+        else results.push({ ...base, status: origin.status, ...('id' in origin ? { contentId: origin.id, revision: origin.revision } : {}), message: origin.status === 'missing' ? '团队中的原成果已不存在' : origin.status === 'reference' ? '这是他人或管理员维护的团队成果，只能删除本地副本' : undefined });
+      } catch (error: any) { results.push({ ...base, status: 'error', message: error.message }); }
+    }
+    return results;
+  }
   async deleteConclusion(id: string, version: number) {
     return this.deleteConclusions([{ id, version }]);
   }
-  async deleteConclusions(selections: { id: string; version: number }[]) {
+  async deleteConclusions(selections: { id: string; version: number }[], syncTeam = false, expectedPublications: ConclusionDeletePreview[] = []) {
     return this.edit('conclusion-delete', async () => {
       const conclusions = selections.map(selection => {
         const conclusion = this.store.conclusions.find(item => item.id === selection.id && !item.deletedAt);
@@ -469,6 +515,20 @@ export class Workbench {
         if (conclusion.version !== selection.version) throw new Error('结论已更新，请重新查看后再确认删除');
         return conclusion;
       });
+      if (conclusions.some(item => this.publishingConclusions.has(item.id) || unfinishedConclusionUploads(item, this.store.transfers).some(transfer => transfer.status !== 'error' || transfer.phase !== 'rejected'))) throw new Error('请等待成果上传完成，或在传输列表重试并确认原上传结果后再删除');
+      const team = syncTeam ? await this.previewConclusionDeletion(selections) : [];
+      if (syncTeam) {
+        if (team.some(item => item.status === 'error')) throw new Error(team.filter(item => item.status === 'error').map(item => item.message).join('；'));
+        const linked = team.filter(item => item.status === 'linked');
+        if (linked.some(item => !expectedPublications.some(expected => expected.localId === item.localId && expected.projectId === item.projectId && expected.contentId === item.contentId && expected.revision === item.revision))) throw new Error('团队关联发生变化，请重新确认同步删除');
+        const deleted = new Set<string>();
+        for (const item of linked) {
+          const key = item.projectId + ':' + item.contentId;
+          if (deleted.has(key)) continue;
+          try { await this.editSharedContent(item.projectId, { id: item.contentId!, revision: item.revision!, action: 'delete', fromPersonal: true, curate: false, merge: [] }, true); deleted.add(key); }
+          catch (error: any) { throw new Error('同步删除未完成，本地成果仍保留。' + (deleted.size ? `已有 ${deleted.size} 条团队成果删除成功。` : '') + error.message); }
+        }
+      }
       const before = conclusions.map(value => ({ value, snapshot: structuredClone(value) }));
       const events = (this.store.settings.contentUpdates || []).filter(event => conclusions.some(conclusion => conclusion.projectId === event.projectId && conclusion.sources.some(source => source.kind === 'remote' && source.id === event.id))).map(value => ({ value, snapshot: structuredClone(value) }));
       const now = new Date().toISOString();
@@ -482,7 +542,7 @@ export class Workbench {
         for (const { value, snapshot, applied } of changed) if (JSON.stringify(value) === applied) { for (const key of Object.keys(value)) delete (value as any)[key]; Object.assign(value, snapshot); }
         throw error;
       }
-      this.broadcast();
+      this.broadcast(); return { missing: team.filter(item => item.status === 'missing').map(item => item.title) };
     }, false);
   }
   private conclusion(id: string) {
@@ -683,8 +743,11 @@ export class Workbench {
   private contentSeenState(item: SharedContent): ContentSeenState {
     return { files: item.files, missingFiles: missingContentFiles(item), submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
   }
-  async editSharedContent(projectId: string, change: ContentEdit) {
-    const binding = this.projectBinding(projectId), before = await this.remote.contentList(binding);
+  async editSharedContent(projectId: string, change: ContentEdit, personalDeletion = false) {
+    const binding = this.projectBinding(projectId);
+    const admin = !!this.remote.workspaces.find(group => group.groupName === binding.project.groupName)?.canCreateProject;
+    if (!admin && !(personalDeletion && change.action === 'delete')) throw new Error('成员不能直接修改团队成果，请在个人成果库修改后分享或同步删除');
+    const before = await this.remote.contentList(binding);
     let target = before.find(item => item.id === change.id), historic = false;
     if (target && target.revision !== change.revision) target = undefined;
     if (!target && change.action === 'delete') {
@@ -792,7 +855,7 @@ export class Workbench {
       if (workspace?.accessError) continue;
       try {
         const binding = this.remote.binding(project.id);
-        const items = await this.remote.contentList(binding);
+        const items = await refreshTeamCache(this, { action: 'content.list', projectId: project.id }, () => this.remote.contentList(binding));
         let history: SharedContent[] = [], completeHistory = true;
         try { history = await this.remote.contentHistory(binding, undefined, undefined, true); }
         catch (error: any) { if (!/不支持的内容操作/.test(error.message || '')) throw error; completeHistory = false; }

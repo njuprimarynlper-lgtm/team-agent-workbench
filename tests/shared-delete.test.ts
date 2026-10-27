@@ -40,7 +40,11 @@ test('bulk shared deletion respects roles and revisions, creates removal activit
     assert.equal((await x.list()).length, 3, 'a forbidden entry rejects the whole selection before any write');
     await assert.rejects(x.alice.deleteSharedContents(x.project.id, [{ id: a.id, revision: 2 }, { id: b.id, revision: 1 }]), /未删除任何内容/);
     await assert.rejects(x.alice.deleteSharedContents(x.project.id, [{ id: randomUUID(), revision: 1 }]), /不属于此项目/);
-    const member = await x.bob.deleteSharedContents(x.project.id, selection([b])); assert.deepEqual(member.deletedIds, [b.id]);
+    const ownLocal = (await x.bob.importContentConclusion(x.project.id, b.id)).conclusion;
+    const ownSelection = [{ id: ownLocal.id, version: ownLocal.version }];
+    const ownPreview = await x.bob.previewConclusionDeletion(ownSelection);
+    await x.bob.deleteConclusions(ownSelection, true, ownPreview);
+    assert(!(await x.list()).some(item => item.id === b.id));
     const result = await x.alice.deleteSharedContents(x.project.id, selection([a])); assert.deepEqual(result, { deletedIds: [a.id], remaining: [] });
     assert.deepEqual((await x.list()).map(item => item.id), [keep.id]);
     const updates = await x.bob.syncContentUpdates(); assert(updates.some(event => event.id === a.id && event.change === 'deleted'));
@@ -123,7 +127,7 @@ test('duplicate bulk requests are blocked and role revocation is rechecked by th
       return edit(binding, change);
     };
     const result = await x.alice.deleteSharedContents(x.project.id, selection([revoked]));
-    assert.deepEqual(result.deletedIds, []); assert.deepEqual(result.remaining, selection([revoked])); assert.match(result.error!, /只能修改自己/);
+    assert.deepEqual(result.deletedIds, []); assert.deepEqual(result.remaining, selection([revoked])); assert.match(result.error!, /成员不能直接修改/);
     assert((await x.list()).some(item => item.id === revoked.id));
   } finally { await x.close(); }
 });

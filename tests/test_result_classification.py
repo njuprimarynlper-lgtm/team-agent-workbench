@@ -12,21 +12,26 @@ class ResultClassification(unittest.TestCase):
     def publish(self, category, name):
         return self.call('bob', op='publish', target=f'/projects/relation/实体抽取/submissions/bob/{content.CONTRIBUTION_FOLDERS[category]}/{name}.zip', sha256=content.digest(self.incoming), metadata=dict(title=name, description=name + '正文', kind='contribution', category=category))
 
+    def republish(self, item, category, **changes):
+        return self.call('bob', op='publish', target=f'/projects/relation/实体抽取/submissions/bob/{content.CONTRIBUTION_FOLDERS[category]}/{uuid.uuid4()}.md', sha256=content.digest(self.incoming), metadata=dict(title=item['title'], description=item['description'], kind='contribution', category=category, publicationTarget=dict(id=item['id'], revision=item['revision']), **changes))
+
     def test_reclassification_keeps_identity_content_and_historical_category(self):
         item = self.publish('exploration', '探索')
-        updated = self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], category='todo'))
+        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
+            self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], category='todo'))
+        updated = self.republish(item, 'todo')
         self.assertEqual(updated['id'], item['id'])
         self.assertEqual(updated['description'], item['description'])
         self.assertEqual(updated['resultStatus'], 'pending')
         self.assertIn('/todos/', updated['path'])
         history = self.call('bob', op='content_history', id=item['id'])
         self.assertEqual(history[0]['category'], 'exploration')
-        completed = self.call('bob', op='edit_content', change=dict(id=item['id'], revision=2, action='save', title=item['title'], description=item['description'], resultStatus='completed'))
+        completed = self.republish(updated, 'todo', resultStatus='completed')
         self.assertEqual(completed['resultStatus'], 'completed')
         current = content.read_json(self.directory / '.workbench-content.json')
         self.assertEqual(len(current), 1)
         with self.assertRaises(ValueError):
-            self.call('bob', op='edit_content', change=dict(id=item['id'], revision=2, action='save', title='过时修改', description='正文', resultStatus='pending'))
+            self.republish(updated, 'todo', resultStatus='pending')
 
     def test_worker_refuses_cross_category_merge_and_stale_sources_before_any_write(self):
         a, b = self.publish('capability', '能力'), self.publish('exploration', '探索')
@@ -83,8 +88,10 @@ class ResultClassification(unittest.TestCase):
         item = self.publish('project_material', '协作文档')
         self.assertIn('/project-materials/', item['path'])
         self.assertIsNone(item.get('resultStatus'))
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
             self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], resultStatus='confirmed'))
+        with self.assertRaises(ValueError):
+            self.republish(item, 'project_material', resultStatus='confirmed')
         goal = self.publish('project_goal', '提升召回')
         self.assertEqual(goal['resultStatus'], 'pending')
         self.assertIn('/project-goals/', goal['path'])

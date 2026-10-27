@@ -23,6 +23,7 @@ import { Workbench } from '../core/workbench';
 import { CodexDesktopService } from '../core/codex-desktop-service';
 import { mcpServerInputSchema } from '../core/codex-mcp';
 import { SharedFiles } from '../core/shared-files';
+import { readTeamCache, refreshTeamCache } from '../core/team-cache';
 import { atomicJson } from '../core/store';
 import { AccountWorkspacePool, migrateAccountWorkspace } from '../core/account-workspaces';
 import { accountIdentity } from '../shared/account-data';
@@ -79,7 +80,7 @@ function actionContext(action: string, raw: any, owner: BrowserWindow, preferPer
   const team = contexts.get(owner)!;
   preferPersonal ||= personalWindows.has(owner);
   if (personalContext && !['project.link', 'project.create', 'project.initialize', 'local.move'].includes(action) && raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
-  if (!personalContext || action === 'snapshot' || action === 'workspace.select' || action === 'layout.sidebar' || action.startsWith('account.') || action === 'local.move' || /^(remote\.|group\.|project\.|assignment\.|question\.|rsi\.|content\.)/.test(action)) return team;
+  if (!personalContext || action === 'snapshot' || action === 'workspace.select' || action === 'layout.sidebar' || action.startsWith('account.') || action === 'local.move' || /^(remote\.|group\.|project\.|assignment\.|question\.|rsi\.|content\.|team\.|directions\.)/.test(action)) return team;
   if (action.startsWith('local.')) return personalContext;
   if (raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
   if (Array.isArray(raw?.ids)) { const localIds = new Set([...personalContext.workbench.store.sessions, ...personalContext.workbench.store.drafts].map(item => item.id)); if (raw.ids.some((id: string) => localIds.has(id)) && !raw.ids.every((id: string) => localIds.has(id))) throw new Error('请分别处理未分项目和团队项目中的记录'); if (raw.ids.every((id: string) => localIds.has(id))) return personalContext; }
@@ -123,7 +124,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
   const { workbench, egress, broadcast, notice } = context;
   if (context === personalContext && active) await alignPersonalRelay(active, action, raw);
   if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(action)) workbench.assertAccountReady();
-  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
+  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'workspace.select': {
@@ -197,7 +198,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'account.sync': await workbench.accountSync.sync(); return workbench.accountSync.state;
     case 'account.sync.resolve': { const p = z.object({ key: z.string(), token: z.string(), choice: z.enum(['local', 'remote', 'merged', 'both']), fields: z.array(z.object({ path: z.array(z.string()).max(20), text: text })).max(100).optional() }).parse(raw); await workbench.accountSync.resolve(p.key, p.choice, p.token, p.fields); return workbench.accountSync.state; }
     case 'account.sync.undo': { await workbench.accountSync.undo(z.object({ id: z.string().uuid() }).parse(raw).id); return workbench.accountSync.state; }
-    case 'directions.list': return workbench.listDirections();
+    case 'directions.list': return refreshTeamCache(workbench, { action }, () => workbench.listDirections());
     case 'directions.save': return workbench.saveDirections(z.object({ directions: z.unknown() }).parse(raw).directions);
     case 'workspace.research': return workbench.researchWorkspace();
     case 'project.directory.save': { const p = z.object({ projectId: z.string().min(1), directory: z.string().max(32768), contextKey: z.string().max(4096) }).parse(raw); return workbench.saveProjectDirectory(p.projectId, p.directory, p.contextKey); }
@@ -258,7 +259,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'project.initialize': { const p = z.object({ name: z.string().min(1).max(180), groupName: z.string().min(1).max(80), contextKey: z.string().max(4096), brief: projectBriefSchema }).parse(raw); return workbench.initializeProject(p.name, p.groupName, p.brief, p.contextKey); }
     case 'remote.password': { const p = z.object({ oldPassword: z.string().min(1).max(4096), newPassword: newAccountPasswordSchema }).parse(raw); return workbench.remote.changePassword(p.oldPassword, p.newPassword); }
     case 'remote.disconnect': if (personalRelay === active && personalContext?.workbench.store.sessions.some(session => session.networkRoute === 'management' && (['starting', 'running', 'approval'].includes(session.status) || (personalContext?.workbench.activity.busy || personalContext?.workbench.rsi.busy)))) throw new Error('请先结束使用中央中转的本机会话，再断开连接'); workbench.remote.disconnect(); broadcastConnections(); return true;
-    case 'group.control': return workbench.groupCommand(raw as any);
+    case 'team.cache.read': return readTeamCache(workbench, raw);
+    case 'group.control': { const command = raw as any; return ['details', 'directory'].includes(command?.action) ? refreshTeamCache(workbench, { ...command, action: 'group.' + command.action }, () => workbench.groupCommand(command)) : workbench.groupCommand(command); }
     case 'remote.manifest': return workbench.refreshGroups();
     case 'remote.list': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.list(workbench.remote.binding(p.projectId), p.path); }
     case 'remote.preview': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.preview(workbench.remote.binding(p.projectId), p.path); }
@@ -310,8 +312,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'project.brief.save': { const p = z.object({ projectId: z.string(), brief: projectBriefSchema, revision: z.number().int().nonnegative() }).parse(raw); workbench.assertCanWork(workbench.projectBinding(p.projectId)); return workbench.projectSync.save(p.projectId, p.brief, p.revision); }
     case 'project.sync.undo': { const p = z.object({ projectId: z.string(), id: z.string().uuid() }).parse(raw); return workbench.projectSync.undo(p.projectId, p.id); }
     case 'project.sync.resolve': { const p = z.object({ projectId: z.string(), token: z.string(), choice: z.enum(['local', 'remote', 'merged']), fields: z.array(z.object({ path: z.array(z.string()), text })).optional() }).parse(raw); return workbench.projectSync.resolve(p.projectId, p.token, p.choice, p.fields); }
-    case 'content.list': return workbench.remote.contentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
-    case 'content.history': { const p = z.object({ projectId: z.string(), id: z.string().uuid().optional(), revision: z.number().int().positive().optional() }).parse(raw); return workbench.remote.contentHistory(workbench.remote.binding(p.projectId), p.id, p.revision); }
+    case 'content.list': { const p = z.object({ projectId: z.string() }).parse(raw); return refreshTeamCache(workbench, { action, ...p }, () => workbench.remote.contentList(workbench.remote.binding(p.projectId))); }
+    case 'content.history': { const p = z.object({ projectId: z.string(), id: z.string().uuid().optional(), revision: z.number().int().positive().optional() }).parse(raw); return p.id ? workbench.remote.contentHistory(workbench.remote.binding(p.projectId), p.id, p.revision) : refreshTeamCache(workbench, { action, projectId: p.projectId }, () => workbench.remote.contentHistory(workbench.remote.binding(p.projectId))); }
     case 'conclusion.publish': { const p = z.object({ id: z.string().uuid(), version: z.number().int().positive().optional(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose, p.version); }
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'rsi.settings': { const p = z.object({ projectId: text }).parse(raw); const view = await workbench.rsi.view(p.projectId); return { config: view.config, sourceSession: view.sourceSession, cwd: workbench.store.root }; }
@@ -338,7 +340,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'content.updates.clear': return workbench.clearReadContentUpdates();
     case 'content.updates.dismiss': return workbench.dismissContentUpdates(z.object({ eventIds: z.array(z.string()) }).parse(raw).eventIds);
     case 'conclusion.list': { const p = z.object({ projectId: z.string(), includeArchived: z.boolean().optional() }).parse(raw); return workbench.conclusions(p.projectId, p.includeArchived).map(item => ({ ...item, uploadState: workbench.conclusionUploadState(item.id) })); }
-    case 'question.members': return workbench.questions.members(z.object({ projectId: z.string() }).parse(raw).projectId);
+    case 'question.members': { const p = z.object({ projectId: z.string() }).parse(raw); return refreshTeamCache(workbench, { action, ...p }, () => workbench.questions.members(p.projectId)); }
     case 'question.sync': return workbench.questions.sync();
     case 'question.create': { const p = z.object({ sessionId: id, question: z.unknown() }).parse(raw); return workbench.questions.create(p.sessionId, p.question); }
     case 'question.close': { const p = z.object({ projectId: z.string(), id }).parse(raw); return workbench.questions.closeQuestion(p.projectId, p.id); }
@@ -363,8 +365,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'question.auto': { const p = z.object({ projectId: z.string(), id, sessionId: id, peer: z.string().trim().min(1).max(160) }).parse(raw); return workbench.questions.startAuto(p.projectId, p.id, p.peer, p.sessionId); }
     case 'question.auto.stop': { const p = z.object({ projectId: z.string(), id, peer: z.string().trim().min(1).max(160) }).parse(raw); return workbench.questions.stopAuto(p.projectId, p.id, p.peer); }
     case 'question.fill': { const p = z.object({ projectId: z.string(), id, peer: z.string().trim().min(1).max(160) }).parse(raw); return workbench.questions.fillDraft(p.projectId, p.id, p.peer); }
-    case 'assignment.list': return workbench.remote.assignmentList(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
-    case 'assignment.members': return workbench.remote.assignmentMembers(workbench.remote.binding(z.object({ projectId: z.string() }).parse(raw).projectId));
+    case 'assignment.list': { const p = z.object({ projectId: z.string() }).parse(raw); return refreshTeamCache(workbench, { action, ...p }, () => workbench.remote.assignmentList(workbench.remote.binding(p.projectId))); }
+    case 'assignment.members': { const p = z.object({ projectId: z.string() }).parse(raw); return refreshTeamCache(workbench, { action, ...p }, () => workbench.remote.assignmentMembers(workbench.remote.binding(p.projectId))); }
     case 'assignment.create': { const p = z.object({ projectId: z.string(), task: assignmentCreateSchema }).parse(raw); return workbench.createAssignment(p.projectId, p.task); }
     case 'assignment.files.pick': { const p = z.object({ projectId: z.string(), taskId: id, selectionId: id.optional() }).parse(raw); return workbench.selectAssignmentFiles(p.projectId, p.taskId, await chooseFiles(owner), p.selectionId); }
     case 'assignment.file.download': {
@@ -395,7 +397,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'content.deletion.resolve': { const p = z.object({ eventId: z.string(), selections: z.array(z.object({ id, version: z.number().int().positive() })).max(1000) }).parse(raw); return workbench.resolveContentDeletion(p.eventId, p.selections); }
     case 'conclusion.archive': { const p = z.object({ id, archived: z.boolean() }).parse(raw); return workbench.archiveConclusion(p.id, p.archived); }
     case 'conclusion.delete': { const p = z.object({ id, version: z.number().int().positive() }).parse(raw); return workbench.deleteConclusion(p.id, p.version); }
-    case 'conclusion.deleteMany': return workbench.deleteConclusions(z.object({ selections: z.array(z.object({ id, version: z.number().int().positive() })).min(1).max(1000) }).parse(raw).selections);
+    case 'conclusion.deletePreview': return workbench.previewConclusionDeletion(z.object({ selections: z.array(z.object({ id, version: z.number().int().positive() })).min(1).max(1000) }).parse(raw).selections);
+    case 'conclusion.deleteMany': { const p = z.object({ selections: z.array(z.object({ id, version: z.number().int().positive() })).min(1).max(1000), syncTeam: z.boolean().default(false), publications: z.array(z.object({ localId: id, projectId: z.string(), title: z.string().default(''), status: z.enum(['linked', 'missing', 'reference', 'error']), contentId: id.optional(), revision: z.number().int().positive().optional() })).max(1000).default([]) }).parse(raw); return workbench.deleteConclusions(p.selections, p.syncTeam, p.publications); }
     case 'content.updates.delete': return workbench.deleteContentUpdates(z.object({ eventIds: z.array(z.string()).min(1).max(10000) }).parse(raw).eventIds);
     case 'conclusion.import': { const p = z.object({ projectId: z.string(), contentId: id, expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.importContentConclusion(p.projectId, p.contentId, p.expectedRevision); }
     case 'conclusion.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(id).min(1).max(20), instruction: z.string().max(8000).default('') }).parse(raw); return workbench.prepareConclusionMerge(p.projectId, p.sessionId, p.sourceIds, p.instruction); }
@@ -411,6 +414,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'content.reap': { const p = z.object({ projectId: z.string() }).parse(raw); return workbench.reapProjectFiles(p.projectId); }
     case 'content.replace': {
       const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw), binding = workbench.remote.binding(p.projectId);
+      if (!workbench.remote.workspaces.find(group => group.groupName === binding.project.groupName)?.canCreateProject) throw new Error('成员不能直接修改团队成果，请在个人成果库修改后分享');
       const file = (await dialog.showOpenDialog(owner, { title: '选择替换文件（保存为新修订）', properties: ['openFile'] })).filePaths[0];
       if (!file) return false;
       const snapshot = await freezeFile(file, path.join(workbench.store.root, 'uploads', 'replacements'));

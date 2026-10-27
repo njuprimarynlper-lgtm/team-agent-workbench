@@ -1,3 +1,4 @@
+import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Plus, RefreshCw, Search, X } from 'lucide-react';
 import type { AgentCapabilityCatalog, AgentCapabilityOption, AgentCapabilitySelection, AgentSession } from '../shared/types';
@@ -93,13 +94,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
     textarea.addEventListener('keydown', key, true); textarea.addEventListener('select', syncTrigger); textarea.addEventListener('click', syncTrigger);
     return () => { textarea.removeEventListener('keydown', key, true); textarea.removeEventListener('select', syncTrigger); textarea.removeEventListener('click', syncTrigger); };
   });
-  useEffect(() => {
-    if (!menu) return;
-    const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node) && (event.target !== input() || !trigger)) close(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { close(); plus.current?.focus(); } };
-    document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape);
-    return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape); };
-  }, [menu, trigger]);
+  usePopupDismiss(!!menu, root, reason => { close(); if (reason === 'escape') (trigger ? input() : plus.current)?.focus(); }, { inside: () => trigger ? [input()] : [] });
   useEffect(() => { if (active >= count) setActive(0); }, [count, active]);
   useEffect(() => { root.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [active, count, menu]);
   return <div className="composer-capabilities composer-codex-tools" ref={root}>

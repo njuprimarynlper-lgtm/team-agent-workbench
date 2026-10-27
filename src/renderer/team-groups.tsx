@@ -1,3 +1,4 @@
+import { cachedTeamRead } from './team-cache';
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { groupRoleLabels, type GroupCommand, type TeamGroup } from '../shared/team-groups';
@@ -9,15 +10,29 @@ const sizeLabel = (bytes:number) => bytes < 1024 ? bytes+' B' : bytes < 1024**2 
 export function TeamGroupDialog({ groupId, system=false, embedded=false, accounts=[], call, close, changed }: Props) {
   const [group,setGroup] = useState<TeamGroup>(), [directory,setDirectory] = useState<Directory>(accounts);
   const [label,setLabel] = useState(''), [selected,setSelected] = useState(''), [newRole,setNewRole] = useState<'manager'|'member'>('member'), [successor,setSuccessor] = useState('');
-  const [busy,setBusy] = useState(false), [error,setError] = useState(''), [pending,setPending] = useState<GroupCommand>();
+  const [mutating,setBusy] = useState(false), [error,setError] = useState(''), [pending,setPending] = useState<GroupCommand>();
+  const [loading,setLoading] = useState(false); const loadSequence = useRef(0);
+  const busy = mutating || loading && !group;
   const canManage = system || group?.role==='creator';
   const canEdit = canManage && !group?.deletedAt && !group?.provisioning;
   const load = async () => {
     if (!groupId) return;
-    const value:TeamGroup = await call({action:'details',group:groupId}); setGroup(value);
-    if ((system || value.role==='creator') && !value.deletedAt && !value.provisioning) setDirectory(await call({action:'directory',group:groupId}));
+    const sequence = ++loadSequence.current; setLoading(true);
+    const current = () => sequence === loadSequence.current;
+    const apply = (value?: TeamGroup) => { if (current()) { setGroup(value); if (!system && value?.role !== 'creator') setDirectory([]); } };
+    try {
+      const value:TeamGroup = system ? await call({action:'details',group:groupId}) : await cachedTeamRead<TeamGroup>(window.workbench, {action:'group.details',group:groupId}, apply, () => call({action:'details',group:groupId}));
+      if (!current()) return; apply(value);
+      if ((system || value.role==='creator') && !value.deletedAt && !value.provisioning) {
+        const applyDirectory = (entries?: Directory) => { if (current()) setDirectory(entries || []); };
+        if (system) applyDirectory(await call({action:'directory',group:groupId}));
+        else await cachedTeamRead<Directory>(window.workbench, {action:'group.directory',group:groupId}, applyDirectory, () => call({action:'directory',group:groupId}));
+      }
+      if (current()) setError('');
+    } catch (error:any) { if (current()) setError(error.message); }
+    finally { if (current()) setLoading(false); }
   };
-  useEffect(()=>{ let active=true; setBusy(true); void load().catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setBusy(false);}); return()=>{active=false;}; },[groupId]);
+  useEffect(()=>{ setGroup(undefined); setDirectory(accounts); void load(); return()=>{loadSequence.current++;}; },[groupId]);
   const execute = async (command:GroupCommand) => {
     setBusy(true); setError('');
     try {
@@ -27,11 +42,12 @@ export function TeamGroupDialog({ groupId, system=false, embedded=false, account
     } catch(e:any) { setError(e.message); } finally { setBusy(false); }
   };
   const available = directory.filter(user=>!group?.members.some(member=>member.username===user.username));
-  const refresh = async()=>{setBusy(true);setError('');setPending(undefined);try{await load();}catch(e:any){setError(e.message);}finally{setBusy(false);}};
+  const refresh = async()=>{if(loading)return;setError('');setPending(undefined);await load();};
   const transferOptions = system ? directory : group?.members.filter(user=>user.enabled).map(user=>({username:user.username,name:user.name})) || [];
   const panel = <section className={embedded ? 'project-members-panel team-group-dialog' : 'modal wide team-group-dialog'} role={embedded ? undefined : 'dialog'} aria-modal={embedded ? undefined : true} aria-label={groupId?(system?'项目管理':'成员与权限'):'创建项目'}>
-    <header><h2>{groupId ? `${embedded ? '成员与权限' : system ? '项目管理' : '成员与权限'}${group ? ' · ' + group.label : ''}` : '创建项目'}{group?.deletedAt && <span className="badge">已删除</span>}</h2><span className="spacer"/>{groupId && <button className="secondary compact" disabled={busy} onClick={()=>void refresh()}>刷新项目信息</button>}{!embedded && <button className="icon" aria-label="关闭项目窗口" disabled={busy} onClick={close}><X size={19}/></button>}</header>
+    <header><h2>{groupId ? `${embedded ? '成员与权限' : system ? '项目管理' : '成员与权限'}${group ? ' · ' + group.label : ''}` : '创建项目'}{group?.deletedAt && <span className="badge">已删除</span>}</h2><span className="spacer"/>{groupId && <button className="secondary compact" disabled={busy} onClick={()=>void refresh()}>刷新项目信息</button>}{!embedded && <button className="icon" aria-label="关闭项目窗口" disabled={mutating} onClick={close}><X size={19}/></button>}</header>
     <div className="modal-body">
+      {loading && group && <p className="muted small" role="status">正在更新成员信息，当前名单可继续查看。</p>}
       {error && <div className="inline-error" role="alert">{error}</div>}
       {!groupId ? <>
         <label className="field">项目名称<input autoFocus aria-label="项目名称" value={label} maxLength={24} disabled={busy} onChange={event=>setLabel(event.target.value)}/></label>
@@ -51,7 +67,7 @@ export function TeamGroupDialog({ groupId, system=false, embedded=false, account
         </section>}
       </> : <p className="muted">{busy?'正在读取项目…':'暂无法读取，请重试。'}</p>}
     </div>
-    <footer>{group && canManage && !pending && <>{group.provisioning ? system && <button className="primary" disabled={busy} onClick={()=>void execute({action:'resume',group:group.id,revision:group.revision})}>继续创建项目</button> : group.deletedAt ? system && <><button className="secondary" disabled={busy || !!group.purgeStartedAt} onClick={()=>void execute({action:'restore',group:group.id,revision:group.revision})}>恢复项目</button><button className="secondary danger" disabled={busy} onClick={()=>setPending({action:'purge',group:group.id,revision:group.revision})}>彻底清理</button></> : <button className="secondary danger" disabled={busy} onClick={()=>setPending({action:'delete',group:group.id,revision:group.revision})}>删除项目</button>}</>}<span className="spacer"/><button className="secondary" disabled={busy} onClick={close}>关闭</button>{!groupId && <button className="primary" disabled={busy || !label.trim() || system && !selected} onClick={()=>void execute({action:'create',label,...(system?{creator:selected}:{})})}>{busy?'正在创建…':'创建项目'}</button>}</footer>
+    <footer>{group && canManage && !pending && <>{group.provisioning ? system && <button className="primary" disabled={busy} onClick={()=>void execute({action:'resume',group:group.id,revision:group.revision})}>继续创建项目</button> : group.deletedAt ? system && <><button className="secondary" disabled={busy || !!group.purgeStartedAt} onClick={()=>void execute({action:'restore',group:group.id,revision:group.revision})}>恢复项目</button><button className="secondary danger" disabled={busy} onClick={()=>setPending({action:'purge',group:group.id,revision:group.revision})}>彻底清理</button></> : <button className="secondary danger" disabled={busy} onClick={()=>setPending({action:'delete',group:group.id,revision:group.revision})}>删除项目</button>}</>}<span className="spacer"/><button className="secondary" disabled={mutating} onClick={close}>关闭</button>{!groupId && <button className="primary" disabled={busy || !label.trim() || system && !selected} onClick={()=>void execute({action:'create',label,...(system?{creator:selected}:{})})}>{busy?'正在创建…':'创建项目'}</button>}</footer>
   </section>;
   return embedded ? panel : <div className="modal-backdrop">{panel}</div>;
 }
@@ -65,7 +81,7 @@ export function AdminGroupOverview({ accounts, enabled, changed }: {accounts:Dir
   return <section className="admin-group-overview"><div className="row"><h2>项目管理</h2><span className="spacer"/><button className="secondary" disabled={!enabled||busy} onClick={()=>void refresh()}>刷新项目</button><button className="primary" disabled={!enabled||!accounts.length||busy} onClick={()=>setCreating(true)}>创建项目</button></div>
     <p className="group-permissions-note">查看各项目成员与角色，调整创建者，删除或恢复项目。</p>
     <div className="row group-view-tabs"><button className={!trash?'secondary':'text-button'} onClick={()=>setTrash(false)}>当前项目</button><button className={trash?'secondary':'text-button'} onClick={()=>setTrash(true)}>项目回收站</button></div>{error && <div className="inline-error" role="alert">{error}</div>}
-    <table className="group-members-table"><thead><tr><th>项目</th><th>创建者</th><th>成员</th><th>占用空间</th><th>操作</th></tr></thead><tbody>{groups.filter(group=>!!group.deletedAt===trash).map(group=><tr key={group.id}><td>{group.label}{group.provisioning && <small>创建未完成</small>}</td><td>{group.creator||'待指定'}</td><td>{group.members.length}</td><td>{sizeLabel(group.bytes)}</td><td><button className="secondary compact" aria-label={`管理项目：${group.label}`} disabled={busy} onClick={()=>setSelected(group.id)}>管理</button></td></tr>)}</tbody></table>
+    <table className="group-members-table"><thead><tr><th>项目</th><th>创建者</th><th>成员</th><th>占用空间</th><th>操作</th></tr></thead><tbody>{groups.filter(group=>!!group.deletedAt===trash).map(group=><tr key={group.id}><td>{group.label}{group.provisioning && <small>创建未完成</small>}</td><td>{group.creator||'待指定'}</td><td>{group.members.length}</td><td>{sizeLabel(group.bytes)}</td><td><button className="secondary compact" aria-label={`管理项目：${group.label}`} onClick={()=>setSelected(group.id)}>管理</button></td></tr>)}</tbody></table>
     {!groups.filter(group=>!!group.deletedAt===trash).length && <p className="muted">{busy?'正在读取…':trash?'回收站为空':'暂无项目'}</p>}
     {(creating||selected) && <TeamGroupDialog key={selected||'create'} system groupId={selected} accounts={accounts} call={call} close={()=>{setCreating(false);setSelected(undefined);}} changed={async()=>{await changed();await refresh();}}/>}
   </section>;
