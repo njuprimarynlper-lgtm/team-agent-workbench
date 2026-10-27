@@ -120,6 +120,7 @@ import { contentAliasKey, titleSubject } from '../shared/content';
 import { clampComposerHeight, COMPOSER_HEIGHT_STEP, composerHeightAfterDrag, DEFAULT_COMPOSER_HEIGHT, maxComposerHeight, MIN_COMPOSER_HEIGHT } from './composer-resize';
 import './conversation-typography.css';
 import './desktop-interactions.css';
+import './sidebar-projects.css';
 import { useConversationScroll } from './conversation-scroll';
 document.title = clientWindowTitle('用户版');
 let personalSelected = true;

@@ -1,0 +1,43 @@
+/* Shared by the real sidebar and its isolated rendering fixture. */
+.sidebar .workgroup-list{padding:0 9px}
+.sidebar .project-card,.sidebar .personal-section{min-width:0;margin:0 0 3px;padding:0;border:0;border-radius:6px;background:transparent}
+.sidebar .workgroup-project-item,.sidebar .workgroup-project-item.is-selected{margin:0;background:transparent}
+.sidebar .workgroup-project-row{height:32px;padding:0 3px 0 0;gap:2px;border-radius:6px}
+.sidebar .workgroup-project-row:hover,.sidebar .workgroup-project-item.is-selected .workgroup-project-row{background:#eaf2ed}
+.sidebar .workgroup-project-item .workgroup-project{height:32px;min-height:0;padding:0 6px;gap:7px;color:#3e5948}
+.sidebar .workgroup-project>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar .workgroup-project-row>.badge{flex:none;padding:1px 4px;font-size:9px;line-height:16px;white-space:nowrap;color:#708276;background:#edf3ef}
+.sidebar .project-settings-action{width:25px;height:25px;margin:0;padding:0;opacity:0}
+.sidebar .workgroup-project-row:hover .project-settings-action,.sidebar .workgroup-project-row:focus-within .project-settings-action,.sidebar .is-selected .project-settings-action{opacity:1}
+.sidebar .project-settings-action:focus-visible{outline:2px solid #287554;outline-offset:-2px}
+.sidebar .project-settings-action:has(.inline-error){opacity:1}
+.sidebar .workgroup-project-details{display:flex;align-items:flex-start;gap:8px;min-width:0;margin:3px 3px 6px 13px;padding:0 3px 0 7px;border-left:1px solid #dfe6e1}
+.sidebar .project-connection-entry{flex:0 1 auto;width:auto;min-width:0;height:27px;margin:0;padding:0 3px;gap:5px;color:#6e8074;font-size:11px}
+.sidebar .project-connection-dot{width:5px;height:5px;flex:none;border:1px solid #97a69b;border-radius:50%}
+.sidebar .project-connection-dot.is-connected{border-color:#287554;background:#287554}
+.sidebar .project-connection-state{min-width:0;margin:0;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar .project-ai-control{flex:1;min-width:0;padding:0;border:0}
+.sidebar .project-ai-row{height:27px;justify-content:flex-end;gap:6px;font-size:11px}
+.sidebar .project-ai-label-button,.sidebar .project-ai-label{min-width:0;gap:4px;white-space:nowrap}
+.sidebar .project-ai-label-button>svg,.sidebar .project-ai-label>svg{flex:none}
+.sidebar .project-ai-pending{min-width:14px;max-width:25px;padding:1px 3px;font-size:9px;overflow:hidden;text-overflow:ellipsis}
+.sidebar .project-ai-switch{width:27px;height:16px}
+.sidebar .project-ai-switch>span{width:12px;height:12px;top:2px;left:2px}
+.sidebar .project-ai-switch[aria-checked="true"]>span{transform:translateX(11px)}
+.sidebar .project-ai-control .inline-error{margin:3px 0 5px;font-size:11px}
+.sidebar .personal-section>header{height:32px;margin:0 0 3px;padding:0 3px 0 0;border-radius:6px}
+.sidebar .personal-section.is-active>header{background:#eaf2ed}
+.sidebar .personal-heading{height:32px;padding:0 6px;gap:7px}
+.sidebar .personal-heading b{font-size:12px;font-weight:500}
+.sidebar .personal-heading>svg{width:13px;height:13px;flex:none}
+.sidebar .personal-section>header>.icon{width:25px;height:25px;padding:0}
+.sidebar .personal-group-row{margin-left:13px;padding-left:7px;border-left:1px solid #dfe6e1}
+.sidebar .personal-group{height:28px;padding:0 6px;gap:7px;font-size:12px}
+.sidebar .personal-group>svg{width:12px;height:12px;flex:none}
+.sidebar .personal-group small{font-size:11px}
+.sidebar .personal-section>.personal-group-row:last-child{margin-bottom:6px}
+.sidebar .project-card>.workgroup-title{height:32px;margin:0;padding:0 6px;gap:7px}
+.sidebar .project-card>.workgroup-title>b{flex:1;min-width:0;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sidebar .project-card>p{margin:3px 6px 5px 20px}
+.sidebar .project-card>.text-button{margin-left:20px;padding:3px 0 6px}
+@media(hover:none){.sidebar .project-settings-action{opacity:1}}
