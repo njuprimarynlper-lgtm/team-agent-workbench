@@ -1049,7 +1049,17 @@ export class Workbench {
         if (value.state === 'connected') this.activity.providerRecovered(s.provider, s.networkRoute, s.cwd);
       }
     } });
-    runtime = s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc);
+    if (s.fork?.nativeFork && storage && !s.codexRemote) {
+      let ancestorId: string | undefined = s.fork.parentId;
+      const seen = new Set<string>();
+      while (ancestorId && !seen.has(ancestorId) && !runtime) {
+        seen.add(ancestorId);
+        const ancestor = this.runtimes.get(ancestorId);
+        if (ancestor instanceof AgentRuntime) runtime = ancestor.borrowForkRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s));
+        ancestorId = this.store.sessions.find(item => item.id === ancestorId)?.fork?.parentId;
+      }
+    }
+    runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc);
     this.runtimes.set(s.id, runtime);
     if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
     else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };

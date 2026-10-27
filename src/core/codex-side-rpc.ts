@@ -15,15 +15,15 @@ export class CodexSideRpc extends EventEmitter implements AgentRpc {
     if (message.method === 'turn/completed') this.turnId = undefined;
     this.emit('message', message);
   };
-  private disconnected = () => this.detach(new Error('侧边提问已失效：原 Codex 连接已关闭，请重新创建侧聊。'));
-  constructor(private owner: AgentRpc, readonly threadId: string) {
+  private disconnected = () => this.detach(new Error(this.label === '侧边提问' ? '侧边提问已失效：原 Codex 连接已关闭，请重新创建侧聊。' : '子会话已失效：原 Codex 连接已关闭，请重新连接后继续。'));
+  constructor(readonly owner: AgentRpc, readonly threadId: string, private label = '侧边提问') {
     super();
     owner.on('message', this.receive);
     owner.on('closed', this.disconnected);
   }
   async request(method: string, params?: any, timeout?: number, onWritten?: () => void) {
-    if (this.closed) throw new Error('侧边提问已失效，请重新创建侧聊');
-    if (params?.threadId && params.threadId !== this.threadId) throw new Error('侧聊请求不属于当前分支');
+    if (this.closed) throw new Error(this.label === '侧边提问' ? '侧边提问已失效，请重新创建侧聊' : '子会话已失效，请重新连接后继续');
+    if (params?.threadId && params.threadId !== this.threadId) throw new Error(this.label === '侧边提问' ? '侧聊请求不属于当前分支' : '子会话请求不属于当前分支');
     const result = await this.owner.request(method, params, timeout, onWritten);
     if (method === 'turn/start' && result?.turn?.status === 'inProgress') this.turnId = result.turn.id;
     return result;
@@ -39,7 +39,7 @@ export class CodexSideRpc extends EventEmitter implements AgentRpc {
   }
   async close() {
     if (this.closed) return;
-    this.detach(new Error('侧边提问已关闭'));
+    this.detach(new Error(`${this.label}已关闭`));
     // Unsubscribe also releases in-memory forks. Do not replay a timed-out turn.
     if (this.turnId) await this.owner.request('turn/interrupt', { threadId: this.threadId, turnId: this.turnId }, 5000).catch(() => {});
     await this.owner.request('thread/unsubscribe', { threadId: this.threadId }, 5000).catch(() => {});

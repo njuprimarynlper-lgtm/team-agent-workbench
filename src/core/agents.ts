@@ -64,20 +64,23 @@ export class AgentRuntime {
   private connecting?: Promise<void>;
   private connection: CliConnectionTracker;
   private sideConnections = new Map<string, CodexSideRpc>();
+  private forkOwner?: AgentRuntime;
+  private forkBorrowers = new Set<AgentRuntime>();
   private get sharedCodex() { return !!this.storage?.sharedEndpoint || !!this.session.codexRemote; }
   private get executionCwd() { return this.session.codexRemote?.cwd || this.session.cwd; }
-  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}, remoteRpc?: AgentRpc) {
+  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}, remoteRpc?: AgentRpc, borrowedConnection = false) {
     if (session.codexRemote && !remoteRpc) throw new Error('远程 Codex 原生连接尚未准备好，未启动本机 CLI');
     this.capabilityCache = new CapabilityCache(session.provider);
     // Preparation has its own execution policy, including helpers saved by older builds.
     if (session.purpose === 'prepare') session.permissionMode = 'full';
     this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged);
     this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', { ...networkEnv, ...storage?.env }));
-    if (session.provider === 'codex' && storage && !storage.sharedEndpoint) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
-    if (storage && (this.authBridge || storage.sharedEndpoint)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
+    if (session.provider === 'codex' && storage && !storage.sharedEndpoint && !borrowedConnection) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
+    if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
+    if (borrowedConnection) this.codexConnected = true;
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
     this.rpc.on('diagnostic', (value: string) => { if (!this.closing) this.connection.diagnostic(value); });
-    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) { if (session.cursorNative || storage?.sharedEndpoint || session.codexRemote) { session.desktopSyncState = 'disconnected'; session.desktopSyncError = e.message; } this.finish(e.message); } });
+    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) { void this.forkOwner?.releaseForkBorrower(this); if (session.cursorNative || storage?.sharedEndpoint || session.codexRemote) { session.desktopSyncState = 'disconnected'; session.desktopSyncError = e.message; } this.finish(e.message); } });
   }
   private message(id: string, role: Message['role'], text: string, append = false, metadata: Pick<Message, 'userText' | 'context' | 'phase'> = {}) {
     const existing = this.session.messages.find(x => x.id === id || this.sharedCodex && (x.nativeItemId === id || x.id === 'native:' + id));
@@ -151,6 +154,24 @@ export class AgentRuntime {
           result.thread.forkedFromId && result.thread.forkedFromId !== this.session.nativeId) throw codexForkError('fork', new Error('Codex 未返回有效的远程子会话，父会话未改变'));
     }
     return { id, path: file, desktop: !!this.storage?.sharedEndpoint, ...(remote ? { remote: { ...remote, nativePath: file } } : {}) };
+  }
+  /** A local native fork is already writer-owned by this app-server. Route its
+   * first resume and subsequent turns through that same process. */
+  borrowForkRuntime(session: AgentSession, executable: string, hooks: AgentHooks, storage: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}) {
+    if (this.closing || !this.codexConnected || !this.storage || this.storage.sharedEndpoint || storage.sharedEndpoint ||
+        !sameNativePath(this.storage.home, storage.home) || session.provider !== 'codex' || !session.fork?.nativeFork ||
+        !session.nativeId || session.codexStorage !== 'workbench' || session.codexRemote || session.codexDesktop) return;
+    let owner = this.rpc;
+    while (owner instanceof CodexSideRpc) owner = owner.owner;
+    const borrowed = new CodexSideRpc(owner, session.nativeId, '子会话');
+    const runtime = new AgentRuntime(session, executable, hooks, storage, networkEnv, borrowed, true);
+    const forkOwner = this.forkOwner || this;
+    runtime.forkOwner = forkOwner; forkOwner.forkBorrowers.add(runtime);
+    return runtime;
+  }
+  private async releaseForkBorrower(runtime: AgentRuntime) {
+    if (!this.forkBorrowers.delete(runtime)) return;
+    if (this.closing && !this.forkBorrowers.size) await this.rpc.close();
   }
   async createSideChat(session: AgentSession, hooks: AgentHooks, boundary: () => string) {
     if (this.session.provider !== 'codex') throw new Error('侧边提问目前仅支持 Codex');
@@ -320,7 +341,30 @@ export class AgentRuntime {
     this.hooks.changed();
   }
   async ensureStarted() {
-    try { await this.start(); } catch (error) { const modelError = this.session.provider === 'codex' ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined; if (modelError) { this.finish(error instanceof Error ? error.message : String(error)); throw new Error(modelError, { cause: error }); } if (this.session.cursorNative || this.sharedCodex) { this.session.desktopSyncState = 'disconnected'; this.session.desktopSyncError = error instanceof Error ? error.message : '同步暂时不可用'; this.hooks.changed(); } this.connection.error(error, false); const issue = permissionIssue(error); if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); } else if (!this.session.cursorNative) this.hooks.authFailed?.(error); throw error; }
+    try { await this.start(); }
+    catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const modelError = this.session.provider === 'codex' ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined;
+      if (modelError) { this.finish(detail); throw new Error(modelError, { cause: error }); }
+      if (this.session.fork?.nativeFork && /already has an active writer/i.test(detail)) {
+        const message = '原生子会话仍被另一个 Codex 后台占用。请先关闭占用它的旧工作台或 Codex 进程，再重新发送；本次未启动新任务。';
+        this.closing = true;
+        await Promise.all([this.rpc.close().catch(() => {}), this.authBridge?.close()]);
+        await this.forkOwner?.releaseForkBorrower(this);
+        this.session.status = 'error'; this.session.error = message;
+        this.connection.error(error, false); this.hooks.changed();
+        throw new Error(message, { cause: error });
+      }
+      if (this.session.cursorNative || this.sharedCodex) {
+        this.session.desktopSyncState = 'disconnected';
+        this.session.desktopSyncError = detail || '同步暂时不可用'; this.hooks.changed();
+      }
+      this.connection.error(error, false);
+      const issue = permissionIssue(error);
+      if (issue) { this.session.permissionIssue = issue; this.hooks.changed(); }
+      else if (!this.session.cursorNative) this.hooks.authFailed?.(error);
+      throw error;
+    }
   }
   async mcpCatalog() { await this.connectCodex(); if (!this.mcp) throw new Error('当前 CLI 不支持 MCP 管理'); return this.mcp.list(); }
   async modes(): Promise<SessionModeCatalog> {
@@ -716,5 +760,24 @@ export class AgentRuntime {
     else if (this.session.provider === 'cursor' && this.session.nativeId) { if(isCursorFileSession(this.session))await this.rpc.request('session/cancel',{sessionId:this.session.nativeId});else this.rpc.notify('session/cancel', { sessionId: this.session.nativeId }); }
     else this.close();
   }
-  async close() { this.closing = true; await Promise.all([...this.sideConnections.values()].map(connection => connection.close())); this.turnActive = false; clearTimeout(this.sharedRefresh); this.sharedRefresh = undefined; this.session.desktopSyncPending = false; this.session.desktopWaitingApproval = false; this.session.desktopSyncState = undefined; this.session.desktopSyncError = undefined; this.connection.stop(); for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed(); await Promise.all([this.rpc.close(), this.authBridge?.close()]); }
+  async close() {
+    if (this.closing) return;
+    this.closing = true;
+    await Promise.all([...this.sideConnections.values()].map(connection => connection.close()));
+    const turnId = this.turnActive ? this.turnId : undefined;
+    this.turnActive = false; clearTimeout(this.sharedRefresh); this.sharedRefresh = undefined;
+    this.session.desktopSyncPending = false; this.session.desktopWaitingApproval = false;
+    this.session.desktopSyncState = undefined; this.session.desktopSyncError = undefined;
+    this.connection.stop();
+    for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear();
+    this.session.status = 'idle'; this.session.approvals = []; this.hooks.changed();
+    if (this.forkBorrowers.size) {
+      // Closing a parent must not kill a running child. Keep the transport alive
+      // until its last borrowed fork has unsubscribed.
+      if (turnId) await this.rpc.request('turn/interrupt', { threadId: this.session.nativeId, turnId }, 5000).catch(() => {});
+      await this.rpc.request('thread/unsubscribe', { threadId: this.session.nativeId }, 5000).catch(() => {});
+      await this.authBridge?.close();
+    } else await Promise.all([this.rpc.close(), this.authBridge?.close()]);
+    await this.forkOwner?.releaseForkBorrower(this);
+  }
 }
