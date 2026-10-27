@@ -7,7 +7,7 @@ function provenance(project: RsiProject, run: RsiRun, visited = new Set<string>(
   visited.add(run.id);
   if (!run.snapshot) throw new Error('推荐缺少当时的完整输入来源，请使用新的推荐反馈');
   const reference = JSON.parse(run.snapshot.reference);
-  const ids = new Set<string>([...run.evidenceIds, ...run.snapshot.evidence.map(item => item.id),
+  const ids = new Set<string>([...run.evidenceIds, ...(run.snapshot.sourceEvidenceIds || []), ...run.snapshot.evidence.map(item => item.id),
     ...(reference.overview?.evidenceIds || []), ...(reference.sessions || []).flatMap((item: any) => item.evidenceIds || [])]);
   const related: RsiEvidence[] = [];
   for (const prior of reference.priorRecommendations || []) {
@@ -109,7 +109,7 @@ export function learningReference(project: RsiProject, base: RsiPolicy) {
     }
     const originalContext = JSON.parse(run.snapshot!.reference);
     example.then.contextPartial = example.then.evidenceIds.length !== originals.length
-      || !!originalContext.coverage?.partial || !!originalContext.sessions?.length || !!originalContext.overview || !!originalContext.priorRecommendations?.length;
+      || !!originalContext.machineReviewFeedback?.length || !!originalContext.coverage?.partial || !!originalContext.sessions?.length || !!originalContext.overview || !!originalContext.priorRecommendations?.length;
   }
   return { data, inputEvidence: [...inputEvidence.values()], feedbackIds };
 }

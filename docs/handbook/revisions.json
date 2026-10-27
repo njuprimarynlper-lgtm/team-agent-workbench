@@ -725,9 +725,30 @@
     {
       "updated_at": "2026-10-27T14:34:21+08:00",
       "base_commit": "d68f72c93fe62ac104ad5b2625ff1bc18abc8f88",
-      "document_commit": null,
+      "document_commit": "18336a4c90bab0c4f28c20edb6bc5395198beccc",
       "summary": "更新 HTML 手册",
       "content_sha256": "e17092bd369400e04621b60f99f29f1ba3bf2defdcef31975011eabdc27f64a3"
+    },
+    {
+      "updated_at": "2026-10-27T14:46:25+08:00",
+      "base_commit": "18336a4c90bab0c4f28c20edb6bc5395198beccc",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "e25b4e5b852f01972c760895da755af1e807b1d2aa126b4a2a0d1b17fb7c768b"
+    },
+    {
+      "updated_at": "2026-10-27T15:11:55+08:00",
+      "base_commit": "18336a4c90bab0c4f28c20edb6bc5395198beccc",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "c32fa99796d260fa567e390c8f026cbda5b1495e724b6221e2c83f381d800148"
+    },
+    {
+      "updated_at": "2026-10-27T15:14:53+08:00",
+      "base_commit": "18336a4c90bab0c4f28c20edb6bc5395198beccc",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "19b68e879410c7b8091c7e4055c8392fcbe351699b61c09aaa2aaf79bfac73db"
     }
   ]
 }

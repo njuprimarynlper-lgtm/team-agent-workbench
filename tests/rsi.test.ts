@@ -1,3 +1,4 @@
+import { passingValueReview } from './fixtures/rsi-value-review';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -17,6 +18,7 @@ async function fixture(run: (value: { engine: RsiEngine; root: string; session: 
     scope: projectId => { if (!['p1', 'p2'].includes(projectId)) throw new Error('项目不可访问'); return { key: owner.name + ':' + projectId, account: owner.name, user: owner.name, projectId }; },
     session: () => session, collect: async () => structuredClone(observations), changed: () => {},
   }, async (_session, prompt) => {
+    const judged = passingValueReview(prompt); if (judged) return judged;
     calls.push(prompt); const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
     if (prompt.startsWith('RSI_PROTOCOL_V2:learn')) return JSON.stringify({ hypothesis: '边界问题需要先做边界审计；等待评审时不打扰，适用于当前项目', evidenceIds: data.evidence.filter((item: any) => item.source === 'interface').map((item: any) => item.id), rules: { ...rsiDefaultRules, guidance: '先做边界审计。等待评审不要打扰。' } });
     const policy = JSON.parse(prompt.split('\n').find(line => line.startsWith('POLICY_DATA='))!.slice('POLICY_DATA='.length));
@@ -252,7 +254,7 @@ test('unsafe replay never passes, and model or project changes invalidate an oth
   await engine.start('p1', 'evaluate', 'manual', candidate.id); await engine.settled(); session.model = 'other';
   await assert.rejects(engine.publish('p1', candidate.id), /模型配置/); session.model = 'fixed-test-model';
   await engine.configure('p1', { enabled: true, goals: '新的验收目标' }); await assert.rejects(engine.publish('p1', candidate.id), /已变化/);
-  engine.runText = async (_s, prompt) => JSON.stringify(answer(JSON.parse(prompt.split('REFERENCE_DATA=')[1]).evidence, '先检查开发集'));
+  engine.runText = async (_s, prompt) => passingValueReview(prompt) || JSON.stringify(answer(JSON.parse(prompt.split('REFERENCE_DATA=')[1]).evidence, '先检查开发集'));
   await engine.start('p1', 'evaluate', 'manual', candidate.id); await engine.settled();
   const evaluation = (await engine.view('p1')).evaluations.at(-1)!; assert.equal(evaluation.passed, false); assert(evaluation.reasons.some(item => item.includes('不应打扰')));
 }));
@@ -274,8 +276,8 @@ test('generation freezes inputs, rejects hallucinated evidence and accepts unrel
   await engine.configure('p1', { enabled: true });
   engine.runText = async () => JSON.stringify(answer([{ id: 'fabricated', text: '' }])); await recommend(engine);
   assert.match((await engine.view('p1')).lastError!, /输入之外/); assert.equal((await engine.view('p1')).suggestions.length, 0);
-  engine.runText = async (_s, prompt) => { await engine.observe('p1', [observation('new-state')]); return JSON.stringify(answer(JSON.parse(prompt.split('REFERENCE_DATA=')[1]).evidence)); };
-  const view = await recommend(engine); assert.equal(view.suggestions.length, 1); assert(view.pending?.recommendation);
+  engine.runText = async (_s, prompt) => { const judged = passingValueReview(prompt); if (judged) return judged; await engine.observe('p1', [observation('new-state')]); return JSON.stringify(answer(JSON.parse(prompt.split('REFERENCE_DATA=')[1]).evidence)); };
+  const view = await recommend(engine); assert.equal(view.suggestions.length, 0); assert(view.pending?.recommendation); assert.match(view.runs.at(-1)!.decision!, /依据已变化/);
 }));
 test('restart retains immutable evidence and published versions; context stays bounded and time-correct', async () => fixture(async ({ engine, root }) => {
   await engine.configure('p1', { enabled: true }); await recommend(engine); const saved = JSON.parse(await fs.readFile(path.join(root, 'rsi-v2.json'), 'utf8')); assert.equal(saved.version, 3);
@@ -397,6 +399,38 @@ test('evaluation no longer has a daily call quota', async () => fixture(async ({
   assert.equal((await engine.view('p1')).lastError, undefined); assert.equal(calls.length, count + 6);
 }));
 
+test('heldout evaluation uses the mandatory judge, excludes live critique, and cannot publish an older ungated evaluation', async () => fixture(async ({ engine, root, session }) => {
+  const candidate = await prepareLearning(engine), original = engine.runText;
+  let judgeCalls = 0;
+  engine.runText = async (session, prompt, signal) => {
+    const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
+    assert.deepEqual(data.machineReviewFeedback, []);
+    if (prompt.startsWith('RSI_PROTOCOL_V2:value-judge')) {
+      judgeCalls++;
+      const result = JSON.parse(passingValueReview(prompt)!);
+      for (const verdict of result.verdicts) {
+        verdict.difficulty.status = 'fail';
+        for (const stage of ['need', 'benefit']) verdict[stage] = { status: 'not_evaluated', reason: '前置未通过', evidenceIds: [], counterEvidenceIds: [] };
+      }
+      return JSON.stringify(result);
+    }
+    return original(session, prompt, signal);
+  };
+  await engine.start('p1', 'evaluate', 'manual', candidate.id); await engine.settled();
+  const view = await engine.view('p1'), evaluation = view.evaluations.at(-1)!;
+  assert.equal(view.lastError, undefined); assert(judgeCalls > 0); assert.equal(evaluation.valueReviewContract, 'value-v1');
+  assert(evaluation.outputs.every(item => !item.baseline.suggestions.length && !item.candidate.suggestions.length));
+  await engine.close();
+  const file = path.join(root, 'rsi-v2.json'), saved = JSON.parse(await fs.readFile(file, 'utf8'));
+  delete saved.projects['alice:p1'].evaluations.at(-1).valueReviewContract;
+  await fs.writeFile(file, JSON.stringify(saved));
+  const restored = new RsiEngine(root, { scope: projectId => ({ key: 'alice:' + projectId, account: 'alice', user: 'alice', projectId }), session: () => session, collect: async () => [], changed() {} }, async () => { throw Error('must not call model'); });
+  try {
+    await assert.rejects(restored.reviewEvaluation('p1', evaluation.id, { approved: true, reason: '旧记录不能放行' }), /基础回归/);
+    await assert.rejects(restored.publish('p1', candidate.id), /尚未通过/);
+  } finally { await restored.close(); }
+}));
+
 test('suppressed automatic checks do not restart the cooldown indefinitely', async context => {
   context.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   await fixture(async ({ engine, calls, observations }) => {
@@ -509,7 +543,7 @@ test('changing or clearing feedback invalidates a learned candidate, including o
 test('equal keyword scores allow quality review but cannot publish without it; reruns invalidate review', async () => fixture(async ({ engine }) => {
   const candidate = await prepareLearning(engine), original = engine.runText;
   engine.runText = async (session, prompt, signal) => {
-    if (prompt.startsWith('RSI_PROTOCOL_V2:learn')) return original(session, prompt, signal);
+    if (prompt.startsWith('RSI_PROTOCOL_V2:learn') || prompt.startsWith('RSI_PROTOCOL_V2:value-judge')) return original(session, prompt, signal);
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
     return JSON.stringify(answer(data.evidence, data.evidence.some((item: any) => item.text.includes('等待评审')) ? '' : '先做边界审计，并说明它如何影响本次验收'));
   };
@@ -531,7 +565,7 @@ test('suggestion ownership follows its cited sessions; deletion clears all learn
   observations.push({ ...observation('B-evidence', 'B 的开发集需要边界审计'), sessionId: 'B' });
   const original = engine.runText;
   engine.runText = async (session, prompt, signal) => {
-    if (prompt.startsWith('RSI_PROTOCOL_V2:learn')) return original(session, prompt, signal);
+    if (prompt.startsWith('RSI_PROTOCOL_V2:learn') || prompt.startsWith('RSI_PROTOCOL_V2:value-judge')) return original(session, prompt, signal);
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
     return JSON.stringify(answer([data.evidence.find((item: any) => item.sessionId === 'B')]));
   };

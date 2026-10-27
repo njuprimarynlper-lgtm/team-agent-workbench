@@ -1,3 +1,4 @@
+import { passingValueReview } from './fixtures/rsi-value-review';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -129,6 +130,7 @@ test('invalid cross-session summaries fail atomically without advancing any curs
 test('structured memory and feedback survive persistence and arrive as objects in the next recommendation', async () => fixture(async ({ engine, observations, calls, root, host }) => {
   observations.push(observation('A1', 'A', '原型已运行，下一步验证边界'));
   engine.runText = async (_session, prompt) => {
+    const judged = passingValueReview(prompt); if (judged) return judged;
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]); calls.push(data);
     const value = response(data), id = data.evidence.find((item: any) => item.sessionId === 'A').id;
     value.sessionStates = [{ sessionId: 'A', summary: { constraints: [], observations: ['原型已运行'], decisions: ['下一步验证边界'], openQuestions: ['边界表现未知'] }, evidenceIds: [id] }];
@@ -279,6 +281,7 @@ test('legacy single-summary storage restores without inventing fragment coverage
 test('revised or cleared recommendation feedback leaves the audit ledger but is absent from future recommendation input', async () => fixture(async ({ engine, observations }) => {
   observations.push(observation('A1'));
   engine.runText = async (_session, prompt) => {
+    const judged = passingValueReview(prompt); if (judged) return judged;
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]), answer = response(data);
     answer.suggestions = [{ title: '项目背景不完整', action: '补充项目判断的依据。', reason: '来源不足', conditions: [], uncertainty: '', evidenceIds: [data.evidence[0].id], priority: .5 }];
     return JSON.stringify(answer);

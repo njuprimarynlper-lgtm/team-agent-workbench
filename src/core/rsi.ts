@@ -8,6 +8,7 @@ import type { AgentSession } from '../shared/types';
 import { applyMemory, emptyMemory, evidenceKey, latestProjectEvidence, pendingEvidence, projectContext } from './rsi-context';
 import { candidateBundle, learningPrompt, policyBundle, policyPrompt } from './rsi-prompts';
 import { assertLearningCurrent, learningReference } from './rsi-learning';
+import { reviewRecommendations, valueHash, valueReviewContract } from './rsi-value-review';
 import { rsiAnswerSchema, rsiCaseSchema, rsiConfigSchema, rsiDefaultRules, rsiPolicySchema, rsiReactionSchema, rsiShadowSettingsSchema, rsiReview, rsiFeedbackState, type RsiInbox,
   type RsiAnswer, type RsiCase, type RsiConfig, type RsiEvaluation, type RsiEvidence, type RsiObservation,
   type RsiPolicy, type RsiProject, type RsiScope, type RsiScore, type RsiView } from '../shared/rsi';
@@ -249,7 +250,8 @@ export class RsiEngine {
       }
       project.suggestions = project.suggestions.filter(item => !suggestions.has(item.id));
       project.events = project.events.filter(item => !suggestions.has(item.suggestionId));
-      project.runs = project.runs.filter(item => !item.evidenceIds.some(id => removed.has(id)) && (!item.snapshot || !JSON.stringify(item.snapshot).includes(sessionId) && ![...removed].some(id => item.snapshot!.reference.includes(id))));
+      project.valueFeedback = project.valueFeedback?.filter(item => !item.evidenceIds.some(id => removed.has(id)));
+      project.runs = project.runs.filter(item => ![...item.evidenceIds, ...(item.snapshot?.sourceEvidenceIds || [])].some(id => removed.has(id)) && (!item.snapshot || !JSON.stringify(item.snapshot).includes(sessionId) && ![...removed].some(id => item.snapshot!.reference.includes(id))));
       const cases = new Set(project.cases.filter(item => item.evidence.some(evidence => removed.has(evidence.id))).map(item => item.id));
       project.cases = project.cases.filter(item => !cases.has(item.id));
       project.evaluations = project.evaluations.filter(item => !item.caseIds.some(id => cases.has(id)));
@@ -408,33 +410,56 @@ export class RsiEngine {
     await this.edit(projectId, current => {
       current.lastError = undefined;
       current.runs.push({ id: runId, at: iso(), policyId: policy.id, model: session.model!, provider: session.provider, route: session.networkRoute || 'direct', trigger, inputHash: hash(prompt), evidenceIds: evidence.map(item => item.id), inputChars: prompt.length, status: 'running', suggestions: [],
-        snapshot: { capturedAt: iso(), revision: project.revision, policyHash: hash({ bundle: policy.bundle, rules: policy.rules }), configHash, evidence: structuredClone(evidence), delta: context.coverage, reference: context.reference } });
+        snapshot: { sourceEvidenceIds: context.sourceEvidenceIds, capturedAt: iso(), revision: project.revision, policyHash: hash({ bundle: policy.bundle, rules: policy.rules }), configHash, evidence: structuredClone(evidence), delta: context.coverage, reference: context.reference } });
     });
     const output = await this.call(projectId, session, prompt, 'recommend', signal);
     const answer = validateRsiAnswer(parse(output), evidence, policy.rules.maxSuggestions);
-    // Read stable source revisions again; unrelated new messages do not invalidate this snapshot.
+    await this.edit(projectId, current => {
+      const run = current.runs.find(item => item.id === runId)!;
+      run.output = output;
+      run.valueReview = { contract: valueReviewContract, referenceHash: valueHash(context.reference), attempts: [] };
+    });
+    const reviewed = await reviewRecommendations({ answer, policy, reference: context.reference, evidence,
+      call: (prompt, purpose) => this.call(projectId, session, prompt, 'value-' + purpose, signal),
+      record: attempt => this.edit(projectId, current => {
+        if (current.scope.key !== project.scope.key) throw new Error('项目身份已变化，任务已停止');
+        current.runs.find(item => item.id === runId)!.valueReview!.attempts.push(attempt);
+      }),
+    });
+    // Re-read sources before publishing: new progress may invalidate the need for help.
     await this.collect(projectId);
     await this.edit(projectId, current => {
       if (current.scope.key !== project.scope.key) throw new Error('项目身份已变化，任务已停止');
       const run = current.runs.find(item => item.id === runId)!;
       run.output = output; run.status = 'completed'; run.finishedAt = iso(); run.durationMs = Date.now() - Date.parse(run.at);
       const latest = latestProjectEvidence(current), versions = new Map(latest.map(item => [evidenceKey(item), item.id]));
-      const changed = evidence.some(item => versions.get(evidenceKey(item)) !== item.id);
+      const contextIds = new Set(context.sourceEvidenceIds);
+      const snapshotCurrentIds = new Set(latestProjectEvidence(project).map(item => item.id));
+      const changed = evidence.some(item => versions.get(evidenceKey(item)) !== item.id)
+        || [...contextIds].some(id => snapshotCurrentIds.has(id) && !latest.some(item => item.id === id));
+      // A new turn can resolve the very difficulty under review. Do not publish or learn
+      // a need-for-help verdict from the older snapshot; empty analysis can still advance.
+      const newEvidence = answer.suggestions.length > 0 && latest.some(item => !project.evidence.some(old => old.id === item.id));
       const officialChanged = latest.filter(item => item.sourceId === 'project-brief').some(item => !project.evidence.some(old => old.id === item.id));
-      if (configHash !== hash(this.effectiveConfig(current)) || current.activePolicyId !== policy.id || changed || officialChanged) {
+      if (configHash !== hash(this.effectiveConfig(current)) || current.activePolicyId !== policy.id || changed || officialChanged || newEvidence) {
         run.decision = '目标、配置或引用依据已变化，等待重新分析';
         current.pending ||= {}; current.pending.recommendation = { trigger: 'revalidate', dueAt: Date.now() + this.timing.debounceMs }; this.wake(projectId); return;
       }
       applyMemory(current, context.coverage, answer, evidence, iso());
       run.state = answer.state;
-      for (const item of answer.suggestions.sort((a, b) => b.priority - a.priority)) {
+      const feedback = reviewed.feedback.map(({ candidate, verdict }) => ({ runId, candidateId: candidate.candidateId,
+        at: iso(), title: candidate.suggestion.title, action: candidate.suggestion.action,
+        evidenceIds: context.sourceEvidenceIds, configHash, verdict }));
+      // Bounded live memory; the complete per-round audit stays in the run ledger.
+      current.valueFeedback = [...(current.valueFeedback || []), ...feedback].slice(-24);
+      for (const item of reviewed.suggestions.sort((a, b) => b.priority - a.priority)) {
         const fingerprint = hash([item.action.replace(/\s+/g, '').toLowerCase(), [...item.evidenceIds].sort()]);
         if (current.suggestions.some(prior => prior.fingerprint === fingerprint)) continue;
         const sessions = new Set(evidence.filter(source => item.evidenceIds.includes(source.id)).map(source => source.sessionId).filter(Boolean));
         const suggestion = { ...item, fingerprint, id: randomUUID(), runId, policyId: policy.id, createdAt: iso(), sessionId: sessions.size === 1 ? [...sessions][0]! : '', projectId };
         current.suggestions.push(suggestion); run.suggestions.push(suggestion.id);
       }
-      run.decision = run.suggestions.length ? '推荐已保存，等待用户处理' : '没有新的适用建议';
+      run.decision = run.suggestions.length ? '推荐已通过独立价值判断，等待用户处理' : answer.suggestions.length && !reviewed.suggestions.length ? '候选未通过独立价值判断，本轮不打扰' : '没有新的适用建议';
       if (pendingEvidence(current).length) {
         const backlog = context.remaining > 0;
         current.pending ||= {}; current.pending.recommendation = { trigger: backlog ? 'remaining' : 'turn', dueAt: Date.now() + (backlog ? this.timing.debounceMs : policy.rules.cooldownMinutes * 60000) }; this.wake(projectId);
@@ -493,10 +518,12 @@ export class RsiEngine {
       const responses: RsiAnswer[] = [];
       for (const policy of [base, candidate]) {
         // The candidate is evaluated through the same assembler as production, with only frozen held-out sources.
-        const replay = { ...project, config: test.config, evidence: test.evidence, policies: [policy], activePolicyId: policy.id, memory: emptyMemory(), suggestions: [], events: [], runs: [] };
+        const replay = { ...project, config: test.config, evidence: test.evidence, policies: [policy], activePolicyId: policy.id, memory: emptyMemory(), valueFeedback: [], suggestions: [], events: [], runs: [] };
         const context = projectContext(replay, test.config);
         const response = validateRsiAnswer(parse(await this.call(projectId, session, policyPrompt(policy, context.reference), 'evaluate', signal)), context.evidence, policy.rules.maxSuggestions);
-        responses.push(response);
+        const reviewed = await reviewRecommendations({ answer: response, policy, reference: context.reference, evidence: context.evidence,
+          call: (prompt, purpose) => this.call(projectId, session, prompt, 'evaluate-value-' + purpose, signal) });
+        responses.push({ ...response, suggestions: reviewed.suggestions });
       }
       outputs.push({ caseId: test.id, baseline: responses[0], candidate: responses[1] });
       baselineScores.push(scoreRsi(responses[0], test)); candidateScores.push(scoreRsi(responses[1], test));
@@ -510,7 +537,7 @@ export class RsiEngine {
     await this.edit(projectId, current => {
       if (current.scope.key !== project.scope.key) throw new Error('项目身份已变化，任务已停止');
       if (current.activePolicyId !== base.id || current.revision !== project.revision) throw new Error('评估期间项目或策略已变化，结果不用于发布');
-      current.evaluations.push({ contract: 2, policyHash: hash([base.bundle, base.rules, candidate.bundle, candidate.rules]), id: randomUUID(), at: iso(), candidateId, baselineId: base.id, projectRevision: project.revision, model: modelKey(session), caseIds: cases.map(item => item.id), baseline, candidate: score, passed: !reasons.length, reasons, outputs });
+      current.evaluations.push({ contract: 2, valueReviewContract, policyHash: hash([base.bundle, base.rules, candidate.bundle, candidate.rules]), id: randomUUID(), at: iso(), candidateId, baselineId: base.id, projectRevision: project.revision, model: modelKey(session), caseIds: cases.map(item => item.id), baseline, candidate: score, passed: !reasons.length, reasons, outputs });
       current.lastError = undefined;
     });
   }
@@ -522,7 +549,7 @@ export class RsiEngine {
       const evaluation = project.evaluations.find(item => item.id === evaluationId);
       const candidate = project.policies.find(item => item.id === evaluation?.candidateId && item.status === 'candidate');
       const base = project.policies.find(item => item.id === project.activePolicyId)!;
-      if (!evaluation || !candidate || evaluation.contract !== 2 || !evaluation.passed
+      if (!evaluation || !candidate || evaluation.contract !== 2 || evaluation.valueReviewContract !== valueReviewContract || !evaluation.passed
         || project.evaluations.filter(item => item.candidateId === candidate.id).at(-1)?.id !== evaluation.id) throw new Error('请先完成当前候选的基础回归检查');
       assertLearningCurrent(project, candidate);
       if (evaluation.projectRevision !== project.revision || evaluation.baselineId !== base.id || candidate.baseId !== base.id
@@ -539,7 +566,7 @@ export class RsiEngine {
     return this.edit(projectId, project => {
       const candidate = project.policies.find(item => item.id === candidateId && item.status === 'candidate');
       const evaluation = project.evaluations.filter(item => item.candidateId === candidateId).at(-1);
-      if (!candidate || !evaluation?.passed || evaluation.contract !== 2 || evaluation.baselineId !== project.activePolicyId || candidate.baseId !== project.activePolicyId) throw new Error('候选尚未通过当前基线的独立评估，保留有效版本');
+      if (!candidate || !evaluation?.passed || evaluation.contract !== 2 || evaluation.valueReviewContract !== valueReviewContract || evaluation.baselineId !== project.activePolicyId || candidate.baseId !== project.activePolicyId) throw new Error('候选尚未通过当前基线的独立评估，保留有效版本');
       assertLearningCurrent(project, candidate);
       if (evaluation.projectRevision !== project.revision) throw new Error('评估后项目证据或配置已变化，需要重新评估');
       const session = execution;

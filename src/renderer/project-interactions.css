@@ -10,7 +10,8 @@
 .interaction-resizing,.interaction-resizing *{cursor:col-resize!important;user-select:none!important}
 @media(prefers-reduced-motion:reduce){.interaction-resize::after{transition:none}}
 .interaction-reopen{display:flex;flex-direction:column;gap:12px;width:100%;padding:60px 5px 12px;border-left:1px solid #e0e6e2;background:#f7faf8;flex:none}
-.interaction-reopen button{display:flex;flex-direction:column;align-items:center;gap:6px;background:transparent;border:0;color:#42614f;font-size:11px;padding:8px 4px}
+.interaction-reopen button{display:flex;flex-direction:column;align-items:center;gap:6px;background:transparent;border:0;color:#42614f;font-size:11px;padding:8px 2px}
+.interaction-reopen button>span{white-space:nowrap}
 .interaction-reopen button:hover{background:#edf5ef;border-radius:6px}
 .project-interaction-panel{--border:#e0e6e2;--muted:#718578;--text:#26352f;--primary:#287554;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--border);background:var(--surface,#fff);container-type:inline-size;container-name:project-interaction}
 .project-interaction-panel[hidden],.project-interaction-pane[hidden]{display:none}
@@ -44,3 +45,19 @@
 .side-chat-conversation .subsession-heading{justify-content:space-between}
 .project-interaction-tabs{overflow-x:auto;flex-shrink:0}.project-interaction-tabs>button{white-space:nowrap;flex-shrink:0}
 .selection-actions{flex-wrap:wrap;max-width:calc(100vw - 16px)}
+
+/* Pending recommendations remain noticeable even when another pane is in use. */
+.interaction-reopen .recommendation-entry{position:relative;border-radius:9px;gap:6px;padding:12px 2px 9px;min-height:62px}
+.interaction-reopen .recommendation-entry.has-pending{background:#e6f2e9;color:#205c3c;box-shadow:inset 0 0 0 1px #9abda8;font-weight:650}
+.interaction-reopen .recommendation-entry.has-pending:hover{background:#d8ebdf}
+.recommendation-entry-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:22px;height:24px}
+.interaction-reopen .recommendation-entry-caption{font-size:10px;line-height:12px;color:#52735f;font-weight:400;margin-top:-3px}
+.project-interaction-tabs>.recommendation-tab{padding-inline:9px;margin:6px 0;border-radius:7px;padding-block:6px;border-bottom-color:transparent;font-weight:600}
+.project-interaction-tabs>.recommendation-tab.has-pending{background:#e6f2e9;box-shadow:inset 0 0 0 1px #9abda8;color:#205c3c}
+.project-interaction-tabs>.recommendation-tab.has-pending:hover{background:#d8ebdf}
+.project-interaction-tabs>.recommendation-tab[aria-selected=true]{box-shadow:inset 0 -3px #287554;background:#edf5ef;color:#205c3c}
+.project-interaction-tabs>.recommendation-tab.has-pending[aria-selected=true]{background:#d8ebdf;box-shadow:inset 0 0 0 1px #9abda8,inset 0 -3px #287554}
+.project-interaction-tabs>.recommendation-tab>.recommendation-count,.recommendation-count{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:none;min-width:21px;height:20px;padding:0 6px;border-radius:10px;background:#f3cf78;color:#573e12;font-size:11px;font-weight:700;line-height:20px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.recommendation-count-label{font-size:10px;font-weight:500}
+.recommendation-entry-icon>.recommendation-count.is-compact{position:absolute;top:-6px;right:-12px;height:18px;min-width:18px;padding:0 4px;border:1px solid #f7faf8;font-size:10px;line-height:16px}
+.recommendation-entry:focus-visible,.project-interaction-tabs>.recommendation-tab:focus-visible{outline:2px solid #287554;outline-offset:-2px}

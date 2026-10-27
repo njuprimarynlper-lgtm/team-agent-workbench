@@ -1,3 +1,4 @@
+import { valueHash } from './rsi-value-review';
 import { createHash } from 'node:crypto';
 import { rsiFeedbackState, type RsiAnswer, type RsiConfig, type RsiCoverage, type RsiEvidence, type RsiMemory, type RsiMemoryEntry, type RsiProject, type RsiReaction } from '../shared/rsi';
 
@@ -68,6 +69,7 @@ export function projectContext(project: RsiProject, config: RsiConfig) {
     overview: null as RsiAnswer['state'] | null,
     sessions: [] as (RsiMemoryEntry & { sessionId: string })[],
     evidence, deltaIds: [] as string[], relatedIds: [] as string[],
+    machineReviewFeedback: [] as { kind: string; title: string; action: string; stages: string[]; reason: string; correction: string; reconsiderWhen: string; truncated: boolean }[],
     priorRecommendations: [] as { id: string; title: string; action: string; closed: boolean; feedback: (Pick<RsiReaction, 'kind' | 'text' | 'outcome' | 'feedbackTarget'> & { eventId: string; decisionEventId?: string; at: string; textTruncated: boolean })[] }[],
     coverage: { totalSessions: new Set(latest.map(item => item.sessionId).filter(Boolean)).size, pendingSources: pending.length, remainingSources: pending.length, partial: false },
   };
@@ -86,6 +88,27 @@ export function projectContext(project: RsiProject, config: RsiConfig) {
     data.overview = { progress: state.progress.slice(0, 400), blockers: state.blockers.slice(0, 3).map(value => value.slice(0, 160)), unknowns: state.unknowns.slice(0, 3).map(value => value.slice(0, 160)), evidenceIds: state.evidenceIds };
     // Omit an oversized overview intact; never truncate serialized JSON into an opaque string.
     if (JSON.stringify(data.overview).length > budget / 10) data.overview = null;
+  }
+  // Keep machine critique separate and bounded. A changed source/config invalidates it;
+  // old criticism must not become a permanent prohibition or fabricated user preference.
+  const sourceEvidenceIds = new Set<string>();
+  const seenFeedback = new Set<string>();
+  let feedbackChars = 0;
+  for (const item of [...(project.valueFeedback || [])].reverse()) {
+    const key = item.runId + ':' + item.candidateId;
+    if (seenFeedback.has(key)) continue;
+    seenFeedback.add(key);
+    if (item.configHash !== valueHash(config) || !item.evidenceIds.every(id => validIds.has(id))) continue;
+    const gates = [item.verdict.difficulty, item.verdict.need, item.verdict.benefit];
+    const reason = gates.find(gate => gate.status !== 'pass')?.reason || item.verdict.benefit.reason;
+    const compact = { kind: 'machine_assessment_not_user_feedback_or_project_fact', title: item.title.slice(0, 100), action: item.action.slice(0, 160),
+      stages: gates.map(gate => gate.status), reason: reason.slice(0, 180), correction: item.verdict.correction.slice(0, 200),
+      reconsiderWhen: item.verdict.reconsiderWhen.slice(0, 160),
+      truncated: item.title.length > 100 || item.action.length > 160 || reason.length > 180 || item.verdict.correction.length > 200 || item.verdict.reconsiderWhen.length > 160 };
+    const length = JSON.stringify(compact).length;
+    if (feedbackChars + length > Math.min(2400, budget * .24)) continue;
+    data.machineReviewFeedback.push(compact); feedbackChars += length;
+    for (const id of item.evidenceIds) sourceEvidenceIds.add(id);
   }
   const query = tokens(pending.map(item => item.text.slice(0, 600)).join(' ') + config.goals);
   const relevance = (item: RsiEvidence) => [...tokens(item.text.slice(0, 4000))].filter(term => query.has(term)).length;
@@ -146,7 +169,31 @@ export function projectContext(project: RsiProject, config: RsiConfig) {
   const complete = coverage.filter(cursor => latest.find(item => item.id === cursor.evidenceId)?.text.length === cursor.offset).length;
   data.coverage.remainingSources = pending.length - complete;
   data.coverage.partial = data.coverage.remainingSources > 0;
-  return { reference: serialize(), evidence, coverage, remaining: data.coverage.remainingSources };
+  // Trace indirect inputs too: critiques and prior decisions must be removed with their sources
+  // and excluded from held-out learning just like raw messages.
+  const visitedRuns = new Set<string>();
+  const addRunSources = (runId: string) => {
+    if (visitedRuns.has(runId)) return;
+    visitedRuns.add(runId);
+    const run = project.runs.find(item => item.id === runId); if (!run) return;
+    for (const id of [...run.evidenceIds, ...(run.snapshot?.sourceEvidenceIds || [])]) sourceEvidenceIds.add(id);
+    if (!run.snapshot) return;
+    const old = JSON.parse(run.snapshot.reference);
+    for (const id of [...(old.overview?.evidenceIds || []), ...(old.sessions || []).flatMap((item: any) => item.evidenceIds || [])]) sourceEvidenceIds.add(id);
+    for (const previous of old.priorRecommendations || []) {
+      const suggestion = project.suggestions.find(item => item.id === previous.id); if (suggestion) addRunSources(suggestion.runId);
+    }
+  };
+  for (const prior of data.priorRecommendations) {
+    const suggestion = project.suggestions.find(item => item.id === prior.id); if (suggestion) addRunSources(suggestion.runId);
+    for (const item of prior.feedback) for (const eventId of [item.eventId, item.decisionEventId]) {
+      const event = project.events.find(item => item.id === eventId); if (event) sourceEvidenceIds.add(event.evidenceId);
+    }
+  }
+  for (const item of evidence) sourceEvidenceIds.add(item.id);
+  for (const item of data.sessions) for (const id of item.evidenceIds) sourceEvidenceIds.add(id);
+  for (const id of data.overview?.evidenceIds || []) sourceEvidenceIds.add(id);
+  return { reference: serialize(), evidence, coverage, remaining: data.coverage.remainingSources, sourceEvidenceIds: [...sourceEvidenceIds] };
 }
 
 export function applyMemory(project: RsiProject, coverage: RsiCoverage[], answer: RsiAnswer, evidence: RsiEvidence[], at: string) {

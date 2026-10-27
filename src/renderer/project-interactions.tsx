@@ -84,6 +84,12 @@ export function RsiRecommendations({ inbox, error, call, reload }: { inbox?: Rsi
   </section>;
 }
 
+function RecommendationCount({ count, compact = false }: { count: number; compact?: boolean }) {
+  if (count <= 0) return null;
+  const label = `${count} 条推荐待处理`;
+  return <span className={'recommendation-count' + (compact ? ' is-compact' : '')} aria-label={label} title={label}>{count > 99 ? '99+' : count}{!compact && <span className="recommendation-count-label">待处理</span>}</span>;
+}
+
 export type InteractionTab = 'recommendations' | 'questions' | 'subsessions' | 'sidechats';
 export function ProjectInteractionPanel({ projectName, active, select, close, inbox, error, call, reload, questionCount, questions, subsessions, sideChats, team = true }: {
   projectName: string; active: InteractionTab | ''; select: (tab: InteractionTab) => void; close: () => void;
@@ -95,6 +101,8 @@ export function ProjectInteractionPanel({ projectName, active, select, close, in
   const lastTab = useRef<InteractionTab>(active || (team ? 'recommendations' : 'subsessions'));
   useEffect(() => { if (active) lastTab.current = active; }, [active]);
   useEffect(() => { if (active === 'questions') setVisitedQuestions(true); }, [active]);
+  const recommendationCount = pendingRecommendations(inbox);
+  const recommendationHint = recommendationCount > 0 ? `${recommendationCount} 条推荐待处理，点击查看` : '查看 AI推荐';
   const toggleLabel = active ? '收起侧栏' : '展开侧栏';
   const reopenTab = lastTab.current === 'sidechats' && sideChats ? 'sidechats' : lastTab.current === 'subsessions' ? (subsessions ? 'subsessions' : 'recommendations') : (team ? lastTab.current : 'subsessions');
   return <div ref={resize.shell} className={'project-interaction-shell' + (!active ? ' is-collapsed' : '') + (resize.dragging ? ' is-resizing' : '')} style={{ width: active ? resize.width : 60 }}>
@@ -102,13 +110,13 @@ export function ProjectInteractionPanel({ projectName, active, select, close, in
     {active && <button type="button" className="interaction-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-controls="project-interaction-panel" aria-valuemin={resize.limits.min} aria-valuemax={resize.limits.max} aria-valuenow={resize.width} aria-valuetext={`${resize.width} 像素`}
       onPointerDown={resize.begin} onPointerMove={resize.move} onPointerUp={resize.end} onPointerCancel={resize.end} onLostPointerCapture={resize.end} onKeyDown={resize.keyDown}/>}
     {!active && <nav className="interaction-reopen" aria-label="侧栏内容">
-    {team && <><button aria-label="展开 AI推荐" onClick={() => select('recommendations')}><Sparkles size={16}/><span>AI推荐</span></button><button aria-label="展开寻求帮助" onClick={() => select('questions')}><Handshake size={16}/><span>寻求帮助</span></button></>}
+    {team && <><button className={"recommendation-entry" + (recommendationCount > 0 ? " has-pending" : "")} aria-label="展开 AI推荐" title={recommendationHint} onClick={() => select('recommendations')}><span className="recommendation-entry-icon"><Sparkles size={19}/><RecommendationCount count={recommendationCount} compact/></span><span>AI推荐</span>{recommendationCount > 0 && <small className="recommendation-entry-caption">待处理</small>}</button><button aria-label="展开寻求帮助" onClick={() => select('questions')}><Handshake size={16}/><span>寻求帮助</span></button></>}
     {subsessions && <button aria-label="展开子会话" onClick={() => select('subsessions')}><Network size={16}/><span>子会话</span></button>}
     {sideChats && <button aria-label="展开侧边提问" onClick={() => select('sidechats')}><MessageCircleQuestion size={16}/><span>侧边提问</span></button>}
   </nav>}<aside id="project-interaction-panel" className="project-interaction-panel" aria-label="项目工作区" hidden={!active}>
     <header><span>{projectName}</span></header>
     <div className="project-interaction-tabs" role="tablist" aria-label="项目工作区内容">
-      {team && <><button id="project-ai-tab" role="tab" aria-selected={active === 'recommendations'} aria-controls="project-ai-panel" onClick={() => select('recommendations')}><Sparkles size={14}/>AI推荐{pendingRecommendations(inbox) > 0 && <span>{pendingRecommendations(inbox)}</span>}</button>
+      {team && <><button id="project-ai-tab" role="tab" aria-selected={active === 'recommendations'} aria-controls="project-ai-panel" className={"recommendation-tab" + (recommendationCount > 0 ? " has-pending" : "")} title={recommendationHint} onClick={() => select('recommendations')}><Sparkles size={16}/>AI推荐<RecommendationCount count={recommendationCount}/></button>
       <button id="project-questions-tab" role="tab" aria-selected={active === 'questions'} aria-controls="project-questions-panel" onClick={() => select('questions')}><Handshake size={14}/>寻求帮助{questionCount > 0 && <span>{questionCount}</span>}</button></>}
       {subsessions && <button id="project-subsessions-tab" role="tab" aria-selected={active === 'subsessions'} aria-controls="project-subsessions-panel" onClick={() => select('subsessions')}><Network size={14}/>子会话</button>}
       {sideChats && <button id="project-sidechats-tab" role="tab" aria-selected={active === 'sidechats'} aria-controls="project-sidechats-panel" onClick={() => select('sidechats')}><MessageCircleQuestion size={14}/>侧边提问</button>}

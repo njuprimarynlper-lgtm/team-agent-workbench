@@ -1,3 +1,4 @@
+import { passingValueReview } from './fixtures/rsi-value-review';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -75,7 +76,7 @@ test('default-on shadow analysis stays asynchronous without changing the convers
   session.resolvedModel = 'fixture-model'; // CLI has resolved the inherited default for the completed turn.
   assert.equal((await workbench.rsi.view(offlineProjectId)).config.enabled, true);
   let release!: () => void; const waiting = new Promise<void>(resolve => { release = resolve; });
-  workbench.rsi.runText = async (_s, prompt) => { await waiting; const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]); return JSON.stringify({ state: { progress: '等待测试', blockers: [], unknowns: ['F1'], evidenceIds: [data.evidence[0].id] }, suggestions: [{ title: '验证指标', action: '独立评估 F1', reason: '只有模型自述', evidenceIds: [data.evidence[0].id], conditions: [], uncertainty: '效果未知', priority: 0.8 }] }); };
+  workbench.rsi.runText = async (_s, prompt) => { const judged = passingValueReview(prompt); if (judged) return judged; await waiting; const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]); return JSON.stringify({ state: { progress: '等待测试', blockers: [], unknowns: ['F1'], evidenceIds: [data.evidence[0].id] }, suggestions: [{ title: '验证指标', action: '独立评估 F1', reason: '只有模型自述', evidenceIds: [data.evidence[0].id], conditions: [], uncertainty: '效果未知', priority: 0.8 }] }); };
   session.messages.push({ id: randomUUID(), role: 'assistant', text: '实验成功', createdAt: new Date().toISOString() });
   const before = structuredClone(session), inputs = structuredClone(workbench.store.inputs), results = structuredClone(workbench.store.conclusions);
   await workbench.rsi.completed(offlineProjectId);

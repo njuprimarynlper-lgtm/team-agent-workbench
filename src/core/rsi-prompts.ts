@@ -24,6 +24,7 @@ export function recommendationTemplate() {
       deltaIdsAndRelatedIds: 'deltaIds 是本次待分析的新增或修订材料；relatedIds 是用于理解增量的历史原文。不要把历史材料当成新进展。',
       fragmentAndCoverage: 'fragment 是字符区间 [from,to)，total 是原文总长；coverage.partial 为 true 表示还有未分析材料。缺失或未读不等于不存在，不能宣称已检查全部项目。',
       priorRecommendations: '已提出的建议及当前有效反馈。feedback 数组中 kind=accepted/rejected 表示对整条推荐的处理，supplement/feedback 是评价，outcome 是独立实际结果；eventId/decisionEventId 标识对应阶段。closed 只表示关闭。textTruncated=true 时不是完整评价，不据截断片段推断用户立场；优先查看本次原文，否则保持未知。',
+      machineReviewFeedback: '独立判断 Agent 对旧候选的机器评价，依次判断困境、帮助必要性和候选价值；不是用户反馈、项目事实或永久禁令。吸收 correction 与 reconsiderWhen 更新判断，不能把评价改写成新事实；新原文优先，truncated 为 true 时不要推断省略内容。',
       recommendationFeedback: 'feedbackTarget=recommendation 的文本用于评价推荐本身的表达、背景、证据、关注点、抽象层次、时机或价值；不是新的项目任务、正式目标或执行结果。未标记的历史反馈需要根据内容辨别评价对象，不擅自归类。',
     },
     evidenceRules,

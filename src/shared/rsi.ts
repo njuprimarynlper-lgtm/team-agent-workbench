@@ -60,6 +60,26 @@ export const rsiAnswerSchema = z.object({
   sessionStates: z.array(z.object({ sessionId: z.string(), summary: rsiSessionSummarySchema, evidenceIds: z.array(z.string()).min(1) }).strict()).default([]),
 }).strict();
 export type RsiAnswer = z.infer<typeof rsiAnswerSchema>;
+export const rsiValueGateSchema = z.object({
+  status: z.enum(['pass', 'fail', 'unknown', 'not_evaluated']),
+  reason: z.string().trim().min(1).max(600),
+  evidenceIds: z.array(z.string()).max(12), counterEvidenceIds: z.array(z.string()).max(12),
+}).strict();
+export const rsiValueVerdictSchema = z.object({
+  candidateId: z.string(), difficulty: rsiValueGateSchema, need: rsiValueGateSchema, benefit: rsiValueGateSchema,
+  correction: z.string().trim().min(1).max(600), reconsiderWhen: z.string().trim().min(1).max(400),
+}).strict();
+export type RsiValueVerdict = z.infer<typeof rsiValueVerdictSchema>;
+export interface RsiValueCandidate { candidateId: string; suggestion: RsiAnswer['suggestions'][number] }
+export interface RsiValueAttempt {
+  round: number; purpose: 'judge' | 'revise'; referenceHash: string; promptHash: string;
+  candidates: RsiValueCandidate[]; output?: string; verdicts?: RsiValueVerdict[]; error?: string;
+}
+/** Machine critique is separate from project facts, explicit user feedback and learned policies. */
+export interface RsiValueFeedback {
+  runId: string; candidateId: string; at: string; title: string; action: string;
+  evidenceIds: string[]; configHash: string; verdict: RsiValueVerdict;
+}
 export interface RsiSuggestion extends z.infer<typeof rsiSuggestionSchema> {
   id: string; runId: string; policyId: string; createdAt: string; fingerprint: string;
   sessionId: string; projectId: string;
@@ -80,7 +100,8 @@ export interface RsiRun {
   finishedAt?: string; durationMs?: number;
   status: 'running' | 'completed' | 'error' | 'interrupted'; error?: string;
   decision?: string; state?: RsiAnswer['state']; suggestions: string[]; output?: string;
-  snapshot?: { capturedAt: string; revision: number; policyHash: string; evidence: RsiEvidence[]; delta: RsiCoverage[]; reference: string; configHash: string };
+  valueReview?: { contract: 'value-v1'; referenceHash: string; attempts: RsiValueAttempt[] };
+  snapshot?: { sourceEvidenceIds?: string[]; capturedAt: string; revision: number; policyHash: string; evidence: RsiEvidence[]; delta: RsiCoverage[]; reference: string; configHash: string };
 }
 export interface RsiPolicy {
   id: string; createdAt: string; rules: RsiPolicyRules; baseId?: string;
@@ -107,6 +128,7 @@ export interface RsiEvaluation {
   caseIds: string[]; baseline: RsiScore; candidate: RsiScore;
   passed: boolean; reasons: string[]; outputs: { caseId: string; baseline: RsiAnswer; candidate: RsiAnswer }[];
   contract?: number;
+  valueReviewContract?: 'value-v1';
   policyHash?: string;
   qualityReview?: { approved: boolean; reason: string; actor: string; at: string };
 }
@@ -118,6 +140,7 @@ export interface RsiProject {
   activePolicyId: string; cases: RsiCase[]; evaluations: RsiEvaluation[]; releases: RsiRelease[];
   calls: { at: string; purpose: string; model: string }[]; lastError?: string;
   memory?: RsiMemory;
+  valueFeedback?: RsiValueFeedback[];
   learningRuns?: { inputHash: string; baseId: string; model: string; at: string; evidenceIds: string[]; feedbackIds: string[];
     prompt: string; outcome: 'candidate' | 'unchanged'; hypothesis: string; candidateId?: string }[];
   pending?: { recommendation?: { trigger: string; dueAt: number }; learning?: { dueAt: number } };
