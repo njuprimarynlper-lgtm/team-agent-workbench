@@ -119,7 +119,7 @@ try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1600, 1200));
   await call(page, 'layout.sidebar', { workgroups: 180, files: 220, sessions: 240 });
   await page.reload(); await expect(page.locator('.workgroup')).toHaveCount(4);
-  const splitter = page.getByRole('separator', { name: '调整工作组高度', exact: true });
+  const splitter = page.getByRole('separator', { name: '调整项目列表高度', exact: true });
   const box = await splitter.boundingBox(), original = await layout(page);
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2); await page.mouse.down();
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 40); await page.mouse.up();

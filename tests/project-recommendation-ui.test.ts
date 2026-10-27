@@ -12,14 +12,14 @@ test('project AI control is an accessible switch, with its own project label and
   assert.doesNotMatch(html, /type="checkbox"|保存|项目助手设置/);
 });
 
-test('only the selected project expands AI controls, while every project retains its settings action', () => {
+test('project selection exposes AI controls without a collapse action, while every project retains settings', () => {
   const props = { project: { id: 'ocr', name: 'OCR' }, select() {}, settings() {}, call: async () => { throw Error('SSR must not call IPC'); } };
-  const collapsed = renderToStaticMarkup(React.createElement(SidebarProjectItem, { ...props, selected: false }));
-  assert.match(collapsed, /aria-expanded="false"/); assert.match(collapsed, /aria-label="项目设置：OCR"/);
-  assert.doesNotMatch(collapsed, /role="switch"|AI推荐|workgroup-project-details/);
-  const expanded = renderToStaticMarkup(React.createElement(SidebarProjectItem, { ...props, selected: true }));
-  assert.match(expanded, /aria-expanded="true"/); assert.match(expanded, /aria-controls="project-controls-ocr"/);
-  assert.match(expanded, /id="project-controls-ocr"/); assert.match(expanded, /role="switch"/);
+  const unselected = renderToStaticMarkup(React.createElement(SidebarProjectItem, { ...props, selected: false }));
+  assert.match(unselected, /aria-pressed="false"/); assert.match(unselected, /aria-label="项目设置：OCR"/);
+  assert.doesNotMatch(unselected, /role="switch"|AI推荐|workgroup-project-details/);
+  const selected = renderToStaticMarkup(React.createElement(SidebarProjectItem, { ...props, selected: true }));
+  assert.match(selected, /aria-pressed="true"/); assert.doesNotMatch(selected, /aria-expanded|project-expand-icon/);
+  assert.match(selected, /id="project-controls-ocr"/); assert.match(selected, /role="switch"/);
 });
 test('admin membership dialog shows the group name without exposing the generated Linux group identifier', () => {
   const group = { name: 'wb_random_internal_7a91', label: '算法研究组', workspace: '/projects/算法研究组' };

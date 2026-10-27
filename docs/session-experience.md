@@ -67,3 +67,11 @@ Codex 百分比是“已用”，界面显示 `100 - usedPercent` 的剩余额�
 - Codex 的 reasoning/item/turn、Cursor ACP 的 thought/message/tool update、Claude stream-json 的 block/tool/result 均接入。Cursor 原生快照仅提供生成状态时，不推断工具或思考用时。观察从中途开始时标记 partial。
 - 计时随会话保存；重启在最后一次观察时刻封口，不把关机时段算进去。旧历史不追算、不改变原生会话内容。
 - 后台验证：`tests/turn-timing.test.tsx`、`tests/agents.test.ts`、`tests/claude-runtime.test.ts`、`tests/project-session-scope.test.ts`。离线无窗口 GUI 验证：`node scripts/sidebar-projects-smoke.mjs`（真实组件、合成数据，不启动工作台或调用模型）。
+
+
+## v2.2.42 项目与会话恢复分区
+
+- 项目使用看板图标；点击选中，重复点击不折叠。连接与 AI 推荐仍在当前项目名称下，设置齿轮保留。
+- 下方保留独立会话区，标注当前项目；切换项目或个人分组时更新列表及关闭历史。新建、导入、重命名、迁移和子会话入口保留。
+- 项目与会话分别滚动；恢复拖动分隔线调整项目区高度和保存偏好。旧偏好超高或窗口缩小时，仍为会话区保留空间。
+- 紧凑行高、未关闭数量、消息日期和阶段用时保持不变。
