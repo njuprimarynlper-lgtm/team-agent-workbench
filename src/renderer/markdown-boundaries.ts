@@ -4,7 +4,9 @@ import type { Plugin } from 'unified';
 // Two CommonMark/GFM edge cases in Chinese prose: bare URLs consume their CJK
 // suffix, and a closing ** after punctuation cannot close before a Han letter.
 // Reparse only the affected source spans so surrounding Markdown remains intact.
-const cjkPunctuation = /[，。；：！？、（）【】《》「」『』]/u;
+// Prose dashes delimit a bare URL just like Chinese commas. ASCII hyphens
+// remain valid URL characters; explicitly delimited links are left untouched.
+const prosePunctuation = /[，。；：！？、（）【】《》「」『』—–]/u;
 const cjkLetter = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const strandedEmphasis = /(?<!\\)\*\*[^\n]*?[。！？；：，、]\*\*(?=[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])/gu;
 // Make the closing delimiter right-flanking during parsing, then remove this
@@ -28,7 +30,7 @@ function boundary(value: string) {
   try { if (!new URL(host.startsWith('www.') ? `http://${host}` : host).hostname) return -1; }
   catch { return -1; }
   for (let index = host.length; index < value.length; index++) {
-    if (cjkPunctuation.test(value[index])) return index;
+    if (prosePunctuation.test(value[index])) return index;
     if (cjkLetter.test(value[index]) && /[a-z\d]/i.test(value[index - 1])) return index;
   }
   return -1;
@@ -38,22 +40,27 @@ export const remarkMarkdownBoundaries: Plugin<[], Root> = function () {
   const processor = this;
   return (tree, file) => {
     let source = String(file.value), parsed: Root = tree;
-    const urls: Replacement[] = [];
-    walk(parsed, node => {
-      if (node.type !== 'link') return;
-      const start = node.position?.start?.offset, end = node.position?.end?.offset;
-      if (start === undefined || end === undefined) return;
-      const literal = source.slice(start, end);
-      // An explicit [label](url) or <url> begins with a delimiter, not h/w.
-      if (!/^(?:https?:\/\/|www\.)/i.test(literal)) return;
-      const split = boundary(literal);
-      if (split <= 0 || /[<>\[\]\n]/.test(literal.slice(0, split))) return;
-      const prefix = literal.slice(0, split);
-      urls.push({ start, end: start + split, text: prefix.startsWith('www.') ? `[${prefix}](<http://${prefix}>)` : `<${prefix}>` });
-    });
-    if (urls.length) {
+    let urlsChanged = false;
+    for (;;) {
+      const urls: Replacement[] = [];
+      walk(parsed, node => {
+        if (node.type !== 'link') return;
+        const start = node.position?.start?.offset, end = node.position?.end?.offset;
+        if (start === undefined || end === undefined) return;
+        const literal = source.slice(start, end);
+        // An explicit [label](url) or <url> begins with a delimiter, not h/w.
+        if (!/^(?:https?:\/\/|www\.)/i.test(literal)) return;
+        const split = boundary(literal);
+        if (split <= 0 || /[<>\[\]\n]/.test(literal.slice(0, split))) return;
+        const prefix = literal.slice(0, split);
+        urls.push({ start, end: start + split, text: prefix.startsWith('www.') ? `[${prefix}](<http://${prefix}>)` : `<${prefix}>` });
+      });
+      if (!urls.length) break;
       source = applyReplacements(source, urls);
       parsed = processor.parse(source) as Root;
+      urlsChanged = true;
+      // GFM can swallow several prose-separated URLs into one link. Splitting
+      // the first reveals the next; normalized explicit links are never revisited.
     }
 
     const emphasis: Replacement[] = [];
@@ -72,6 +79,6 @@ export const remarkMarkdownBoundaries: Plugin<[], Root> = function () {
       parsed = processor.parse(source) as Root;
       walk(parsed, node => { if (node.type === 'text' && node.value) node.value = node.value.replaceAll(emphasisJoiner, ''); });
     }
-    if (urls.length || emphasis.length) tree.children = parsed.children;
+    if (urlsChanged || emphasis.length) tree.children = parsed.children;
   };
 };
