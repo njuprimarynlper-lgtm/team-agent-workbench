@@ -18,6 +18,22 @@ test('renders inline and display LaTeX alongside ordinary Markdown', () => {
   assert.match(render('$$\n\\frac{a}{b}\n$$'), /class="katex-display"/);
 });
 
+test('renders Chinese emphasis with punctuation around quoted text', () => {
+  const html = render('**目前还不能判断为“已经部署完整ADI平台”。**');
+  assert.match(html, /<strong>目前还不能判断为“已经部署完整ADI平台”。<\/strong>/);
+});
+
+test('renders issue 14 Chinese emphasis immediately followed by prose', () => {
+  const html = render('**目前还不能判断为“已能部署完整 ADI 平台”。**四个仓库已覆盖主要后端业务。');
+  assert.match(html, /<strong>目前还不能判断为“已能部署完整 ADI 平台”。<\/strong>四个仓库已覆盖主要后端业务。/);
+  assert.match(render('**正常加粗**后文'), /<strong>正常加粗<\/strong>后文/);
+  for (const source of [
+    '\\*\\*目前还不能判断为“已能部署完整 ADI 平台”。\\*\\*四个仓库',
+    '`**目前还不能判断为“已能部署完整 ADI 平台”。**四个仓库`',
+    '```text\n**目前还不能判断为“已能部署完整 ADI 平台”。**四个仓库\n```',
+  ]) assert.doesNotMatch(render(source), /<strong>/);
+});
+
 test('keeps LaTeX in inline and fenced code as literal source', () => {
   const html = render('`$x^2$` and `\\(x^2\\)`\n\n```text\n$$\\frac{a}{b}$$\n\\[x^2\\]\n```');
   assert.match(html, /<code>\$x\^2\$<\/code>/);

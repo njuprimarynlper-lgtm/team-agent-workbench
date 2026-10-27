@@ -2,6 +2,7 @@ import type { ComponentProps } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { remarkMarkdownBoundaries } from './markdown-boundaries';
 
 const standaloneEnvironment = /^\s*\\begin\{(equation\*?|align\*?|aligned|gather\*?|gathered|multline\*?|flalign\*?|alignat\*?|split|cases|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|array)\}/;
 
@@ -172,7 +173,7 @@ function normalizeMath(source: string) {
 export default function MathMarkdown({ remarkPlugins, rehypePlugins, children, ...props }: ComponentProps<typeof ReactMarkdown>) {
   return <ReactMarkdown
     {...props}
-    remarkPlugins={[remarkMath, ...(remarkPlugins || [])]}
+    remarkPlugins={[remarkMath, ...(remarkPlugins || []), remarkMarkdownBoundaries]}
     rehypePlugins={[rehypeKatex, ...(rehypePlugins || [])]}
   >{normalizeMath(children || '')}</ReactMarkdown>;
 }
