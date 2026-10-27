@@ -14,6 +14,8 @@ import { LocalAdminConnection } from '../src/admin/local-connection';
 import { memberProfile } from './fixtures/member-profile';
 import { projectDirectoryKey } from '../src/shared/project-directory';
 import { PERSONAL_PROJECT_ID } from '../src/shared/personal-workspace';
+import { sessionContext } from '../src/core/session-context';
+import { pendingComposerReferences } from '../src/renderer/composer-references';
 
 const brief = (background = '背景'): ProjectBrief => ({ background, objectives: '目标', acceptance: '验收', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' });
 async function fixture() {
@@ -102,6 +104,34 @@ test('legacy standalone projects still support sessions, local result editing an
     await workbench.store.init(); await workbench.restoreLocalWorkspace();
     assert.equal(workbench.snapshot().sessions[0].binding?.project.id, project.id); assert.equal(workbench.snapshot().settings.workspaceSnapshot?.profile.projects.some(item => item.id === project.id), true);
     const next = await workbench.createSession('codex', root, project.id); assert.equal(next.projectBrief?.revision, 1); assert.equal(workbench.remote.connected, false);
+  } finally { await workbench.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('new sessions get the current brief once; updates replace pending references without removing their history', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'project-brief-update-'));
+  const workbench = new Workbench(root, () => {}, () => {}, undefined, () => ({}), undefined, undefined, undefined, true);
+  try {
+    await workbench.store.init(); await workbench.restoreLocalWorkspace();
+    const project = await legacyLocalProject(workbench, '项目说明更新验证', brief('第一版背景'));
+    const first = await workbench.createSession('codex', root, project.id);
+    const old = first.sources.find(source => source.id === first.projectBrief?.sourceId)!;
+    const oldBytes = await fs.readFile(old.localPath);
+    await workbench.projectSync.save(project.id, brief('第二版背景'), 1);
+    const second = await workbench.createSession('codex', root, project.id);
+    assert.equal(second.projectBrief?.revision, 2); assert.equal(second.sources.length, 1);
+    assert.match(await fs.readFile(second.sources[0].localPath, 'utf8'), /第二版背景/);
+    await workbench.adoptLatestProjectBrief(first);
+    assert.equal(await workbench.refreshProjectContext(first.id), false);
+    assert.equal(first.sources.length, 2);
+    assert.deepEqual(await fs.readFile(old.localPath), oldBytes);
+    assert.deepEqual(pendingComposerReferences(first, [old.id]).map(item => item.source.name), ['项目说明 · v2']);
+    const input = sessionContext(first, '继续开发', [old.id]);
+    assert.deepEqual(input.sources.map(item => item.name), ['项目说明 · v2']);
+    first.nativeId = 'fixture-native';
+    first.messages.push({ id: 'sent', role: 'user', text: input.text, createdAt: '', context: { ...input.context, nativeId: first.nativeId, accepted: true } });
+    assert.equal(sessionContext(first, '继续开发', [old.id]).sources.length, 0);
+    assert.equal(pendingComposerReferences(first, [old.id]).length, 0);
+    assert.equal(sessionContext(second, '独立新会话', []).sources.length, 1, 'separate conversations need their own first reference');
   } finally { await workbench.close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 

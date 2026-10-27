@@ -46,6 +46,13 @@ try {
   await page.getByRole('textbox', { name: '会话草稿' }).fill('仍然保留我的输入');
   await page.getByRole('button', { name: '1 份资料', exact: true }).click(); await expect(tabs).toHaveCount(1); await expect(more).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: '会话草稿' })).toHaveValue('仍然保留我的输入');
+  await page.getByRole('button', { name: '连续更新项目说明', exact: true }).click();
+  await expect(tabs).toHaveCount(1); await expect(tabs).toHaveText(['项目说明 · v3']); await expect(more).toHaveCount(0);
+  await tabs.click(); await expect(panel.getByRole('checkbox')).toBeChecked(); await expect(panel.getByRole('checkbox')).toBeDisabled();
+  await page.keyboard.press('Escape'); await screenshot('project-brief-latest.png');
+  await page.getByRole('button', { name: '确认已发送', exact: true }).click();
+  await expect(tabs).toHaveCount(0); await expect(more).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: '会话草稿' })).toHaveValue('仍然保留我的输入');
   assert.deepEqual(errors, []);
-  console.log('PASS: empty/fitting/overflow rows, dynamic resize, removal, popup dismissal/focus, keyboard, preview, and draft preservation. ' + output);
+  console.log('PASS: empty/fitting/overflow rows, dynamic resize, removal, popup dismissal/focus, keyboard, preview, project brief replacement, and draft preservation. ' + output);
 } finally { await browser.close(); }

@@ -4,6 +4,20 @@ export function subsessionParentId(session: AgentSession) {
   return session.fork && !session.fork.promotedAt ? session.parentId || session.fork.parentId : undefined;
 }
 
+export function subsessionSiblings(sessions: AgentSession[], session: AgentSession) {
+  const parentId = subsessionParentId(session);
+  if (!parentId) return [];
+  return sessions.filter(value => value.purpose === 'work' && !value.closedAt && subsessionParentId(value) === parentId
+    && value.binding?.project.id === session.binding?.project.id);
+}
+
+// Keep the side pane within the newly selected parent's family. A direct child
+// click overrides this fallback with that exact child in the same UI update.
+export function childForSelectedParent(sessions: AgentSession[], parentId: string, previousId: string) {
+  const family = subsessionFamily(sessions, parentId).filter(value => value.id !== parentId && value.purpose === 'work' && !value.closedAt);
+  return family.find(value => value.id === previousId)?.id || family.find(value => subsessionParentId(value) === parentId)?.id || family[0]?.id || '';
+}
+
 // Moving any member keeps the connected family together, including preparation
 // records. A promoted branch has its own ownership and no longer follows its parent.
 export function sessionMoveFamilyIds(sessions: AgentSession[], seeds: string[]) {

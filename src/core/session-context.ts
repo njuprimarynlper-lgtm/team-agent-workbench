@@ -1,6 +1,6 @@
 import type { AgentSession, MessageContext } from '../shared/types';
 import { isConclusionSource } from '../shared/conclusion-context';
-import { acceptedSessionContext, uniqueSources } from '../shared/session-context';
+import { acceptedSessionContext, uniqueSources, withoutSupersededProjectBrief } from '../shared/session-context';
 import { managedHandoffNotice, recoverSessionContext, sourceHeader, sourceText, workRecordInstructions } from '../shared/session-context-text';
 export { workRecordInstructions } from '../shared/session-context-text';
 
@@ -32,7 +32,7 @@ export function sessionContext(s: AgentSession, userText: string, sourceIds: str
     return source;
   });
   const directoryChanged = s.directoryChange && !s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.directoryRevision === s.directoryChange!.id);
-  const sources = uniqueSources(selected).filter(f => directoryChanged || known[f.id] !== f.sha256);
+  const sources = uniqueSources(withoutSupersededProjectBrief(s, selected)).filter(f => directoryChanged || known[f.id] !== f.sha256);
   const managed = s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.text.includes(managedHandoffNotice));
   const workRecord = s.purpose === 'work' && !s.cursorNative && (!hasWorkRecord || !managed || !!directoryChanged);
   const remoteContext = remoteFork && known[remoteFork.sourceId] !== remoteFork.snapshotHash ? remoteFork.remoteContext : undefined;

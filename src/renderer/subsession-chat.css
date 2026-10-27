@@ -1,5 +1,13 @@
 .session-tree-node{min-width:0}.session-tree-children{margin-left:12px;border-left:1px solid #dce6df;padding-left:5px}.session-tree-children>.text-button{font-size:11px;padding:6px}
 .session-tree-node .session-row{min-width:0}.session-tree-node .personal-session-row>.icon{flex:none}
+.subsession-workspace,.subsession-workspace-body{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;overflow:hidden}
+.subsession-switcher{display:flex;align-items:center;gap:2px;flex:none;min-width:0;padding:5px 10px 0;border-bottom:1px solid #e0e6e2;background:#f7faf8}
+.subsession-tabs{display:flex;gap:3px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}.subsession-tabs::-webkit-scrollbar{display:none}
+.subsession-tabs>[role=tab]{display:flex;align-items:center;justify-content:flex-start;gap:5px;flex:0 0 auto;max-width:150px;min-width:40px;height:29px;padding:4px 9px;border:0;border-bottom:2px solid transparent;border-radius:5px 5px 0 0;background:transparent;color:#65776c;font-size:12px;white-space:nowrap}
+.subsession-tabs>[role=tab]:hover{background:#eaf1ed}.subsession-tabs>[role=tab][aria-selected=true]{background:#e5f1e9;color:#235a3c;border-bottom-color:#39805a;font-weight:600}
+.subsession-tab-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.subsession-tabs .session-state{flex:none}.subsession-tabs .session-state svg{width:12px;height:12px}
+.subsession-scroll{display:flex;align-items:center;justify-content:center;flex:none;width:22px;height:27px;border:0;border-radius:4px;background:transparent;color:#597b66;padding:0}.subsession-scroll:hover:not(:disabled){background:#e5eee8}.subsession-scroll:disabled{opacity:.3}
+.subsession-tabs>[role=tab]:focus-visible,.subsession-scroll:focus-visible{outline:2px solid #39805a;outline-offset:-2px}
 .subsession-chat{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
 .subsession-chat>header{padding:10px 16px;border-bottom:1px solid #e0e6e2;font-size:13px;flex:none}
 .subsession-heading{display:flex;align-items:center;gap:8px;min-width:0}

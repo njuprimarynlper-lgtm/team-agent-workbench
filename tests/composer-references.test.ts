@@ -70,6 +70,28 @@ test('duplicate snapshots share selection; automatic, removable, and already acc
   assert.equal(pendingComposerReferences(s, []).find(item => item.source.id === result.id)?.removable, false);
 });
 
+test('project updates replace pending brief tabs and stale draft selections instead of stacking versions', () => {
+  const old = { ...source('old', '/project/项目说明.md'), name: '项目说明 · v1' };
+  const latest = { ...source('latest', old.sourcePath), name: '项目说明 · v2' };
+  const other = { ...old, id: 'other-project', sourcePath: '/another/项目说明.md' };
+  const notes = { ...old, id: 'notes', name: '手动对比资料', sha256: 'notes' };
+  const s = session(old, latest, other, notes);
+  s.projectBrief = { revision: 2, sourceId: latest.id, capturedAt: '' };
+  const before = structuredClone(s);
+  assert.deepEqual(pendingComposerReferences(s, [old.id]).map(item => item.source.id), [notes.id, other.id, latest.id]);
+  const input = sessionContext(s, '继续', [old.id]);
+  assert.deepEqual(input.sources.map(item => item.id), [latest.id]);
+  assert.deepEqual(sessionContext(s, '比较资料', [old.id, other.id, notes.id]).sources.map(item => item.id), [other.id, notes.id, latest.id]);
+  assert.deepEqual(s, before, 'historical snapshots and messages remain unchanged');
+  s.messages.push({ id: 'failed', role: 'user', text: input.text, createdAt: '', context: { ...input.context, nativeId: s.nativeId!, accepted: false } });
+  assert(pendingComposerReferences(s, []).some(item => item.source.id === latest.id));
+  s.messages.push({ id: 'sent', role: 'user', text: input.text, createdAt: '', context: { ...input.context, nativeId: s.nativeId!, accepted: true } });
+  assert(!pendingComposerReferences(s, [old.id]).some(item => [old.id, latest.id].includes(item.source.id)));
+  assert.equal(sessionContext(s, '再继续', [old.id]).text, '再继续');
+  s.nativeId = 'new-native';
+  assert.deepEqual(sessionContext(s, '恢复上下文', [old.id]).sources.map(item => item.id), [latest.id]);
+});
+
 test('main and child composers keep their drafts and stable sync controls alongside a collapsed references menu', () => {
   const api = { call: async () => { throw new Error('Rendering must not read files or execute an agent'); } } as unknown as WorkbenchAPI;
   for (const child of [false, true]) {

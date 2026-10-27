@@ -18,6 +18,19 @@ export function uniqueSources(sources: SourceFile[]) {
   });
 }
 
+// Retain old frozen snapshots for history/export, but never reattach an obsolete
+// automatic project brief through a stale draft or queued input. Other files and
+// explicitly named comparison materials keep their normal selection behavior.
+export function withoutSupersededProjectBrief(session: AgentSession, sources = session.sources) {
+  const current = session.sources.find(source => source.id === session.projectBrief?.sourceId);
+  if (!current) return sources;
+  return sources.filter(source => {
+    if (source.id === current.id || source.sourcePath !== current.sourcePath) return true;
+    const revision = source.name.match(/^项目说明 · v(\d+)$/);
+    return !revision || Number(revision[1]) > session.projectBrief!.revision;
+  });
+}
+
 // An older native conversation may already have received this snapshot even when
 // the current conversation shows it as pending again.
 export function sourceWasAccepted(session: AgentSession, source: SourceFile) {
