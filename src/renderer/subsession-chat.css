@@ -16,6 +16,10 @@
 .subsession-child-list{flex:none;border-bottom:1px solid #e0e6e2;font-size:12px;color:#60796b}.subsession-child-list>summary{cursor:pointer;padding:9px 16px}
 .subsession-child-links{display:flex;flex-direction:column;gap:4px;max-height:160px;overflow:auto;padding:0 12px 8px}.subsession-child-links button{font-size:12px;justify-content:flex-start;min-width:0;padding:6px;background:transparent;border-radius:6px}.subsession-child-links button:hover{background:#edf5ef}.subsession-child-links button>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .subsession-messages{flex:1;min-height:0;overflow:auto;padding:12px 16px}.subsession-messages .message{padding:10px 0;max-width:none;font-size:13px;overflow-wrap:anywhere}.subsession-messages pre{overflow:auto;max-width:100%;white-space:pre-wrap}
+/* A tall diagram belongs to the message's vertical flow. Keep only horizontal
+   panning inside it, with an explicit paint boundary for the SVG image. */
+.subsession-messages .mermaid-diagram{contain:paint;isolation:isolate}
+.subsession-messages .mermaid-diagram-viewport{max-height:none;overflow-x:auto;overflow-y:hidden;contain:paint;overscroll-behavior-x:contain}
 .subsession-composer{padding:12px;border-top:1px solid #e0e6e2}.subsession-composer textarea{width:100%;min-height:100px;resize:vertical;max-height:35vh}.subsession-composer>.row{margin-top:8px}.subsession-empty{padding:20px;color:#718578;font-size:13px;line-height:1.7}
 .inherited-conversation{font-size:12px;margin-bottom:12px;color:#60796b}.inherited-conversation>summary{cursor:pointer;padding:6px 0}.inherited-conversation .message{opacity:.85}
 .selection-content{min-width:0}.selection-actions{position:fixed;z-index:1500;display:flex;gap:4px;padding:4px;border:1px solid #dce6df;border-radius:8px;background:white;box-shadow:0 4px 16px #26352f22}
