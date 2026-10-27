@@ -3,6 +3,7 @@ import React, { useRef, useState } from 'react';
 import type { SideChat, WorkbenchAPI } from '../shared/types';
 import { ConversationMessage } from './conversation-message';
 import { SessionTranscript } from './session-transcript';
+import { SessionTurnProgress } from './turn-timing';
 import { RequestCard } from './request-card';
 import { ArrowUp, LoaderCircle, Square } from 'lucide-react';
 import { useConversationScroll } from './conversation-scroll';
@@ -51,7 +52,7 @@ function SideChatConversation({ chat, api, changed }: { chat: SideChat; api: Wor
       {!session.messages.length && <p className="muted small">已继承创建时的上下文，可以直接提问。</p>}
       <SessionTranscript session={session} renderMessage={message => <ConversationMessage key={message.id} message={message} provider={session.provider} text={message.text}/>}/>
       {pending && <PendingSessionMessage pending={pending} messages={session.messages} session={session}/>}
-      {running && <p className="muted small" role="status"><span className="status-pulse"/>{session.status === 'approval' ? '等待你的处理' : '正在回复…'}</p>}
+      <SessionTurnProgress session={session}/>
       {!chat.expired && session.approvals.map(request => <RequestCard key={request.id} request={request} onAnswer={(option, answers) => void action(() => invoke('sidechat.answer', { requestId: request.id, option, answers }))}/>)}
       {scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}
       {failed && <button className="text-button" onClick={() => { if (currentText.current.trim() && currentText.current !== failed) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } edit(failed); setFailed(''); setError(''); }}>恢复未发送消息到输入框</button>}

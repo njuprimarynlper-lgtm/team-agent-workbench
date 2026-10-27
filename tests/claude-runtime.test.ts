@@ -53,6 +53,7 @@ test('Claude streams, requests approval and answers, then resumes the same conve
     assert.equal(session.nativeId, id);
     assert.equal(session.messages.filter(m => m.role === 'assistant').at(-1)?.text, 'continued');
     assert.equal(approvals, 2); assert.equal(questions, 2); assert.equal(done, 2);
+    assert.equal(session.turnTimings?.length, 2); assert(session.turnTimings?.every(timing => timing.finishedAt && timing.outcome === 'completed' && timing.assistantMessageIds.length));
     assert.equal(session.status, 'idle'); assert.equal(session.approvals.length, 0);
     const archive = await packageHistory(session, cwd, cwd);
     const metadata = JSON.parse(execFileSync('python', ['-c', 'import sys,zipfile; print(zipfile.ZipFile(sys.argv[1]).read("session.json").decode("utf-8"))', archive], { encoding: 'utf8' }));

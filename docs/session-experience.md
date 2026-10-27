@@ -57,3 +57,13 @@ Codex 百分比是“已用”，界面显示 `100 - usedPercent` 的剩余额�
 本次用例：`tests/preparation.test.ts` 验证停止整理不关闭原工作会话、补充与摘要保留、重试与重开；`scripts/session-experience-smoke.mjs` 验证阶段摘要默认收起且只读，以及运行中返回继续、显式停止、完成、失败和等待 CLI 确认。`scripts/smoke.mjs` 保留阶段摘要更正的保存失败恢复回归。
 
 2026-09-17 开发构建验证：90 项 Node 测试通过；`scripts/session-experience-smoke.mjs`、`scripts/preparation-permissions-smoke.mjs`、`scripts/local-smoke.mjs`、`scripts/smoke.mjs` 全部通过，包括用户/管理员窗口、两个成员共享、阶段摘要更正、后台整理、显式停止、中文失败提示、保存失败恢复和重启恢复。截图位于 `artifacts/agent-work-notes.png`、`artifacts/preparation-ready.png`、`artifacts/preparation-compact.png`。本次未重打安装包。
+
+
+## v2.2.41 项目会话树与用时
+
+- 项目展开后显示连接、AI 推荐和该项目的会话；单一滚动区域替代项目／会话分开的固定高度区域。数量与列表复用相同项目范围，只计未关闭的工作会话。
+- 用户和助手消息显示本地日期时间；正常结束的用时跟随最后一条助手回复，停止或失败且没有回复时仍能查看已记录用时。
+- `TurnTimingTracker` 以运行时收到的阶段事件计算互斥时段；并行工具按墙钟时间合计，等待授权／重连覆盖相应时段，不累加到思考。请求交给运行时后开始计时；初始化 CLI 前的准备阶段不计入。
+- Codex 的 reasoning/item/turn、Cursor ACP 的 thought/message/tool update、Claude stream-json 的 block/tool/result 均接入。Cursor 原生快照仅提供生成状态时，不推断工具或思考用时。观察从中途开始时标记 partial。
+- 计时随会话保存；重启在最后一次观察时刻封口，不把关机时段算进去。旧历史不追算、不改变原生会话内容。
+- 后台验证：`tests/turn-timing.test.tsx`、`tests/agents.test.ts`、`tests/claude-runtime.test.ts`、`tests/project-session-scope.test.ts`。离线无窗口 GUI 验证：`node scripts/sidebar-projects-smoke.mjs`（真实组件、合成数据，不启动工作台或调用模型）。

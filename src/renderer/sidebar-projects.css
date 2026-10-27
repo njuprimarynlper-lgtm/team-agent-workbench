@@ -11,7 +11,31 @@
 .sidebar .workgroup-project-row:hover .project-settings-action,.sidebar .workgroup-project-row:focus-within .project-settings-action,.sidebar .is-selected .project-settings-action{opacity:1}
 .sidebar .project-settings-action:focus-visible{outline:2px solid #287554;outline-offset:-2px}
 .sidebar .project-settings-action:has(.inline-error){opacity:1}
-.sidebar .workgroup-project-details{display:flex;align-items:flex-start;gap:8px;min-width:0;margin:3px 3px 6px 13px;padding:0 3px 0 7px;border-left:1px solid #dfe6e1}
+.sidebar .workgroup-project-details{display:block;min-width:0;margin:3px 3px 6px 13px;padding:0 0 0 7px;border-left:1px solid #dfe6e1}
+.sidebar .workgroup-project-controls{display:flex;align-items:flex-start;gap:8px;min-width:0;padding-right:3px}
+.sidebar .project-session-count{flex:none;color:#8a978d;font-size:11px;font-variant-numeric:tabular-nums;min-width:12px;text-align:right;margin-right:3px}
+.sidebar-project-tree .sidebar-project-pane{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.sidebar-project-tree .workgroup-list{height:auto;max-height:none;min-height:0;overflow:auto;flex:1}
+.sidebar .project-session-panel{min-width:0;margin:2px 0 7px}
+.sidebar .personal-section>.project-session-panel{margin-left:13px;padding-left:7px;border-left:1px solid #dfe6e1}
+.sidebar .project-session-panel .session-heading{height:28px;min-height:0;padding:0 2px 0 5px;margin:0;border:0;gap:5px}
+.sidebar .project-session-panel .session-heading h3{font-size:10px;font-weight:400;color:#8a978d}
+.sidebar .project-session-panel .session-heading .row{gap:2px}
+.sidebar .project-session-panel .session-heading .icon{width:24px;height:24px;padding:0}
+.sidebar .project-session-panel .session-list{height:auto;min-height:0;max-height:none;overflow:visible;flex:none;padding:0}
+.sidebar .project-session-panel .personal-session-row{min-width:0;margin:0;gap:1px}
+.sidebar .project-session-panel .personal-session-row>.icon{width:21px;height:25px;flex:none;padding:0}
+.sidebar .project-session-panel .session-row{min-height:28px;height:28px;padding:0 4px;margin:0;gap:6px;min-width:0;border-radius:5px}
+.sidebar .project-session-panel .session-row b{font-size:12px;font-weight:400;line-height:20px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar .project-session-panel .session-row small{display:none}
+.sidebar .project-session-panel .session-row.is-closed>span:nth-child(2){display:flex;align-items:center;gap:4px}
+.sidebar .project-session-panel .session-row.is-closed b{flex:1;min-width:0;color:#8a978d}
+.sidebar .project-session-panel .session-row.is-closed small{display:block;flex:none;font-size:9px}
+.sidebar .project-session-panel .session-name-sidebar .session-name-editor{min-height:28px;padding:1px 3px;margin:0;font-weight:400}
+.sidebar .project-session-panel .provider-icon{width:16px;height:16px;font-size:9px;flex:none}
+.sidebar .project-session-panel .session-tree-children{margin-left:10px;padding-left:5px}
+.sidebar .project-session-panel .session-tree-children>.text-button{font-size:11px;padding:4px}
+.sidebar .project-session-panel .closed-toggle,.sidebar .personal-results-link{min-height:25px;margin:2px 0 0;padding:3px 5px;font-size:11px;border:0;color:#89958c}
 .sidebar .project-connection-entry{flex:0 1 auto;width:auto;min-width:0;height:27px;margin:0;padding:0 3px;gap:5px;color:#6e8074;font-size:11px}
 .sidebar .project-connection-dot{width:5px;height:5px;flex:none;border:1px solid #97a69b;border-radius:50%}
 .sidebar .project-connection-dot.is-connected{border-color:#287554;background:#287554}

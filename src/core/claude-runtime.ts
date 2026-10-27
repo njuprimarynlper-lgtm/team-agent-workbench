@@ -8,6 +8,7 @@ import { claudeLocalSkills, claudePluginCapabilities, emptyCapabilityCatalog } f
 import { CapabilityCache } from './capability-cache';
 import { spawnCLI, stopCLI } from './rpc';
 import { CliConnectionTracker } from './cli-connection';
+import { TurnTimingTracker } from './turn-timing';
 
 const now = () => new Date().toISOString();
 export const claudeNativeMode = (mode: PermissionMode | undefined, purpose: AgentSession['purpose']) => purpose === 'prepare' || mode === 'full' ? 'bypassPermissions' : mode === 'auto' ? 'auto' : mode === 'review' ? 'manual' : undefined;
@@ -26,8 +27,9 @@ export class ClaudeRuntime {
   private currentContext?: MessageContext;
   onClosed?: () => void;
   private connection: CliConnectionTracker;
+  private timing: TurnTimingTracker;
   private capabilityCache = new CapabilityCache('claude');
-  constructor(readonly session: AgentSession, private executable: string, private hooks: AgentHooks, private networkEnv: NodeJS.ProcessEnv = {}) { this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged); }
+  constructor(readonly session: AgentSession, private executable: string, private hooks: AgentHooks, private networkEnv: NodeJS.ProcessEnv = {}) { this.timing = new TurnTimingTracker(session); this.connection = new CliConnectionTracker(session, () => { this.timing.wait('network', ['connecting', 'reconnecting', 'failed'].includes(session.cliConnection?.state || '')); hooks.changed(); }, hooks.connectionChanged); }
   get activeTurnId() { return undefined; }
   async start() {
     if (this.closed) throw new Error('CLI 连接已关闭');
@@ -63,6 +65,7 @@ export class ClaudeRuntime {
       if (metadata.context) item.context = metadata.context;
     }
     else this.session.messages.push({ id, role, text: value, createdAt: now(), ...metadata });
+    this.timing.message(item || this.session.messages.at(-1)!);
     this.hooks.changed();
   }
   private send(value: unknown) { if (!this.child || this.child.stdin.destroyed) throw new Error('CLI 连接已关闭'); this.child.stdin.write(JSON.stringify(value) + '\n'); }
@@ -79,7 +82,9 @@ export class ClaudeRuntime {
     this.currentContext = context;
     const mode = claudeNativeMode(this.session.permissionMode, this.session.purpose);
     const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio', ...(this.session.purpose === 'background' ? ['--tools', '', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence'] : []), ...(mode ? ['--permission-mode', mode] : []), ...(this.session.nativeId ? ['--resume', this.session.nativeId] : ['--session-id', plannedId]), ...(this.session.model ? ['--model', this.session.model] : [])];
-    this.message(options?.messageId || randomUUID(), 'user', nativeText, false, options ? { userText: options.userText, context } : {});
+    const messageId = options?.messageId || randomUUID();
+    this.timing.begin(messageId);
+    this.message(messageId, 'user', nativeText, false, options ? { userText: options.userText, context } : {});
     this.hooks.event({ direction: 'user', text: nativeText, ...(options ? { userText: options.userText, capabilities: context?.capabilities } : {}) });
     this.session.status = 'running'; this.session.error = undefined; this.running = true; this.finished = false; this.streamed = false; this.stderr = ''; this.replyId = randomUUID(); this.hooks.changed();
     this.connection.begin();
@@ -110,6 +115,8 @@ export class ClaudeRuntime {
   }
   private onEvent(event: any, plannedId: string) {
     if (this.closed || !event || typeof event !== 'object') return;
+    if (this.session.cliConnection?.state === 'connecting' && event.type === 'stream_event' && event.event?.type === 'content_block_start') this.timing.wait('network', false);
+    if (event.type !== 'result') { this.timing.claude(event); if (this.timing.active) this.hooks.changed(); }
     if (event.type === 'error' || event.type === 'result' && event.is_error) this.connection.error(event.error || { message: (event.errors || []).join('\n') }, false);
     if (event.type === 'system' && event.subtype === 'api_retry') this.connection.error({ message: `Retrying ${event.attempt || 1}`, statusCode: event.error_status }, true);
     if (event.type === 'assistant' && !event.error || event.type === 'stream_event' && event.event?.type === 'content_block_delta') this.connection.responded();
@@ -155,6 +162,7 @@ export class ClaudeRuntime {
       this.finished = true;
       if (typeof event.session_id === 'string') this.session.nativeId = event.session_id;
       if (typeof event.result === 'string' && !this.streamed && !this.session.messages.some(m => m.id === this.replyId)) this.message(this.replyId, 'assistant', event.result);
+      this.timing.claude(event);
       if (event.is_error) this.session.error = 'Claude Code 未完成本轮任务，请查看已返回的内容。';
       this.hooks.event({ method: 'claude/result', subtype: event.subtype, isError: event.is_error, sessionId: this.session.nativeId });
       this.hooks.changed();
@@ -170,7 +178,7 @@ export class ClaudeRuntime {
     const approval: Approval = { id, method: 'claude/can_use_tool', title: questions.length ? 'Claude Code 需要补充信息' : `Claude Code 请求使用 ${name}`, details: JSON.stringify(input, null, 2), summary: typeof input.command === 'string' ? input.command : undefined,
       options: questions.length ? [{ id: 'answer', label: '提交回答', kind: 'answer' }, { id: 'skip', label: '跳过', kind: 'deny' }] : [{ id: 'accept', label: '允许本次', kind: 'allow' }, { id: 'decline', label: '拒绝', kind: 'deny' }],
       questions: questions.length ? questions.map((q: any, i: number) => ({ id: String(i), text: String(q.question || ''), options: (q.options || []).map((o: any) => ({ id: String(o.label), label: String(o.label) })), allowMultiple: !!q.multiSelect })) : undefined };
-    this.pending.set(id, { requestId: event.request_id, input, toolName: name }); this.session.approvals.push(approval); this.session.status = 'approval'; this.hooks.changed(); this.hooks.needsApproval?.(questions.length ? 'question' : 'approval');
+    this.pending.set(id, { requestId: event.request_id, input, toolName: name }); this.session.approvals.push(approval); this.session.status = 'approval'; this.timing.wait('approval', true); this.hooks.changed(); this.hooks.needsApproval?.(questions.length ? 'question' : 'approval');
   }
   answer(id: string, option: string, answers: Record<string, string | string[]> = {}) {
     const pending = this.pending.get(id), approval = this.session.approvals.find(a => a.id === id);
@@ -191,11 +199,12 @@ export class ClaudeRuntime {
     this.send({ type: 'control_response', response: { subtype: 'success', request_id: pending.requestId, response } });
     this.hooks.event({ direction: 'user', method: 'claude/can_use_tool', toolName: pending.toolName, decision: response.behavior });
     this.pending.delete(id); this.session.approvals = this.session.approvals.filter(a => a.id !== id);
-    this.session.status = this.session.approvals.length ? 'approval' : 'running'; this.hooks.changed();
+    this.session.status = this.session.approvals.length ? 'approval' : 'running'; this.timing.wait('approval', !!this.session.approvals.length); this.hooks.changed();
   }
   async steer(_expectedTurnId: string, _text: string, _options: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'>; capabilities?: AgentCapabilityOption[] }): Promise<boolean> { throw new Error('当前 Claude Code 接入暂不支持生成中引导，请等待本轮结束后发送'); }
   private finish(error?: string) {
     if (!this.running) return;
+    this.timing.finish(error || this.session.error ? 'error' : this.session.stoppedAt ? 'stopped' : 'completed');
     const wasRunning = this.running; this.running = false; this.pending.clear(); this.session.approvals = [];
     this.currentContext = undefined;
     this.session.status = error || this.session.error ? 'error' : 'idle'; this.session.error = error || this.session.error;
@@ -203,6 +212,6 @@ export class ClaudeRuntime {
     if (error) this.hooks.authFailed?.(error);
     this.hooks.changed(); if (wasRunning) this.hooks.done();
   }
-  async cancel() { if (this.child) await stopCLI(this.child); }
-  async close() { this.closed = true; this.running = false; this.connection.stop(); if (this.child) await stopCLI(this.child); this.session.approvals = []; this.session.status = 'idle'; this.hooks.changed(); this.onClosed?.(); }
+  async cancel() { this.timing.finish('stopped'); if (this.child) await stopCLI(this.child); }
+  async close() { this.timing.finish('interrupted'); this.closed = true; this.running = false; this.connection.stop(); if (this.child) await stopCLI(this.child); this.session.approvals = []; this.session.status = 'idle'; this.hooks.changed(); this.onClosed?.(); }
 }

@@ -37,6 +37,7 @@ export interface SubsessionReportPreview { childId: string; parentId: string; ti
 export interface SideChat { id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
 export type SessionNetworkRoute = 'direct' | 'management';
 export interface AgentSession {
+  turnTimings?: import('./turn-timing').TurnTiming[];
   inputQueue?: { items: QueuedSessionInput[]; paused: boolean; error?: string };
   codexRemote?: { hostId: string; hostName: string; cwd: string; nativePath: string; home: string };
   codexDesktop?: boolean;

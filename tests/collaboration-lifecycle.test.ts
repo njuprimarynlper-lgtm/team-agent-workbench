@@ -230,11 +230,11 @@ test('one SSH identity spans groups; author revisions, admin curation, merge and
     const b = x.bob.remote.binding(x.project.id), a = x.alice.remote.binding(x.project.id), file = path.join(x.root, 'conclusion.md'); await fs.writeFile(file, '初始结论');
     await x.bob.remote.upload(b, file, b.project.uploadPath + '/结论.md', () => {}, { kind: 'contribution', title: '方案结论', description: '初始结论' });
     let item = (await x.bob.remote.contentList(b))[0];
-    item = (await x.bob.remote.contentEdit(b, { id: item.id, revision: item.revision, action: 'save', title: '补充证据', description: '原作者补充', curate: false, merge: [] }))!;
+    await assert.rejects(x.bob.remote.contentEdit(b, { id: item.id, revision: item.revision, action: 'save', title: '补充证据', description: '原作者补充', curate: false, merge: [] }), /成员不能直接修改团队成果/);
     assert.equal(item.state, 'submitted');
     item = (await x.alice.remote.contentEdit(a, { id: item.id, revision: item.revision, action: 'save', title: '项目采用结论', description: '整理后的内容', curate: true, merge: [] }))!;
     assert.equal(item.state, 'curated'); assert.equal(item.author, 'bob'); assert.equal(item.updatedBy, 'alice');
-    await assert.rejects(x.bob.remote.contentEdit(b, { id: item.id, revision: item.revision, action: 'delete', curate: false, merge: [] }), /尚未被/);
+    await assert.rejects(x.bob.remote.contentEdit(b, { id: item.id, revision: item.revision, action: 'delete', curate: false, fromPersonal: true, merge: [] }), /尚未被/);
     await assert.rejects(x.bob.remote.upload(b, file, item.path, () => {}), /自己的公共/);
     await assert.rejects(x.newbie.createSession('codex', x.root, x.project.id), /没有加入项目/);
     assert.equal(x.newbie.workspaceReady, false);
@@ -336,7 +336,7 @@ test('file replacement respects author/admin revisions and reusable text snapsho
     const replacement = await x.alice.remote.contentReplace(x.alice.remote.binding(x.project.id), change, file);
     assert.equal(replacement?.revision, 2); assert.equal(replacement?.state, 'curated');
     assert.equal((await x.bob.remote.preview(b, replacement!.path)).content, 'v2');
-    await assert.rejects(x.bob.remote.contentReplace(b, { ...change, revision: 2, curate: false }, file), /尚未被/);
+    await assert.rejects(x.bob.remote.contentReplace(b, { ...change, revision: 2, curate: false }, file), /成员不能直接修改团队成果/);
     const session = await x.bob.createSession('codex', x.root, x.project.id), source = await x.bob.attachContent(session.id, item.id);
     assert.match(await fs.readFile(source.localPath, 'utf8'), /统一口径/); assert.equal(source.sourcePath, replacement?.path);
     assert.match(await fs.readFile(source.localPath, 'utf8'), /维护人：alice/);

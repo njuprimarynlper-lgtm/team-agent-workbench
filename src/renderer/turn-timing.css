@@ -1,0 +1,16 @@
+.turn-timing-summary,.turn-progress{width:100%;max-width:var(--conversation-prose,700px);margin:0 auto 12px;color:#6c786f;font-size:12px;line-height:1.5;box-sizing:border-box}
+.turn-timing-summary>summary{display:flex;align-items:center;gap:5px;cursor:pointer;list-style:none;width:fit-content;max-width:100%;padding:3px 0}
+.turn-timing-summary>summary::-webkit-details-marker{display:none}
+.turn-timing-summary>summary>svg{flex:none;transition:transform .15s}
+.turn-timing-summary[open]>summary>svg{transform:rotate(90deg)}
+.turn-timing-details{padding:8px 12px;margin-top:4px;border-left:2px solid #dce6de;background:#f6f8f5;border-radius:0 6px 6px 0;max-width:360px}
+.turn-timing-details dl{display:grid;grid-template-columns:1fr auto;gap:4px 20px;margin:0}
+.turn-timing-details dd{margin:0;font-variant-numeric:tabular-nums}
+.turn-timing-details p{font-size:11px;margin:8px 0 0;color:#7a837c}
+.turn-progress{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 0}
+.turn-progress-clock{font-variant-numeric:tabular-nums;color:#879087;font-size:11px}
+.conversation-message .message-author time{font-variant-numeric:tabular-nums;white-space:nowrap}
+.conversation-message.assistant .message-author{display:flex;align-items:center;margin-bottom:8px;font-size:12px}
+.conversation-message.assistant .message-author b{font-size:12px;font-weight:600;color:#526658}
+.conversation-message.assistant .message-author time{margin-left:auto}
+.conversation-user-time{display:flex;justify-content:flex-end;margin:0 3px 5px;color:#879087;font-size:11px}

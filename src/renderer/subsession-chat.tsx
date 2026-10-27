@@ -8,6 +8,7 @@ import { quoteSessionText, subsessionParentId } from '../shared/subsessions';
 import { sessionMessageText } from '../shared/session-context-text';
 import { submitOptimisticInput } from './composer-input';
 import { SessionTranscript } from './session-transcript';
+import { SessionTurnProgress } from './turn-timing';
 import { SelectionActions } from './selection-actions';
 import { RequestCard } from './request-card';
 import { SessionStatusIndicator, useSessionCompletionRead } from './session-status';
@@ -49,7 +50,7 @@ export function SessionTree({ sessions, selectedId, childId, open, create, promo
     return <div className="session-tree-node" key={session.id}>
       <div className="personal-session-row">
         <button className="icon" aria-label={`展开会话菜单：${session.title}`} aria-expanded={isExpanded} onClick={() => setExpanded(value => ({ ...value, [session.id]: !isExpanded }))}>{isExpanded ? '▾' : '▸'}</button>
-        <SessionName title={session.title} variant="sidebar" save={title => rename(session.id, title)}>{begin => <button className={'session-row ' + ([selectedId, childId].includes(session.id) ? 'selected' : '')} data-session-id={session.id} title={session.title + ' · 双击修改名称'} onClick={() => open(session)} onDoubleClick={begin} onContextMenu={event => setContext({ id: session.id, anchor: contextAnchor(event), rename: begin })}><span className={'provider-icon ' + session.provider}>{session.provider === 'codex' ? 'G' : session.provider === 'cursor' ? 'C' : 'A'}</span><span><b>{session.title}</b><small>{session.closedAt ? '已关闭' : subsessionParentId(session) ? '子会话' : session.provider}</small></span><SessionStatusIndicator session={session}/></button>}</SessionName>
+        <SessionName title={session.title} variant="sidebar" save={title => rename(session.id, title)}>{begin => <button className={'session-row ' + (session.closedAt ? 'is-closed ' : '') + ([selectedId, childId].includes(session.id) ? 'selected' : '')} data-session-id={session.id} title={session.title + ' · 双击修改名称'} onClick={() => open(session)} onDoubleClick={begin} onContextMenu={event => setContext({ id: session.id, anchor: contextAnchor(event), rename: begin })}><span className={'provider-icon ' + session.provider}>{session.provider === 'codex' ? 'G' : session.provider === 'cursor' ? 'C' : 'A'}</span><span><b>{session.title}</b><small>{session.closedAt ? '已关闭' : subsessionParentId(session) ? '子会话' : session.provider}</small></span><SessionStatusIndicator session={session}/></button>}</SessionName>
         {organize?.(session)}
       </div>
       {isExpanded && <div className="session-tree-children">
@@ -140,11 +141,11 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
     {children.length > 0 && <details className="subsession-child-list"><summary>下级子会话 · {children.length}</summary><nav className="subsession-child-links" aria-label="下级子会话">{children.map(child => <button key={child.id} title={child.title} onClick={() => open(child)}><span>{child.title}</span><SessionStatusIndicator session={child}/></button>)}</nav></details>}
     <div className="subsession-messages" ref={messages} onScroll={scrolling.onScroll}>
       <SelectionActions sessionId={session.id} add={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text) }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}>
-        {session.fork && <details className="inherited-conversation" onToggle={event => { if (event.currentTarget.open && !history) void api.call<Message[]>('subsession.history', { id: session.id }).then(setHistory, reason => setError(reason.message)); }}><summary>创建时的上下文 · {new Date(session.fork.capturedAt).toLocaleTimeString('zh-CN')}{session.fork.parentWasRunning ? ' · 包含当时未完成的回复' : ''}</summary>{history ? <SessionTranscript session={{ ...session, messages: history, status: 'idle' }} renderMessage={render}/> : <p>正在读取固定快照…</p>}</details>}
+        {session.fork && <details className="inherited-conversation" onToggle={event => { if (event.currentTarget.open && !history) void api.call<Message[]>('subsession.history', { id: session.id }).then(setHistory, reason => setError(reason.message)); }}><summary>创建时的上下文 · {new Date(session.fork.capturedAt).toLocaleTimeString('zh-CN')}{session.fork.parentWasRunning ? ' · 包含当时未完成的回复' : ''}</summary>{history ? <SessionTranscript session={{ ...session, messages: history, status: 'idle', turnTimings: undefined }} renderMessage={render}/> : <p>正在读取固定快照…</p>}</details>}
         <SessionTranscript session={session} renderMessage={render}/>
       </SelectionActions>
       {pending && <PendingSessionMessage pending={pending} messages={session.messages} session={session}/>}
-      {running && <p className="muted small">本轮尚未结束。</p>}
+      <SessionTurnProgress session={session}/>
       {session.approvals.map(request => <RequestCard key={request.id} request={request} onAnswer={(option, answers) => void action(() => api.call('session.answer', { id: session.id, requestId: request.id, option, answers }))}/>)}
       {scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}
       {failed && <button className="text-button" onClick={() => { if ((current.text.trim() || current.sourceIds.length || current.capabilities?.length) && JSON.stringify(current) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } edit(session.id, failed); setFailed(undefined); setError(''); }}>恢复未发送消息到输入框</button>}{(error || session.error) && <p role="alert" className="inline-error">{error || session.error}</p>}

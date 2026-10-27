@@ -100,7 +100,7 @@ test('ordinary members can edit their local directory even when shared project s
   const withMembers = renderToStaticMarkup(createElement(ProjectSettingsDialog, { project, admin: false, contextKey: props.contextKey, directorySaved: async () => {}, briefSaved: async () => {}, close() {}, members: { groupId: 'group-test', groupLabel: '研发组', connected: false, call: async () => { throw Error('SSR must not call the server'); }, changed: async () => {} } }));
   assert.match(withMembers, /role="tab"[^>]*>成员与权限/);
   assert.match(withMembers, /管理「测试项目」的成员与角色/);
-  assert.match(withMembers, /连接中央节点后，可查看和管理成员与权限/);
+  assert.match(withMembers, /当前显示本地缓存；连接中央节点后更新成员与权限/);
   assert.equal((withMembers.match(/role="dialog"/g) || []).length, 1);
 }));
 

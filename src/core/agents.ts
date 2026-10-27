@@ -23,6 +23,7 @@ import { codexCapabilities, cursorCommandCapabilities, cursorPluginCapabilities,
 import { CliConnectionTracker } from './cli-connection';
 import type { CliConnection } from '../shared/cli-connection';
 import { codexModelUnavailableMessage } from '../shared/model-selection';
+import { TurnTimingTracker } from './turn-timing';
 export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
 const now = () => new Date().toISOString();
 export const nativeRolloutForkError = 'Codex 没有继续写原来的会话文件，已停止，避免变成两份。';
@@ -63,6 +64,7 @@ export class AgentRuntime {
   private nativeEffort?: string | null;
   private connecting?: Promise<void>;
   private connection: CliConnectionTracker;
+  private timing: TurnTimingTracker;
   private sideConnections = new Map<string, CodexSideRpc>();
   private forkOwner?: AgentRuntime;
   private forkBorrowers = new Set<AgentRuntime>();
@@ -73,7 +75,8 @@ export class AgentRuntime {
     this.capabilityCache = new CapabilityCache(session.provider);
     // Preparation has its own execution policy, including helpers saved by older builds.
     if (session.purpose === 'prepare') session.permissionMode = 'full';
-    this.connection = new CliConnectionTracker(session, hooks.changed, hooks.connectionChanged);
+    this.timing = new TurnTimingTracker(session);
+    this.connection = new CliConnectionTracker(session, () => { this.timing.wait('network', ['connecting', 'reconnecting', 'failed'].includes(session.cliConnection?.state || '')); hooks.changed(); }, hooks.connectionChanged);
     this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', { ...networkEnv, ...storage?.env }));
     if (session.provider === 'codex' && storage && !storage.sharedEndpoint && !borrowedConnection) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
@@ -91,8 +94,9 @@ export class AgentRuntime {
       if (metadata.phase) existing.phase = metadata.phase;
     }
     else this.session.messages.push({ id, role, text, createdAt: now(), ...metadata });
-    this.hooks.changed();
-    return existing || this.session.messages.at(-1)!;
+    const message = existing || this.session.messages.at(-1)!;
+    this.timing.message(message); this.hooks.changed();
+    return message;
   }
   private async connectCodex() {
     if (this.closing) throw new Error('CLI 连接已关闭');
@@ -459,7 +463,8 @@ export class AgentRuntime {
     const selected = options?.capabilities || [], prefixes = selected.filter(item => item.kind === 'skill' || this.session.provider === 'codex').map(item => this.session.provider === 'cursor' ? '/' + item.invocation : item.kind === 'skill' ? '$' + item.invocation : '@' + item.invocation);
     const nativeText = [prefixes.join(' '), text].filter(Boolean).join(' ');
     const context = options ? { ...options.context, capabilities: selected.map(({ id, kind, name }) => ({ id, kind, name })), nativeId: this.session.nativeId!, accepted: false } : undefined;
-    this.message(options?.messageId || randomUUID(), 'user', nativeText, false, options ? { userText: options.userText, context } : {});
+    const promptMessage = this.message(options?.messageId || randomUUID(), 'user', nativeText, false, options ? { userText: options.userText, context } : {});
+    this.timing.begin(promptMessage.id);
     this.hooks.event({ direction: 'user', text: nativeText, ...(options ? { userText: options.userText, capabilities: context?.capabilities } : {}) });
     this.sharedRevision++; this.turnId = undefined; this.turnActive = true; this.sharedTurnOwned = true; this.session.status = 'running'; this.session.error = undefined; this.cursorMessageId = randomUUID(); this.hooks.changed();
     this.connection.begin();
@@ -476,7 +481,7 @@ export class AgentRuntime {
             if (!this.closing && this.session.permissionMode === selectedMode) this.session.permissions = codexPermissions(actual, 'runtime');
           } catch { if (this.session.permissionMode === selectedMode) this.session.permissions = undefined; }
         }
-        if (this.turnActive) { this.turnId = result.turn.id; this.hooks.changed(); }
+        if (this.turnActive) { this.turnId = result.turn.id; this.timing.begin(promptMessage.id, result.turn.id); this.hooks.changed(); }
       } else {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, options?.submitted);
         this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
@@ -496,7 +501,9 @@ export class AgentRuntime {
       const revision = this.sharedRevision;
       void this.rpc.request('thread/read', { threadId: this.session.nativeId, includeTurns: true }, 5000).then(result => {
         if (this.closing) return;
+        const known = new Set(this.session.messages.map(message => message.id));
         this.session.messages = mergeSharedThread(this.session.messages, result.thread);
+        for (const message of this.session.messages) if (!known.has(message.id)) this.timing.message(message);
         if (revision === this.sharedRevision && ['idle', 'notLoaded'].includes(result.thread?.status?.type)) {
           this.session.desktopSyncPending = false;
           if (this.turnActive) this.finish();
@@ -532,6 +539,7 @@ export class AgentRuntime {
     } finally { this.steering = false; }
   }
   private finish(error?: string) {
+    this.timing.finish(error ? 'error' : this.session.stoppedAt ? 'stopped' : 'completed');
     this.connection.finish(error);
     const modelError = this.session.provider === 'codex' ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined;
     const completedTurn = this.turnActive; this.turnActive = false;
@@ -561,12 +569,15 @@ export class AgentRuntime {
     if (this.session.cursorNative && m.method === 'cursor/nativeSnapshot') {
       if (m.params?.sessionId !== this.session.nativeId) return;
       const snapshot = m.params.snapshot as CursorNativeSnapshot;
+      const known = new Set(this.session.messages.map(message => message.id));
       this.session.cursorSettings = snapshot.settings;
       if (snapshot.nativeHistory) {
         if (!snapshot.nativeHistory.issues.some(issue => issue.kind !== 'empty-native-checkpoint')) this.session.messages = snapshot.nativeHistory.messages;
         this.session.cursorQueue = snapshot.queue;
         if(this.session.cursorPendingSubmission&&snapshot.queue?.requests.some(request=>request.id===this.session.cursorPendingSubmission!.id))delete this.session.cursorPendingSubmission;
       } else this.session.messages = mergeCursorNativeMessages(this.session.messages, snapshot.messages);
+      if (snapshot.status === 'generating' && !this.timing.active) this.timing.begin(this.session.messages.findLast(message => message.role === 'user')?.id, undefined, true);
+      for (const message of this.session.messages) if (!known.has(message.id)) this.timing.message(message);
       if (snapshot.status === 'error') { this.finish('Cursor 原生会话出现错误，请在原生窗口查看并处理。'); return; }
       if (snapshot.status === 'generating') {
         if (!this.turnActive) this.sharedTurnOwned = false;
@@ -592,13 +603,14 @@ export class AgentRuntime {
     // Filter before archiving: shared subscriptions must not record another chat.
     if (s.provider === 'codex' && (p.threadId || p.thread?.id) && s.nativeId && (p.threadId || p.thread.id) !== s.nativeId) return;
     if (s.provider === 'cursor' && p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
-    if (method === 'workbench/approvalPendingElsewhere') { s.desktopWaitingApproval = true; this.hooks.changed(); return; }
-    if (method === 'workbench/approvalResolved') { s.desktopWaitingApproval = !!p.stillPending; this.hooks.changed(); return; }
+    if (method === 'workbench/approvalPendingElsewhere') { s.desktopWaitingApproval = true; this.timing.wait('approval', true); this.hooks.changed(); return; }
+    if (method === 'workbench/approvalResolved') { s.desktopWaitingApproval = !!p.stillPending; this.timing.wait('approval', !!p.stillPending || !!s.approvals.length); this.hooks.changed(); return; }
     if (method === 'serverRequest/resolved') {
       for (const [id, request] of this.requests) if (request.id === p.requestId) {
         this.requests.delete(id); s.approvals = s.approvals.filter(approval => approval.id !== id);
       }
       if (s.status === 'approval' && !s.approvals.length) s.status = this.turnActive ? 'running' : 'idle';
+      this.timing.wait('approval', !!s.approvals.length || !!s.desktopWaitingApproval);
       this.hooks.changed(); return;
     }
     // Only session events are archived. Account/authentication messages are never stored here.
@@ -608,6 +620,11 @@ export class AgentRuntime {
     if (s.provider === 'codex') {
       if (p.threadId && s.nativeId && p.threadId !== s.nativeId) return;
       if (p.turnId && this.turnId && p.turnId !== this.turnId) return;
+      if (method === 'turn/completed' && p.turn?.id && this.turnId && p.turn.id !== this.turnId) return;
+      if (!this.timing.active && this.turnActive && method.startsWith('item/')) this.timing.begin(s.messages.findLast(message => message.role === 'user')?.id, p.turnId, true);
+      if (s.cliConnection?.state === 'connecting' && (method === 'item/started' || method.startsWith('item/reasoning/') || method === 'item/agentMessage/delta')) this.timing.wait('network', false);
+      this.timing.codex(method, p);
+      if (this.timing.active) this.hooks.changed();
       if (method === 'item/agentMessage/delta' || method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/completed' && p.item?.type === 'agentMessage') this.connection.responded();
       if (method === 'item/started' && p.item?.type === 'agentMessage') this.message(p.item.id, 'assistant', '', true, { phase: assistantMessagePhase(p.item.phase) });
       if (method === 'item/agentMessage/delta') this.message(p.itemId, 'assistant', p.delta || '', true, { phase: assistantMessagePhase(p.phase) });
@@ -641,6 +658,10 @@ export class AgentRuntime {
     } else if (method === 'session/update') {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
       const u = p.update || {};
+      this.timing.cursor(u);
+      if (this.timing.active) this.hooks.changed();
+      if (u.sessionUpdate === 'agent_thought_chunk') this.connection.responded();
+      if (s.cliConnection?.state === 'connecting' && u.sessionUpdate === 'tool_call') this.timing.wait('network', false);
       if (u.sessionUpdate === 'available_commands_update') { this.cursorCommandsKnown = true; this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; this.capabilityCache.invalidate('skill'); for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
       if (u.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text') { this.connection.responded(); this.message(this.cursorMessageId, 'assistant', u.content.text, true); }
       if (u.sessionUpdate === 'tool_call' || u.sessionUpdate === 'tool_call_update') {
@@ -663,7 +684,7 @@ export class AgentRuntime {
     if (this.sharedCodex && p.threadId) {
       const routed = this.storage?.sharedApprovalRouting && typeof m.id === 'string' && m.id.startsWith('wb-approval:');
       if (!routed && (!this.sharedTurnOwned || !this.turnId || p.turnId && p.turnId !== this.turnId)) {
-        this.session.desktopWaitingApproval = true; this.hooks.changed(); return;
+        this.session.desktopWaitingApproval = true; this.timing.wait('approval', true); this.hooks.changed(); return;
       }
       if (routed && p.turnId) { this.turnId = p.turnId; this.sharedTurnOwned = true; }
     }
@@ -705,7 +726,7 @@ export class AgentRuntime {
     } else if (method === 'mcpServer/elicitation/request') {
       this.rpc.respond(m.id!, { action: 'decline', content: null }); this.message(randomUUID(), 'system', '已拒绝当前界面尚不支持的 MCP 表单请求。'); return;
     } else { this.rpc.reject(m.id!); this.message(randomUUID(), 'system', 'CLI 请求暂不支持，已明确返回错误：' + method); return; }
-    this.requests.set(id, m); this.session.approvals.push(approval); this.session.status = 'approval'; this.hooks.changed(); this.hooks.needsApproval?.(approval.questions ? 'question' : 'approval');
+    this.requests.set(id, m); this.session.approvals.push(approval); this.session.status = 'approval'; this.timing.wait('approval', true); this.hooks.changed(); this.hooks.needsApproval?.(approval.questions ? 'question' : 'approval');
   }
   answer(id: string, option: string, answers: Record<string, string | string[]> = {}): void | Promise<void> {
     const req = this.requests.get(id), approval = this.session.approvals.find(a => a.id === id);
@@ -716,7 +737,7 @@ export class AgentRuntime {
       if (this.closing || this.requests.get(id) !== req) throw new Error('此确认已失效');
       this.rpc.respond(req.id!, result); this.hooks.event({ direction: 'user', method: req.method, result });
       this.requests.delete(id); this.session.approvals = this.session.approvals.filter(x => x.id !== id);
-      this.session.status = this.session.approvals.length ? 'approval' : 'running'; this.hooks.changed();
+      this.session.status = this.session.approvals.length ? 'approval' : 'running'; this.timing.wait('approval', !!this.session.approvals.length || !!this.session.desktopWaitingApproval); this.hooks.changed();
     };
     const p = req.params || {}; let result: unknown;
     if (req.method === 'session/request_permission') result = { outcome: { outcome: 'selected', optionId: option } };
@@ -762,6 +783,7 @@ export class AgentRuntime {
   }
   async close() {
     if (this.closing) return;
+    this.timing.finish('interrupted');
     this.closing = true;
     await Promise.all([...this.sideConnections.values()].map(connection => connection.close()));
     const turnId = this.turnActive ? this.turnId : undefined;

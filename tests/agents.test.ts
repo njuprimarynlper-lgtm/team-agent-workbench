@@ -65,8 +65,10 @@ for (const mode of ['codex', 'cursor', 'codex-files', 'codex-double']) test(mode
     runtime.answer(s.approvals[0].id, provider === 'codex' ? 'decline' : 'reject-once');
     await prompt; await until(() => completed);
     assert.equal(s.status, 'idle'); assert.equal(s.approvals.length, 0);
+    assert.equal(s.turnTimings?.length, 1); assert.equal(s.turnTimings?.[0].outcome, 'completed');
+    assert(s.turnTimings?.[0].assistantMessageIds.length); assert(s.turnTimings?.[0].finishedAt);
     assert(events.some(e => e.direction === 'user' && e.result));
-    if (mode === 'codex-double') { await new Promise(r => setTimeout(r, 100)); assert.equal(completions, 1, 'duplicate CLI completion cannot trigger duplicate trajectory uploads'); }
+    if (mode === 'codex-double') { await new Promise(r => setTimeout(r, 100)); assert.equal(completions, 1, 'duplicate CLI completion cannot trigger duplicate trajectory uploads'); assert.equal(s.turnTimings?.length, 1); }
     if (mode === 'codex-files') {
       completed = false;
       await runtime.prompt('second turn'); await until(() => s.status === 'approval');

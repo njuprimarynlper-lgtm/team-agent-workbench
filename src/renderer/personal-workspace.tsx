@@ -19,13 +19,14 @@ export function SessionDirectorySettings({ session, call, changed }: { session: 
 type Call = <T = unknown>(action: string, payload?: unknown) => Promise<T>;
 export type MoveSelection = { sessionId?: string; groupId?: string; title: string; count: number };
 
-export function PersonalSection({ groups, sessions, active, selected, select, move, call, changed }: {
+export function PersonalSection({ groups, sessions, active, selected, select, move, call, changed, children }: {
   groups: PersonalGroup[]; sessions: AgentSession[]; active: boolean; selected: string;
   select: (id: string) => void; move: (selection: MoveSelection) => void; call: Call; changed: () => Promise<void>;
+  children?: React.ReactNode;
 }) {
   const [editing, setEditing] = useState<{ id?: string; name: string }>(), [removing, setRemoving] = useState<PersonalGroup>();
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const openSessions = sessions.filter(session => !session.closedAt);
+  const openSessions = sessions.filter(session => session.purpose === 'work' && !session.closedAt);
   const openCount = (id: string) => openSessions.filter(session => (session.personalGroupId || '') === id).length;
   // Whole-group moves also preserve closed conversations and their records.
   const count = (id: string) => sessions.filter(session => (session.personalGroupId || '') === id).length;
@@ -43,6 +44,7 @@ export function PersonalSection({ groups, sessions, active, selected, select, mo
     <div className="personal-group-row"><button className={'personal-group ' + (active && selected === '' ? 'selected' : '')} onClick={() => select('')}><Folder size={14}/><span>未分组</span><small>{openCount('')}</small></button></div>
     {groups.map(group => <div className="personal-group-row" key={group.id}><button className={'personal-group ' + (active && selected === group.id ? 'selected' : '')} onClick={() => select(group.id)}><Folder size={14}/><span>{group.name}</span><small>{openCount(group.id)}</small></button><MenuDetails className="personal-menu" onToggle={event => { const menu = event.currentTarget; if (!menu.open) return; const rect = menu.getBoundingClientRect(), popup = menu.querySelector('div')!; popup.style.top = Math.min(rect.bottom + 4, window.innerHeight - 140) + 'px'; popup.style.left = Math.max(8, rect.right - 205) + 'px'; }}><summary role="button" aria-haspopup="menu" aria-label={'管理个人分组 ' + group.name} title="分组操作"><Ellipsis size={15}/></summary><div role="menu"><button role="menuitem" onClick={event => { event.currentTarget.closest('details')!.open = false; setError(''); setEditing(group); }}><Pencil size={14}/>重命名</button><button role="menuitem" disabled={!count(group.id)} onClick={event => { event.currentTarget.closest('details')!.open = false; move({ groupId: group.id, title: group.name, count: count(group.id) }); }}><FolderInput size={14}/>整组迁移到项目</button><button role="menuitem" onClick={event => { event.currentTarget.closest('details')!.open = false; setError(''); setRemoving(group); }}><Trash2 size={14}/>解散分组</button></div></MenuDetails></div>)}
     {(editing || removing) && <div className="modal-backdrop"><section className="modal personal-dialog"><header><h2>{removing ? '解散个人分组' : editing?.id ? '重命名个人分组' : '新建个人分组'}</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={close}><X size={18}/></button></header><form onSubmit={event => { event.preventDefault(); void submit(); }}><div className="modal-body">{removing ? <p>解散“{removing.name}”后，里面的会话会回到“未分组”，会话内容保留。</p> : <label className="field">分组名称<input aria-label="个人分组名称" autoFocus maxLength={60} value={editing?.name || ''} onChange={event => setEditing({ ...editing, name: event.target.value })} placeholder="例如：日常开发、资料研究"/></label>}{error && <div className="inline-error" role="alert">{error}</div>}</div><footer><button type="button" className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || !removing && !editing?.name.trim()}>{busy ? '正在保存…' : removing ? '解散分组' : '保存分组'}</button></footer></form></section></div>}
+    {active && children}
   </section>;
 }
 
