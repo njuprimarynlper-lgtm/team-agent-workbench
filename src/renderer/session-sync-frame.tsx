@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react';
 import type { AgentSession, WorkbenchAPI } from '../shared/types';
 import { cursorSharedSessionUnavailable, isCursorFileSession } from '../shared/cursor-session-consistency';
 import { NativeDesktopControls } from './native-desktop-controls';
+import { ComposerReferenceTabs, type ComposerReferenceControls } from './composer-reference-tabs';
 
 function syncPresentation(session: AgentSession) {
   let tone = 'independent', label = '非同步会话', detail = '当前仅在工作台继续对话。';
@@ -31,8 +32,8 @@ function syncPresentation(session: AgentSession) {
 }
 
 /** The ring reflects confirmed runtime state; the switch only changes the preference. */
-export function SessionSyncFrame({ session, api, changed, locked = false, children }: {
-  session: AgentSession; api: WorkbenchAPI; changed: () => Promise<unknown>; locked?: boolean; children: React.ReactNode;
+export function SessionSyncFrame({ session, api, changed, locked = false, references, children }: {
+  session: AgentSession; api: WorkbenchAPI; changed: () => Promise<unknown>; locked?: boolean; references?: ComposerReferenceControls; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null), pending = useRef(false);
@@ -53,7 +54,7 @@ export function SessionSyncFrame({ session, api, changed, locked = false, childr
   const { tone, label, detail } = syncPresentation(session);
   const localCodex = session.provider === 'codex' && !session.codexRemote;
   const enabled = !!(session.codexDesktop || session.codexSyncRequest);
-  const active = locked || ['starting', 'running', 'approval'].includes(session.status);
+  const active = locked || !!references?.detaching || ['starting', 'running', 'approval'].includes(session.status);
   const connecting = session.desktopSyncState === 'connecting';
   const unavailable = !enabled && session.networkRoute === 'management';
   const disabled = busy || active || connecting || unavailable;
@@ -74,14 +75,17 @@ export function SessionSyncFrame({ session, api, changed, locked = false, childr
     void perform(() => api.call(action, { id: session.id }));
   };
   return <div className="session-sync-frame" data-state={tone} aria-label="输入框同步状态">
-    <button ref={trigger} type="button" className="session-sync-tab" aria-expanded={open} aria-controls={panelId} aria-label={`${label}，${localCodex ? '调整桌面同步' : '查看同步状态'}`} title={detail} onClick={() => setOpen(value => !value)}>
+    <div className="session-composer-tabs">
+    <button ref={trigger} type="button" className="session-sync-tab composer-edge-tab" aria-expanded={open} aria-controls={panelId} aria-label={`${label}，${localCodex ? '调整桌面同步' : '查看同步状态'}`} title={detail} onClick={() => setOpen(value => !value)}>
       <span className="session-sync-dot" aria-hidden="true"/><span aria-live="polite">{label}</span><ChevronDown size={12} aria-hidden="true"/>
     </button>
+    {references && <ComposerReferenceTabs session={session} api={api} controls={references} locked={locked || busy || connecting} removalLocked={active || busy || connecting} syncOpen={open} onOpen={() => setOpen(false)}/>}
     <div ref={panel} id={panelId} className="session-sync-options" role="region" aria-label="桌面同步设置" hidden={!open}>
       {localCodex && <div className="session-sync-switch-row"><span>与 Codex 桌面版同步</span><button type="button" className="session-sync-toggle" role="switch" aria-label="与 Codex 桌面版同步" aria-checked={enabled} aria-describedby={noteId} disabled={disabled} onClick={toggle}><span aria-hidden="true"/></button></div>}
       <p id={noteId} className="session-sync-note" role="status">{note}</p>
       {error && <p className="session-sync-error" role="alert">{error}</p>}
       {open && <div className="session-sync-actions"><NativeDesktopControls session={session} run={perform} showStatus={false}/></div>}
+    </div>
     </div>
     {children}
   </div>;

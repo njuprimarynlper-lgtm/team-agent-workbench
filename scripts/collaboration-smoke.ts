@@ -1,3 +1,4 @@
+import { expectComposerReference } from './composer-reference-smoke.mjs';
 import { _electron as electron, expect as baseExpect, type ElectronApplication, type Page } from '@playwright/test';
 import electronPath from 'electron';
 import { spawn } from 'node:child_process';
@@ -116,7 +117,7 @@ try {
   await expect(bp.locator('.result-card.is-expanded').getByRole('button', { name: '下载', exact: true })).toHaveCount(0);
   await expect(bp.locator('.result-card.is-expanded')).not.toContainText('已整理');
   await bp.locator('.result-card.is-expanded').getByRole('button', { name: '加入会话', exact: true }).click(); await bp.getByLabel('选择会话：新会话').check(); await bp.getByRole('button', { name: '加入 1 个会话', exact: true }).click(); await expect(bp.locator('.toast').filter({ hasText: '加入会话：新会话' })).toBeVisible(); await bp.getByTitle('工作会话', { exact: true }).click();
-  await expect(bp.locator('.source-chips')).toContainText('Alice 统一整理的结论 · v1');
+  await expectComposerReference(bp, 'Alice 统一整理的结论 · v1');
   const snapshot = await call(bp, 'snapshot'), reference = snapshot.sessions[0].sources.find((s: any) => s.name.includes('Alice 统一整理的结论') && s.name.endsWith('· v1'));
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));

@@ -1,3 +1,4 @@
+import { expectComposerReference } from './composer-reference-smoke.mjs';
 import { _electron as electron, expect as baseExpect, type ElectronApplication, type Page } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -68,7 +69,7 @@ async function main() {
     await expect(b.page.getByLabel('任务输入', { exact: true })).toHaveValue(/分析 OCR/);
     let snapshot = await call(b.page, 'snapshot'); const working = snapshot.sessions.find((item: any) => item.assignment);
     assert(working); assert.equal(working.binding.project.id, project.id); assert.equal(working.messages.length, 0); assert.equal(working.assignment.sourceIds.length, 2);
-    await expect(b.page.locator('.source-chips')).toContainText('派发时 v1');
+    await expectComposerReference(b.page, '派发时 v1');
     await b.page.getByRole('button', { name: '我的任务', exact: true }).click(); await b.page.getByRole('button', { name: '继续工作', exact: true }).click();
     assert.equal((await call(b.page, 'snapshot')).sessions.length, 2);
     await b.page.getByRole('button', { name: '我的任务', exact: true }).click(); await b.page.getByRole('button', { name: '提交验收', exact: true }).click();

@@ -55,3 +55,11 @@ export async function previewSessionFile(session: AgentSession, input: string): 
   try { const buffer = Buffer.alloc(Math.min(limit, stat.size)); const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0); return { name, path: target, type: 'text', size: stat.size, truncated: stat.size > limit, content: buffer.subarray(0, bytesRead).toString('utf8') }; }
   finally { await handle.close(); }
 }
+
+// Reference snapshots live outside cwd. Only a source ID belonging to this
+// session can select one; arbitrary client-supplied paths are never accepted.
+export async function previewSessionSource(session: AgentSession, sourceId: string): Promise<FilePreview> {
+  const source = session.sources.find(item => item.id === sourceId);
+  if (!source) throw new Error('参考资料不属于此会话，或已撤销加入');
+  return { ...await previewSessionFile({ cwd: path.dirname(source.localPath), outputFiles: [], messages: [] } as unknown as AgentSession, source.localPath), name: source.name };
+}

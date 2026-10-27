@@ -1,3 +1,4 @@
+import { expectSelectedComposerReferences } from './composer-reference-smoke.mjs';
 import { expect } from '@playwright/test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -16,10 +17,10 @@ export async function usabilityCases({ page, app, data, auth, profile }) {
   await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }); }, source);
   await page.getByRole('button', { name: '添加本地参考文件', exact: true }).click();
   // Project briefs are fixed references; these assertions concern the user's selected attachment.
-  await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(1);
+  await expectSelectedComposerReferences(page, 1);
   await select(b.id); await input.fill('B 独立输入'); await select(a.id);
-  await expect(input).toHaveValue('A 独立输入'); await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(1);
-  await select(b.id); await expect(input).toHaveValue('B 独立输入'); await expect(page.locator('.source-chips .selected:not(:disabled)')).toHaveCount(0);
+  await expect(input).toHaveValue('A 独立输入'); await expectSelectedComposerReferences(page, 1);
+  await select(b.id); await expect(input).toHaveValue('B 独立输入'); await expectSelectedComposerReferences(page, 0);
   // Failed asynchronous B request must leave both A and B text untouched.
   // Long enough that the assertion below still observes the pending check on a slow machine.
   await auth.write({ status: 'network', delay: 8000 });

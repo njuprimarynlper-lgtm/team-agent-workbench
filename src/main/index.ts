@@ -34,7 +34,7 @@ import type { WorkbenchEvent } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
 import { projectOrganizationSchema } from '../shared/project-organization';
 import { assignmentAllFiles, assignmentCreateSchema, assignmentStatusSchema } from '../shared/assignments';
-import { checkedSessionFile, listSessionFiles, previewSessionFile } from '../core/session-files';
+import { checkedSessionFile, listSessionFiles, previewSessionFile, previewSessionSource } from '../core/session-files';
 import { ServerIdentityStore } from '../core/server-identities';
 import { EgressClientProxy } from '../core/egress';
 import { decodeEgressInvite, userEgressInputSchema } from '../core/egress-config';
@@ -419,6 +419,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid() }).parse(raw); return workbench.attachContent(p.id, p.contentId); }
     case 'session.attachConclusion': { const p = z.object({ id, conclusionId: z.string().uuid() }).parse(raw); return workbench.attachConclusion(p.id, p.conclusionId); }
     case 'session.detachPendingSource': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return workbench.detachPendingSource(p.id, p.sourceId); }
+    case 'session.source.preview': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return previewSessionSource(workbench.session(p.id), p.sourceId); }
     case 'session.projectContext': return workbench.refreshProjectContext(sessionInput.parse(raw).id);
     case 'draft.revise': return workbench.reviseDraft(sessionInput.parse(raw).id);
     case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }

@@ -1,3 +1,4 @@
+import { expectComposerReference } from './composer-reference-smoke.mjs';
 import { offlineSettings, offlineProjectId } from '../tests/fixtures/offline-workspace.mjs';
 import { _electron as electron, expect } from '@playwright/test';
 import assert from 'node:assert/strict';
@@ -39,7 +40,7 @@ try {
   const dialog = page.getByRole('heading', { name: '引用其他会话的阶段摘要' }).locator('..').locator('..');
   await expect(dialog.getByText('接口方案已确认。')).toBeVisible();
   await dialog.getByRole('button', { name: '加入当前会话' }).click();
-  await expect(page.getByLabel('待发送的参考资料')).toContainText('会话摘要 · 接口方案');
+  await expectComposerReference(page, '会话摘要 · 接口方案');
   await assert.rejects(call('session.autoUpload', { id: second.id, enabled: true }), /个人会话内容/);
   await page.getByRole('button', { name: '轨迹上传' }).click();
   await expect(page.getByText('轨迹可能含有相关对话内容', { exact: false })).toBeVisible();
@@ -74,7 +75,7 @@ try {
   const reportDetail = page.getByRole('dialog', { name: /方案 A · 回报 v1/ });
   await expect(reportDetail).toContainText('方案 A 的验证尚未完成');
   await reportDetail.getByRole('button', { name: '加入父会话待发送内容' }).click();
-  await expect(page.getByLabel('待发送的参考资料')).toContainText('方案 A · 回报 v1');
+  await expectComposerReference(page, '方案 A · 回报 v1');
   const afterAttach = await call('snapshot');
   assert.equal(afterAttach.sessions.find(item => item.id === second.id).messages.length, after.sessions.find(item => item.id === second.id).messages.length, 'reviewing a report does not send a model turn');
   const childB = await call('subsession.create', { parentId: second.id, focus: '方案 B' });

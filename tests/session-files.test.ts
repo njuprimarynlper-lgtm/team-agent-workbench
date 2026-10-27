@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { checkedSessionFile, listSessionFiles, previewSessionFile, sessionFilePath } from '../src/core/session-files';
+import { checkedSessionFile, listSessionFiles, previewSessionFile, previewSessionSource, sessionFilePath } from '../src/core/session-files';
 import type { AgentSession } from '../src/shared/types';
 
 test('session output files resolve Markdown links, paths with spaces, line numbers and legacy file changes', async () => {
@@ -24,4 +24,16 @@ test('session output files resolve Markdown links, paths with spaces, line numbe
     for (const target of ['javascript:alert(1)', 'https://example.com/a', '\\\\server\\share\\file.md', 'file://server/share/file.md']) assert.throws(() => sessionFilePath(session, target));
     await fs.unlink(source); assert.equal((await listSessionFiles(session)).length, 1);
   } finally { assert(root.startsWith(path.join(os.tmpdir(), 'wb-files-'))); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('reference preview reads only this session’s frozen source by ID, including local snapshots for remote sessions', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-source-preview-'));
+  try {
+    const snapshot = path.join(root, 'snapshot.md'); await fs.writeFile(snapshot, '# Frozen result\nEvidence');
+    const s = { cwd: path.join(root, 'workspace'), sources: [{ id: 'source-1', localPath: snapshot, name: '实验记录 · v1' }], messages: [], codexRemote: { hostName: 'other-host' } } as unknown as AgentSession;
+    const value = await previewSessionSource(s, 'source-1');
+    assert.equal(value.name, '实验记录 · v1'); assert.equal(value.type, 'text'); assert.match(value.content, /Frozen result/);
+    for (const id of ['another-session-source', snapshot, '../snapshot.md']) await assert.rejects(previewSessionSource(s, id), /不属于此会话/);
+    s.sources = []; await assert.rejects(previewSessionSource(s, 'source-1'), /已撤销/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
