@@ -10,19 +10,30 @@ import { sessionContext } from '../src/core/session-context';
 const source = (id: string, sourcePath = '/team/' + id): SourceFile => ({ id, sourcePath, name: id, localPath: '/snapshots/' + id + '.md', sha256: id, size: 4, fetchedAt: '' });
 const session = (...sources: SourceFile[]): AgentSession => ({ id: 's', nativeId: 'native', purpose: 'work', provider: 'codex', title: '', cwd: '/project', createdAt: '', status: 'idle', handoffPath: '', messages: [], approvals: [], sources, autoUpload: false });
 
-test('narrow and wide layouts reserve More, overlap both waists, and never grow titles to fill unused space', () => {
+test('More takes space only when needed, overlapping waists and bounded title widths remain stable', () => {
   assert.equal(referenceTabMetrics.overlap, referenceTabMetrics.waist * 2);
   for (let available = 116; available <= 2400; available += 7) for (const count of [0, 1, 2, 6, 30, 100]) {
     const layout = composerReferenceLayout(available, count);
     assert(layout.occupied <= available);
     assert.equal(layout.visible + layout.hidden, count);
     if (layout.visible) assert(layout.width >= referenceTabMetrics.minimum && layout.width <= referenceTabMetrics.maximum);
-    assert.equal(layout.occupied - layout.visible * (layout.width - referenceTabMetrics.overlap), referenceTabMetrics.more);
+    assert.equal(layout.occupied - layout.visible * (layout.width - referenceTabMetrics.overlap), layout.hidden ? referenceTabMetrics.more : count ? referenceTabMetrics.overlap : 0);
+    if (count * (referenceTabMetrics.minimum - referenceTabMetrics.overlap) + referenceTabMetrics.overlap <= available) assert.equal(layout.hidden, 0);
   }
   assert.equal(composerReferenceLayout(170, 6).visible, 0);
   assert.equal(composerReferenceLayout(196, 6).visible, 1);
   assert.equal(composerReferenceLayout(900, 1).width, 180);
   for (const width of [0, -1, NaN, Infinity]) assert.equal(composerReferenceLayout(width, 6).visible, 0);
+});
+
+test('the exact fitting boundary removes More instead of using its reserved width to create overflow', () => {
+  assert.deepEqual(composerReferenceLayout(500, 0), { visible: 0, hidden: 0, width: 0, occupied: 0 });
+  for (const count of [1, 2, 3, 8]) {
+    const boundary = 120 + (count - 1) * 80;
+    assert.equal(composerReferenceLayout(boundary - 1, count).hidden > 0, true);
+    assert.equal(composerReferenceLayout(boundary, count).hidden, 0);
+    assert.equal(composerReferenceLayout(boundary, count).occupied, boundary);
+  }
 });
 
 test('shrinking reveals the newest sources from the right without modifying selection or execution inputs', () => {
@@ -73,4 +84,13 @@ test('main and child composers keep their drafts and stable sync controls alongs
     assert.match(html, /<textarea>keep draft<\/textarea>/);
     assert(html.indexOf('session-sync-tab') < html.indexOf('composer-references'));
   }
+});
+
+test('an empty composer has no More tab or disabled placeholder', () => {
+  const html = renderToStaticMarkup(React.createElement(SessionSyncFrame, {
+    session: session(), api: {} as WorkbenchAPI, changed: async () => {}, references: { sourceIds: [], select: () => {}, detach: async () => {} },
+    children: React.createElement('textarea', { defaultValue: 'keep draft' }),
+  }));
+  assert.doesNotMatch(html, /composer-reference-more|更多参考资料/);
+  assert.match(html, /session-sync-tab/); assert.match(html, /<textarea>keep draft<\/textarea>/);
 });

@@ -40,7 +40,6 @@
 .composer-reference-tab+.composer-reference-tab,.composer-reference-tab+.composer-reference-more{margin-left:calc(0px - var(--tab-overlap))}
 .composer-reference-more{flex:0 0 116px;padding-inline:28px;gap:6px;z-index:25}
 .composer-reference-more>span,.composer-reference-more>svg{flex:none}
-.composer-reference-more:disabled{opacity:.6}
 .composer-reference-panel{position:absolute;z-index:30;right:0;bottom:calc(100% + 8px);width:360px;max-width:100%;max-height:min(430px,55vh);overflow:auto;border:1px solid #dce3df;border-radius:10px;padding:8px;background:#fff;color:#26352f;box-shadow:0 5px 18px #20382a20;font-size:12px}
 .composer-reference-panel>header{display:flex;align-items:center;gap:8px;padding:2px 3px 7px}
 .composer-reference-panel>header b{flex:1;min-width:0;font-size:12px;font-weight:550;overflow-wrap:anywhere}

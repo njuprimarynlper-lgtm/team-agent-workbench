@@ -49,7 +49,7 @@ try {
   const conclusion = await call('conclusion.create', { projectId: profile.projects[0].id, title: 'OCR 识别约束', content: 'OCR 识别需要补齐低清晰度扫描件样本，下一步应该先核对验收目标。' });
   await page.locator(`.session-row[data-session-id="${seeds[0].id}"]`).click();
   const unsent = await call('session.attachConclusion', { id: seeds[0].id, conclusionId: conclusion.id });
-  await openComposerReferences(page);
+  await openComposerReferences(page, 'OCR 识别约束');
   await expect(page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ })).toBeVisible();
   await page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ }).click();
   await expect(page.getByRole('button', { name: /撤销加入：.*OCR 识别约束/ })).toHaveCount(0);

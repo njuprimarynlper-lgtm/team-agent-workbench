@@ -753,9 +753,23 @@
     {
       "updated_at": "2026-10-27T15:31:27+08:00",
       "base_commit": "6577a4c78501940d9184493474a32de89bdd6261",
-      "document_commit": null,
+      "document_commit": "562c7dc64ce965af26f86164316651b8972a2f12",
       "summary": "更新 HTML 手册",
       "content_sha256": "1eb00ffc3ee93591ce17ee23b96d24f2a0ee73726641cb45d0897c71337b6d57"
+    },
+    {
+      "updated_at": "2026-10-27T15:44:33+08:00",
+      "base_commit": "562c7dc64ce965af26f86164316651b8972a2f12",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "224dff68c7282a3f5c3d52d2f31ff2a718e9919a5b9c7ab97891fa39320c2b34"
+    },
+    {
+      "updated_at": "2026-10-27T15:48:45+08:00",
+      "base_commit": "562c7dc64ce965af26f86164316651b8972a2f12",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "ad746c055434fa682c61d0a7db3d8015b5483fc303f6f845945cb2cf02f750cf"
     }
   ]
 }
