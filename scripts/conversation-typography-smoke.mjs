@@ -15,6 +15,8 @@ const exampleIndex = process.argv.indexOf('--example');
 const example = exampleIndex >= 0 ? JSON.parse(await fs.readFile(process.argv[exampleIndex + 1], 'utf8')) : undefined;
 const prose = `这轮验证已完成，**保留达标基线**。候选方案的精度已通过，速度仍需单独测量。
 
+参考 https://example.com/report，**目前还不能判断为“已能部署完整 ADI 平台”。**四个仓库已覆盖主要后端业务。
+
 接下来在相同环境中比较耗时，避免把不同设备的结果直接放在一起。
 
 ## 验证结果
@@ -90,7 +92,7 @@ import 'katex/dist/katex.min.css';
 import ${modulePath('src/renderer/conversation-typography.css')};
 const prose=${JSON.stringify(prose)}, example=${JSON.stringify(example || null)};
 const date='2026-10-22T00:00:00Z';
-const user={id:'u',role:'user',text:'比较目前的结果，并说明下一步怎么做。',createdAt:date};
+const user={id:'u',role:'user',text:'比较目前的结果，参考 https://example.com/report，之后说明下一步怎么做。',createdAt:date};
 const assistant={id:'a',role:'assistant',text:prose,createdAt:date};
 const tool={id:'t',role:'tool',text:'Read validation.json\\n{"accuracy":"passed"}',createdAt:date};
 const base={id:'fixture',title:'排版预览',provider:'codex',purpose:'work',cwd:'/fixture',status:'idle',sources:[],approvals:[]};
@@ -164,6 +166,9 @@ window.renderFixture();
   assert.equal(wide.composer.width, 700); assert(Math.abs(wide.composer.x - wide.prose.x) <= 1);
   assert(wide.bubble.width < wide.bubble.columnWidth && Math.abs(wide.bubble.right - wide.bubble.columnRight) <= 1);
   assert.equal(wide.font, '14px'); assert(wide.sectionGap > wide.gap && wide.gap > wide.listGap);
+  assert.equal(await main.locator('.user .markdown a').innerText(), 'https://example.com/report');
+  assert.equal(await main.locator('.assistant .markdown a').innerText(), 'https://example.com/report');
+  assert.equal(await main.locator('.assistant .markdown strong').filter({hasText:'目前还不能判断为“已能部署完整 ADI 平台”。'}).count(), 1);
   assert.equal(await main.locator('.assistant > .message-surface > .message-author').count(), 0);
   assert.equal(await main.locator('.conversation-message-footer time').count(), 1);
   assert.equal(await page.locator('#document-preview .markdown').evaluate(el=>getComputedStyle(el).lineHeight), '24.7px');
