@@ -50,6 +50,37 @@ test('joining mid-turn hydrates a prefix, replays authoritative completion, and 
   try { await f.runtime.ensureStarted(); assert.deepEqual(f.session.messages.map(m => m.text), ['prefix tail']); assert.equal(f.session.status, 'idle'); assert.equal(f.session.desktopSyncPending, false); }
   finally { await f.runtime.close(); }
 });
+
+test('a detached history resumes its exact private snapshot and forks before the next model turn', async () => {
+  const f=setup(),snapshot='C:/private/sessions/detached/rollout-thread.jsonl',fork='C:/private/sessions/rollout-child.jsonl';
+  delete f.session.codexDesktop;f.session.nativeLive=false;f.session.codexStorage='workbench';f.session.codexPrivateFork=true;
+  (f.runtime as any).storage={home:'C:/private',sourceHome:'C:/fixture',args:[],env:{},resumePath:snapshot};
+  const request=f.rpc.request.bind(f.rpc);
+  f.rpc.request=async(method,params)=>{
+    if(method==='thread/resume'||method==='thread/fork'){
+      f.rpc.calls.push({method,params});
+      return {thread:{id:method==='thread/resume'?'thread':'child',path:method==='thread/resume'?snapshot:fork},...f.rpc.policy};
+    }
+    return request(method,params);
+  };
+  try{
+    await f.runtime.ensureStarted();assert.equal(f.session.nativeId,'child');assert.equal(f.session.nativeSourceId,'thread');assert.equal(f.session.codexPrivateFork,undefined);
+    assert.equal(f.rpc.calls.find(c=>c.method==='thread/resume')!.params.path,snapshot);
+    assert.equal(f.rpc.calls.find(c=>c.method==='thread/fork')!.params.threadId,'thread');
+    assert.equal(f.rpc.calls.filter(c=>c.method==='turn/start').length,0);
+    await f.runtime.prompt('继续工作');assert.equal(f.rpc.calls.find(c=>c.method==='turn/start')!.params.threadId,'child');
+    assert.equal(f.session.nativePath,fork);assert.equal(f.rpc.calls.filter(c=>c.method==='thread/start').length,0);
+  }finally{await f.runtime.close();}
+});
+
+test('private continuation refuses a stale resume path instead of writing to the original desktop thread',async()=>{
+  const f=setup();delete f.session.codexDesktop;f.session.nativeLive=false;f.session.codexPrivateFork=true;
+  (f.runtime as any).storage={home:'C:/private',sourceHome:'C:/fixture',args:[],env:{},resumePath:'C:/private/frozen.jsonl'};
+  try{
+    await assert.rejects(f.runtime.ensureStarted(),/未能核对独立副本/);
+    assert.equal(f.rpc.calls.filter(c=>['thread/fork','turn/start'].includes(c.method)).length,0);assert.equal(f.session.nativeId,'thread');
+  }finally{await f.runtime.close();}
+});
 test('an idle authoritative snapshot releases a joined turn even if its completion notification was missed', async () => {
   const f = setup();
   try { await f.runtime.ensureStarted(); assert.equal(f.session.status, 'idle'); assert.equal(f.session.desktopSyncPending, false); }

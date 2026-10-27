@@ -8,7 +8,7 @@ import type { AgentSession } from '../shared/types';
 import type { AgentRpc } from './rpc';
 import { sameNativePath } from './native-transcript';
 import { readCodexDesktopBridge } from './codex-desktop-bridge';
-import { codexRolloutPath, copyCodexRollout } from './codex-rollout';
+import { codexRolloutPath, copyCodexRollout, existingCodexRollout } from './codex-rollout';
 
 export interface CodexStorage { home: string; sourceHome: string; args: string[]; env: NodeJS.ProcessEnv; resumePath?: string; sharedEndpoint?: string; sharedApprovalRouting?: boolean; }
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return !!rel && !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep); };
@@ -138,8 +138,9 @@ export async function prepareCodexStorage(root: string, session: AgentSession, s
     // Keep resuming its actual file on later attempts, including after
     // compression. Already registered threads still resume by ID, letting the
     // native index choose the current record after a revert or relocation.
-    resumePath = await findCodexRollout(home, session.nativeId);
-    if (!resumePath) throw new Error('工作台中的原会话记录未找到；请从保留的旧目录恢复对应 Codex 历史后重试');
+    resumePath = session.codexPrivateFork && session.nativePath && inside(home, session.nativePath)
+      ? await existingCodexRollout(session.nativePath) : await findCodexRollout(home, session.nativeId);
+    if (!resumePath || !(await fs.stat(resumePath).catch(() => undefined))?.isFile()) throw new Error('工作台中的原会话记录未找到；请从保留的旧目录恢复对应 Codex 历史后重试');
   }
   // Existing workbench sessions keep the full native history; only copy their own rollout.
   // Leave the original intact: removing entries from the desktop is a separate user action.

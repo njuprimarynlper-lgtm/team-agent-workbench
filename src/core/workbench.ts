@@ -41,6 +41,7 @@ import { TransferQueue } from './transfers';
 import { AgentRuntime, clearStoppedNativeFork } from './agents';
 import { ClaudeRuntime } from './claude-runtime';
 import { findCodexRollout, prepareCodexStorage } from './codex-storage';
+import { snapshotDesktopRollout } from './native-publish';
 import { codexForkError } from './codex-fork';
 import { existingCodexRollout } from './codex-rollout';
 import { CodexRemoteService, type CodexRemoteIntegration, type RemoteImportSource } from './codex-remote-sessions';
@@ -2350,11 +2351,21 @@ export class Workbench {
     if (session.networkRoute === 'management') throw new Error('当前使用管理端访问，暂不支持桌面同步');
     if (this.attachingCodex.has(id) || this.sending.has(id) || this.steering.has(id) || this.stoppingSessions.has(id) || this.changingSettings.has(id) || this.runtimeJobs.has(id) || ['starting', 'running', 'approval'].includes(session.status)) throw new Error('请等当前会话操作结束后再同步');
     if (session.codexDesktop) return session.desktopSyncState === 'connected' ? session : this.reconnectCodexDesktop(id);
-    const previous = structuredClone(session);
+    let previous = structuredClone(session);
     let committed = false, privateReleased = false;
     this.attachingCodex.add(id); this.sending.add(id); this.changingSettings.add(id);
     session.status = 'starting'; session.desktopSyncState = 'connecting'; session.desktopSyncError = undefined; session.error = undefined; this.broadcast();
     try {
+      if (session.codexPrivateFork) {
+        // Turning sync back on must publish the frozen branch, even if the old
+        // desktop conversation has progressed independently in the meantime.
+        await this.requireAuth(session.provider, session.cwd, session.networkRoute);
+        const independent = await this.runtime(session, true); await independent.ensureStarted();
+        if (session.codexPrivateFork) throw new Error('尚未建立工作台独立会话，请稍后重试同步');
+        previous = structuredClone(session);
+        previous.status = 'idle'; delete previous.desktopSyncState; delete previous.desktopSyncError;
+        await this.store.save();
+      }
       if (!await this.codexDesktop.readyToPrepare()) throw new CodexDesktopRestartRequired();
       // No new writer can start while the private runtime flushes its last turn.
       const runtime = this.runtimes.get(id);
@@ -2393,6 +2404,49 @@ export class Workbench {
       }
       session.desktopSyncError = error.message;
       await this.store.save(); throw error;
+    } finally {
+      this.attachingCodex.delete(id); this.sending.delete(id); this.changingSettings.delete(id); this.broadcast();
+    }
+  }
+  async disableCodexDesktop(id: string) {
+    const session = this.session(id); this.assertCanWork(session.binding);
+    if (session.provider !== 'codex' || session.purpose !== 'work' || session.codexRemote) throw new Error('只有本机 Codex 工作会话可以关闭桌面同步');
+    if (session.closedAt) throw new Error('此会话已关闭，请先重新打开');
+    if (this.closing || this.attachingCodex.has(id) || this.sending.has(id) || this.steering.has(id) || this.stoppingSessions.has(id) || this.changingSettings.has(id) || this.runtimeJobs.has(id) || ['starting', 'running', 'approval'].includes(session.status)) throw new Error('请等当前会话操作结束后再关闭同步');
+    if (!session.codexDesktop) { if (session.codexSyncRequest) await this.cancelCodexSync(id); return session; }
+    const previous = structuredClone(session);
+    let snapshot: string | undefined;
+    let released = false, mutated = false;
+    this.attachingCodex.add(id); this.sending.add(id); this.changingSettings.add(id);
+    try {
+      // This recovery path requires neither an installed desktop nor a model
+      // connection. An existing history must be frozen in full before detaching.
+      snapshot = await snapshotDesktopRollout(session, path.join(this.store.root, 'codex-home'), this.codexDesktop.sourceHome || codexHome());
+      if (['starting', 'running', 'approval'].includes(session.status)) throw new Error('Codex 中的回复尚未结束，请结束后再关闭同步');
+      const runtime = this.runtimes.get(id);
+      if (runtime) { this.runtimes.delete(id); released = true; await runtime.close(); }
+      if (this.closing) throw new Error('工作台正在关闭，请重新打开后再修改同步设置');
+      mutated = true;
+      if (snapshot) {
+        session.nativeSourceId ||= session.nativeId;
+        session.nativePath = snapshot; session.codexPrivateFork = true;
+      }
+      session.nativeLive = false; session.codexStorage = 'workbench';
+      delete session.codexDesktop; delete session.codexSyncRequest; delete session.codexNeedsRegistration;
+      delete session.desktopSyncState; delete session.desktopSyncError; delete session.desktopSyncPending; delete session.desktopWaitingApproval;
+      session.status = 'idle'; session.error = undefined; session.approvals = [];
+      await this.store.save();
+      this.ensureNativeTranscriptSync();
+      return session;
+    } catch (error) {
+      // Restore only connection ownership; drafts, queue entries and user edits
+      // can change while the file operation awaits and must not be rolled back.
+      if (released || mutated) for (const key of ['codexDesktop', 'codexSyncRequest', 'codexStorage', 'codexNeedsRegistration', 'codexPrivateFork', 'nativeSourceId', 'nativePath', 'nativeLive', 'desktopSyncState', 'desktopSyncError', 'desktopSyncPending', 'desktopWaitingApproval', 'status', 'error', 'approvals'] as const) {
+        if (key in previous) (session as any)[key] = previous[key]; else delete session[key];
+      }
+      if (released) session.desktopSyncState = 'disconnected';
+      if (snapshot) await fs.rm(snapshot, { force: true }).catch(() => {});
+      throw error;
     } finally {
       this.attachingCodex.delete(id); this.sending.delete(id); this.changingSettings.delete(id); this.broadcast();
     }

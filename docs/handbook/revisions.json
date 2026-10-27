@@ -662,9 +662,37 @@
     {
       "updated_at": "2026-10-26T20:22:02+08:00",
       "base_commit": "60f17ca26d06411ee38c33e5a2c5a55f0264878f",
-      "document_commit": null,
+      "document_commit": "39dde85c5b5623f43b190eac8b7dab0b27646530",
       "summary": "v2.2.34：项目与成员权限统一为单层入口，创建时连接中央节点，取消本机创建和后续关联流程",
       "content_sha256": "12c547a098d00b1f12e472aec76958e61d95653263547c31564eb70ac4163873"
+    },
+    {
+      "updated_at": "2026-10-27T08:27:38+08:00",
+      "base_commit": "39dde85c5b5623f43b190eac8b7dab0b27646530",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "06a914db83c0dfb9a1f1c32ff31e030803a5c62631b03571df42c051301a6636"
+    },
+    {
+      "updated_at": "2026-10-27T08:31:04+08:00",
+      "base_commit": "39dde85c5b5623f43b190eac8b7dab0b27646530",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "038d583d7c18cc9a913596a5caf50d0a1a6e1ad0c49eea0e9961d72d7e2564b5"
+    },
+    {
+      "updated_at": "2026-10-27T09:24:47+08:00",
+      "base_commit": "39dde85c5b5623f43b190eac8b7dab0b27646530",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "b53b562491ed7b6c2dd631cc1cf9a27f7e32c03488c610bd8c2551f3f1714968"
+    },
+    {
+      "updated_at": "2026-10-27T09:27:49+08:00",
+      "base_commit": "39dde85c5b5623f43b190eac8b7dab0b27646530",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "8e4c2412d37a89977ccb5b65c5b85258bbef8c535fb67111a1dc84ee62c35e74"
     }
   ]
 }

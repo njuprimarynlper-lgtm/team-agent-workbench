@@ -196,13 +196,13 @@ async function main(){
       await page.getByRole('checkbox',{name:'默认引用项目资料（已完善时）',exact:true}).uncheck();await page.getByRole('button',{name:'创建会话',exact:true}).click();
       await until(async()=>(await snapshot()).sessions.some((s:any)=>!priorIds.has(s.id)));
       const ordinary=(await snapshot()).sessions.find((s:any)=>!priorIds.has(s.id));assert(!ordinary.codexDesktop);
-      await page.locator('[data-session-id="'+ordinary.id+'"]').click();await page.getByRole('button',{name:'更多会话操作',exact:true}).click();
-      assert(await page.getByRole('button',{name:'同步到 Codex',exact:true}).isVisible());assert.equal(await page.getByRole('button',{name:'恢复同步',exact:true}).count(),0);
-      await page.screenshot({path:path.join(root,'existing-sync-menu.png')});await page.getByRole('button',{name:'同步到 Codex',exact:true}).click();
+      await page.locator('[data-session-id="'+ordinary.id+'"]').click();await page.getByRole('button',{name:'非同步会话，调整桌面同步',exact:true}).click();
+      assert(await page.getByRole('switch',{name:'与 Codex 桌面版同步',exact:true}).isVisible());assert.equal(await page.getByRole('button',{name:'恢复同步',exact:true}).count(),0);
+      await page.screenshot({path:path.join(root,'existing-sync-composer.png')});await page.getByRole('switch',{name:'与 Codex 桌面版同步',exact:true}).click();
       await until(async()=>{const s=(await snapshot()).sessions.find((s:any)=>s.id===ordinary.id);if(s.desktopSyncError)throw Error(s.desktopSyncError);return s.codexDesktop&&s.desktopSyncState==='connected';});
       await page.getByRole('textbox',{name:'任务输入',exact:true}).fill('WF_TASK_C_UI_ATTACH');await page.getByRole('button',{name:'发送任务',exact:true}).click();
       await until(async()=>{const s=(await snapshot()).sessions.find((s:any)=>s.id===ordinary.id);if(s.error)throw Error(s.error);return s.status==='idle'&&s.messages.some((m:any)=>m.text==='WF_REPLY_WF_TASK_C_UI_ATTACH');});
-      console.log('Existing ordinary session attached through the real menu and continued successfully.');
+      console.log('Existing ordinary session attached through the composer sync tab and continued successfully.');
     }
     const extendedCases:string[]=[];
     if(process.argv.includes('--extended')){

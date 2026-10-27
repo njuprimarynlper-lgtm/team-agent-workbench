@@ -93,7 +93,7 @@ function actionContext(action: string, raw: any, owner: BrowserWindow, preferPer
 }
 async function alignPersonalRelay(team: DataContext, action: string, raw: any) {
   // Importing history must not inherit, validate, or switch the model's relay.
-  if (!personalContext || isNativeSessionRecordAction(action)) return;
+  if (!personalContext || isNativeSessionRecordAction(action) || action === 'session.codexDesktop.disable' || action === 'session.codexDesktop.cancel') return;
   const local = personalContext.workbench;
   if (!local.store.settings.egress && team.workbench.store.settings.egress) {
     const settings = structuredClone(team.workbench.store.settings.egress), accessCode = await readProtected(team.egressSecretFile);
@@ -289,6 +289,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.cursorNative.queue': { const p=z.object({id,action:z.enum(['cancel','resume','reconcile','confirm','withdraw']),requestId:z.string().uuid().optional(),nativeMessageId:z.string().uuid().optional()}).parse(raw);return workbench.cursorQueueAction(p.id,p.action,p.requestId,p.nativeMessageId); }
     case 'session.codexDesktop.sync': return workbench.syncCodexDesktop(sessionInput.parse(raw).id);
     case 'session.codexDesktop.cancel': return workbench.cancelCodexSync(sessionInput.parse(raw).id);
+    case 'session.codexDesktop.disable': return workbench.disableCodexDesktop(sessionInput.parse(raw).id);
     case 'sidechat.create': { const p = z.object({ parentId: id, selectedText: z.string().max(128 * 1024).default('') }).parse(raw); return workbench.createSideChat(p.parentId, p.selectedText); }
     case 'sidechat.draft': { const p = z.object({ id, parentId: id, text: z.string().max(128 * 1024) }).parse(raw); return workbench.sideChatDraft(p.id, p.text); }
     case 'sidechat.send': { const p = z.object({ id, parentId: id, text: z.string().max(128 * 1024) }).parse(raw); return workbench.sendSideChat(p.id, p.text); }

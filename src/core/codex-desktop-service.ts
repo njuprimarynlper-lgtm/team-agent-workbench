@@ -23,6 +23,7 @@ export class CodexDesktopRestartRequired extends Error {
   constructor() { super('Codex 当前以普通方式运行。首次联动请保存工作并退出 Codex，再重试；不会自动关闭你的聊天'); }
 }
 export interface CodexDesktopIntegration {
+  readonly sourceHome?: string;
   readyToPrepare(): Promise<boolean>;
   prepare(session: AgentSession, privateHome: string, env: NodeJS.ProcessEnv): Promise<{ nativeId?: string; nativePath?: string }>;
   storage(session: AgentSession, executable: string, env: NodeJS.ProcessEnv): Promise<CodexStorage>;
@@ -32,7 +33,7 @@ export async function codexDesktopTarget(): Promise<CodexDesktopTarget> {
   if (process.platform !== 'win32') throw new Error('Codex 桌面联动暂仅支持 Windows');
   const { stdout } = await run('powershell.exe', ['-NoProfile','-NonInteractive','-Command', '(Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1).InstallLocation'], { windowsHide: true, timeout: 15000 });
   const root = stdout.trim();
-  if (!root) throw new Error('尚未安装 Codex 桌面版，请安装后使用桌面联动；普通会话仍可使用');
+  if (!root) throw new Error('尚未安装 Codex 桌面版。可点击输入框上的同步标签，关闭“与 Codex 桌面版同步”，使用本机 Codex CLI 继续对话');
   return { app: path.join(root,'app','ChatGPT.exe'), archive: path.join(root,'app','resources','app.asar'), executable: await installedCodexDesktopExecutable(path.join(root,'app','resources','codex.exe')) };
 }
 function codexDesktopRunning() {

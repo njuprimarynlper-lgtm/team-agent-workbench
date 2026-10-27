@@ -4,12 +4,19 @@ import { cursorSharedSessionUnavailable, isCursorFileSession } from '../shared/c
 
 export function CodexDesktopOption({ checked, networkRoute, changed }: { checked: boolean; networkRoute: AgentSession['networkRoute']; changed: (enabled: boolean) => void }) {
   const unavailable = networkRoute === 'management';
-  return <div className="codex-desktop-option"><div><strong>与 Codex 桌面版同步</strong><p>{unavailable ? '当前使用管理端访问，暂不支持桌面同步。' : '在工作台和 Codex 中继续同一条对话。'}</p></div>
+  return <div className="codex-desktop-option"><div><strong>与 Codex 桌面版同步</strong><p>{unavailable ? '当前使用管理端访问，暂不支持桌面同步。' : '在两端继续同一条对话。创建后可点击输入框上的同步标签更改。'}</p></div>
     <button type="button" role="switch" className="project-ai-switch" aria-label="与 Codex 桌面版同步" aria-checked={checked && !unavailable} disabled={unavailable} onClick={() => changed(!checked)}><span/></button>
   </div>;
 }
 
-export function NativeDesktopStatus({ session }: { session: AgentSession }) {
+export function NativeDesktopStatus({ session, detailsOnly = false }: { session: AgentSession; detailsOnly?: boolean }) {
+  if (detailsOnly) {
+    if (session.closedAt || !session.codexRemote && !session.desktopWaitingApproval) return null;
+    return <span className="native-desktop-status">
+      {session.codexRemote && <span className="muted small" title={session.codexRemote.cwd}>远程 · {session.codexRemote.hostName}</span>}
+      {session.desktopWaitingApproval && <span className="muted small" role="status">请到发起任务的窗口确认</span>}
+    </span>;
+  }
   if (session.codexRemote && !session.closedAt) return <span className="native-desktop-status"><span className="muted small" role="status" title={session.codexRemote.cwd}>远程 · {session.codexRemote.hostName} · {session.desktopSyncState === 'connected' ? '已连接' : session.desktopSyncState === 'connecting' ? '正在连接' : '待连接'}</span></span>;
   if (session.codexSyncRequest && !session.codexDesktop && !session.closedAt) return <span className="native-desktop-status"><span className="muted small" role="status" title={session.codexSyncRequest.error || '可继续工作。退出 Codex 后，工作台会完成同步；需要时再点“在 Codex 中打开”。'}>{session.codexSyncRequest.error ? '同步待处理' : '等待 Codex 退出后同步'}</span></span>;
   if (!session.codexDesktop && !session.cursorNative && !(session.provider === 'codex' && session.desktopSyncState === 'connecting') || session.closedAt) return null;
@@ -24,12 +31,11 @@ export function NativeDesktopStatus({ session }: { session: AgentSession }) {
 export function NativeDesktopControls({ session, run, showStatus = true }: { session: AgentSession; run: (work: () => Promise<unknown>) => unknown; showStatus?: boolean }) {
   const [busy, setBusy] = useState(false);
   if (session.closedAt || session.purpose !== 'work' || session.provider !== 'codex' && !session.cursorNative) return null;
-  const call = (action: string) => { setBusy(true); void run(async () => { try { await window.workbench.call(action, { id: session.id }); } finally { setBusy(false); } }); };
+  const call = (action: string) => { setBusy(true); void Promise.resolve(run(() => window.workbench.call(action, { id: session.id }))).finally(() => setBusy(false)); };
+  const active = ['starting', 'running', 'approval'].includes(session.status);
   return <>
     {!session.codexDesktop && !session.codexRemote && session.provider === 'codex' && <>
-      <button className="secondary compact" disabled={busy || session.networkRoute === 'management' || ['starting', 'running', 'approval'].includes(session.status)} onClick={() => call('session.codexDesktop.sync')}>{busy || session.desktopSyncState === 'connecting' ? '正在同步…' : session.codexSyncRequest ? session.codexSyncRequest.error ? '重试同步' : '完成同步' : '同步到 Codex'}</button>
-      {session.codexSyncRequest && <><span className="muted small" role="status">{session.codexSyncRequest.error || '已安排同步，可继续工作。退出 Codex 后，工作台会在当前回复结束后完成同步；需要时再点“在 Codex 中打开”。'}</span><button className="secondary compact" disabled={busy || session.desktopSyncState === 'connecting'} onClick={() => call('session.codexDesktop.cancel')}>取消同步请求</button></>}
-      {session.networkRoute === 'management' ? <span className="muted small">当前使用管理端访问，暂不支持桌面同步。</span> : ['starting', 'running', 'approval'].includes(session.status) && !busy && session.desktopSyncState !== 'connecting' ? <span className="muted small">当前回复结束后可同步。</span> : null}
+      {session.codexSyncRequest && <button className="secondary compact" disabled={busy || session.networkRoute === 'management' || active || session.desktopSyncState === 'connecting'} onClick={() => call('session.codexDesktop.sync')}>{busy || session.desktopSyncState === 'connecting' ? '正在同步…' : session.codexSyncRequest.error ? '重试同步' : '完成同步'}</button>}
     </>}
     {session.codexDesktop && <button className="secondary compact" disabled={busy} onClick={() => call('session.codexDesktop.open')}>在 Codex 中打开</button>}
     {showStatus && <NativeDesktopStatus session={session}/>}
