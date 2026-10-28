@@ -227,7 +227,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       const p = z.object({ id, name: z.string().min(1).max(200) }).parse(raw);
       const url = await workbench.mcpLogin(p.id, p.name); if (typeof url === 'string') await shell.openExternal(url); return true;
     }
-    case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1) }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd); }
+    case 'provider.permissions': { const p = z.object({ provider, cwd: text.min(1), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw); return workbench.inspectPermissions(p.provider, p.cwd, p.networkRoute); }
     case 'provider.cursorReview': return workbench.configureCursorReview(z.object({ cwd: text.min(1) }).parse(raw).cwd);
     case 'session.permissions': { const p = z.object({ id, mode: z.enum(['inherit', 'review', 'auto', 'full']), stop: z.boolean().optional() }).parse(raw); return workbench.changePermissions(p.id, p.mode, p.stop); }
     case 'session.model': { const p = z.object({ id, model: z.string().trim().min(1).max(256).regex(/^[^\x00-\x1f\x7f]+$/), stop: z.boolean().optional() }).parse(raw); return workbench.changeModel(p.id, p.model, p.stop); }

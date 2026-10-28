@@ -1424,9 +1424,9 @@ export class Workbench {
   changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
   session(id: string) { this.assertAccountReady(); if (this.movingIds.has(id)) throw new Error('会话正在迁移，请稍候'); const s = this.store.sessions.find(x => x.id === id); if (s?.binding && this.linkingProjects.has(s.binding.project.id)) throw new Error('项目正在迁移，请稍候'); if (!s || !this.ownsLocal(s.binding)) throw new Error('会话不存在或不属于当前账号，请切回原账号'); return s; }
   draft(id: string) { this.assertAccountReady(); if (this.deletingDrafts.has(id)) throw new Error('整理任务正在删除，请等待完成'); const d = this.store.drafts.find(x => x.id === id); if (!d || !this.ownsLocal(d.binding || this.store.sessions.find(session => session.id === d.sessionId)?.binding)) throw new Error('草稿不存在或不属于当前账号，请切回原账号'); return d; }
-  async inspectPermissions(provider: Provider, cwd: string) {
+  async inspectPermissions(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');
-    return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, this.providerEnvironment());
+    return inspectPermissions(provider, await resolveProvider(provider, this.store.settings.providerPaths[provider]), cwd, this.providerEnvironment(route));
   }
   async configureCursorReview(cwd: string) {
     if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw new Error('请选择存在的本机工作目录');

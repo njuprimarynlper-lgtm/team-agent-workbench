@@ -1,6 +1,6 @@
 {
   "name": "team-agent-workbench",
-  "version": "2.2.48",
+  "version": "2.2.49",
   "private": true,
   "description": "Windows team workspace for local Codex, Cursor and Claude Code agents with Linux SFTP sharing",
   "main": "dist/user/main.cjs",
@@ -22,6 +22,7 @@
     "test:handoff-ui": "node scripts/session-handoff-smoke.mjs",
     "test:workflow-ui": "node scripts/workflow-state-smoke.mjs",
     "test:permissions-ui": "node scripts/permissions-smoke.mjs",
+    "test:permission-route-ui": "node scripts/permission-route-smoke.mjs",
     "test:codex-isolation": "tsx scripts/codex-isolation-smoke.ts",
     "test:codex-desktop-sync": "tsx scripts/codex-desktop-sync-smoke.ts",
     "test:codex-desktop-beta": "tsx scripts/codex-desktop-beta-smoke.ts",

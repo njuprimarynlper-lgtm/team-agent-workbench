@@ -15,6 +15,25 @@ import { authLauncher } from './fixtures/auth-launcher.mjs';
 const until = async (predicate: () => boolean) => { const end = Date.now() + 25000; while (!predicate()) { if (Date.now() > end) throw new Error('permission test timeout'); await new Promise(r => setTimeout(r, 20)); } };
 const session = (provider: Provider, cwd: string): AgentSession => ({ id: randomUUID(), title: '权限验证', provider, cwd, purpose: 'work', createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: path.join(cwd, 'handoff.md') });
 
+test('permission inspection uses the selected session route even when management egress is saved', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-perm-route-'));
+  const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', permissionConfig: { sandbox: 'read-only', approval: 'never' } });
+  const checkedRoutes: Array<string | undefined> = [];
+  const wb = new Workbench(path.join(root, 'store'), () => {}, () => {}, undefined, route => {
+    checkedRoutes.push(route);
+    if (route !== 'direct') throw new Error('此网络方式经中央节点转发，请先连接中央节点');
+    return {};
+  });
+  try {
+    await wb.store.init();
+    wb.store.settings.providerPaths.codex = fixture.launcher;
+    wb.store.settings.egress = { enabled: true, viaSharedServer: true, host: 'test.invalid', port: 443, certificateFingerprint: 'A'.repeat(64) };
+    assert.equal((await wb.inspectPermissions('codex', root, 'direct')).sandbox, 'read-only');
+    await assert.rejects(wb.inspectPermissions('codex', root, 'management'), /请先连接中央节点/);
+    assert.deepEqual(checkedRoutes, ['direct', 'management']);
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
+});
+
 test('permission findings distinguish sandbox, policy and filesystem errors from login/network/model text', () => {
   assert.equal(permissionIssue('Windows sandbox CreateProcessAsUser failed')?.kind, 'sandbox');
   assert.equal(permissionIssue('sandbox mode not allowed by administrator policy')?.kind, 'sandbox');

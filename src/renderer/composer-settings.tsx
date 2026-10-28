@@ -29,7 +29,7 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
   const refresh = async (kind: Choice['kind'], forceRefresh = false) => {
     const n = ++sequence.current; setLoading(true); setError('');
     try {
-      const result = await window.workbench.call(kind === 'model' ? 'provider.catalog' : 'provider.permissions', { provider: session.provider, cwd: session.cwd, ...(kind === 'model' ? { networkRoute: session.networkRoute, forceRefresh } : {}) });
+      const result = await window.workbench.call(kind === 'model' ? 'provider.catalog' : 'provider.permissions', { provider: session.provider, cwd: session.cwd, networkRoute: session.networkRoute, ...(kind === 'model' ? { forceRefresh } : {}) });
       if (n === sequence.current) { if (kind === 'model') setCatalog(result as ProviderCatalog); else setReport(result as PermissionReport); }
     } catch { if (n === sequence.current) setError(kind === 'model' ? '模型与额度读取失败，请检查登录或网络后重试。' : '权限读取失败，请重试。'); }
     finally { if (n === sequence.current) setLoading(false); }
