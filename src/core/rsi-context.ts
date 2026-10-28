@@ -69,7 +69,7 @@ export function projectContext(project: RsiProject, config: RsiConfig) {
     overview: null as RsiAnswer['state'] | null,
     sessions: [] as (RsiMemoryEntry & { sessionId: string })[],
     evidence, deltaIds: [] as string[], relatedIds: [] as string[],
-    machineReviewFeedback: [] as { kind: string; title: string; action: string; stages: string[]; reason: string; correction: string; reconsiderWhen: string; truncated: boolean }[],
+    machineReviewFeedback: [] as { kind: string; title: string; action: string; stages: Record<'readability' | 'difficulty' | 'need' | 'benefit', string>; reason: string; correction: string; reconsiderWhen: string; truncated: boolean }[],
     priorRecommendations: [] as { id: string; title: string; action: string; closed: boolean; feedback: (Pick<RsiReaction, 'kind' | 'text' | 'outcome' | 'feedbackTarget'> & { eventId: string; decisionEventId?: string; at: string; textTruncated: boolean })[] }[],
     coverage: { totalSessions: new Set(latest.map(item => item.sessionId).filter(Boolean)).size, pendingSources: pending.length, remainingSources: pending.length, partial: false },
   };
@@ -100,11 +100,12 @@ export function projectContext(project: RsiProject, config: RsiConfig) {
     seenFeedback.add(key);
     if (item.configHash !== valueHash(config) || !item.evidenceIds.every(id => validIds.has(id))) continue;
     const gates = [item.verdict.difficulty, item.verdict.need, item.verdict.benefit];
-    const reason = gates.find(gate => gate.status !== 'pass')?.reason || item.verdict.benefit.reason;
+    const reason = item.verdict.presentation && item.verdict.presentation.status !== 'pass' ? item.verdict.presentation.reason : gates.find(gate => gate.status !== 'pass')?.reason || item.verdict.benefit.reason;
+    const correction = item.verdict.presentation && item.verdict.presentation.status !== 'pass' ? item.verdict.presentation.correction : item.verdict.correction;
     const compact = { kind: 'machine_assessment_not_user_feedback_or_project_fact', title: item.title.slice(0, 100), action: item.action.slice(0, 160),
-      stages: gates.map(gate => gate.status), reason: reason.slice(0, 180), correction: item.verdict.correction.slice(0, 200),
+      stages: { readability: item.verdict.presentation?.status || 'not_evaluated', difficulty: gates[0].status, need: gates[1].status, benefit: gates[2].status }, reason: reason.slice(0, 180), correction: correction.slice(0, 200),
       reconsiderWhen: item.verdict.reconsiderWhen.slice(0, 160),
-      truncated: item.title.length > 100 || item.action.length > 160 || reason.length > 180 || item.verdict.correction.length > 200 || item.verdict.reconsiderWhen.length > 160 };
+      truncated: item.title.length > 100 || item.action.length > 160 || reason.length > 180 || correction.length > 200 || item.verdict.reconsiderWhen.length > 160 };
     const length = JSON.stringify(compact).length;
     if (feedbackChars + length > Math.min(2400, budget * .24)) continue;
     data.machineReviewFeedback.push(compact); feedbackChars += length;
@@ -155,6 +156,7 @@ export function projectContext(project: RsiProject, config: RsiConfig) {
   const rank = (item: RsiEvidence) => rules?.retrieval === 'failures-first' ? Number(/失败|错误|未达标|failure|error/i.test(item.text)) * 100 : rules?.retrieval === 'goal-first' ? Number(item.source === 'project' || item.source === 'configuration') * 100 : 0;
   for (const item of latest.filter(item => !pending.some(value => value.id === item.id)).sort((a, b) => rank(b) - rank(a) || (rules?.retrieval === 'recent' ? b.observedAt.localeCompare(a.observedAt) : relevance(b) - relevance(a)))) add(item, false, budget * .94);
   for (const suggestion of [...project.suggestions].reverse()) {
+    if (suggestion.supersededByQuality) continue;
     const current = rsiFeedbackState(suggestion.id, project.events);
     const feedback = [current.decision, current.feedback, current.outcome].filter((event, index, all) => event && all.findIndex(value => value?.id === event.id) === index)
       .map(event => {

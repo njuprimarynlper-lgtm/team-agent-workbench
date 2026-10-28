@@ -6,7 +6,7 @@ import { atomicJson } from './store';
 import type { TextTask } from './background-text';
 import type { AgentSession } from '../shared/types';
 import { applyMemory, emptyMemory, evidenceKey, latestProjectEvidence, pendingEvidence, projectContext } from './rsi-context';
-import { candidateBundle, learningPrompt, policyBundle, policyPrompt } from './rsi-prompts';
+import { candidateBundle, learningPrompt, policyBundle, policyPrompt, recommendationTemplate } from './rsi-prompts';
 import { assertLearningCurrent, learningReference } from './rsi-learning';
 import { reviewRecommendations, valueHash, valueReviewContract } from './rsi-value-review';
 import { rsiAnswerSchema, rsiCaseSchema, rsiConfigSchema, rsiDefaultRules, rsiPolicySchema, rsiReactionSchema, rsiShadowSettingsSchema, rsiReview, rsiFeedbackState, type RsiInbox,
@@ -106,6 +106,20 @@ export class RsiEngine {
             rsiPolicySchema.parse(policy.rules); policy.bundle ||= policyBundle();
             if (policy.bundle.contract !== 1) throw new Error('AI推荐策略协议不兼容，原策略已保留');
           }
+          // Preserve history and user decisions; pending cards from an older quality
+          // contract must not continue to masquerade as newly approved recommendations.
+          for (const suggestion of project.suggestions) {
+            const review = rsiReview(suggestion.id, project.events);
+            const run = project.runs.find(item => item.id === suggestion.runId);
+            if (!suggestion.supersededByQuality && review.decision === 'pending' && !review.closed && run?.valueReview?.contract !== valueReviewContract) {
+              suggestion.supersededByQuality = valueReviewContract;
+              project.qualityRefreshPending = true;
+            }
+          }
+          if (project.qualityRefreshPending && project.config.enabled && !project.config.quiet) {
+            project.pending ||= {};
+            project.pending.recommendation ||= { trigger: 'quality-upgrade', dueAt: Date.now() + this.timing.debounceMs };
+          }
           for (const run of project.runs) if (run.status === 'running') { run.status = 'interrupted'; run.error = '上次运行已中断，可重新分析；不会自动重复调用。'; }
         }
       } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
@@ -167,7 +181,7 @@ export class RsiEngine {
     const view = await this.view(projectId), sessions = this.linkableSessions(projectId);
     return { projectId, enabled: view.config.enabled && !view.config.quiet, busy: view.busy, queued: view.queued, lastError: view.lastError,
       sessions: sessions.map(({ id, title }) => ({ id, title })),
-      items: [...view.suggestions].reverse().map(suggestion => ({ ...suggestion, review: rsiReview(suggestion.id, view.events),
+      items: [...view.suggestions].reverse().filter(suggestion => !suggestion.supersededByQuality).map(suggestion => ({ ...suggestion, review: rsiReview(suggestion.id, view.events),
         evidence: suggestion.evidenceIds.map(id => view.evidence.find(item => item.id === id)).filter((item): item is RsiEvidence => !!item).map(({ id, source, text, eventAt }) => ({ id, source, text: text.slice(0, 3500), eventAt })) })).filter(item => !item.review.closed) };
   }
   private effectiveConfig(project: RsiProject): RsiConfig {
@@ -282,6 +296,7 @@ export class RsiEngine {
       const duplicate = project.events.find(item => item.requestId === reaction.requestId);
       if (duplicate) { if (duplicate.suggestionId !== reaction.suggestionId || duplicate.kind !== reaction.kind || duplicate.text !== reaction.text || duplicate.linkedSessionId !== reaction.linkedSessionId || duplicate.outcome !== reaction.outcome || duplicate.feedbackTarget !== reaction.feedbackTarget || duplicate.expectedDecisionId !== reaction.expectedDecisionId) throw new Error('重复请求标识与原事件不同'); return duplicate; }
       const review = rsiReview(suggestion.id, project.events);
+      if (suggestion.supersededByQuality) throw new Error('这条推荐已退出待处理列表，请查看最新推荐');
       if (reaction.expectedDecisionId !== undefined && reaction.expectedDecisionId !== (review.decisionEventId || null)) throw new Error('推荐的处理已更新，请核对最新状态后再保存');
       if (reaction.kind === 'supplement') {
         if (review.decision === 'pending') throw new Error('请先接受或拒绝这条推荐');
@@ -400,17 +415,17 @@ export class RsiEngine {
     const last = project.runs.filter(item => item.status === 'completed' && item.output !== undefined && item.state).at(-1);
     if (project.config.quiet) return;
     const urgent = pendingEvidence(project).some(item => item.sourceId === 'project-brief' || item.source === 'configuration');
-    if (!['manual', 'remaining'].includes(trigger) && !urgent && last && Date.now() < Date.parse(last.at) + policy.rules.cooldownMinutes * 60000) {
+    if (!project.qualityRefreshPending && !['manual', 'remaining'].includes(trigger) && !urgent && last && Date.now() < Date.parse(last.at) + policy.rules.cooldownMinutes * 60000) {
       this.enqueue(projectId, trigger, Date.parse(last.at) + policy.rules.cooldownMinutes * 60000 - Date.now()); return;
     }
-    if (trigger !== 'manual' && !pendingEvidence(project).length) return;
+    if (!project.qualityRefreshPending && trigger !== 'manual' && !pendingEvidence(project).length) return;
     const context = projectContext(project, config), { evidence } = context;
-    if (!evidence.length) return;
+    if (!evidence.length) { if (project.qualityRefreshPending) await this.edit(projectId, current => { current.qualityRefreshPending = false; }); return; }
     const prompt = policyPrompt(policy, context.reference), runId = randomUUID();
     await this.edit(projectId, current => {
       current.lastError = undefined;
       current.runs.push({ id: runId, at: iso(), policyId: policy.id, model: session.model!, provider: session.provider, route: session.networkRoute || 'direct', trigger, inputHash: hash(prompt), evidenceIds: evidence.map(item => item.id), inputChars: prompt.length, status: 'running', suggestions: [],
-        snapshot: { sourceEvidenceIds: context.sourceEvidenceIds, capturedAt: iso(), revision: project.revision, policyHash: hash({ bundle: policy.bundle, rules: policy.rules }), configHash, evidence: structuredClone(evidence), delta: context.coverage, reference: context.reference } });
+        snapshot: { sourceEvidenceIds: context.sourceEvidenceIds, capturedAt: iso(), revision: project.revision, policyHash: hash({ bundle: policyBundle(), rules: policy.rules }), prompt, configHash, evidence: structuredClone(evidence), delta: context.coverage, reference: context.reference } });
     });
     const output = await this.call(projectId, session, prompt, 'recommend', signal);
     const answer = validateRsiAnswer(parse(output), evidence, policy.rules.maxSuggestions);
@@ -446,6 +461,7 @@ export class RsiEngine {
         current.pending ||= {}; current.pending.recommendation = { trigger: 'revalidate', dueAt: Date.now() + this.timing.debounceMs }; this.wake(projectId); return;
       }
       applyMemory(current, context.coverage, answer, evidence, iso());
+      current.qualityRefreshPending = false;
       run.state = answer.state;
       const feedback = reviewed.feedback.map(({ candidate, verdict }) => ({ runId, candidateId: candidate.candidateId,
         at: iso(), title: candidate.suggestion.title, action: candidate.suggestion.action,
@@ -454,7 +470,7 @@ export class RsiEngine {
       current.valueFeedback = [...(current.valueFeedback || []), ...feedback].slice(-24);
       for (const item of reviewed.suggestions.sort((a, b) => b.priority - a.priority)) {
         const fingerprint = hash([item.action.replace(/\s+/g, '').toLowerCase(), [...item.evidenceIds].sort()]);
-        if (current.suggestions.some(prior => prior.fingerprint === fingerprint)) continue;
+        if (current.suggestions.some(prior => !prior.supersededByQuality && prior.fingerprint === fingerprint)) continue;
         const sessions = new Set(evidence.filter(source => item.evidenceIds.includes(source.id)).map(source => source.sessionId).filter(Boolean));
         const suggestion = { ...item, fingerprint, id: randomUUID(), runId, policyId: policy.id, createdAt: iso(), sessionId: sessions.size === 1 ? [...sessions][0]! : '', projectId };
         current.suggestions.push(suggestion); run.suggestions.push(suggestion.id);
@@ -489,7 +505,7 @@ export class RsiEngine {
         prompt, outcome: unchanged ? 'unchanged' : 'candidate', hypothesis: candidate.hypothesis, candidateId: id });
       if (id) current.policies.push({ hypothesis: candidate.hypothesis, evidenceIds: candidate.evidenceIds, rules: candidate.rules,
         sourceEvidenceIds, feedbackEvidenceIds: reference.feedbackIds, feedbackDecisions: Object.fromEntries(reference.data.examples.map(item => [item.recommendation.id, item.decision.eventId || null])),
-        learningInputHash: inputHash, bundle: candidateBundle(base), id, createdAt: at, baseId: base.id, heldOutCaseIds: project.cases.map(item => item.id), status: 'candidate', scope: 'user-project' });
+        learningInputHash: inputHash, bundle: candidateBundle(), id, createdAt: at, baseId: base.id, heldOutCaseIds: project.cases.map(item => item.id), status: 'candidate', scope: 'user-project' });
       current.lastError = undefined;
     });
   }
@@ -537,7 +553,7 @@ export class RsiEngine {
     await this.edit(projectId, current => {
       if (current.scope.key !== project.scope.key) throw new Error('项目身份已变化，任务已停止');
       if (current.activePolicyId !== base.id || current.revision !== project.revision) throw new Error('评估期间项目或策略已变化，结果不用于发布');
-      current.evaluations.push({ contract: 2, valueReviewContract, policyHash: hash([base.bundle, base.rules, candidate.bundle, candidate.rules]), id: randomUUID(), at: iso(), candidateId, baselineId: base.id, projectRevision: project.revision, model: modelKey(session), caseIds: cases.map(item => item.id), baseline, candidate: score, passed: !reasons.length, reasons, outputs });
+      current.evaluations.push({ contract: 2, valueReviewContract, policyHash: hash([recommendationTemplate(), base.bundle, base.rules, candidate.bundle, candidate.rules]), id: randomUUID(), at: iso(), candidateId, baselineId: base.id, projectRevision: project.revision, model: modelKey(session), caseIds: cases.map(item => item.id), baseline, candidate: score, passed: !reasons.length, reasons, outputs });
       current.lastError = undefined;
     });
   }
@@ -553,7 +569,7 @@ export class RsiEngine {
         || project.evaluations.filter(item => item.candidateId === candidate.id).at(-1)?.id !== evaluation.id) throw new Error('请先完成当前候选的基础回归检查');
       assertLearningCurrent(project, candidate);
       if (evaluation.projectRevision !== project.revision || evaluation.baselineId !== base.id || candidate.baseId !== base.id
-        || evaluation.policyHash !== hash([base.bundle, base.rules, candidate.bundle, candidate.rules])) throw new Error('评审对象已变化，请重新评估');
+        || evaluation.policyHash !== hash([recommendationTemplate(), base.bundle, base.rules, candidate.bundle, candidate.rules])) throw new Error('评审对象已变化，请重新评估');
       if (!session || evaluation.model !== modelKey(session)) throw new Error('模型配置已变化，需要重新评估');
       evaluation.qualityReview = { ...review, actor: project.scope.user, at: iso() };
       return evaluation;
@@ -572,7 +588,7 @@ export class RsiEngine {
       const session = execution;
       if (!session || evaluation.model !== modelKey(session)) throw new Error('模型配置已变化，需要重新评估');
       const base = project.policies.find(item => item.id === project.activePolicyId)!;
-      if (evaluation.policyHash !== hash([base.bundle, base.rules, candidate.bundle, candidate.rules])) throw new Error('评估对象已变化，需要重新评估');
+      if (evaluation.policyHash !== hash([recommendationTemplate(), base.bundle, base.rules, candidate.bundle, candidate.rules])) throw new Error('评估对象已变化，需要重新评估');
       if (!evaluation.qualityReview?.approved) throw new Error('基础回归不能证明推荐质量，请先完成人工质量评审');
       project.releases.push({ id: randomUUID(), at: iso(), from: base.id, to: candidate.id, actor: project.scope.user, evaluationId: evaluation.id, reason: '独立对照评估通过后发布' });
       base.status = 'retired'; candidate.status = 'active'; project.activePolicyId = candidate.id;

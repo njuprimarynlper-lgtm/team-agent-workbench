@@ -1,13 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentSession } from '../shared/types';
+import type { AgentSession, Message } from '../shared/types';
 import { AgentRuntime } from './agents';
 import { ClaudeRuntime } from './claude-runtime';
 import { prepareCodexStorage } from './codex-storage';
 import { resolveProvider } from './providers';
 
 export type TextTask = (session: AgentSession, prompt: string, signal: AbortSignal) => Promise<string>;
+
+export function backgroundAnswer(messages: Message[]) {
+  const assistant = messages.filter(message => message.role === 'assistant');
+  // Native Codex may emit commentary or a superseded partial answer before its
+  // final item. Only the final answer is the structured result of this task.
+  return assistant.findLast(message => message.phase === 'final_answer')?.text
+    ?? assistant.filter(message => message.phase !== 'commentary').map(message => message.text).join('\n');
+}
 
 // These sessions never enter the work-session store or inherit its native history.
 export function backgroundTextTask(root: string, providerPath: (s: AgentSession) => string,
@@ -25,7 +33,7 @@ export function backgroundTextTask(root: string, providerPath: (s: AgentSession)
     const result = new Promise<string>((resolve, reject) => {
       fail = reject;
       const done = () => {
-        const answer = session.messages.filter(m => m.role === 'assistant').map(m => m.text).join('\n');
+        const answer = backgroundAnswer(session.messages);
         session.error ? reject(new Error(session.error)) : answer.trim() ? resolve(answer) : reject(new Error('后台 CLI 没有返回结果'));
       };
       const hooks = { changed: () => {}, event: () => {}, done, needsApproval: () => reject(new Error('后台任务不能请求工具权限')) };

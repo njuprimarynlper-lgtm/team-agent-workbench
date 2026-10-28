@@ -403,6 +403,7 @@ test('heldout evaluation uses the mandatory judge, excludes live critique, and c
   const candidate = await prepareLearning(engine), original = engine.runText;
   let judgeCalls = 0;
   engine.runText = async (session, prompt, signal) => {
+    if (prompt.startsWith('RSI_PROTOCOL_V2:value-presentation')) return passingValueReview(prompt)!;
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
     assert.deepEqual(data.machineReviewFeedback, []);
     if (prompt.startsWith('RSI_PROTOCOL_V2:value-judge')) {
@@ -410,7 +411,7 @@ test('heldout evaluation uses the mandatory judge, excludes live critique, and c
       const result = JSON.parse(passingValueReview(prompt)!);
       for (const verdict of result.verdicts) {
         verdict.difficulty.status = 'fail';
-        for (const stage of ['need', 'benefit']) verdict[stage] = { status: 'not_evaluated', reason: '前置未通过', evidenceIds: [], counterEvidenceIds: [] };
+        for (const stage of ['need', 'benefit']) verdict[stage] = { status: 'not_evaluated', reason: '前置未通过', evidenceIds: [], counterEvidenceIds: [], support: [], counterSupport: [] };
       }
       return JSON.stringify(result);
     }
@@ -418,7 +419,7 @@ test('heldout evaluation uses the mandatory judge, excludes live critique, and c
   };
   await engine.start('p1', 'evaluate', 'manual', candidate.id); await engine.settled();
   const view = await engine.view('p1'), evaluation = view.evaluations.at(-1)!;
-  assert.equal(view.lastError, undefined); assert(judgeCalls > 0); assert.equal(evaluation.valueReviewContract, 'value-v1');
+  assert.equal(view.lastError, undefined); assert(judgeCalls > 0); assert.equal(evaluation.valueReviewContract, 'value-v2');
   assert(evaluation.outputs.every(item => !item.baseline.suggestions.length && !item.candidate.suggestions.length));
   await engine.close();
   const file = path.join(root, 'rsi-v2.json'), saved = JSON.parse(await fs.readFile(file, 'utf8'));
@@ -543,7 +544,7 @@ test('changing or clearing feedback invalidates a learned candidate, including o
 test('equal keyword scores allow quality review but cannot publish without it; reruns invalidate review', async () => fixture(async ({ engine }) => {
   const candidate = await prepareLearning(engine), original = engine.runText;
   engine.runText = async (session, prompt, signal) => {
-    if (prompt.startsWith('RSI_PROTOCOL_V2:learn') || prompt.startsWith('RSI_PROTOCOL_V2:value-judge')) return original(session, prompt, signal);
+    if (prompt.startsWith('RSI_PROTOCOL_V2:learn') || prompt.startsWith('RSI_PROTOCOL_V2:value-')) return original(session, prompt, signal);
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
     return JSON.stringify(answer(data.evidence, data.evidence.some((item: any) => item.text.includes('等待评审')) ? '' : '先做边界审计，并说明它如何影响本次验收'));
   };
@@ -565,7 +566,7 @@ test('suggestion ownership follows its cited sessions; deletion clears all learn
   observations.push({ ...observation('B-evidence', 'B 的开发集需要边界审计'), sessionId: 'B' });
   const original = engine.runText;
   engine.runText = async (session, prompt, signal) => {
-    if (prompt.startsWith('RSI_PROTOCOL_V2:learn') || prompt.startsWith('RSI_PROTOCOL_V2:value-judge')) return original(session, prompt, signal);
+    if (prompt.startsWith('RSI_PROTOCOL_V2:learn') || prompt.startsWith('RSI_PROTOCOL_V2:value-')) return original(session, prompt, signal);
     const data = JSON.parse(prompt.split('REFERENCE_DATA=')[1]);
     return JSON.stringify(answer([data.evidence.find((item: any) => item.sessionId === 'B')]));
   };

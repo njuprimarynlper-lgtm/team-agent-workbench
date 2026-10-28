@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { candidateBundle, learningPrompt, policyBundle, policyPrompt } from '../src/core/rsi-prompts';
+import { candidateBundle, learningPrompt, policyBundle, policyPrompt, replayPolicyPrompt } from '../src/core/rsi-prompts';
 import { validateRsiAnswer } from '../src/core/rsi';
 import { rsiAnswerSchema, rsiDefaultRules, type RsiPolicy, type RsiEvidence } from '../src/shared/rsi';
 
@@ -26,26 +26,29 @@ test('learned policy and arbitrary source text cannot overwrite or split the fix
   assert.equal(prompt.split('\n').filter(line => line.startsWith('TASK_CONTRACT=')).length, 1);
 });
 
-test('candidate uses its own rules and the frozen template without string substitution', () => {
+test('candidate keeps learned rules but uses the current product contract without modifying history', () => {
   const policy = base();
   policy.rules.guidance = '包含换行和重复词的旧策略\n策略：重复词';
   policy.bundle!.prompt += 'FROZEN_EXTENSION={"revision":"saved"}\n';
   const before = structuredClone(policy);
-  const candidate = { ...policy, rules: { ...policy.rules, guidance: '有冲突时核对实际差异' }, bundle: candidateBundle(policy) };
+  const candidate = { ...policy, rules: { ...policy.rules, guidance: '有冲突时核对实际差异' }, bundle: candidateBundle() };
   const prompt = policyPrompt(candidate, '{}');
   assert.equal(field(prompt, 'POLICY_DATA').guidance, candidate.rules.guidance);
-  assert.equal(field(prompt, 'FROZEN_EXTENSION').revision, 'saved');
+  assert(!prompt.includes('FROZEN_EXTENSION'));
+  assert.equal(field(prompt, 'TASK_CONTRACT').revision, 'recommend-v5');
   assert.deepEqual(policy, before);
   assert(!prompt.includes('包含换行和重复词的旧策略'));
 });
 
-test('legacy active prompt replays exactly while a new candidate can adopt the structured contract', () => {
+test('legacy policy upgrades live generation while historical replay and learned rules stay intact', () => {
   const policy = base();
   policy.bundle = { contract: 1, context: 'project-incremental-v1', evaluator: 'heldout-v1', prompt: 'RSI_PROTOCOL_V2:recommend\n旧的已验证模板\n策略：旧规则\n' };
   const before = structuredClone(policy), reference = '{"evidence":[]}';
-  assert.equal(policyPrompt(policy, reference), before.bundle!.prompt + 'REFERENCE_DATA=' + reference);
-  const candidate = { ...policy, bundle: candidateBundle(policy) };
-  assert.equal(field(policyPrompt(candidate, reference), 'TASK_CONTRACT').revision, 'recommend-v4');
+  assert.equal(replayPolicyPrompt(policy, reference), before.bundle!.prompt + 'REFERENCE_DATA=' + reference);
+  assert.equal(field(policyPrompt(policy, reference), 'TASK_CONTRACT').revision, 'recommend-v5');
+  assert.deepEqual(field(policyPrompt(policy, reference), 'POLICY_DATA'), before.rules);
+  const candidate = { ...policy, bundle: candidateBundle() };
+  assert.equal(field(policyPrompt(candidate, reference), 'TASK_CONTRACT').revision, 'recommend-v5');
   assert.deepEqual(policy, before);
 });
 
