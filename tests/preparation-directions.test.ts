@@ -64,7 +64,7 @@ test('category controls expose one multiline field per checked category, with de
     assert(again.includes('整理哪些方面'));
     assert(again.includes('关注精度与性能边界'));
     assert(again.includes('保留未解决的阻塞项'));
-    assert(again.includes('每次最多 15 条候选成果，其中待办最多 10 条'));
+    assert(again.includes('每个已选类别最多 3 条；本次已选 3 类，合计最多 9 条'));
     assert.equal((again.match(/type="checkbox"/g) || []).length, 3);
     assert(!again.includes('每个项目整理一条'));
   } finally { (globalThis as any).window = previous; }

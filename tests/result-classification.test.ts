@@ -42,13 +42,18 @@ test('extraction preserves independent tasks within bounded batches and rejects 
   applyPreparation(draft,output(artifacts)); assert.equal(draft.artifacts!.length,2);
   assert.equal(draft.artifacts![1].resultStatus,'pending'); assert.match(draft.artifacts![1].body,/待办动作8/);
   assert.throws(()=>applyPreparation(draft,output([artifacts[0],artifacts[0]])),/每个勾选类别|重复/);
-  const allowed = [...Array.from({length:10},(_,i)=>result('todo','动作'+i)), ...Array.from({length:5},(_,i)=>result('exploration','发现'+i,'主题'+i))];
+  const allowed = [
+    ...Array.from({length:3},(_,i)=>result('todo','动作'+i,'待办主题'+i)),
+    ...Array.from({length:3},(_,i)=>result('exploration','发现'+i,'探索主题'+i)),
+    ...Array.from({length:3},(_,i)=>result('capability','能力'+i,'能力主题'+i))
+  ];
   applyPreparation(draft,output(allowed));
-  assert.equal(draft.artifacts!.length,15);
-  assert.throws(()=>applyPreparation(draft,output(Array.from({length:11},(_,i)=>result('todo','事项'+i)))),/最多 10 条/);
-  assert.throws(()=>applyPreparation(draft,output(Array.from({length:36},(_,i)=>result('todo','动作'+i)))),/返回 36 条待办事项.*最多 10 条/);
-  assert.equal(draft.artifacts!.length,15,'over-limit response must not replace the reviewed draft');
-  assert.throws(()=>applyPreparation(draft,output([...allowed, result('exploration','额外发现','额外主题')])),/最多 15 条/);
+  assert.equal(draft.artifacts!.length,9);
+  for (const [category, label] of [['todo','待办事项'], ['exploration','探索记录'], ['capability','已有能力']]) {
+    assert.throws(()=>applyPreparation(draft,output(Array.from({length:4},(_,i)=>result(category,'事项'+i,'主题'+i)))),new RegExp(`返回 4 条${label}.*最多 3 条`));
+  }
+  assert.throws(()=>applyPreparation(draft,output(Array.from({length:36},(_,i)=>result('todo','动作'+i)))),/返回 36 条待办事项.*最多 3 条/);
+  assert.equal(draft.artifacts!.length,9,'over-limit response must not replace the reviewed draft');
   assert.throws(()=>applyPreparation(draft,JSON.stringify({artifacts:[],sourceReview:{status:'incomplete',explanation:'待办有 36 条，请缩小整理范围'}})),/候选数量超过上限.*待办有 36 条/);
   assert.throws(() => applyPreparation(draft, JSON.stringify({ artifacts, sourceReview: { status: 'incomplete', explanation: '只读取了部分对话' } })), /完整读取/);
   assert.throws(() => applyPreparation(draft, output([{ ...result('capability', '批处理'), updateId: randomUUID() }])), /当前个人能力版本/);

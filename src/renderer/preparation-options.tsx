@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import type { AgentSession, PreparationCheckpoint, PreparationScope } from '../shared/types';
 import { preparationDelta } from '../shared/preparation-progress';
 import { contributionCategoryInfo, type ContributionCategory } from '../shared/content';
-import { preparationCategories, preparationMaxArtifacts, preparationMaxTodos, resultCategoryBoundaries, type PreparationCategory } from '../shared/result-rules';
+import { preparationCategories, preparationMaxPerCategory, resultCategoryBoundaries, type PreparationCategory } from '../shared/result-rules';
 import { defaultPreparationDirections, preparationDirectionLimit, selectedPreparationDirections, type PreparationDirections } from '../shared/preparation-directions';
 
 export function PreparationCategoryChoices({ categories, selected, directions, disabled, select, changeDirection }: {
@@ -48,7 +48,7 @@ export function PreparationOptionsModal({ session, baseline, initialDirections, 
           <PreparationCategoryChoices categories={preparationCategories} selected={selected} directions={directions} disabled={disabled} select={(category, checked) => setSelected(values => checked ? [...values, category] : values.filter(value => value !== category))} changeDirection={(category, value) => setDirections(values => ({ ...values, [category]: value }))}/>
           {!selected.length && <p className="inline-error" role="alert">请至少选择一个整理方面。</p>}
         </section>
-        <p className="muted small">每次最多 {preparationMaxArtifacts} 条候选成果，其中待办最多 {preparationMaxTodos} 条。按实际内容整理，不凑齐分类；独立待办逐条保留，超限会提示缩小范围，不会静默丢弃。没有新成果时会说明原因，由你确认。</p>
+        <p className="muted small">每个已选类别最多 {preparationMaxPerCategory} 条；本次已选 {selected.length} 类，合计最多 {selected.length * preparationMaxPerCategory} 条。按实际内容整理，不凑齐分类；独立待办逐条保留，超限会提示缩小范围，不会静默丢弃。没有新成果时会说明原因，由你确认。</p>
         {error && <div className="inline-error" role="alert">{error}</div>}
       </div>
       <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={disabled || !selected.length || scope === 'incremental' && !canIncremental} onClick={async () => {

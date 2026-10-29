@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { contributionCategoryInfo, legacyMaterialCategories } from '../src/shared/content';
-import { preparationMaxArtifacts, preparationMaxTodos, resultRulesPrompt } from '../src/shared/result-rules';
+import { preparationMaxArtifacts, preparationMaxPerCategory, resultRulesPrompt } from '../src/shared/result-rules';
 import { applyPreparation } from '../src/core/preparation';
 import { applyContentMerge } from '../src/core/content-merge';
 import { containsLocalEnvironmentError } from '../src/core/preparation-policy';
@@ -29,7 +29,7 @@ test('prompt specifies topic-first classification, human-confirmed standards and
 test('current preparation prompt tells the model both batch limits and how to handle excess independent tasks', () => {
   const value = draft(); value.resultRules = { contract: 4, categories: ['capability', 'exploration', 'todo'] };
   const prompt = preparationPrompt(value, []);
-  assert.match(prompt, new RegExp(`最多 ${preparationMaxArtifacts} 条成果，其中待办事项最多 ${preparationMaxTodos} 条`));
+  assert.match(prompt, new RegExp(`已有能力、探索记录、待办事项各类最多 ${preparationMaxPerCategory} 条，三类全选时总计最多 ${preparationMaxArtifacts} 条`));
   assert.match(prompt, /sourceReview.status="incomplete"/);
   assert.match(prompt, /不得静默截断或省略/);
   assert.doesNotMatch(prompt, /最多 50 条/);

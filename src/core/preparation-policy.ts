@@ -1,10 +1,10 @@
 import { resultDefaultStatus } from '../shared/result-model';
 import { z } from 'zod';
-import { contributionCategoryFields, contributionCategorySchema, contributionTitle } from '../shared/content';
+import { contributionCategoryFields, contributionCategoryInfo, contributionCategorySchema, contributionTitle } from '../shared/content';
 import type { Draft, DraftArtifact } from '../shared/types';
 import type { EmptyPreparationResult } from '../shared/preparation-review';
 import { assertReadableResultText } from '../shared/result-reading';
-import { preparationMaxArtifacts, preparationMaxTodos } from '../shared/result-rules';
+import { preparationCategories, preparationMaxArtifacts, preparationMaxPerCategory } from '../shared/result-rules';
 
 export const preparedResultSchema = z.object({
   category: contributionCategorySchema, topic: z.string().trim().min(1).max(100),
@@ -29,9 +29,10 @@ export function reviewPreparedResults(draft: Draft, raw: unknown) {
   const modern = draft.resultRules?.contract === 4;
   const candidates = raw && typeof raw === 'object' && 'artifacts' in raw && Array.isArray(raw.artifacts) ? raw.artifacts : [];
   if (modern && !draft.mergeSources?.length) {
-    const todoCount = candidates.filter(item => item && typeof item === 'object' && item.category === 'todo').length;
-    if (todoCount > preparationMaxTodos) throw new Error(`本次整理返回 ${todoCount} 条待办事项，超过每次最多 ${preparationMaxTodos} 条；请缩小整理范围后重试，不会自动丢弃其余事项。`);
-    if (candidates.length > preparationMaxArtifacts) throw new Error(`本次整理返回 ${candidates.length} 条候选成果，超过每次最多 ${preparationMaxArtifacts} 条；请缩小整理范围后重试，不会自动截断。`);
+    for (const category of preparationCategories) {
+      const count = candidates.filter(item => item && typeof item === 'object' && item.category === category).length;
+      if (count > preparationMaxPerCategory) throw new Error(`本次整理返回 ${count} 条${contributionCategoryInfo[category].label}，超过每类最多 ${preparationMaxPerCategory} 条；请缩小整理范围后重试，不会自动丢弃其余内容。`);
+    }
   }
   const parsed = z.object({
     artifacts: z.array(preparedResultSchema).max(modern ? preparationMaxArtifacts : 5),
