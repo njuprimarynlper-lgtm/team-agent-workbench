@@ -108,7 +108,7 @@ export async function guardProbe(target: URL, env: NodeJS.ProcessEnv, certificat
 }
 
 // No redirects, global trust/proxy changes, or fallback after proxy failure.
-export async function guardRequest(target: URL, headers: http.OutgoingHttpHeaders, body: Buffer, env: NodeJS.ProcessEnv, signal: AbortSignal, method = 'POST', certificateFile = '', timeout = 15000): Promise<http.IncomingMessage> {
+export async function guardRequest(target: URL, headers: http.OutgoingHttpHeaders, body: Buffer, env: NodeJS.ProcessEnv, signal: AbortSignal, method = 'POST', certificateFile = '', timeout = 15000, responseTimeout = 120000): Promise<http.IncomingMessage> {
   const proxy = guardProxy(target, env);
   const ca = target.protocol === 'https:' || proxy?.protocol === 'https:' ? await guardTrustedCertificates(env, certificateFile) : undefined;
   const proxyAuth = proxy?.username ? 'Basic ' + Buffer.from(decodeURIComponent(proxy.username) + ':' + decodeURIComponent(proxy.password)).toString('base64') : undefined;
@@ -133,7 +133,7 @@ export async function guardRequest(target: URL, headers: http.OutgoingHttpHeader
       }
       response.once('close', () => { agent?.destroy(); secure?.destroy(); }); resolve(response);
     });
-    request.setTimeout(120000, () => request.destroy(new GuardNetworkError('upstream', 'ETIMEDOUT', !!proxy)));
+    request.setTimeout(responseTimeout, () => request.destroy(new GuardNetworkError('upstream', 'ETIMEDOUT', !!proxy)));
     request.once('error', error => { secure?.destroy(); agent?.destroy(); reject(guardNetworkError(error, 'upstream', !!proxy)); });
     request.end(body);
   });

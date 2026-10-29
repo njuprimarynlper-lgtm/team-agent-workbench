@@ -1,16 +1,17 @@
 import http from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import * as zlib from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import type { AgentRpc } from './rpc';
 import { guardHeaders, guardRequest, guardNetworkEnvironment, guardProbe } from './codex-guard-transport';
 import { GuardNetworkError } from './codex-guard-trust';
-import { guardHash, guardHistory, replaceGuardHistory, summaryRequest, type ResponseBody } from './codex-guard-history';
+import { guardHash, guardHistory, redactedMediaSummaryItem, replaceGuardHistory, summaryRequest, type ResponseBody } from './codex-guard-history';
 
 /** Exclusive limit for every outgoing HTTP body, including summary requests. */
 export const codexRequestBudget = 1_000_000;
 const memoryLimit = 32 * 1024 * 1024, readLimit = 64 * 1024 * 1024, ttl = 3600000;
+const summaryRawTarget = 200_000, summaryTimeout = 240_000, maxSummaries = 16;
 const compress = promisify(zlib.zstdCompress);
 type Encoded = { bytes: Buffer; encoding?: string };
 type CacheEntry = { scope: string; key: string; prefixHash: string; end: number; summary: string; bytes: number; used: number };
@@ -29,6 +30,41 @@ async function decoded(body: Buffer, encoding?: string) {
     if (!decompress) throw Error();
     return await new Promise<Buffer>((resolve, reject) => decompress(body, { maxOutputLength: readLimit }, (error: Error | null, value: Buffer) => error ? reject(error) : resolve(value)));
   } catch { throw new Error('无法安全读取超限请求的压缩正文，原推理请求未上传'); }
+}
+
+// A summary is a separate inference. Native turn headers identify the original
+// request and must never be reused for this independent request.
+function isolatedSummaryHeaders(headers: http.OutgoingHttpHeaders) {
+  const next = { ...headers };
+  for (const name of ['session_id', 'x-codex-session-id', 'x-session-id', 'x-codex-turn-metadata',
+    'x-codex-turn-state', 'x-codex-window-id', 'x-codex-parent-thread-id', 'x-codex-routing-hint',
+    'x-openai-subagent']) delete next[name];
+  next['x-client-request-id'] = randomUUID();
+  next.accept = 'text/event-stream';
+  next['accept-encoding'] = 'identity';
+  return next;
+}
+
+function safeDiagnostic(value: unknown, limit = 80) {
+  return typeof value === 'string' && value.length <= limit && /^[A-Za-z0-9_.-]+$/.test(value) ? value : undefined;
+}
+
+async function summaryHttpFailure(response: http.IncomingMessage, encoded: Encoded) {
+  let raw = Buffer.alloc(0);
+  try { raw = await readBody(response, 16 * 1024); } catch { /* Response bodies are untrusted and never shown verbatim. */ }
+  finally { response.destroy(); }
+  let error: any;
+  try { error = JSON.parse(raw.toString('utf8'))?.error; } catch { /* HTML and other non-JSON errors are identified by status and content type. */ }
+  const details = [`HTTP ${response.statusCode || 0}`];
+  for (const [label, value] of [['类型', error?.type], ['代码', error?.code], ['参数', error?.param]] as const) {
+    const safe = safeDiagnostic(value); if (safe) details.push(`${label} ${safe}`);
+  }
+  const contentType = /^([A-Za-z0-9.+-]+\/[A-Za-z0-9.+-]+)/.exec(String(response.headers['content-type'] || ''))?.[1];
+  if (contentType) details.push(`响应 ${contentType}`);
+  const requestId = safeDiagnostic(response.headers['x-request-id'] || response.headers['openai-request-id'], 128);
+  if (requestId) details.push(`上游请求 ${requestId}`);
+  details.push(`上传 ${encoded.bytes.length} 字节${encoded.encoding ? `/${encoded.encoding}` : ''}`);
+  return new Error(`历史摘要请求失败（${details.join('；')}），原推理请求未上传`);
 }
 
 /** Under-budget bodies are byte-identical; only oversized requests are re-encoded. */
@@ -100,20 +136,26 @@ export class CodexRequestGuard {
     const params = new URLSearchParams(query); for (const [key, value] of params) target.searchParams.set(key, value);
     return target;
   }
-  private async send(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal, method = 'POST') {
+  private async send(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal, method = 'POST', responseTimeout = 120000) {
     if (encoded.bytes.length >= this.budget) throw new Error('请求大小保护阻止了超限上传');
     if (signal.aborted || this.closed) throw new Error('请求已取消');
     this.stats.maxUploadBytes = Math.max(this.stats.maxUploadBytes, encoded.bytes.length);
     const next = { ...headers }; delete next['content-encoding'];
     if (encoded.encoding) next['content-encoding'] = encoded.encoding;
-    return guardRequest(target, next, encoded.bytes, this.env, signal, method, this.options.certificateFile?.());
+    return guardRequest(target, next, encoded.bytes, this.env, signal, method, this.options.certificateFile?.(), 15000, responseTimeout);
   }
   private async summarize(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal) {
     this.stats.summaries++;
-    const deadline = AbortSignal.any([signal, AbortSignal.timeout(120000)]);
-    const response = await this.send(target, { ...headers, accept: 'text/event-stream', 'accept-encoding': 'identity' }, encoded, deadline);
-    if (response.statusCode !== 200) { response.destroy(); throw new Error('历史摘要请求失败，原推理请求未上传'); }
-    const raw = await decoded(await readBody(response, 8 * 1024 * 1024), String(response.headers['content-encoding'] || '') || undefined);
+    const deadline = AbortSignal.any([signal, AbortSignal.timeout(summaryTimeout)]);
+    let raw: Buffer, response: http.IncomingMessage;
+    try {
+      response = await this.send(target, isolatedSummaryHeaders(headers), encoded, deadline, 'POST', summaryTimeout);
+      if (response.statusCode !== 200) throw await summaryHttpFailure(response, encoded);
+      raw = await decoded(await readBody(response, 8 * 1024 * 1024), String(response.headers['content-encoding'] || '') || undefined);
+    } catch (error) {
+      if (!signal.aborted && deadline.aborted) throw new Error(`历史摘要请求超时（${summaryTimeout / 1000} 秒；上传 ${encoded.bytes.length} 字节），原推理请求未上传`);
+      throw error;
+    }
     let completed: any;
     try {
       const text = raw.toString('utf8');
@@ -143,15 +185,15 @@ export class CodexRequestGuard {
     let body: ResponseBody, raw: Buffer;
     try { raw = await decoded(bodyBytes, encoding); body = JSON.parse(raw.toString('utf8')); } catch { throw new Error('超限正文不是可安全处理的 JSON，原推理请求未上传'); }
     const keyBase = { scope, config: { ...body, input: undefined }, target: target.href };
-    let summariesLeft = 8, diagnostics = '';
+    let summariesLeft = maxSummaries, diagnostics = '';
     this.prune();
-    // First retain every unknown native item. Only if that cannot meet the
-    // budget, retry completed history with narrowly recognized opaque reasoning
-    // and text-only tool results eligible for replacement.
-    const conservative = guardHistory(body), completed = guardHistory(body, 'completed');
+    // Broaden only after the safer level cannot fit. Historical image bytes are
+    // never sent to the summarizer; only verified text parts from their results are.
+    const conservative = guardHistory(body), completed = guardHistory(body, 'completed'), completedMedia = guardHistory(body, 'completed_media');
     const hasSecondLevel = completed.omittedIndices.size > 0 || [...conservative.protectedIndices].some(index => !completed.protectedIndices.has(index));
-    for (const [level, history] of [['conservative', conservative], ['completed', completed]] as const) {
-      if (level === 'completed' && !hasSecondLevel) break;
+    const hasThirdLevel = completedMedia.omittedIndices.size > completed.omittedIndices.size || [...completed.protectedIndices].some(index => !completedMedia.protectedIndices.has(index));
+    for (const [level, history] of [['conservative', conservative], ['completed', completed], ['completed_media', completedMedia]] as const) {
+      if (level === 'completed' && !hasSecondLevel || level === 'completed_media' && !hasThirdLevel) continue;
       const lastCut = history.cuts.at(-1);
       const activeBytes = Buffer.byteLength(JSON.stringify(history.items.slice(history.activeStart)));
       const replaceable = lastCut && history.items.slice(0, lastCut).some((_item, index) => !history.protectedIndices.has(index) && !history.omittedIndices.has(index));
@@ -159,8 +201,17 @@ export class CodexRequestGuard {
       const probeReady = replaceable && await encodeGuardBody(probe, undefined, this.options.compression, this.budget);
       const fixedInput = lastCut ? [...history.items.slice(0, lastCut).filter((_item, index) => history.protectedIndices.has(index)), ...history.items.slice(lastCut, history.activeStart)] : history.items.slice(0, history.activeStart);
       const fixedBytes = Buffer.byteLength(JSON.stringify({ ...body, input: fixedInput }));
+      const baseBytes = Buffer.byteLength(JSON.stringify({ ...body, input: [] }));
+      const oldProtected = { media: 0, reasoning: 0, other: 0 };
+      for (const index of history.protectedIndices) {
+        if (index >= (lastCut || 0)) continue;
+        const item = history.items[index], parts = [...(Array.isArray(item?.output) ? item.output : []), ...(Array.isArray(item?.content) ? item.content : [])];
+        const kind = item?.type === 'reasoning' ? 'reasoning' : parts.some((part: any) => ['input_image', 'input_audio', 'input_video', 'video'].includes(part?.type)) ? 'media' : 'other';
+        oldProtected[kind] += Buffer.byteLength(JSON.stringify(item));
+      }
       const wireBytes = probeReady ? probeReady.bytes.length : this.options.compression ? (await compress(probe)).length : probe.length;
-      diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、占位预检${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
+      const fixedDetails = `基础字段约 ${baseBytes} 字节、保留旧媒体约 ${oldProtected.media} 字节、保留旧推理约 ${oldProtected.reasoning} 字节、其他旧项约 ${oldProtected.other} 字节`;
+      diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、${fixedDetails}、占位预检${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
       if (!probeReady) continue;
       const key = guardHash({ ...keyBase, level });
       const prior = cacheable ? this.cache.filter(entry => entry.key === key && history.cuts.includes(entry.end) && entry.prefixHash === guardHash(history.items.slice(0, entry.end))).sort((a, b) => b.end - a.end)[0] : undefined;
@@ -174,23 +225,36 @@ export class CodexRequestGuard {
           const ready = await encodeGuardBody(final, undefined, this.options.compression, this.budget);
           if (ready) return ready;
         }
-        // When a genuinely broader second level exists, leave half the total
-        // eight-summary budget available instead of exhausting it in level one.
-        if (!summariesLeft || level === 'conservative' && hasSecondLevel && summariesLeft <= 4) break;
+        // Reserve half the summary budget when a broader level can retain less.
+        if (!summariesLeft || level !== 'completed_media' && hasThirdLevel && summariesLeft <= maxSummaries / 2
+          || level === 'conservative' && !hasThirdLevel && hasSecondLevel && summariesLeft <= maxSummaries / 2) break;
         let selected: { end: number; encoded: Encoded } | undefined;
         // Bounded candidate count avoids unbounded compression work for adversarial histories.
         const cuts = history.cuts.filter(cut => cut > end);
         if (cuts.length > 4096) throw new Error('历史结构过大，无法安全缩小请求；原推理请求未上传');
         // Search logarithmically: each candidate is measured, so a non-monotonic
         // compression ratio can only miss an opportunity, never admit an oversized body.
-        let lo = 0, hi = cuts.length - 1;
-        while (lo <= hi) {
-          const mid = (lo + hi) >>> 1, cut = cuts[mid];
-          const material = history.items.slice(end, cut).filter((_item, index) => !history.protectedIndices.has(end + index) && !history.omittedIndices.has(end + index));
-          if (!material.length) { lo = mid + 1; continue; }
-          const encoded = await encodeGuardBody(Buffer.from(JSON.stringify(summaryRequest(body, material, summary))), undefined, this.options.compression, this.budget);
-          if (!encoded) hi = mid - 1;
-          else { selected = { end: cut, encoded }; lo = mid + 1; }
+        // Bound uncompressed model input as well as the wire body. Only an
+        // indivisible old turn falls back to the larger wire-only limit.
+        for (const rawLimit of [summaryRawTarget, Infinity]) {
+          let lo = 0, hi = cuts.length - 1;
+          while (lo <= hi) {
+            const mid = (lo + hi) >>> 1, cut = cuts[mid];
+            const material = history.items.slice(end, cut).flatMap((item, index) => {
+              const position = end + index;
+              if (history.protectedIndices.has(position)) return [];
+              if (history.omittedIndices.has(position)) return level === 'completed_media' && ['function_call_output', 'custom_tool_call_output'].includes(item?.type) && Array.isArray(item.output)
+                && item.output.some((part: any) => part?.type === 'input_image') ? [redactedMediaSummaryItem(item)] : [];
+              return [item];
+            });
+            if (!material.length) { lo = mid + 1; continue; }
+            const rawSummary = Buffer.from(JSON.stringify(summaryRequest(body, material, summary)));
+            if (rawSummary.length > rawLimit) { hi = mid - 1; continue; }
+            const encoded = await encodeGuardBody(rawSummary, undefined, this.options.compression, this.budget);
+            if (!encoded) hi = mid - 1;
+            else { selected = { end: cut, encoded }; lo = mid + 1; }
+          }
+          if (selected) break;
         }
         if (!selected) break;
         summariesLeft--;
@@ -200,10 +264,10 @@ export class CodexRequestGuard {
       if (summary) {
         const final = Buffer.from(JSON.stringify(replaceGuardHistory(body, history, end, summary, false)));
         const wireBytes = this.options.compression ? (await compress(final)).length : final.length;
-        diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、最终候选${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
+        diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、${fixedDetails}、最终候选${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
       }
     }
-    throw new Error(`两级历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。`);
+    throw new Error(`分层历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。`);
   }
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const controller = new AbortController(); this.controllers.add(controller);

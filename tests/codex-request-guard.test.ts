@@ -4,7 +4,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { CodexRequestGuard, codexRequestBudget, createCodexRequestGuard, encodeGuardBody } from '../src/core/codex-request-guard';
-import { guardHistory, replaceGuardHistory } from '../src/core/codex-guard-history';
+import { guardHistory, replaceGuardHistory, summaryRequest } from '../src/core/codex-guard-history';
 import { guardProxy, guardWindowsProxy } from '../src/core/codex-guard-transport';
 import { settingsSchema } from '../src/core/config';
 import type { AgentRpc } from '../src/core/rpc';
@@ -15,6 +15,15 @@ const msg = (role: string, content: any) => ({ type: 'message', role, content })
 const text = (value: string) => [{ type: 'input_text', text: value }];
 const history = () => ({ model: 'test', stream: true, store: false, instructions: 'KEEP_SYSTEM', tools: [{ type: 'function', name: 'inspect', parameters: {} }],
   input: [msg('developer', text('KEEP_DEVELOPER')), msg('user', text('old question ' + 'a'.repeat(900))), msg('assistant', [{ type: 'output_text', text: 'old answer ' + 'b'.repeat(900) }]), msg('user', text('second question ' + 'c'.repeat(900))), msg('assistant', [{ type: 'output_text', text: 'second answer ' + 'd'.repeat(900) }]), msg('user', text('LATEST_KEEP'))] });
+
+test('summary request disables parallel calls and lowers its own reasoning effort without changing the original turn', () => {
+  const original = { model: 'test', reasoning: { effort: 'high', context: 'all_turns' }, parallel_tool_calls: true };
+  const summary = summaryRequest(original, [msg('user', text('finished'))], 'prior');
+  assert.equal(summary.parallel_tool_calls, false);
+  assert.deepEqual(summary.reasoning, { effort: 'low', context: 'all_turns' });
+  assert.deepEqual(original.reasoning, { effort: 'high', context: 'all_turns' });
+  assert.equal(original.parallel_tool_calls, true);
+});
 async function request(url: string, body: Buffer, headers: http.OutgoingHttpHeaders = {}) {
   return new Promise<{ status: number; body: Buffer; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
     const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json', session_id: 'thread-A', authorization: 'Bearer test-A', ...headers } }, res => {
@@ -32,7 +41,10 @@ async function fixture(run: (v: { url: string; guard: CodexRequestGuard; receive
     if (bytes.length >= (options.budget ?? codexRequestBudget)) { res.writeHead(413).end('Strict upload limit'); return; }
     const summary = value?.tools?.length === 0 && value?.tool_choice === 'none';
     if (summary && response.delay) await new Promise(resolve => setTimeout(resolve, response.delay));
+    if (summary && value.parallel_tool_calls !== false) { res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { type: 'invalid_request_error', code: 'unsupported_value', param: 'parallel_tool_calls' } })); return; }
     if (summary && response.mode === 'fail') { res.writeHead(500).end('PRIVATE_UPSTREAM_ERROR'); return; }
+    if (summary && response.mode === 'fail-json') { res.writeHead(429, { 'content-type': 'application/json', 'x-request-id': 'req-summary-42' }).end(JSON.stringify({ error: { type: 'rate_limit_error', code: 'rate_limit_exceeded', param: 'input', message: 'PRIVATE_HISTORY_AND_TOKEN' } })); return; }
+    if (summary && response.mode === 'fail-html') { res.writeHead(403, { 'content-type': 'text/html' }).end('<html>PRIVATE_PROXY_PAGE</html>'); return; }
     res.writeHead(200, { ...(response.mode === 'missing-type' ? {} : { 'content-type': 'text/event-stream' }), 'x-test-stream': 'preserved' });
     const output = summary && response.mode === 'tool' ? [{ type: 'function_call', name: 'bad' }] : [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: summary ? 'History: diagnosed the old attempt; keep constraints and unresolved work.' : 'FINAL' }] }];
     const event = { type: response.mode === 'incomplete' && summary ? 'response.incomplete' : 'response.completed', response: { status: response.mode === 'incomplete' && summary ? 'incomplete' : 'completed', output, usage: { input_tokens: 123, output_tokens: 9 } } };
@@ -131,12 +143,12 @@ test('closed tool boundaries include late results, preserve media and internal n
 
 test('second-level history repair drops only completed opaque reasoning after the conservative pass cannot fit', () => fixture(async ({ url, received, guard }) => {
   const oldCipher = randomBytes(12000).toString('base64'), oldTextResult = randomBytes(1500).toString('base64');
-  const active = [msg('user', text('请继续')), { type: 'reasoning', id: 'active', summary: [], encrypted_content: 'ACTIVE_CIPHER' },
+  const active = [msg('user', text('请继续')), { type: 'reasoning', id: 'active', summary: [], encrypted_content: 'ACTIVE_CIPHER', internal_chat_message_metadata_passthrough: { turn_id: 'active-turn' } },
     { type: 'function_call', call_id: 'latest', name: 'read', arguments: '{}' },
     { type: 'function_call_output', call_id: 'latest', output: [{ type: 'input_text', text: 'ACTIVE_RESULT' }] }];
   const body = { model: 'test', instructions: 'KEEP_SYSTEM', tools: [{ type: 'function', name: 'read', parameters: {} }], input: [
     msg('developer', text('KEEP_DEVELOPER')), msg('user', text('old task ' + 'x'.repeat(1000))),
-    { type: 'reasoning', id: 'old', summary: [], encrypted_content: oldCipher },
+    { type: 'reasoning', id: 'old', summary: [], encrypted_content: oldCipher, internal_chat_message_metadata_passthrough: { turn_id: 'completed-turn' } },
     { type: 'function_call', call_id: 'old-text', name: 'read', arguments: '{}' },
     { type: 'function_call_output', call_id: 'old-text', output: [{ type: 'input_text', text: oldTextResult }] },
     msg('assistant', text('old answer')),
@@ -146,6 +158,7 @@ test('second-level history repair drops only completed opaque reasoning after th
   const conservative = guardHistory(body), completed = guardHistory(body, 'completed');
   assert(conservative.protectedIndices.has(2)); assert(conservative.protectedIndices.has(4));
   assert(completed.omittedIndices.has(2)); assert(!completed.protectedIndices.has(4));
+  assert(completed.protectedIndices.has(body.input.length - 3), 'active reasoning remains unchanged');
   assert(completed.protectedIndices.has(7)); assert(completed.protectedIndices.has(9));
   assert(completed.cuts.every(cut => cut <= completed.activeStart));
   const richer = guardHistory({ input: [msg('user', text('old')), { type: 'reasoning', summary: [{ type: 'summary_text', text: 'readable' }], encrypted_content: 'KEEP' },
@@ -155,6 +168,9 @@ test('second-level history repair drops only completed opaque reasoning after th
   const emptySummary = guardHistory({ input: [msg('user', text('old')), { type: 'reasoning', summary: [{ type: 'summary_text', text: ' ' }], encrypted_content: 'OPAQUE' },
     msg('assistant', text('done')), msg('user', text('active'))] }, 'completed');
   assert(emptySummary.omittedIndices.has(1));
+  const unknownMetadata = guardHistory({ input: [msg('user', text('old')), { type: 'reasoning', summary: [], encrypted_content: 'OPAQUE', internal_chat_message_metadata_passthrough: { turn_id: 'old', safety_flag: true } },
+    msg('assistant', text('done')), msg('user', text('active'))] }, 'completed');
+  assert(unknownMetadata.protectedIndices.has(1), 'unknown reasoning metadata remains protected');
   const result = await request(url, json(body)); assert.equal(result.status, 200, result.body.toString());
   assert(guard.stats.summaries > 0 && guard.stats.summaries <= 8);
   assert(received.every(item => item.bytes.length < 7000));
@@ -170,7 +186,7 @@ test('second-level history repair drops only completed opaque reasoning after th
 test('a long root-session shape with 129 old reasoning items resumes below the real 1 MB wire limit', () => fixture(async ({ url, received, guard }) => {
   const old: any[] = [];
   for (let index = 0; index < 129; index++) old.push(msg('user', text(`old-${index} ` + randomBytes(400).toString('base64'))),
-    { type: 'reasoning', id: `rs-${index}`, summary: [], encrypted_content: randomBytes(5300).toString('base64') },
+    { type: 'reasoning', id: `rs-${index}`, summary: [], encrypted_content: randomBytes(5300).toString('base64'), internal_chat_message_metadata_passthrough: { turn_id: `completed-${index}` } },
     msg('assistant', text(`completed-${index}`)));
   const media = randomBytes(320000).toString('base64');
   const input = [msg('developer', text('KEEP_DEVELOPER')), ...old,
@@ -191,6 +207,30 @@ test('a long root-session shape with 129 old reasoning items resumes below the r
   assert(!JSON.stringify(final).includes('encrypted_content'));
 }, { compression: true }));
 
+test('completed historical image tool results are redacted only at the last level, retaining their text without sending image bytes', () => fixture(async ({ url, received }) => {
+  const image = randomBytes(1_050_000).toString('base64');
+  const oldResult = { type: 'custom_tool_call_output', call_id: 'old-image', output: [
+    { type: 'input_text', text: 'The old screenshot was from a completed inspection.' },
+    { type: 'input_image', image_url: image, detail: 'auto' }],
+    internal_chat_message_metadata_passthrough: { turn_id: 'old-turn', create_time: 123 } };
+  const input = [msg('developer', text('KEEP_DEVELOPER')), msg('user', text('old task')),
+    { type: 'custom_tool_call', call_id: 'old-image', name: 'inspect', input: '{}' }, oldResult,
+    msg('assistant', text('Old inspection completed.')), msg('user', text('LATEST_KEEP'))];
+  const body = { model: 'test', instructions: 'KEEP_SYSTEM', input };
+  const conservative = guardHistory(body), completed = guardHistory(body, 'completed'), media = guardHistory(body, 'completed_media');
+  assert(conservative.protectedIndices.has(3)); assert(completed.protectedIndices.has(3));
+  assert(media.omittedIndices.has(3)); assert(!media.protectedIndices.has(3));
+  const result = await request(url, json(body)); assert.equal(result.status, 200, result.body.toString());
+  assert(received.length > 1);
+  const summaries = received.slice(0, -1).map(item => JSON.stringify(item.value));
+  assert(summaries.some(value => value.includes('omitted_images') && value.includes('The old screenshot was from a completed inspection.')));
+  assert(summaries.every(value => !value.includes(image)));
+  const final = received.at(-1)!.value;
+  assert.deepEqual(final.input[0], input[0]); assert.deepEqual(final.input.at(-1), input.at(-1));
+  assert(!JSON.stringify(final).includes(image));
+  assert.deepEqual(body.input, input, 'saved native history is unchanged');
+}, { compression: true }));
+
 test('first-level repair keeps completed reasoning when it can fit; oversized active turn reports counts and never uploads', () => fixture(async ({ url, received, guard }) => {
   const oldCipher = randomBytes(300).toString('base64');
   const body = { model: 'test', input: [msg('user', text('old task ' + randomBytes(3500).toString('base64'))), msg('assistant', text('first result')),
@@ -200,7 +240,7 @@ test('first-level repair keeps completed reasoning when it can fit; oversized ac
   assert(JSON.stringify(received.at(-1)!.value).includes(oldCipher), 'the conservative first level must win when it succeeds');
   const prior = received.length, oversized = { ...body, input: [...body.input.slice(0, -1), msg('user', text(randomBytes(8000).toString('base64')))] };
   const failed = await request(url, json(oversized)); assert.equal(failed.status, 400);
-  assert.match(failed.body.toString(), /固定内容约 \d+ 字节、最新轮次约 \d+ 字节、占位预检编码后 \d+ 字节/);
+  assert.match(failed.body.toString(), /固定内容约 \d+ 字节、最新轮次约 \d+ 字节、基础字段约 \d+ 字节、保留旧媒体约 \d+ 字节、保留旧推理约 \d+ 字节、其他旧项约 \d+ 字节、占位预检编码后 \d+ 字节/);
   assert.equal(received.length, prior, 'neither a summary nor the original inference may upload when the active turn is too large');
   assert.equal(guard.stats.forwarded, 1);
 }, { budget: 7000 }));
@@ -233,6 +273,34 @@ for (const mode of ['fail', 'tool', 'incomplete']) test(`summary ${mode} fails l
   response.mode = mode;
   const result = await request(url, json(history())); assert.equal(result.status, 400); assert(!result.body.includes('PRIVATE_UPSTREAM_ERROR'));
   assert(received.length > 0); assert(received.every(item => item.value.tool_choice === 'none'));
+}, { budget: 3000 }));
+
+test('summary uses independent request identity while the original inference keeps its native headers', () => fixture(async ({ url, received }) => {
+  const original = { 'x-codex-turn-metadata': '{"turn_id":"native-turn"}', 'x-codex-turn-state': 'native-state',
+    'x-codex-window-id': 'native-window', 'x-codex-routing-hint': 'native-route', 'x-client-request-id': 'native-request',
+    'x-openai-subagent': 'native-agent', 'x-custom-auth': 'custom-secret', 'chatgpt-account-id': 'account-A' };
+  assert.equal((await request(url, json(history()), original)).status, 200);
+  assert(received.length > 1);
+  for (const item of received.slice(0, -1)) {
+    for (const name of ['session_id', 'x-codex-turn-metadata', 'x-codex-turn-state', 'x-codex-window-id', 'x-codex-routing-hint', 'x-openai-subagent']) assert.equal(item.headers[name], undefined, name);
+    assert.match(String(item.headers['x-client-request-id']), /^[0-9a-f-]{36}$/);
+    assert.notEqual(item.headers['x-client-request-id'], original['x-client-request-id']);
+    assert.equal(item.headers['x-custom-auth'], original['x-custom-auth']);
+    assert.equal(item.headers['chatgpt-account-id'], original['chatgpt-account-id']);
+  }
+  const final = received.at(-1)!.headers;
+  for (const [name, value] of Object.entries(original)) assert.equal(final[name], value, name);
+  assert.equal(final.session_id, 'thread-A');
+}, { budget: 3000 }));
+
+for (const mode of ['fail-json', 'fail-html']) test(`summary ${mode} reports safe upstream diagnostics without leaking its body`, () => fixture(async ({ url, received, response }) => {
+  response.mode = mode;
+  const result = await request(url, json(history()));
+  assert.equal(result.status, 400);
+  const message = JSON.parse(result.body.toString()).error.message;
+  assert.match(message, mode === 'fail-json' ? /HTTP 429；类型 rate_limit_error；代码 rate_limit_exceeded；参数 input；响应 application\/json；上游请求 req-summary-42；上传 \d+ 字节/ : /HTTP 403；响应 text\/html；上传 \d+ 字节/);
+  assert.doesNotMatch(message, /PRIVATE_|Bearer|custom-secret/);
+  assert(received.every(item => item.value.tool_choice === 'none'), 'the original inference must not upload');
 }, { budget: 3000 }));
 
 test('mandatory latest content or no safe cut causes no upload', () => fixture(async ({ url, received }) => {
@@ -295,13 +363,13 @@ test('gateway SSE without Content-Type is accepted only after a completed text r
   assert(guard.stats.summaries > 0);
 }, { budget: 3000 }));
 
-test('eight-summary ceiling rejects without ever forwarding the oversized original', () => fixture(async ({ url, received, guard }) => {
+test('summary ceiling rejects without ever forwarding the oversized original', () => fixture(async ({ url, received, guard }) => {
   const body = history();
   body.input = Array.from({ length: 40 }, (_, i) => msg(i % 2 ? 'assistant' : 'user', text('round-' + i + 'x'.repeat(800))));
   body.input.push(msg('user', text('LATEST')));
   assert.equal((await request(url, json(body))).status, 400);
-  assert.equal(guard.stats.summaries, 8);
-  assert.equal(received.length, 8); assert(received.every(item => item.bytes.length < 3000 && item.value.tool_choice === 'none'));
+  assert.equal(guard.stats.summaries, 16);
+  assert.equal(received.length, 16); assert(received.every(item => item.bytes.length < 3000 && item.value.tool_choice === 'none'));
 }, { budget: 3000 }));
 
 test('latest closed tool group, media and internal annotations stay whole', () => fixture(async ({ url, received }) => {
