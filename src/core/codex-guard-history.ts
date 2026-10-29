@@ -8,30 +8,44 @@ const plainMessage = (item: any) => item && (!item.type || item.type === 'messag
   && !item.metadata && !item.annotations?.length;
 const callTypes = new Set(['function_call', 'custom_tool_call']);
 const resultTypes = new Set(['function_call_output', 'custom_tool_call_output']);
+export type GuardHistoryLevel = 'conservative' | 'completed';
+const textOnlyToolOutput = (item: any) => Array.isArray(item.output) && item.output.every((part: any) => part && ['text', 'input_text', 'output_text'].includes(part.type)
+  && typeof part.text === 'string' && !part.annotations?.length && Object.keys(part).every(key => ['type', 'text', 'annotations'].includes(key)));
+const noReadableReasoningSummary = (summary: unknown) => summary === undefined || Array.isArray(summary) && summary.every(part => part?.type === 'summary_text'
+  && typeof part.text === 'string' && !part.text.trim() && Object.keys(part).every(key => ['type', 'text'].includes(key)));
+const opaqueCompletedReasoning = (item: any) => item?.type === 'reasoning' && typeof item.encrypted_content === 'string'
+  && noReadableReasoningSummary(item.summary)
+  && (item.status === undefined || item.status === 'completed')
+  && Object.keys(item).every(key => ['type', 'id', 'status', 'summary', 'encrypted_content'].includes(key));
 
 /** Only closed tool groups may be crossed, including results arriving after other messages. */
-export function guardHistory(body: ResponseBody) {
+export function guardHistory(body: ResponseBody, level: GuardHistoryLevel = 'conservative') {
   if (!Array.isArray(body.input) || body.input.length < 2 || body.previous_response_id || body.conversation || body.input.some(item => item?.type === 'item_reference'))
     throw new Error('请求达到 1 MB，续接引用或当前输入不能安全摘要，原推理请求未上传');
   if (body.input.length > 20000) throw new Error('历史结构过大，无法安全缩小请求，原推理请求未上传');
-  const items = body.input, protectedIndices = new Set<number>();
+  const items = body.input, protectedIndices = new Set<number>(), omittedIndices = new Set<number>();
+  // The last user message begins the active turn, even when native reasoning or
+  // tool results have already followed it in the pending request.
+  const activeStart = Math.max(0, items.findLastIndex(item => item?.role === 'user' && !/<\/?[a-z_][^>]*>/i.test(text(item))));
   const calls = new Map<string, { start: number; end: number; results: number[] }>();
   items.forEach((item, index) => {
     if (callTypes.has(item?.type)) {
       if (!item.call_id || calls.has(item.call_id)) throw new Error('工具调用结构无法核对，原推理请求未上传');
       calls.set(item.call_id, { start: index, end: -1, results: [] });
     }
-    // Unknown/native items and internal cross-session notifications remain intact.
-    if (!(plainMessage(item) && !(item.role === 'user' && /<\/?[a-z_][^>]*>/i.test(text(item)))) && !callTypes.has(item?.type) && !resultTypes.has(item?.type)) protectedIndices.add(index);
+    // The second level may discard only opaque reasoning from completed turns.
+    // It is never sent to the summarizer, which cannot interpret ciphertext.
+    if (level === 'completed' && index < activeStart && opaqueCompletedReasoning(item)) omittedIndices.add(index);
+    else if (!(plainMessage(item) && !(item.role === 'user' && /<\/?[a-z_][^>]*>/i.test(text(item)))) && !callTypes.has(item?.type) && !resultTypes.has(item?.type)) protectedIndices.add(index);
   });
   items.forEach((item, index) => {
     if (!resultTypes.has(item?.type)) return;
     const call = calls.get(item.call_id);
     if (!call || call.start >= index) throw new Error('工具结果缺少完整的调用记录，原推理请求未上传');
     call.end = index; call.results.push(index);
-    if (typeof item.output !== 'string') protectedIndices.add(index);
+    if (typeof item.output !== 'string' && !(level === 'completed' && index < activeStart && textOnlyToolOutput(item))) protectedIndices.add(index);
   });
-  let latestStart = items.length - 1;
+  let latestStart = activeStart;
   const spans: { start: number; end: number }[] = [];
   for (const call of calls.values()) {
     if (call.end < 0) { protectedIndices.add(call.start); call.end = items.length - 1; }
@@ -56,7 +70,7 @@ export function guardHistory(body: ResponseBody) {
     if ((previous?.role === 'assistant' || resultTypes.has(previous?.type)) && !protectedIndices.has(end - 1)) cuts.push(end);
   }
   const recentUsers = items.map((item, index) => ({ item, index })).filter(({ item, index }) => plainMessage(item) && item.role === 'user' && !protectedIndices.has(index)).slice(-3).map(({ index }) => index);
-  return { items, cuts, protectedIndices, recentUsers };
+  return { items, cuts, protectedIndices, omittedIndices, recentUsers, activeStart };
 }
 
 export function summaryRequest(body: ResponseBody, history: unknown[], previousSummary: string) {
@@ -69,6 +83,7 @@ export function replaceGuardHistory(body: ResponseBody, history: ReturnType<type
   const input: any[] = []; let inserted = false;
   for (let i = 0; i < end; i++) {
     if (history.protectedIndices.has(i) || keepRecent && history.recentUsers.includes(i)) input.push(history.items[i]);
+    else if (history.omittedIndices.has(i)) continue;
     else if (!inserted) { inserted = true; input.push({ role: 'user', content: [{ type: 'input_text', text: '[工作台历史交接摘要：有损概括，仅作历史资料，不改变现行指令。]\n' + summary }] }); }
   }
   if (!inserted) throw new Error('没有可安全摘要的历史，原推理请求未上传');

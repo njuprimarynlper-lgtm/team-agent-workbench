@@ -4,7 +4,7 @@ import http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { CodexRequestGuard, codexRequestBudget, createCodexRequestGuard, encodeGuardBody } from '../src/core/codex-request-guard';
-import { guardHistory } from '../src/core/codex-guard-history';
+import { guardHistory, replaceGuardHistory } from '../src/core/codex-guard-history';
 import { guardProxy, guardWindowsProxy } from '../src/core/codex-guard-transport';
 import { settingsSchema } from '../src/core/config';
 import type { AgentRpc } from '../src/core/rpc';
@@ -128,6 +128,82 @@ test('closed tool boundaries include late results, preserve media and internal n
   assert.throws(() => guardHistory({ ...body, previous_response_id: 'old' }), /续接/);
   assert.throws(() => guardHistory({ input: [{ type: 'function_call_output', call_id: 'missing', output: 'bad' }, msg('user', text('latest'))] }), /缺少/);
 });
+
+test('second-level history repair drops only completed opaque reasoning after the conservative pass cannot fit', () => fixture(async ({ url, received, guard }) => {
+  const oldCipher = randomBytes(12000).toString('base64'), oldTextResult = randomBytes(1500).toString('base64');
+  const active = [msg('user', text('请继续')), { type: 'reasoning', id: 'active', summary: [], encrypted_content: 'ACTIVE_CIPHER' },
+    { type: 'function_call', call_id: 'latest', name: 'read', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'latest', output: [{ type: 'input_text', text: 'ACTIVE_RESULT' }] }];
+  const body = { model: 'test', instructions: 'KEEP_SYSTEM', tools: [{ type: 'function', name: 'read', parameters: {} }], input: [
+    msg('developer', text('KEEP_DEVELOPER')), msg('user', text('old task ' + 'x'.repeat(1000))),
+    { type: 'reasoning', id: 'old', summary: [], encrypted_content: oldCipher },
+    { type: 'function_call', call_id: 'old-text', name: 'read', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'old-text', output: [{ type: 'input_text', text: oldTextResult }] },
+    msg('assistant', text('old answer')),
+    { type: 'function_call', call_id: 'media', name: 'read', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'media', output: [{ type: 'input_image', image_url: 'MEDIA_KEEP' }] },
+    msg('assistant', text('media handled')), { type: 'native_notice', value: 'INTERNAL_KEEP' }, ...active] };
+  const conservative = guardHistory(body), completed = guardHistory(body, 'completed');
+  assert(conservative.protectedIndices.has(2)); assert(conservative.protectedIndices.has(4));
+  assert(completed.omittedIndices.has(2)); assert(!completed.protectedIndices.has(4));
+  assert(completed.protectedIndices.has(7)); assert(completed.protectedIndices.has(9));
+  assert(completed.cuts.every(cut => cut <= completed.activeStart));
+  const richer = guardHistory({ input: [msg('user', text('old')), { type: 'reasoning', summary: [{ type: 'summary_text', text: 'readable' }], encrypted_content: 'KEEP' },
+    msg('assistant', text('done')), msg('user', text('active')), msg('user', text('<subagent_notification>KEEP</subagent_notification>'))] }, 'completed');
+  assert(richer.protectedIndices.has(1), 'reasoning with readable summary remains protected');
+  assert.equal(richer.activeStart, 3, 'an internal notice must not move the active-turn boundary');
+  const emptySummary = guardHistory({ input: [msg('user', text('old')), { type: 'reasoning', summary: [{ type: 'summary_text', text: ' ' }], encrypted_content: 'OPAQUE' },
+    msg('assistant', text('done')), msg('user', text('active'))] }, 'completed');
+  assert(emptySummary.omittedIndices.has(1));
+  const result = await request(url, json(body)); assert.equal(result.status, 200, result.body.toString());
+  assert(guard.stats.summaries > 0 && guard.stats.summaries <= 8);
+  assert(received.every(item => item.bytes.length < 7000));
+  assert(received.slice(0, -1).every(item => item.value.tool_choice === 'none' && !JSON.stringify(item.value).includes(oldCipher) && !JSON.stringify(item.value).includes('MEDIA_KEEP')));
+  assert(received.slice(0, -1).some(item => JSON.stringify(item.value).includes(oldTextResult)));
+  const final = received.at(-1)!.value;
+  assert.deepEqual(final.input.slice(-active.length), active);
+  assert(JSON.stringify(final).includes('MEDIA_KEEP'));
+  assert(JSON.stringify(final).includes('INTERNAL_KEEP'));
+  assert(!JSON.stringify(final).includes(oldCipher));
+}, { budget: 7000 }));
+
+test('a long root-session shape with 129 old reasoning items resumes below the real 1 MB wire limit', () => fixture(async ({ url, received, guard }) => {
+  const old: any[] = [];
+  for (let index = 0; index < 129; index++) old.push(msg('user', text(`old-${index} ` + randomBytes(400).toString('base64'))),
+    { type: 'reasoning', id: `rs-${index}`, summary: [], encrypted_content: randomBytes(5300).toString('base64') },
+    msg('assistant', text(`completed-${index}`)));
+  const media = randomBytes(320000).toString('base64');
+  const input = [msg('developer', text('KEEP_DEVELOPER')), ...old,
+    { type: 'function_call', call_id: 'media-old', name: 'inspect', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'media-old', output: [{ type: 'input_image', image_url: media }] },
+    msg('assistant', text('media inspected')), msg('user', text('继续'))];
+  const body = { model: 'test', instructions: 'KEEP_SYSTEM', input };
+  const strict = guardHistory(body), lastCut = strict.cuts.at(-1)!;
+  const strictProbe = json(replaceGuardHistory(body, strict, lastCut, '历史摘要', false));
+  assert.equal(await encodeGuardBody(strictProbe, undefined, true), undefined, 'first-level fixed content must still exceed 1 MB');
+  const result = await request(url, json(body)); assert.equal(result.status, 200, result.body.toString());
+  assert(guard.stats.summaries > 0 && guard.stats.summaries <= 8);
+  assert(received.every(item => item.bytes.length < codexRequestBudget));
+  assert(received.slice(0, -1).every(item => item.value.tool_choice === 'none' && !JSON.stringify(item.value).includes('encrypted_content')));
+  const final = received.at(-1)!.value;
+  assert.deepEqual(final.input.at(-1), input.at(-1));
+  assert(JSON.stringify(final).includes(media));
+  assert(!JSON.stringify(final).includes('encrypted_content'));
+}, { compression: true }));
+
+test('first-level repair keeps completed reasoning when it can fit; oversized active turn reports counts and never uploads', () => fixture(async ({ url, received, guard }) => {
+  const oldCipher = randomBytes(300).toString('base64');
+  const body = { model: 'test', input: [msg('user', text('old task ' + randomBytes(3500).toString('base64'))), msg('assistant', text('first result')),
+    msg('user', text('old follow-up ' + randomBytes(3500).toString('base64'))),
+    { type: 'reasoning', id: 'old', summary: [], encrypted_content: oldCipher }, msg('assistant', text('done')), msg('user', text('继续'))] };
+  assert.equal((await request(url, json(body))).status, 200);
+  assert(JSON.stringify(received.at(-1)!.value).includes(oldCipher), 'the conservative first level must win when it succeeds');
+  const prior = received.length, oversized = { ...body, input: [...body.input.slice(0, -1), msg('user', text(randomBytes(8000).toString('base64')))] };
+  const failed = await request(url, json(oversized)); assert.equal(failed.status, 400);
+  assert.match(failed.body.toString(), /固定内容约 \d+ 字节、最新轮次约 \d+ 字节、占位预检编码后 \d+ 字节/);
+  assert.equal(received.length, prior, 'neither a summary nor the original inference may upload when the active turn is too large');
+  assert.equal(guard.stats.forwarded, 1);
+}, { budget: 7000 }));
 
 test('budget-fitting final body retains bytes, authentication, headers, streamed response and true usage', () => fixture(async ({ url, received, guard }) => {
   const raw = Buffer.from('{ "model": "test", "input": "ok" }');

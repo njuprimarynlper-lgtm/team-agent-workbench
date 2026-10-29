@@ -132,47 +132,70 @@ export class CodexRequestGuard {
   private async prepare(bodyBytes: Buffer, encoding: string | undefined, target: URL, headers: http.OutgoingHttpHeaders, signal: AbortSignal, scope: string, cacheable: boolean) {
     const ready = await encodeGuardBody(bodyBytes, encoding, this.options.compression, this.budget);
     if (ready) { this.cache = this.cache.filter(entry => entry.scope !== scope); return ready; }
-    let body: ResponseBody;
-    try { body = JSON.parse((await decoded(bodyBytes, encoding)).toString('utf8')); } catch { throw new Error('超限正文不是可安全处理的 JSON，原推理请求未上传'); }
-    const history = guardHistory(body);
-    const lastCut = history.cuts.at(-1);
-    if (!lastCut || !await encodeGuardBody(Buffer.from(JSON.stringify(replaceGuardHistory(body, history, lastCut, '历史摘要', false))), undefined, this.options.compression, this.budget))
-      throw new Error('必须保留的指令或最新内容无法缩至 1 MB 以下；原推理请求未上传');
-    const key = guardHash({ scope, config: { ...body, input: undefined }, target: target.href });
+    let body: ResponseBody, raw: Buffer;
+    try { raw = await decoded(bodyBytes, encoding); body = JSON.parse(raw.toString('utf8')); } catch { throw new Error('超限正文不是可安全处理的 JSON，原推理请求未上传'); }
+    const keyBase = { scope, config: { ...body, input: undefined }, target: target.href };
+    let summariesLeft = 8, diagnostics = '';
     this.prune();
-    const prior = cacheable ? this.cache.filter(entry => entry.key === key && history.cuts.includes(entry.end) && entry.prefixHash === guardHash(history.items.slice(0, entry.end))).sort((a, b) => b.end - a.end)[0] : undefined;
-    let end = prior?.end || 0, summary = prior?.summary || '';
-    if (prior) { prior.used = Date.now(); this.stats.cacheHits++; }
-    for (let round = 0; round <= 8; round++) {
-      if (signal.aborted || this.closed) throw new Error('请求已取消');
-      if (summary) {
-        for (const keepRecent of [true, false]) {
+    // First retain every unknown native item. Only if that cannot meet the
+    // budget, retry completed history with narrowly recognized opaque reasoning
+    // and text-only tool results eligible for replacement.
+    const conservative = guardHistory(body), completed = guardHistory(body, 'completed');
+    const hasSecondLevel = completed.omittedIndices.size > 0 || [...conservative.protectedIndices].some(index => !completed.protectedIndices.has(index));
+    for (const [level, history] of [['conservative', conservative], ['completed', completed]] as const) {
+      if (level === 'completed' && !hasSecondLevel) break;
+      const lastCut = history.cuts.at(-1);
+      const activeBytes = Buffer.byteLength(JSON.stringify(history.items.slice(history.activeStart)));
+      const replaceable = lastCut && history.items.slice(0, lastCut).some((_item, index) => !history.protectedIndices.has(index) && !history.omittedIndices.has(index));
+      const probe = replaceable ? Buffer.from(JSON.stringify(replaceGuardHistory(body, history, lastCut!, '历史摘要', false))) : raw;
+      const probeReady = replaceable && await encodeGuardBody(probe, undefined, this.options.compression, this.budget);
+      const fixedInput = lastCut ? [...history.items.slice(0, lastCut).filter((_item, index) => history.protectedIndices.has(index)), ...history.items.slice(lastCut, history.activeStart)] : history.items.slice(0, history.activeStart);
+      const fixedBytes = Buffer.byteLength(JSON.stringify({ ...body, input: fixedInput }));
+      const wireBytes = probeReady ? probeReady.bytes.length : this.options.compression ? (await compress(probe)).length : probe.length;
+      diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、占位预检${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
+      if (!probeReady) continue;
+      const key = guardHash({ ...keyBase, level });
+      const prior = cacheable ? this.cache.filter(entry => entry.key === key && history.cuts.includes(entry.end) && entry.prefixHash === guardHash(history.items.slice(0, entry.end))).sort((a, b) => b.end - a.end)[0] : undefined;
+      let end = prior?.end || 0, summary = prior?.summary || '';
+      if (prior) { prior.used = Date.now(); this.stats.cacheHits++; }
+      while (true) {
+        if (signal.aborted || this.closed) throw new Error('请求已取消');
+        if (summary) for (const keepRecent of [true, false]) {
+          if (!history.items.slice(0, end).some((_item, index) => !history.protectedIndices.has(index) && !history.omittedIndices.has(index) && (!keepRecent || !history.recentUsers.includes(index)))) continue;
           const final = Buffer.from(JSON.stringify(replaceGuardHistory(body, history, end, summary, keepRecent)));
           const ready = await encodeGuardBody(final, undefined, this.options.compression, this.budget);
           if (ready) return ready;
         }
+        // When a genuinely broader second level exists, leave half the total
+        // eight-summary budget available instead of exhausting it in level one.
+        if (!summariesLeft || level === 'conservative' && hasSecondLevel && summariesLeft <= 4) break;
+        let selected: { end: number; encoded: Encoded } | undefined;
+        // Bounded candidate count avoids unbounded compression work for adversarial histories.
+        const cuts = history.cuts.filter(cut => cut > end);
+        if (cuts.length > 4096) throw new Error('历史结构过大，无法安全缩小请求；原推理请求未上传');
+        // Search logarithmically: each candidate is measured, so a non-monotonic
+        // compression ratio can only miss an opportunity, never admit an oversized body.
+        let lo = 0, hi = cuts.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >>> 1, cut = cuts[mid];
+          const material = history.items.slice(end, cut).filter((_item, index) => !history.protectedIndices.has(end + index) && !history.omittedIndices.has(end + index));
+          if (!material.length) { lo = mid + 1; continue; }
+          const encoded = await encodeGuardBody(Buffer.from(JSON.stringify(summaryRequest(body, material, summary))), undefined, this.options.compression, this.budget);
+          if (!encoded) hi = mid - 1;
+          else { selected = { end: cut, encoded }; lo = mid + 1; }
+        }
+        if (!selected) break;
+        summariesLeft--;
+        summary = await this.summarize(target, headers, selected.encoded, signal); end = selected.end;
+        if (cacheable) this.store({ scope, key, prefixHash: guardHash(history.items.slice(0, end)), end, summary, bytes: Buffer.byteLength(summary) + 256, used: Date.now() });
       }
-      if (round === 8) break;
-      let selected: { end: number; encoded: Encoded } | undefined;
-      // Bounded candidate count avoids unbounded compression work for adversarial histories.
-      const cuts = history.cuts.filter(cut => cut > end);
-      if (cuts.length > 4096) throw new Error('历史结构过大，无法安全缩小请求；原推理请求未上传');
-      // Search logarithmically: each candidate is measured, so a non-monotonic
-      // compression ratio can only miss an opportunity, never admit an oversized body.
-      let lo = 0, hi = cuts.length - 1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >>> 1, cut = cuts[mid];
-        const material = history.items.slice(end, cut).filter((_item, index) => !history.protectedIndices.has(end + index));
-        if (!material.length) { lo = mid + 1; continue; }
-        const encoded = await encodeGuardBody(Buffer.from(JSON.stringify(summaryRequest(body, material, summary))), undefined, this.options.compression, this.budget);
-        if (!encoded) hi = mid - 1;
-        else { selected = { end: cut, encoded }; lo = mid + 1; }
+      if (summary) {
+        const final = Buffer.from(JSON.stringify(replaceGuardHistory(body, history, end, summary, false)));
+        const wireBytes = this.options.compression ? (await compress(final)).length : final.length;
+        diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、最终候选${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
       }
-      if (!selected) break;
-      summary = await this.summarize(target, headers, selected.encoded, signal); end = selected.end;
-      if (cacheable) this.store({ scope, key, prefixHash: guardHash(history.items.slice(0, end)), end, summary, bytes: Buffer.byteLength(summary) + 256, used: Date.now() });
     }
-    throw new Error('请求无法缩至 1 MB 以下，必须保留的内容过大或历史无法继续缩小，原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。');
+    throw new Error(`两级历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。`);
   }
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const controller = new AbortController(); this.controllers.add(controller);
