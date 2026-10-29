@@ -267,7 +267,7 @@ test('existing proxy is mandatory, including CONNECT refusal; unsupported scheme
   proxy.on('connect', (_req, socket) => { connects++; socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); });
   await new Promise<void>(resolve => proxy.listen(0, '127.0.0.1', resolve));
   const guard = new CodexRequestGuard({ upstream: 'https://unreachable.invalid/v1', compression: false, env: { ...direct, HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as any).port}` } });
-  try { const result = await request((await guard.start()) + '/responses', json({ input: 'ok' })); assert.equal(result.status, 400); assert.equal(connects, 1); assert(result.body.includes('未改为直连')); }
+  try { const result = await request((await guard.start()) + '/responses', json({ input: 'ok' })); assert.equal(result.status, 400); assert.equal(connects, 1); assert(result.body.includes('未切换网络通路')); assert(result.body.includes('PROXY_403')); }
   finally { await guard.close(); proxy.closeAllConnections(); await new Promise<void>(resolve => proxy.close(() => resolve())); }
   assert.throws(() => guardProxy(new URL('https://example.com'), { ...direct, HTTPS_PROXY: 'socks5://localhost:1' }), /不支持/);
 });
@@ -277,7 +277,7 @@ test('provider override preserves custom identity, headers and upstream; builtin
     const config = { model_provider: builtin ? 'openai' : 'custom', model_providers: { custom: { name: 'Private', base_url: 'https://custom.invalid/api', env_key: 'PRIVATE_API_KEY', http_headers: { 'x-user': 'retained' }, query_params: { 'api-version': 'test' }, supports_request_compression: true } } };
     const before = structuredClone(config);
     const rpc = { request: async (method: string) => method === 'config/read' ? { config } : { account: { type: 'chatgpt' } } } as unknown as AgentRpc;
-    const { guard, config: overlay } = await createCodexRequestGuard(rpc, '.', direct);
+    const { guard, config: overlay } = await createCodexRequestGuard(rpc, '.', { ...direct, HTTPS_PROXY: 'http://127.0.0.1:9', NO_PROXY: '*' });
     try { assert.deepEqual(config, before); const id = builtin ? 'workbench_guard_openai' : 'custom'; assert.equal(overlay.model_provider, id);
       const provider = (overlay as any)[`model_providers.${id}`]; assert(provider.base_url.startsWith('http://127.0.0.1:')); assert.equal(provider.supports_websockets, false);
       if (!builtin) { assert.equal(provider.env_key, 'PRIVATE_API_KEY'); assert.deepEqual(provider.http_headers, before.model_providers.custom.http_headers); }

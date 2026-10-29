@@ -124,7 +124,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
   const { workbench, egress, broadcast, notice } = context;
   if (context === personalContext && active) await alignPersonalRelay(active, action, raw);
   if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(action)) workbench.assertAccountReady();
-  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
+  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'workspace.select': {
@@ -171,7 +171,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     }
     case 'egress.test': {
       const route = z.object({ networkRoute: z.enum(['direct', 'management']).optional() }).optional().parse(raw)?.networkRoute;
-      if (route === 'direct') return { enabled: false, configured: true, running: true, available: true, detail: '使用本机网络直连', hasAccessCode: false };
+      if (route === 'direct') return { enabled: false, configured: true, running: true, available: true, detail: '使用本机网络（沿用电脑代理设置）', hasAccessCode: false };
       if (route === 'management' && !egress.status().enabled) throw new Error('该会话的管理端出口尚未启用');
       await egress.probe(); broadcast(); return egress.status();
     }
@@ -233,6 +233,11 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.model': { const p = z.object({ id, model: z.string().trim().min(1).max(256).regex(/^[^\x00-\x1f\x7f]+$/), stop: z.boolean().optional() }).parse(raw); return workbench.changeModel(p.id, p.model, p.stop); }
     case 'session.reasoningEffort': { const p = z.object({ id, effort: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/).nullable() }).parse(raw); return workbench.changeReasoningEffort(p.id, p.effort); }
     case 'session.network': { const p = z.object({ id, networkRoute: z.enum(['direct', 'management']) }).parse(raw); return workbench.changeNetworkRoute(p.id, p.networkRoute, workbench.personal && workbench.store.settings.egress?.viaSharedServer && active?.workbench.remote.profile ? accountIdentity(active.workbench.remote.profile) : undefined); }
+    case 'guard.connection.test': {
+      const p = z.object({ certificateFile: z.string().trim().max(32768).optional(), cwd: z.string().optional(), networkRoute: z.enum(['direct', 'management']).default('direct'), providerPath: z.string().optional(), sessionId: id.optional() }).parse(raw);
+      return workbench.checkGuardConnection(p.certificateFile, p.cwd, p.networkRoute, p.providerPath, p.sessionId);
+    }
+    case 'choose.certificate': return (await dialog.showOpenDialog(owner, { title: '选择企业 CA 证书', properties: ['openFile'], filters: [{ name: 'CA 证书', extensions: ['pem', 'crt', 'cer'] }] })).filePaths[0] || '';
     case 'choose.directory': return (await dialog.showOpenDialog(owner, { properties: ['openDirectory'] })).filePaths[0] || '';
     case 'choose.executable': return (await dialog.showOpenDialog(owner, { title: '选择 CLI 程序（不是编辑器）', properties: ['openFile'], filters: [{ name: 'CLI', extensions: ['exe', 'cmd', 'ps1'] }] })).filePaths[0] || '';
     case 'remote.connect': {

@@ -77,6 +77,7 @@ import { acceptedSessionContext, isPersonalHandoffSource, sourceIdentity, source
 import { subsessionFamily, subsessionParentId, sessionMoveFamilyIds } from '../shared/subsessions';
 import { changedWorkspaceFiles, reportSourceHash } from './subsession-report';
 import { safeFilename, localWithin } from './paths';
+import { checkCodexGuardConnection } from './codex-guard-check';
 import { ProviderAccounts, authReady } from './provider-auth';
 import { inspectCatalog } from './provider-catalog';
 import { preparationErrorMessage } from '../shared/preparation-error';
@@ -177,7 +178,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'project.connection.open'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -219,8 +220,8 @@ export class Workbench {
     this.activity = new ActivityAssistant({ store: this.store, prepare: () => this.journal.ready(), owns: s => !this.configuring && !this.personalMoving && !this.migrationRecoveryRequired && this.ownsLocal(s.binding), connected: () => !this.closing && !this.configuring && this.remote.connected,
       content: s => { this.assertCanWork(s.binding); return this.projectConnected(s.binding!.project.id) ? this.remote.contentList(s.binding!) : Promise.resolve([]); },
       commitSummary: (s, hash, count, summary, entry) => this.commitHandoff(s, hash, count, summary, entry), changed: () => this.broadcast(),
-    }, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard));
-    this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard), this.broadcast);
+    }, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || ''));
+    this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || ''), this.broadcast);
     this.accountSync = new AccountSync(this.store, this.remote, this.broadcast, () => {
       for (const draft of this.store.drafts) {
         const explicitlySaved = new Set(draft.personalSavedIds || []);
@@ -234,7 +235,7 @@ export class Workbench {
       const parent = this.store.sessions.filter(session => session.purpose === 'work' && this.ownsLocal(session.binding) && (!projectId || session.binding?.project.id === projectId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       const execution: AgentSession = parent || { id: randomUUID(), title: '同步冲突分析', provider: 'codex', purpose: 'background', cwd: this.store.root, networkRoute: 'direct', createdAt: new Date().toISOString(), status: 'idle', messages: [], sources: [], approvals: [], autoUpload: false, handoffPath: '' };
       await this.requireAuth(execution.provider, execution.cwd, execution.networkRoute);
-      return backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard)(execution, prompt, signal || new AbortController().signal);
+      return backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || '')(execution, prompt, signal || new AbortController().signal);
     }, id => this.projectConnected(id));
     this.projectSync = new ProjectSync(root, {
       owner: () => { const profile = this.personal ? personalWorkspace().profile : this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile ? accountIdentity(profile) : 'unlinked'; },
@@ -952,6 +953,11 @@ export class Workbench {
     if (next.length > 120) throw new Error('会话名称不能超过 120 个字符');
     session.title = next; await this.store.save(); this.broadcast(); return session;
   }
+  async checkGuardConnection(certificateFile?: string, cwd?: string, networkRoute: SessionNetworkRoute = 'direct', providerPath?: string, sessionId?: string) {
+    const session = sessionId ? this.store.sessions.find(value => value.id === sessionId) : undefined;
+    if (sessionId && !session) throw new Error('会话不存在，请刷新后重试');
+    return checkCodexGuardConnection(await resolveProvider('codex', providerPath ?? this.store.settings.providerPaths.codex), session?.cwd || cwd || this.store.settings.localWorkspace || this.store.root, this.providerEnvironment(session?.networkRoute || networkRoute, session), certificateFile ?? this.store.settings.codexCaCertificate ?? '');
+  }
   async detect() { this.providers = await Promise.all((['codex', 'cursor', 'claude'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
   snapshot(): Snapshot {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
@@ -1059,7 +1065,7 @@ export class Workbench {
         ancestorId = this.store.sessions.find(item => item.id === ancestorId)?.fork?.parentId;
       }
     }
-    runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc, false, !!this.store.settings.codexRequestGuard);
+    runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc, false, !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || '');
     this.runtimes.set(s.id, runtime);
     if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
     else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };

@@ -4,6 +4,8 @@ import tls from 'node:tls';
 import type { Duplex } from 'node:stream';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { isIP } from 'node:net';
+import { GuardNetworkError, guardNetworkError, guardTrustedCertificates } from './codex-guard-trust';
 
 /** Node does not inherit the Windows proxy that the native Codex HTTP client uses. */
 export async function guardNetworkEnvironment(overrides: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
@@ -63,51 +65,76 @@ export function guardHeaders(headers: http.IncomingHttpHeaders): http.OutgoingHt
   return result;
 }
 
-export async function guardRequest(target: URL, headers: http.OutgoingHttpHeaders, body: Buffer, env: NodeJS.ProcessEnv, signal: AbortSignal, method = 'POST'): Promise<http.IncomingMessage> {
-  const proxy = guardProxy(target, env);
+async function guardTunnel(target: URL, proxy: URL, ca: string[], signal: AbortSignal, timeout: number): Promise<Duplex> {
   const proxyAuth = proxy?.username ? 'Basic ' + Buffer.from(decodeURIComponent(proxy.username) + ':' + decodeURIComponent(proxy.password)).toString('base64') : undefined;
-  let tunnel: Duplex | undefined;
-  let agent: https.Agent | undefined;
-  if (proxy && target.protocol === 'https:') {
-    tunnel = await new Promise<Duplex>((resolve, reject) => {
-      const authority = target.host.includes(':') ? target.host : target.host + ':443';
-      const connect = (proxy.protocol === 'https:' ? https : http).request(proxy, { method: 'CONNECT', path: authority, agent: false, signal, rejectUnauthorized: true,
-        headers: { host: authority, ...(proxyAuth ? { 'proxy-authorization': proxyAuth } : {}) } });
-      connect.setTimeout(15000, () => connect.destroy(new Error('代理连接超时')));
-      connect.on('error', () => reject(new Error('请求保护连接代理失败，未改为直连')));
-      connect.once('connect', (res, socket, head) => {
-        if (res.statusCode !== 200) { socket.destroy(); reject(new Error('请求保护的代理连接被拒绝，未改为直连')); return; }
-        socket.setTimeout(0); if (head.length) socket.unshift(head); resolve(socket);
-      });
-      connect.end();
+  return new Promise<Duplex>((resolve, reject) => {
+    const authority = target.hostname + ':' + (target.port || '443');
+    const connect = (proxy.protocol === 'https:' ? https : http).request(proxy, { method: 'CONNECT', path: authority, agent: false, signal, ca, rejectUnauthorized: true,
+      headers: { host: authority, ...(proxyAuth ? { 'proxy-authorization': proxyAuth } : {}) } });
+    const timer = setTimeout(() => connect.destroy(new GuardNetworkError('proxy_connect', 'ETIMEDOUT', true)), timeout);
+    connect.once('error', error => { clearTimeout(timer); reject(guardNetworkError(error, 'proxy_connect', true)); });
+    connect.once('connect', (res, socket, head) => {
+      clearTimeout(timer);
+      if (res.statusCode !== 200) { socket.destroy(); reject(new GuardNetworkError('proxy_connect', res.statusCode === 403 ? 'PROXY_403' : res.statusCode === 407 ? 'PROXY_407' : 'PROXY_REJECTED', true)); return; }
+      socket.setTimeout(0); if (head.length) socket.unshift(head); resolve(socket);
     });
+    connect.end();
+  });
+}
+
+async function guardTls(target: URL, proxy: URL | undefined, ca: string[], signal: AbortSignal, timeout: number) {
+  const tunnel = proxy ? await guardTunnel(target, proxy, ca, signal, timeout) : undefined;
+  if (signal.aborted) { tunnel?.destroy(); throw new GuardNetworkError('target_tls', 'ABORT_ERR', !!proxy); }
+  const host = target.hostname.replace(/^\[|\]$/g, '');
+  return new Promise<tls.TLSSocket>((resolve, reject) => {
+    const secure = tls.connect({ ...(tunnel ? { socket: tunnel as any } : { host, port: Number(target.port || 443) }),
+      servername: isIP(host) ? undefined : host, ca, rejectUnauthorized: true, checkServerIdentity: (_name, cert) => tls.checkServerIdentity(host, cert) });
+    const abort = () => secure.destroy(new GuardNetworkError('target_tls', 'ABORT_ERR', !!proxy));
+    const timer = setTimeout(() => secure.destroy(new GuardNetworkError('target_tls', 'ETIMEDOUT', !!proxy)), timeout);
+    signal.addEventListener('abort', abort, { once: true });
+    secure.once('close', () => { clearTimeout(timer); signal.removeEventListener('abort', abort); tunnel?.destroy(); });
+    secure.once('error', error => { clearTimeout(timer); reject(guardNetworkError(error, 'target_tls', !!proxy)); });
+    secure.once('secureConnect', () => { clearTimeout(timer); resolve(secure); });
+    if (signal.aborted) abort();
+  });
+}
+
+/** TLS handshake only: no model request, authentication token or project content. */
+export async function guardProbe(target: URL, env: NodeJS.ProcessEnv, certificateFile = '', signal = AbortSignal.timeout(30000)) {
+  if (target.protocol !== 'https:') throw new Error('当前模型地址未使用 HTTPS，无需检测 TLS 证书');
+  const proxy = guardProxy(target, env), ca = await guardTrustedCertificates(env, certificateFile);
+  const socket = await guardTls(target, proxy, ca, signal, 15000); socket.destroy();
+  return { viaProxy: !!proxy };
+}
+
+// No redirects, global trust/proxy changes, or fallback after proxy failure.
+export async function guardRequest(target: URL, headers: http.OutgoingHttpHeaders, body: Buffer, env: NodeJS.ProcessEnv, signal: AbortSignal, method = 'POST', certificateFile = '', timeout = 15000): Promise<http.IncomingMessage> {
+  const proxy = guardProxy(target, env);
+  const ca = target.protocol === 'https:' || proxy?.protocol === 'https:' ? await guardTrustedCertificates(env, certificateFile) : undefined;
+  const proxyAuth = proxy?.username ? 'Basic ' + Buffer.from(decodeURIComponent(proxy.username) + ':' + decodeURIComponent(proxy.password)).toString('base64') : undefined;
+  let secure: tls.TLSSocket | undefined;
+  let agent: https.Agent | undefined;
+  if (target.protocol === 'https:') {
+    secure = await guardTls(target, proxy, ca!, signal, timeout);
     agent = new https.Agent({ keepAlive: false });
-    agent.createConnection = (_options, callback) => {
-      const secure = tls.connect({ socket: tunnel as any, servername: target.hostname, rejectUnauthorized: true });
-      const abort = () => secure.destroy(new Error('请求已取消'));
-      signal.addEventListener('abort', abort, { once: true });
-      secure.once('close', () => signal.removeEventListener('abort', abort));
-      const failed = (error: Error) => callback?.(error, secure);
-      secure.once('error', failed);
-      secure.setTimeout(15000, () => secure.destroy(new Error('代理 TLS 握手超时')));
-      secure.once('secureConnect', () => { secure.setTimeout(0); secure.off('error', failed); callback?.(null, secure); });
-      if (signal.aborted) abort();
-      return undefined as any;
-    };
+    agent.createConnection = () => secure!;
   }
   return new Promise((resolve, reject) => {
-    if (signal.aborted) { tunnel?.destroy(); agent?.destroy(); reject(new Error('请求已取消')); return; }
+    if (signal.aborted) { secure?.destroy(); agent?.destroy(); reject(new GuardNetworkError('upstream', 'ABORT_ERR', !!proxy)); return; }
     const viaHttp = proxy && target.protocol === 'http:';
     const destination = viaHttp ? proxy! : target;
     const transport = destination.protocol === 'https:' ? https : http;
-    const request = transport.request(destination, { method, signal, agent: agent || false, rejectUnauthorized: true,
+    const request = transport.request(destination, { method, signal, agent: agent || false, ca, rejectUnauthorized: true,
       path: viaHttp ? target.href : target.pathname + target.search,
       headers: { ...headers, host: target.host, 'content-length': body.length, ...(viaHttp && proxyAuth ? { 'proxy-authorization': proxyAuth } : {}) },
     }, response => {
-      response.once('close', () => { agent?.destroy(); tunnel?.destroy(); }); resolve(response);
+      if (viaHttp && (response.statusCode === 403 || response.statusCode === 407)) {
+        response.destroy(); reject(new GuardNetworkError('proxy_connect', response.statusCode === 403 ? 'PROXY_403' : 'PROXY_407', true)); return;
+      }
+      response.once('close', () => { agent?.destroy(); secure?.destroy(); }); resolve(response);
     });
-    request.setTimeout(120000, () => request.destroy(new Error('请求保护等待上游超时')));
-    request.once('error', () => { tunnel?.destroy(); agent?.destroy(); reject(new Error('请求保护访问模型服务失败，未切换网络通路')); });
+    request.setTimeout(120000, () => request.destroy(new GuardNetworkError('upstream', 'ETIMEDOUT', !!proxy)));
+    request.once('error', error => { secure?.destroy(); agent?.destroy(); reject(guardNetworkError(error, 'upstream', !!proxy)); });
     request.end(body);
   });
 }

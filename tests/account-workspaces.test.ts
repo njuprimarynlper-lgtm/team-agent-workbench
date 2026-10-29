@@ -31,11 +31,13 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
 
 test('account migration inherits the previous Codex request guard choice', async t => {
   const { first, profile } = await fixture(t);
-  first.store.settings.codexRequestGuard = false; await first.store.save();
+  first.store.settings.codexRequestGuard = false; first.store.settings.codexCaCertificate = 'C:\\company\\root.pem'; await first.store.save();
   const restored = new Store(await migrateAccountWorkspace(first.store.root, profile, first.store.root)); await restored.init();
   assert.equal(restored.settings.codexRequestGuard, false, 'same account keeps its explicit setting');
+  assert.equal(restored.settings.codexCaCertificate, 'C:\\company\\root.pem');
   const next = new Store(await migrateAccountWorkspace(first.store.root, { ...profile, username: 'next-user' }, first.store.root)); await next.init();
   assert.equal(next.settings.codexRequestGuard, false, 'a newly created account inherits the previous setting');
+  assert.equal(next.settings.codexCaCertificate, 'C:\\company\\root.pem');
 });
 
 test('account migration retains owned compressed Codex histories for native resume and fork', async t => {

@@ -4,7 +4,8 @@ import { promisify } from 'node:util';
 import * as zlib from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import type { AgentRpc } from './rpc';
-import { guardHeaders, guardRequest, guardNetworkEnvironment } from './codex-guard-transport';
+import { guardHeaders, guardRequest, guardNetworkEnvironment, guardProbe } from './codex-guard-transport';
+import { GuardNetworkError } from './codex-guard-trust';
 import { guardHash, guardHistory, replaceGuardHistory, summaryRequest, type ResponseBody } from './codex-guard-history';
 
 /** Exclusive limit for every outgoing HTTP body, including summary requests. */
@@ -13,7 +14,7 @@ const memoryLimit = 32 * 1024 * 1024, readLimit = 64 * 1024 * 1024, ttl = 360000
 const compress = promisify(zlib.zstdCompress);
 type Encoded = { bytes: Buffer; encoding?: string };
 type CacheEntry = { scope: string; key: string; prefixHash: string; end: number; summary: string; bytes: number; used: number };
-export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; }
+export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; }
 export interface GuardStats { forwarded: number; summaries: number; summaryInputTokens: number; summaryOutputTokens: number; cacheHits: number; rejected: number; maxUploadBytes: number; }
 
 async function readBody(source: AsyncIterable<Uint8Array>, limit: number) {
@@ -75,6 +76,13 @@ export class CodexRequestGuard {
     this.cache = [];
     return this.closeJob = new Promise<void>(resolve => this.server.close(() => resolve()));
   }
+  async probe() {
+    if (this.closed) throw new Error('连接检测已关闭');
+    const controller = new AbortController(); this.controllers.add(controller);
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try { return await guardProbe(this.upstream, this.env, this.options.certificateFile?.(), controller.signal); }
+    finally { clearTimeout(timer); this.controllers.delete(controller); }
+  }
   private prune() {
     this.cache = this.cache.filter(item => item.used > Date.now() - ttl).sort((a, b) => b.used - a.used);
     let bytes = 0; this.cache = this.cache.filter((item, index) => (bytes += item.bytes) <= memoryLimit && index < 128);
@@ -98,7 +106,7 @@ export class CodexRequestGuard {
     this.stats.maxUploadBytes = Math.max(this.stats.maxUploadBytes, encoded.bytes.length);
     const next = { ...headers }; delete next['content-encoding'];
     if (encoded.encoding) next['content-encoding'] = encoded.encoding;
-    return guardRequest(target, next, encoded.bytes, this.env, signal, method);
+    return guardRequest(target, next, encoded.bytes, this.env, signal, method, this.options.certificateFile?.());
   }
   private async summarize(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal) {
     this.stats.summaries++;
@@ -229,7 +237,7 @@ export class CodexRequestGuard {
       if (controller.signal.aborted) return;
       this.stats.rejected++;
       if (!res.headersSent && !res.destroyed) {
-        const message = error instanceof Error && /请求|摘要|代理|工具|历史/.test(error.message) ? error.message : '请求大小保护未能安全完成处理，原推理请求未上传';
+        const message = error instanceof GuardNetworkError ? error.message : error instanceof Error && /请求|摘要|代理|工具|历史/.test(error.message) ? error.message : '请求大小保护未能安全完成处理，原推理请求未上传';
         // Codex retries 413 as a disconnected stream. A local non-retryable 400
         // stops immediately, avoiding repeated summary calls for the same failure.
         res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: { type: 'invalid_request_error', code: 'workbench_request_guard', message } }));
@@ -239,7 +247,7 @@ export class CodexRequestGuard {
 }
 
 /** Inspect effective configuration without writing personal config or authentication files. */
-export async function createCodexRequestGuard(rpc: AgentRpc, cwd: string, env: NodeJS.ProcessEnv) {
+export async function createCodexRequestGuard(rpc: AgentRpc, cwd: string, env: NodeJS.ProcessEnv, certificateFile?: () => string) {
   const { config } = await rpc.request('config/read', { includeLayers: false, cwd });
   const id = config?.model_provider || 'openai', builtin = id === 'openai';
   // config/read includes null optional fields; app-server's JSON-to-TOML overlay
@@ -252,7 +260,7 @@ export async function createCodexRequestGuard(rpc: AgentRpc, cwd: string, env: N
   const environment = await guardNetworkEnvironment(env);
   const account = builtin ? await rpc.request('account/read', { refreshToken: false }) : undefined;
   const upstream = original.base_url || config?.openai_base_url || (account?.account?.type === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex' : 'https://api.openai.com/v1');
-  const guard = new CodexRequestGuard({ upstream, compression: builtin || original.supports_request_compression === true, env: environment });
+  const guard = new CodexRequestGuard({ upstream, compression: builtin || original.supports_request_compression === true, env: environment, certificateFile });
   try {
     const base = await guard.start(), providerId = builtin ? 'workbench_guard_openai' : id;
     const provider = { ...original, name: original.name || 'OpenAI', wire_api: 'responses', requires_openai_auth: original.requires_openai_auth ?? builtin,

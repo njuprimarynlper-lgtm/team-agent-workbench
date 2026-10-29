@@ -136,13 +136,23 @@ SSH 密码仅在管理端本次运行的内存中保留，用于隧道重连，�
 
 访问上游沿用原环境代理；Windows 未提供环境代理时读取系统固定代理及排除列表，不更改系统设置。自动代理脚本（PAC）和 SOCKS 暂不支持，需配置 HTTP 代理或关闭本功能。证书仍需有效，代理失败不会改走直连。本机入口显式排除于代理，避免本机 Codex 的模型请求被绕到外部代理。当前版本通过真实 CLI 核对 provider；未确认保护通路时停止发送。
 
+请求保护的 TLS 连接合并运行环境默认 CA 与 Windows 系统信任 CA，同时读取 `CODEX_CA_CERTIFICATE`（优先于 `SSL_CERT_FILE`）及 `NODE_EXTRA_CA_CERTS`。**agent管理 → Codex 请求大小保护 → 企业证书与连接检测** 可额外选择 PEM 证书包或 DER 格式的 CA 证书（`.pem`、`.crt`、`.cer`，最多 4 MiB）。不会导入 Windows 证书库、修改个人 Codex 配置或关闭证书校验；目标域名、有效期和证书链仍须通过验证。经 HTTPS 代理时，代理自身和 CONNECT 后的模型服务都使用这套信任配置。证书路径保存到本机设置，内容不上传；保存后下一次请求连接生效，正在传输的回复不被打断。已配置但无法读取或无效的证书文件会明确报错，需要检查工作台设置及上述环境变量。
+
+连接检测使用当前 Codex 的模型服务地址及所选网络出口，仅建立代理隧道和 TLS 握手，不发送认证令牌、会话材料或模型请求；通过检测只代表网络和证书验证通过，不代表账号、模型权限和推理请求已验收。对话错误旁的“重新检测”沿用该会话的网络出口；不会自动重新发送消息。公司代理的 TLS 错误、CONNECT 403/407、超时等会显示明确原因，“查看详情”仅包含阶段和允许公开的错误码，不包含代理密码、令牌、证书内容或原始异常。失败后不切换网络出口。
+
+验证覆盖：HTTP CONNECT、HTTPS 代理和本机 HTTPS，企业 CA 自动读取与手选补充，无效文件、证书过期、域名不符、403/407、超时取消，以及保存新证书后的下一次请求。TLS 测试用临时证书，不修改系统信任库，需要 OpenSSL（Windows 默认使用 Git 附带的 OpenSSL，也可通过 `OPENSSL_PATH` 指定）。2026-10-29 已在 Electron 44.3.0 / Node 24.20.0 下通过测试，并使用当前电脑 Codex 配置经现有代理完成 TLS 检测；报告问题的另一台电脑仍需升级后复验。
+
 验证命令：
 
 ```text
 npx tsx --test tests/codex-request-guard.test.ts tests/codex-request-guard-runtime.test.ts tests/codex-fork-writer.test.ts
+npx tsx --test tests/codex-guard-tls.test.ts
+node scripts/codex-guard-ui-smoke.mjs
 npx tsx scripts/codex-request-guard-smoke.ts
 npx tsx scripts/codex-request-guard-smoke.ts --builtin
 ```
+
+将环境变量 `RUN_GUARD_NATIVE_CLI` 设为 `1` 后运行 TLS 用例，还会调用本机已安装的 Codex CLI，以隔离的虚构账号和模拟 HTTPS 服务验证：真实 CLI 的证书错误能到达会话界面、修改证书后同一会话继续回复。它不会调用外部模型或使用个人额度。
 
 协议冒烟使用独立测试目录、虚构认证及本机模拟模型服务，不使用个人模型额度。需要已安装 Codex CLI；分别覆盖自定义连接和内置连接的临时别名，以及关闭保护后在原会话中继续。无法缩小时使用不可重试的本地错误，避免 Codex 重复执行失败的摘要；不会误显示为需要重连的网络断线。
 

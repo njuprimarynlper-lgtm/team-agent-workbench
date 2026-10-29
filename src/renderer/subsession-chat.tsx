@@ -1,3 +1,5 @@
+import { GuardConnectionError } from './codex-request-guard';
+import { guardNetworkMessage, parseGuardNetworkProblem } from '../shared/guard-network';
 import { MarkdownEditor } from './markdown-editor';
 import { SessionDirectoryStatus } from './project-directory';
 import { DirectoryMoveNotice } from './directory-move-notice';
@@ -69,10 +71,10 @@ export function SessionTree({ sessions, selectedId, childId, open, create, promo
   ]}/>}</>;
 }
 
-export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId }: {
+export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId, configureAgent }: {
   session?: AgentSession; sessions: AgentSession[]; input?: SessionInput; edit: (id: string, patch: Partial<SessionInput>) => void;
   api: WorkbenchAPI; active: boolean; activeTurnId?: string; open: (session: AgentSession) => void; sideChat?: (session: AgentSession, text?: string) => void;
-  promote: (session: AgentSession) => void; remove: (session: AgentSession) => void; closed: (id: string) => void; locked?: boolean; changed: () => Promise<void>;
+  promote: (session: AgentSession) => void; remove: (session: AgentSession) => void; closed: (id: string) => void; locked?: boolean; changed: () => Promise<void>; configureAgent?: () => void;
 }) {
   const [error, setError] = useState(''), [sending, setSending] = useState(false), [history, setHistory] = useState<Message[]>();
   const [pending, setPending] = useState<PendingMessage>(), [failed, setFailed] = useState<SessionInput>();
@@ -123,7 +125,7 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       await changed();
     } finally { referenceLock.current = false; setDetaching(false); }
   };
-  const render = (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} text={sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}/>;
+  const render = (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}/>;
   return <section className="subsession-chat" aria-label={'子会话：' + session.title}>
     <header>
       <div className="subsession-heading"><SessionName key={session.id} title={session.title} variant="subsession" save={async title => { await api.call('session.rename', { id: session.id, title }); await changed(); }}/>{session.closedAt ? <span className="muted small" role="status">已关闭</span> : <SessionStatusIndicator session={session}/>}
@@ -148,7 +150,7 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       <SessionTurnProgress session={session}/>
       {session.approvals.map(request => <RequestCard key={request.id} request={request} onAnswer={(option, answers) => void action(() => api.call('session.answer', { id: session.id, requestId: request.id, option, answers }))}/>)}
       {scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}
-      {failed && <button className="text-button" onClick={() => { if ((current.text.trim() || current.sourceIds.length || current.capabilities?.length) && JSON.stringify(current) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } edit(session.id, failed); setFailed(undefined); setError(''); }}>恢复未发送消息到输入框</button>}{(error || session.error) && <p role="alert" className="inline-error">{error || session.error}</p>}
+      {failed && <button className="text-button" onClick={() => { if ((current.text.trim() || current.sourceIds.length || current.capabilities?.length) && JSON.stringify(current) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } edit(session.id, failed); setFailed(undefined); setError(''); }}>恢复未发送消息到输入框</button>}{(error || session.error) && <GuardConnectionError message={error || session.error!} configure={configureAgent} testConnection={() => api.call("guard.connection.test", { sessionId: session.id })}><p role="alert" className="inline-error">{error || session.error}</p></GuardConnectionError>}
     </div>
     {!session.closedAt && <div className="subsession-composer"><DirectoryMoveNotice key={'directory-' + session.id} session={session} api={api} changed={changed}/><PendingQueueMessage pending={pending}/><SessionInputQueue key={'queue-' + session.id} session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={locked}/><SessionSyncFrame key={'sync-' + session.id} session={session} api={api} changed={changed} locked={!!locked || sending || changingAvailability} references={{ sourceIds: current.sourceIds, select: sourceIds => edit(session.id, { sourceIds }), detach: detachSource, detaching }}><div className="composer"><MarkdownEditor aria-label="子会话输入" disabled={locked} value={current.text} placeholder={locked ? '关联求助正在自动对话' : running ? '输入下一条消息，回车加入队列…' : '在这个分支继续提问…'} onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'ArrowUp' && !current.text && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) { const previous = session.messages.findLast(message => message.role === 'user'); if (previous) { event.preventDefault(); edit(session.id, { text: sessionMessageText(session, previous) }); } return; } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (!event.repeat) void send(); } }}/><div className="composer-bottom"><ComposerSettings key={session.id} session={session}/>{session.provider !== 'claude' && !session.cursorNative && <ComposerMode key={'mode-' + session.id} session={session}/>}<div className="spacer"/><ComposerActions session={session} activeTurnId={activeTurnId} text={current.text} locked={locked} busy={sending || changingAvailability} send={() => void send()} stop={() => void action(() => api.call('session.stop', { id: session.id }))}/></div></div></SessionSyncFrame></div>}
   </section>;

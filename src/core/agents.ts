@@ -74,7 +74,7 @@ export class AgentRuntime {
   private guardEnabled: boolean;
   private get sharedCodex() { return !!this.storage?.sharedEndpoint || !!this.session.codexRemote; }
   private get executionCwd() { return this.session.codexRemote?.cwd || this.session.cwd; }
-  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, private networkEnv: NodeJS.ProcessEnv = {}, remoteRpc?: AgentRpc, borrowedConnection = false, requestGuardEnabled = false) {
+  constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, private networkEnv: NodeJS.ProcessEnv = {}, remoteRpc?: AgentRpc, borrowedConnection = false, requestGuardEnabled = false, private guardCertificateFile?: () => string) {
     if (session.codexRemote && !remoteRpc) throw new Error('远程 Codex 原生连接尚未准备好，未启动本机 CLI');
     this.capabilityCache = new CapabilityCache(session.provider);
     this.guardEnabled = requestGuardEnabled && session.provider === 'codex' && !session.codexRemote && !session.codexDesktop && !storage?.sharedEndpoint && !borrowedConnection;
@@ -231,7 +231,7 @@ export class AgentRuntime {
       await this.connectCodex();
       if (this.closing) return;
       if (this.guardEnabled && !this.guardConfig) {
-        const prepared = await createCodexRequestGuard(this.rpc, s.cwd, this.networkEnv);
+        const prepared = await createCodexRequestGuard(this.rpc, s.cwd, this.networkEnv, this.guardCertificateFile);
         if (this.closing) { await prepared.guard.close(); return; }
         this.requestGuard = prepared.guard; this.guardConfig = prepared.config;
       }

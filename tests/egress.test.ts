@@ -61,7 +61,7 @@ test('optional user proxy tunnels allowlisted CLI traffic, rejects other hosts a
     const deniedCode = new EgressClientProxy({ enabled: true, host: '127.0.0.1', port: relayPort, certificateFingerprint: certificate.fingerprint, accessCode: 'wrong-access-code-that-is-long', username: 'alice' });
     await deniedCode.start(); await assert.rejects(deniedCode.probe(), /接入码无效/); await deniedCode.stop();
     assert(relay.snapshot().events.some(event => event.username === 'alice' && event.provider === 'codex'));
-    await client.configure(undefined); assert.deepEqual(client.environment(), {}); assert.equal(client.status().detail, '使用本机网络直连');
+    await client.configure(undefined); assert.deepEqual(client.environment(), {}); assert.equal(client.status().detail, '使用本机网络（沿用电脑代理设置）');
   } finally { await client.stop(); await relay.stop(); for (const socket of upstreamSockets) socket.destroy(); await close(upstream); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 

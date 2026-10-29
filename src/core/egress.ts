@@ -218,7 +218,7 @@ export class EgressClientProxy extends EventEmitter {
   private pending = new Set<AbortController>();
   private sharedServerConnected?: boolean;
   private localPort = 0;
-  private statusValue: UserEgressStatus = { enabled: false, configured: false, running: false, detail: '使用本机网络直连', hasAccessCode: false };
+  private statusValue: UserEgressStatus = { enabled: false, configured: false, running: false, detail: '使用本机网络（沿用电脑代理设置）', hasAccessCode: false };
   constructor(private config?: ClientOptions, private sharedServerDialer?: SharedServerDialer) { super(); this.refreshStatus(); }
   status() { return structuredClone(this.statusValue); }
   sharedServerConnectionChanged(connected: boolean) {
@@ -274,7 +274,7 @@ export class EgressClientProxy extends EventEmitter {
   private refreshStatus(patch: Partial<UserEgressStatus> = {}) {
     const enabled = !!this.config?.enabled, configured = !!(this.config?.host && this.config.port && this.config.certificateFingerprint && this.config.accessCode);
     const available = Object.hasOwn(patch, 'available') ? patch.available : this.statusValue.available;
-    this.statusValue = { enabled, viaSharedServer: !!this.config?.viaSharedServer, configured, running: !!this.server?.listening, available, checkedAt: this.statusValue.checkedAt, endpoint: configured ? `${this.config!.host}:${this.config!.port}` : undefined, detail: enabled ? (this.server?.listening ? available ? this.availableDetail() : '已配置管理端网络出口，等待连接检测' : '管理端网络出口未启动') : '使用本机网络直连', hasAccessCode: !!this.config?.accessCode, ...patch };
+    this.statusValue = { enabled, viaSharedServer: !!this.config?.viaSharedServer, configured, running: !!this.server?.listening, available, checkedAt: this.statusValue.checkedAt, endpoint: configured ? `${this.config!.host}:${this.config!.port}` : undefined, detail: enabled ? (this.server?.listening ? available ? this.availableDetail() : '已配置管理端网络出口，等待连接检测' : '管理端网络出口未启动') : '使用本机网络（沿用电脑代理设置）', hasAccessCode: !!this.config?.accessCode, ...patch };
     this.emit('changed');
   }
   async start() {

@@ -28,6 +28,8 @@ class GuardRpc extends EventEmitter implements AgentRpc {
 }
 const makeSession = () => ({ id: 'guard-session', provider: 'codex', purpose: 'work', cwd: process.cwd(), status: 'idle', messages: [], approvals: [], sources: [], permissionMode: 'inherit' } as unknown as AgentSession);
 const hooks = { changed() {}, event() {}, done() {} };
+// Protocol tests must not inspect the developer's Windows proxy or launch PowerShell.
+const network = { HTTP_PROXY: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', NO_PROXY: '*', no_proxy: '*' };
 
 test('request guard defaults on for new and legacy settings, preserving the last explicit choice', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'guard-store-'));
@@ -35,8 +37,9 @@ test('request guard defaults on for new and legacy settings, preserving the last
     const store = new Store(root); await store.init(); assert.equal(store.settings.codexRequestGuard, true);
     await fs.writeFile(path.join(root, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '' }));
     const legacy = new Store(root); await legacy.init(); assert.equal(legacy.settings.codexRequestGuard, true);
-    legacy.settings.codexRequestGuard = false; await legacy.save();
+    legacy.settings.codexRequestGuard = false; legacy.settings.codexCaCertificate = 'C:\\company\\root.pem'; await legacy.save();
     const reopened = new Store(root); await reopened.init(); assert.equal(reopened.settings.codexRequestGuard, false);
+    assert.equal(reopened.settings.codexCaCertificate, 'C:\\company\\root.pem');
     reopened.settings.codexRequestGuard = true; await reopened.save();
     const again = new Store(root); await again.init(); assert.equal(again.settings.codexRequestGuard, true);
   } finally { assert(root.startsWith(path.join(os.tmpdir(), 'guard-store-'))); await fs.rm(root, { recursive: true, force: true }); }
@@ -44,7 +47,7 @@ test('request guard defaults on for new and legacy settings, preserving the last
 
 test('enabled runtime installs protection before sending; disabled runtime keeps original route', async () => {
   for (const enabled of [false, true]) {
-    const rpc = new GuardRpc(), runtime = new AgentRuntime(makeSession(), 'unused', hooks, undefined, {}, rpc, false, enabled);
+    const rpc = new GuardRpc(), runtime = new AgentRuntime(makeSession(), 'unused', hooks, undefined, network, rpc, false, enabled);
     try {
       assert.equal(await runtime.prompt('hello'), true);
       const start = rpc.calls.find(call => call.method === 'thread/start')!;
@@ -55,14 +58,14 @@ test('enabled runtime installs protection before sending; disabled runtime keeps
 });
 
 test('a CLI that does not confirm the guarded provider never receives the user turn', async () => {
-  const rpc = new GuardRpc(false), runtime = new AgentRuntime(makeSession(), 'unused', hooks, undefined, {}, rpc, false, true);
+  const rpc = new GuardRpc(false), runtime = new AgentRuntime(makeSession(), 'unused', hooks, undefined, network, rpc, false, true);
   try { await assert.rejects(runtime.ensureStarted(), /未确认请求保护/); assert(!rpc.calls.some(call => call.method === 'turn/start')); }
   finally { await runtime.close(); }
 });
 
 test('turning protection off restores the configured provider for a previously guarded native thread', async () => {
   const rpc = new GuardRpc(true, 'workbench_guard_openai');
-  const runtime = new AgentRuntime({ ...makeSession(), nativeId: 'fixture' }, 'unused', hooks, undefined, {}, rpc, false, false);
+  const runtime = new AgentRuntime({ ...makeSession(), nativeId: 'fixture' }, 'unused', hooks, undefined, network, rpc, false, false);
   try {
     await runtime.prompt('continue');
     const resumed = rpc.calls.filter(call => call.method === 'thread/resume').at(-1)!;
@@ -73,7 +76,7 @@ test('turning protection off restores the configured provider for a previously g
 
 test('desktop, remote, Cursor and shared connections do not acquire local protection', async () => {
   for (const patch of [{ codexDesktop: true }, { codexRemote: { cwd: '/remote' } }, { provider: 'cursor' }]) {
-    const runtime = new AgentRuntime({ ...makeSession(), ...patch } as any, 'unused', hooks, undefined, {}, new GuardRpc(), false, true);
+    const runtime = new AgentRuntime({ ...makeSession(), ...patch } as any, 'unused', hooks, undefined, network, new GuardRpc(), false, true);
     try { assert.equal((runtime as any).guardEnabled, false); } finally { await runtime.close(); }
   }
 });
