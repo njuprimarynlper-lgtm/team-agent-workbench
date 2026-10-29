@@ -7,6 +7,7 @@ import type { AgentRpc } from './rpc';
 import { guardHeaders, guardRequest, guardNetworkEnvironment } from './codex-guard-transport';
 import { guardHash, guardHistory, replaceGuardHistory, summaryRequest, type ResponseBody } from './codex-guard-history';
 
+/** Exclusive limit for every outgoing HTTP body, including summary requests. */
 export const codexRequestBudget = 1_000_000;
 const memoryLimit = 32 * 1024 * 1024, readLimit = 64 * 1024 * 1024, ttl = 3600000;
 const compress = promisify(zlib.zstdCompress);
@@ -31,10 +32,10 @@ async function decoded(body: Buffer, encoding?: string) {
 
 /** Under-budget bodies are byte-identical; only oversized requests are re-encoded. */
 export async function encodeGuardBody(body: Buffer, encoding: string | undefined, compression: boolean, budget = codexRequestBudget): Promise<Encoded | undefined> {
-  if (body.length <= budget) return { bytes: body, encoding };
+  if (body.length < budget) return { bytes: body, encoding };
   const raw = await decoded(body, encoding);
-  if (raw.length <= budget) return { bytes: raw };
-  if (compression) { const bytes = await compress(raw); if (bytes.length <= budget) return { bytes, encoding: 'zstd' }; }
+  if (raw.length < budget) return { bytes: raw };
+  if (compression) { const bytes = await compress(raw); if (bytes.length < budget) return { bytes, encoding: 'zstd' }; }
 }
 
 export class CodexRequestGuard {
@@ -92,7 +93,7 @@ export class CodexRequestGuard {
     return target;
   }
   private async send(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal, method = 'POST') {
-    if (encoded.bytes.length > this.budget) throw new Error('请求大小保护阻止了超限上传');
+    if (encoded.bytes.length >= this.budget) throw new Error('请求大小保护阻止了超限上传');
     if (signal.aborted || this.closed) throw new Error('请求已取消');
     this.stats.maxUploadBytes = Math.max(this.stats.maxUploadBytes, encoded.bytes.length);
     const next = { ...headers }; delete next['content-encoding'];
@@ -136,7 +137,7 @@ export class CodexRequestGuard {
     const history = guardHistory(body);
     const lastCut = history.cuts.at(-1);
     if (!lastCut || !await encodeGuardBody(Buffer.from(JSON.stringify(replaceGuardHistory(body, history, lastCut, '历史摘要', false))), undefined, this.options.compression, this.budget))
-      throw new Error('必须保留的指令或最新内容超过 1 MB，无法通过历史摘要缩小；原推理请求未上传');
+      throw new Error('必须保留的指令或最新内容无法缩至 1 MB 以下；原推理请求未上传');
     const key = guardHash({ scope, config: { ...body, input: undefined }, target: target.href });
     this.prune();
     const prior = cacheable ? this.cache.filter(entry => entry.key === key && history.cuts.includes(entry.end) && entry.prefixHash === guardHash(history.items.slice(0, entry.end))).sort((a, b) => b.end - a.end)[0] : undefined;
@@ -171,7 +172,7 @@ export class CodexRequestGuard {
       summary = await this.summarize(target, headers, selected.encoded, signal); end = selected.end;
       if (cacheable) this.store({ scope, key, prefixHash: guardHash(history.items.slice(0, end)), end, summary, bytes: Buffer.byteLength(summary) + 256, used: Date.now() });
     }
-    throw new Error('请求超过 1 MB，必须保留的内容过大或历史无法继续缩小，原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。');
+    throw new Error('请求无法缩至 1 MB 以下，必须保留的内容过大或历史无法继续缩小，原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。');
   }
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const controller = new AbortController(); this.controllers.add(controller);
@@ -193,7 +194,7 @@ export class CodexRequestGuard {
         const encoding = String(req.headers['content-encoding'] || '') || undefined;
         const prepared = suffix === '/responses' ? await this.prepare(body, encoding, target, headers, controller.signal, scope, !!session)
           : await encodeGuardBody(body, encoding, this.options.compression, this.budget);
-        if (!prepared) throw new Error('此类请求超过 1 MB 且不能安全摘要，原请求未上传');
+        if (!prepared) throw new Error('此类请求无法缩至 1 MB 以下且不能安全摘要，原请求未上传');
         const upstream = await this.send(target, headers, prepared, controller.signal, req.method);
         this.stats.forwarded++;
         const outgoing = guardHeaders(upstream.headers);

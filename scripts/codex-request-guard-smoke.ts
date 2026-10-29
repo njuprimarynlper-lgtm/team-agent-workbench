@@ -49,7 +49,7 @@ try {
   const started = await rpc.request('thread/start', { cwd: root, model: 'gpt-6.1-sol', approvalPolicy: 'never', sandbox: 'read-only', config: protectedRoute.config });
   assert.equal(started.modelProvider, protectedRoute.config.model_provider); const threadId = started.thread.id;
   await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: 'Only reply GUARD_OK. Do not use tools.' }] });
-  assert.equal((await wait(1)).params.turn.status, 'completed'); assert.equal(received.length, 1); assert(received[0].bytes <= 1_000_000);
+  assert.equal((await wait(1)).params.turn.status, 'completed'); assert.equal(received.length, 1); assert(received[0].bytes < 1_000_000);
   const fork = await rpc.request('thread/fork', { threadId, cwd: root, ephemeral: true, excludeTurns: true, config: protectedRoute.config, modelProvider: protectedRoute.config.model_provider });
   assert.equal(fork.modelProvider, protectedRoute.config.model_provider);
   assert.notEqual(fork.thread.id, threadId);

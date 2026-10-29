@@ -12,7 +12,7 @@ const resultTypes = new Set(['function_call_output', 'custom_tool_call_output'])
 /** Only closed tool groups may be crossed, including results arriving after other messages. */
 export function guardHistory(body: ResponseBody) {
   if (!Array.isArray(body.input) || body.input.length < 2 || body.previous_response_id || body.conversation || body.input.some(item => item?.type === 'item_reference'))
-    throw new Error('请求超过 1 MB，续接引用或当前输入不能安全摘要，原推理请求未上传');
+    throw new Error('请求达到 1 MB，续接引用或当前输入不能安全摘要，原推理请求未上传');
   if (body.input.length > 20000) throw new Error('历史结构过大，无法安全缩小请求，原推理请求未上传');
   const items = body.input, protectedIndices = new Set<number>();
   const calls = new Map<string, { start: number; end: number; results: number[] }>();

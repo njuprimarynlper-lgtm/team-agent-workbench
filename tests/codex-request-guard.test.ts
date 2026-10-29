@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { zstdDecompressSync } from 'node:zlib';
+import { randomBytes } from 'node:crypto';
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { CodexRequestGuard, codexRequestBudget, createCodexRequestGuard, encodeGuardBody } from '../src/core/codex-request-guard';
 import { guardHistory } from '../src/core/codex-guard-history';
 import { guardProxy, guardWindowsProxy } from '../src/core/codex-guard-transport';
@@ -28,6 +29,7 @@ async function fixture(run: (v: { url: string; guard: CodexRequestGuard; receive
     const bytes = Buffer.concat(chunks), raw = req.headers['content-encoding'] === 'zstd' ? zstdDecompressSync(bytes) : bytes;
     let value: any; try { value = JSON.parse(raw.toString()); } catch {}
     received.push({ bytes, headers: req.headers, value });
+    if (bytes.length >= (options.budget ?? codexRequestBudget)) { res.writeHead(413).end('Strict upload limit'); return; }
     const summary = value?.tools?.length === 0 && value?.tool_choice === 'none';
     if (summary && response.delay) await new Promise(resolve => setTimeout(resolve, response.delay));
     if (summary && response.mode === 'fail') { res.writeHead(500).end('PRIVATE_UPSTREAM_ERROR'); return; }
@@ -43,13 +45,71 @@ async function fixture(run: (v: { url: string; guard: CodexRequestGuard; receive
   finally { await guard.close(); upstreamServer.closeAllConnections(); await new Promise<void>(resolve => upstreamServer.close(() => resolve())); }
 }
 
-test('1,000,000-byte boundary passes unchanged; UTF-8 bytes, not character count, decide the limit', async () => {
-  const at = Buffer.alloc(codexRequestBudget, 32);
+test('999,999 bytes pass unchanged; 1,000,000 and 1,000,001 bytes require repair; UTF-8 bytes decide the limit', async () => {
+  const at = Buffer.alloc(codexRequestBudget - 1, 32);
   assert.equal((await encodeGuardBody(at, undefined, false))!.bytes, at);
-  assert.equal(await encodeGuardBody(Buffer.alloc(codexRequestBudget + 1), undefined, false), undefined);
+  for (const size of [codexRequestBudget, codexRequestBudget + 1]) {
+    const raw = Buffer.alloc(size, 32);
+    assert.equal(await encodeGuardBody(raw, undefined, false), undefined);
+    const repaired = await encodeGuardBody(raw, undefined, true);
+    assert(repaired && repaired.bytes.length < codexRequestBudget);
+    assert.deepEqual(zstdDecompressSync(repaired.bytes), raw);
+  }
   const unicode = Buffer.from('中'.repeat(400000)); assert(unicode.length > codexRequestBudget);
   assert.equal(await encodeGuardBody(unicode, undefined, false), undefined);
 });
+
+test('compressed size at the exclusive limit is also rejected', async () => {
+  const raw = json({ text: 'compressible content '.repeat(1000) });
+  const compressed = (await encodeGuardBody(raw, undefined, true, raw.length))!.bytes;
+  assert.equal(await encodeGuardBody(raw, undefined, true, compressed.length), undefined);
+  assert.equal(await encodeGuardBody(compressed, 'zstd', true, compressed.length), undefined);
+  assert.equal((await encodeGuardBody(compressed, 'zstd', true, compressed.length + 1))!.bytes, compressed);
+});
+
+test('strict gateway receives 999,999 unchanged and automatically repaired boundary requests', () => fixture(async ({ url, received, guard }) => {
+  const body = json({ model: 'test', input: 'Reply OK' });
+  for (const size of [999999, 1000000, 1000001]) {
+    const raw = Buffer.concat([Buffer.alloc(size - body.length, 32), body]);
+    assert.equal((await request(url, raw)).status, 200);
+    const last = received.at(-1)!;
+    assert(last.bytes.length < codexRequestBudget);
+    if (size < codexRequestBudget) { assert.deepEqual(last.bytes, raw); assert.equal(last.headers['content-encoding'], undefined); }
+    else { assert.equal(last.headers['content-encoding'], 'zstd'); assert.deepEqual(zstdDecompressSync(last.bytes), raw); }
+  }
+  assert.equal(guard.stats.forwarded, 3); assert.equal(guard.stats.summaries, 0);
+  assert.equal(guard.stats.maxUploadBytes, 999999);
+}, { compression: true }));
+
+test('unrepairable exact-limit and over-limit latest inputs never reach the upstream', () => fixture(async ({ url, received, guard }) => {
+  const base = { model: 'test', input: [msg('user', text(''))] };
+  for (const size of [1000000, 1000001]) {
+    const body = structuredClone(base); body.input[0].content[0].text = 'x'.repeat(size - json(base).length);
+    assert.equal(json(body).length, size);
+    assert.equal((await request(url, json(body))).status, 400);
+  }
+  assert.equal(received.length, 0); assert.equal(guard.stats.rejected, 2);
+}));
+
+for (const compression of [false, true]) test(`existing history above 1 MB automatically resumes after bounded summaries (compression=${compression})`, () => fixture(async ({ url, received, guard }) => {
+  const original = history();
+  original.input = [original.input[0], ...Array.from({ length: 8 }, (_, i) => msg(i % 2 ? 'assistant' : 'user', [{ type: i % 2 ? 'output_text' : 'input_text', text: randomBytes(150000).toString('base64') }])), original.input.at(-1)!];
+  const raw = json(original);
+  assert(raw.length > codexRequestBudget);
+  assert(zstdCompressSync(raw).length > codexRequestBudget, 'lossless compression alone must not solve this fixture');
+  assert.equal((await request(url, raw)).status, 200);
+  assert(guard.stats.summaries > 0 && guard.stats.summaries <= 8);
+  assert(received.every(item => item.bytes.length < codexRequestBudget));
+  assert(guard.stats.maxUploadBytes < codexRequestBudget);
+  const final = received.at(-1)!.value;
+  assert.equal(final.instructions, original.instructions); assert.deepEqual(final.tools, original.tools);
+  assert.deepEqual(final.input[0], original.input[0]); assert.deepEqual(final.input.at(-1), original.input.at(-1));
+  assert(JSON.stringify(final).includes('工作台历史交接摘要'));
+  const summaries = guard.stats.summaries;
+  assert.equal((await request(url, raw)).status, 200, 'unchanged native history can continue through the cached repair');
+  assert.equal(guard.stats.summaries, summaries); assert.equal(guard.stats.cacheHits, 1);
+  assert.deepEqual(json(original), raw, 'saved original history is never rewritten');
+}, { compression }));
 
 test('zstd is lossless and already-small compressed bytes remain untouched', async () => {
   const raw = json({ text: '内容'.repeat(220000) });
@@ -80,13 +140,13 @@ test('budget-fitting final body retains bytes, authentication, headers, streamed
 
 test('oversized requests are compressed only for an opted-in upstream', () => fixture(async ({ url, received }) => {
   const raw = json({ model: 'test', input: 'z'.repeat(1100000) }); assert.equal((await request(url, raw)).status, 200);
-  assert.equal(received[0].headers['content-encoding'], 'zstd'); assert(received[0].bytes.length <= codexRequestBudget);
+  assert.equal(received[0].headers['content-encoding'], 'zstd'); assert(received[0].bytes.length < codexRequestBudget);
 }, { compression: true }));
 
 test('summary and inference obey the same wire budget, preserving instructions, tools and newest content', () => fixture(async ({ url, received, guard }) => {
   const original = history(); const result = await request(url, json(original));
   assert.equal(result.status, 200); assert(guard.stats.summaries > 0);
-  assert(received.every(item => item.bytes.length <= 3000));
+  assert(received.every(item => item.bytes.length < 3000));
   const final = received.at(-1)!.value; assert.equal(final.instructions, original.instructions); assert.deepEqual(final.tools, original.tools);
   assert.deepEqual(final.input[0], original.input[0]); assert.deepEqual(final.input.at(-1), original.input.at(-1));
   for (const item of received.slice(0, -1)) { assert.deepEqual(item.value.tools, []); assert.equal(item.value.tool_choice, 'none'); }
@@ -163,7 +223,7 @@ test('eight-summary ceiling rejects without ever forwarding the oversized origin
   body.input.push(msg('user', text('LATEST')));
   assert.equal((await request(url, json(body))).status, 400);
   assert.equal(guard.stats.summaries, 8);
-  assert.equal(received.length, 8); assert(received.every(item => item.bytes.length <= 3000 && item.value.tool_choice === 'none'));
+  assert.equal(received.length, 8); assert(received.every(item => item.bytes.length < 3000 && item.value.tool_choice === 'none'));
 }, { budget: 3000 }));
 
 test('latest closed tool group, media and internal annotations stay whole', () => fixture(async ({ url, received }) => {
