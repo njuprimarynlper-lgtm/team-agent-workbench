@@ -29,14 +29,16 @@ class GuardRpc extends EventEmitter implements AgentRpc {
 const makeSession = () => ({ id: 'guard-session', provider: 'codex', purpose: 'work', cwd: process.cwd(), status: 'idle', messages: [], approvals: [], sources: [], permissionMode: 'inherit' } as unknown as AgentSession);
 const hooks = { changed() {}, event() {}, done() {} };
 
-test('request guard saves and reloads, with old settings defaulting off', async () => {
+test('request guard defaults on for new and legacy settings, preserving the last explicit choice', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'guard-store-'));
   try {
-    const store = new Store(root); await store.init(); assert.equal(!!store.settings.codexRequestGuard, false);
-    store.settings.codexRequestGuard = true; await store.save();
-    const reopened = new Store(root); await reopened.init(); assert.equal(reopened.settings.codexRequestGuard, true);
-    reopened.settings.codexRequestGuard = false; await reopened.save();
-    const again = new Store(root); await again.init(); assert.equal(again.settings.codexRequestGuard, false);
+    const store = new Store(root); await store.init(); assert.equal(store.settings.codexRequestGuard, true);
+    await fs.writeFile(path.join(root, 'settings.json'), JSON.stringify({ connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '' }));
+    const legacy = new Store(root); await legacy.init(); assert.equal(legacy.settings.codexRequestGuard, true);
+    legacy.settings.codexRequestGuard = false; await legacy.save();
+    const reopened = new Store(root); await reopened.init(); assert.equal(reopened.settings.codexRequestGuard, false);
+    reopened.settings.codexRequestGuard = true; await reopened.save();
+    const again = new Store(root); await again.init(); assert.equal(again.settings.codexRequestGuard, true);
   } finally { assert(root.startsWith(path.join(os.tmpdir(), 'guard-store-'))); await fs.rm(root, { recursive: true, force: true }); }
 });
 

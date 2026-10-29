@@ -208,7 +208,9 @@ test('provider override preserves custom identity, headers and upstream; builtin
     } finally { await guard.close(); }
   }
   const base = { connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '' };
-  assert.equal(settingsSchema.parse(base).codexRequestGuard, false); assert.equal(settingsSchema.parse({ ...base, codexRequestGuard: true }).codexRequestGuard, true);
+  assert.equal(settingsSchema.parse(base).codexRequestGuard, true);
+  assert.equal(settingsSchema.parse({ ...base, codexRequestGuard: true }).codexRequestGuard, true);
+  assert.equal(settingsSchema.parse({ ...base, codexRequestGuard: false }).codexRequestGuard, false);
 });
 
 test('gateway SSE without Content-Type is accepted only after a completed text response', () => fixture(async ({ url, response, guard }) => {

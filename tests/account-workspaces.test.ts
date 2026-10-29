@@ -29,6 +29,15 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   return { root, first, profile };
 }
 
+test('account migration inherits the previous Codex request guard choice', async t => {
+  const { first, profile } = await fixture(t);
+  first.store.settings.codexRequestGuard = false; await first.store.save();
+  const restored = new Store(await migrateAccountWorkspace(first.store.root, profile, first.store.root)); await restored.init();
+  assert.equal(restored.settings.codexRequestGuard, false, 'same account keeps its explicit setting');
+  const next = new Store(await migrateAccountWorkspace(first.store.root, { ...profile, username: 'next-user' }, first.store.root)); await next.init();
+  assert.equal(next.settings.codexRequestGuard, false, 'a newly created account inherits the previous setting');
+});
+
 test('account migration retains owned compressed Codex histories for native resume and fork', async t => {
   const { root, first, profile } = await fixture(t);
   const session = await first.createSession('codex', root, offlineProjectId);

@@ -32,7 +32,7 @@ export async function atomicJson(file: string, data: unknown, ascii = false) {
 export class Store {
   activity: import('../shared/activity-assistant').ActivityAssistantState = { baselines: {}, jobs: [] };
   saved?: () => void;
-  settings: Settings = { connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '', trustedServerIdentities: {} };
+  settings: Settings = { codexRequestGuard: true, connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '', trustedServerIdentities: {} };
   sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = []; conclusions: ProjectConclusion[] = [];
   inputs: Record<string, SessionInput> = {};
   private writes: Promise<void> = Promise.resolve();
