@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { contributionCategoryInfo, legacyMaterialCategories } from '../src/shared/content';
-import { resultRulesPrompt } from '../src/shared/result-rules';
+import { preparationMaxArtifacts, preparationMaxTodos, resultRulesPrompt } from '../src/shared/result-rules';
 import { applyPreparation } from '../src/core/preparation';
 import { applyContentMerge } from '../src/core/content-merge';
 import { containsLocalEnvironmentError } from '../src/core/preparation-policy';
@@ -24,6 +24,15 @@ test('prompt specifies topic-first classification, human-confirmed standards and
     for (const rule of ['finding 表示项目经验', '实际尝试', '不要求形成最终定论', '区分直接观察、原因推测和复用建议', '保留反例、未验证范围及证据冲突', '尚无实践或观察依据的设想用 method_exploration', '也不为显得谨慎而模糊已验证的数据']) assert(experiencePrompt.includes(rule), rule);
     assert.doesNotMatch(experiencePrompt, /项目结论/);
   }
+});
+
+test('current preparation prompt tells the model both batch limits and how to handle excess independent tasks', () => {
+  const value = draft(); value.resultRules = { contract: 4, categories: ['capability', 'exploration', 'todo'] };
+  const prompt = preparationPrompt(value, []);
+  assert.match(prompt, new RegExp(`最多 ${preparationMaxArtifacts} 条成果，其中待办事项最多 ${preparationMaxTodos} 条`));
+  assert.match(prompt, /sourceReview.status="incomplete"/);
+  assert.match(prompt, /不得静默截断或省略/);
+  assert.doesNotMatch(prompt, /最多 50 条/);
 });
 
 test('strict extraction permits zero or five independent topics, enforces limits and preserves evidence boundaries', () => {

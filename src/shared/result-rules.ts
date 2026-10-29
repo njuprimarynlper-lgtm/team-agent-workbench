@@ -24,6 +24,8 @@ export const resultCategoryBoundaries: Record<MaterialCategory, { question: stri
 };
 
 export const preparationCategories = ['capability', 'exploration', 'todo'] as const;
+export const preparationMaxArtifacts = 15;
+export const preparationMaxTodos = 10;
 export type PreparationCategory = typeof preparationCategories[number];
 export const preparationCategorySchema = z.enum(preparationCategories, { error: '整理方面仅支持已有能力、探索记录、待办事项，请重新选择' });
 export const preparationCategoriesSchema = z.array(preparationCategorySchema).min(1, '请至少选择一个整理方面').max(3).refine(values => new Set(values).size === values.length, '整理方面不能重复');
@@ -41,7 +43,7 @@ export function resultRulesPrompt(categories: readonly ContributionCategory[]) {
   });
   if (categories.every(category => materialCategories.includes(category as any))) return `先识别内容的用途，再按启用类别分别提炼。类别边界：${JSON.stringify(definitions)}。
 允许同一主题在用户选中的类别分别形成成果，但各自回答不同问题，不能复制相同正文。已有能力描述当前实现，探索记录描述尝试及依据，待办事项描述独立后续动作；跨类引用不等于跨类合并。
-独立待办逐条输出；只有确属同一事项的重复描述才合并。最多 50 条，超过时返回 sourceReview.status="incomplete" 并说明需缩小范围，不得静默截断。允许 0 条，不凑齐分类。
+独立待办逐条输出；只有确属同一事项的重复描述才合并。本次最多 ${preparationMaxArtifacts} 条成果，其中待办事项最多 ${preparationMaxTodos} 条。不要为了凑数生成建议或把一项拆成多项；如果确有更多独立内容，返回 sourceReview.status="incomplete" 并说明需缩小整理范围，不得静默截断或省略。允许 0 条，不凑齐分类。
 已有能力写清已经实现的部分和仍然受限的部分，不把测试通过扩大为整体可用；探索记录保留失败和相互矛盾的证据；待办默认待处理，不能由模型宣称已完成。显式处理项目目标时保持待确认，不能据 AI 建议自动确认；项目资料保持参考性质，不能写成目标。
 过滤与项目无关的操作流水、凭据和本机临时故障。项目自身的缺陷、交付环境限制和网络适配任务可以保留。不要因正文出现权限或网络就过滤整个项目任务。只从启用类别选择，不为迁就分类夸大事实。`;
   return `整理顺序：先过滤不应保留的信息，再按独立主题提炼和合并，最后为每个主题选择一个主类别。禁止按类别逐个生成，禁止同一主题换类别重复输出。总计最多 5 条，允许 0 条，不凑类别或数量；多个独立主题可以使用相同类别。

@@ -4,6 +4,7 @@ import { contributionCategoryFields, contributionCategorySchema, contributionTit
 import type { Draft, DraftArtifact } from '../shared/types';
 import type { EmptyPreparationResult } from '../shared/preparation-review';
 import { assertReadableResultText } from '../shared/result-reading';
+import { preparationMaxArtifacts, preparationMaxTodos } from '../shared/result-rules';
 
 export const preparedResultSchema = z.object({
   category: contributionCategorySchema, topic: z.string().trim().min(1).max(100),
@@ -26,15 +27,21 @@ const normalized = (text: string) => text.normalize('NFKC').toLocaleLowerCase().
 
 export function reviewPreparedResults(draft: Draft, raw: unknown) {
   const modern = draft.resultRules?.contract === 4;
+  const candidates = raw && typeof raw === 'object' && 'artifacts' in raw && Array.isArray(raw.artifacts) ? raw.artifacts : [];
+  if (modern && !draft.mergeSources?.length) {
+    const todoCount = candidates.filter(item => item && typeof item === 'object' && item.category === 'todo').length;
+    if (todoCount > preparationMaxTodos) throw new Error(`本次整理返回 ${todoCount} 条待办事项，超过每次最多 ${preparationMaxTodos} 条；请缩小整理范围后重试，不会自动丢弃其余事项。`);
+    if (candidates.length > preparationMaxArtifacts) throw new Error(`本次整理返回 ${candidates.length} 条候选成果，超过每次最多 ${preparationMaxArtifacts} 条；请缩小整理范围后重试，不会自动截断。`);
+  }
   const parsed = z.object({
-    artifacts: z.array(preparedResultSchema).max(modern ? 50 : 5),
+    artifacts: z.array(preparedResultSchema).max(modern ? preparationMaxArtifacts : 5),
     sourceReview: z.object({ status: z.enum(['complete', 'incomplete']), inputCount: z.number().int().nonnegative().optional(), conversationHash: z.string().optional(), explanation: z.string().max(600).optional() }).optional(),
     emptyReason: z.object({ code: z.enum(['already_saved', 'no_reusable_content', 'no_matching_category']), explanation: z.string().trim().min(1).max(600), existingResultIds: z.array(z.string()).max(100).default([]) }).optional()
   }).safeParse(raw);
-  if (!parsed.success) throw new Error(`整理结果不符合精简规则（最多 ${modern ? 50 : 5} 条，条数超限或缺少主题、来源；每条标题不超过 40 字、正文不超过 500 字），请重试整理`);
+  if (!parsed.success) throw new Error(`整理结果不符合精简规则（最多 ${modern ? preparationMaxArtifacts : 5} 条，条数超限或缺少主题、来源；每条标题不超过 40 字、正文不超过 500 字），请重试整理`);
   if ((draft.resultRules?.contract || 0) >= 3) {
     const review = parsed.data.sourceReview;
-    if (!review || review.status !== 'complete') throw new Error('未能完整读取本次材料，不能判断是否有新成果。' + (review?.explanation || '请重试整理。'));
+    if (!review || review.status !== 'complete') throw new Error('未能完整读取本次材料，或候选数量超过上限，不能生成完整结果。' + (review?.explanation || '请重试整理。'));
     if (review.inputCount !== (draft.snapshot?.messageCount ?? draft.mergeSources?.length ?? 0) || draft.snapshot && review.conversationHash !== draft.snapshot.conversationHash) throw new Error('AI 读取的材料范围与本次快照不一致，请重试整理，不能将此结果视为没有新内容');
     if (!parsed.data.artifacts.length && !parsed.data.emptyReason) throw new Error('AI 返回了空结果，但未说明原因，请重试整理');
   }
