@@ -219,8 +219,8 @@ export class Workbench {
     this.activity = new ActivityAssistant({ store: this.store, prepare: () => this.journal.ready(), owns: s => !this.configuring && !this.personalMoving && !this.migrationRecoveryRequired && this.ownsLocal(s.binding), connected: () => !this.closing && !this.configuring && this.remote.connected,
       content: s => { this.assertCanWork(s.binding); return this.projectConnected(s.binding!.project.id) ? this.remote.contentList(s.binding!) : Promise.resolve([]); },
       commitSummary: (s, hash, count, summary, entry) => this.commitHandoff(s, hash, count, summary, entry), changed: () => this.broadcast(),
-    }, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s)));
-    this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s)), this.broadcast);
+    }, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard));
+    this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard), this.broadcast);
     this.accountSync = new AccountSync(this.store, this.remote, this.broadcast, () => {
       for (const draft of this.store.drafts) {
         const explicitlySaved = new Set(draft.personalSavedIds || []);
@@ -234,7 +234,7 @@ export class Workbench {
       const parent = this.store.sessions.filter(session => session.purpose === 'work' && this.ownsLocal(session.binding) && (!projectId || session.binding?.project.id === projectId)).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
       const execution: AgentSession = parent || { id: randomUUID(), title: '同步冲突分析', provider: 'codex', purpose: 'background', cwd: this.store.root, networkRoute: 'direct', createdAt: new Date().toISOString(), status: 'idle', messages: [], sources: [], approvals: [], autoUpload: false, handoffPath: '' };
       await this.requireAuth(execution.provider, execution.cwd, execution.networkRoute);
-      return backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s))(execution, prompt, signal || new AbortController().signal);
+      return backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard)(execution, prompt, signal || new AbortController().signal);
     }, id => this.projectConnected(id));
     this.projectSync = new ProjectSync(root, {
       owner: () => { const profile = this.personal ? personalWorkspace().profile : this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile ? accountIdentity(profile) : 'unlinked'; },
@@ -1059,7 +1059,7 @@ export class Workbench {
         ancestorId = this.store.sessions.find(item => item.id === ancestorId)?.fork?.parentId;
       }
     }
-    runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc);
+    runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc, false, !!this.store.settings.codexRequestGuard);
     this.runtimes.set(s.id, runtime);
     if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
     else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };

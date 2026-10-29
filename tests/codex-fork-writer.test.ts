@@ -24,7 +24,7 @@ class WriterRpc extends EventEmitter implements AgentRpc {
     }
     if (method === 'thread/resume') {
       if (!this.ownsWriter) throw new Error(`thread ${params.threadId} already has an active writer`);
-      return { thread: { id: params.threadId, path: path.join(this.home, 'sessions', params.threadId + '.jsonl'), status: { type: 'idle' } }, approvalPolicy: 'never', sandbox: { type: 'externalSandbox' } };
+      return { thread: { id: params.threadId, path: path.join(this.home, 'sessions', params.threadId + '.jsonl'), status: { type: 'idle' } }, modelProvider: params.config?.model_provider, approvalPolicy: 'never', sandbox: { type: 'externalSandbox' } };
     }
     if (method === 'turn/start') return { turn: { id: 'child-turn' } };
     if (method === 'thread/unsubscribe') return { status: 'unsubscribed' };
@@ -45,6 +45,11 @@ test('a native child resumes and sends through the fork writer, without starting
   const parentRuntime = new AgentRuntime(parent, 'unused', hooks, storage, {}, rpc);
   (parentRuntime as any).initialized = true;
   (parentRuntime as any).codexConnected = true;
+  let guardClosed = false;
+  let authClosed = false, refreshes = 0;
+  (parentRuntime as any).guardConfig = { model_provider: 'guard-fixture' };
+  (parentRuntime as any).requestGuard = { close: async () => { guardClosed = true; } };
+  (parentRuntime as any).authBridge = { close: async () => { authClosed = true; }, refresh: async () => { refreshes++; } };
   let childRuntime: AgentRuntime | undefined;
   let grandchildRuntime: AgentRuntime | undefined;
   try {
@@ -56,6 +61,7 @@ test('a native child resumes and sends through the fork writer, without starting
     assert(childRuntime.rpc instanceof CodexSideRpc);
     assert.equal(childRuntime.rpc.owner, rpc);
     assert.equal(await childRuntime.prompt('首次发送'), true);
+    assert.equal(rpc.calls.find(call => call.method === 'thread/resume')!.params.config.model_provider, 'guard-fixture');
     assert.deepEqual(rpc.calls.filter(call => ['thread/fork', 'thread/resume', 'turn/start'].includes(call.method)).map(call => [call.method, call.params.threadId]), [
       ['thread/fork', 'parent-native'], ['thread/resume', 'child-native'], ['turn/start', 'child-native'],
     ]);
@@ -66,6 +72,10 @@ test('a native child resumes and sends through the fork writer, without starting
     rpc.emit('message', { method: 'turn/completed', params: { threadId: 'child-native', turn: { id: 'child-turn', status: 'completed' } } });
     await parentRuntime.close();
     assert.equal(rpc.closed, false, 'closing the parent retains the writer while its child is open');
+    assert.equal(guardClosed, false, 'the child must keep the request guard alive');
+    assert.equal(authClosed, false, 'the child must retain token refresh');
+    rpc.emit('message', { method: 'account/chatgptAuthTokens/refresh', id: 99 });
+    assert.equal(refreshes, 1, 'the closed parent still services shared authentication');
     assert.equal(await childRuntime.prompt('父会话关闭后继续'), true);
     rpc.emit('message', { method: 'turn/completed', params: { threadId: 'child-native', turn: { id: 'child-turn', status: 'completed' } } });
     const grandFork = await childRuntime.forkCodexThread();
@@ -79,6 +89,8 @@ test('a native child resumes and sends through the fork writer, without starting
     assert.equal(await grandchildRuntime.prompt('第二层首次发送'), true);
     await grandchildRuntime.close(); grandchildRuntime = undefined;
     assert.equal(rpc.closed, true, 'the app-server closes when its final borrower closes');
+    assert.equal(guardClosed, true, 'the final borrower releases the request guard');
+    assert.equal(authClosed, true);
     assert.equal(rpc.calls.at(-1)?.method, 'thread/unsubscribe');
   } finally { await grandchildRuntime?.close(); await childRuntime?.close(); await parentRuntime.close(); }
 });

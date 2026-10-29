@@ -19,7 +19,7 @@ export function backgroundAnswer(messages: Message[]) {
 
 // These sessions never enter the work-session store or inherit its native history.
 export function backgroundTextTask(root: string, providerPath: (s: AgentSession) => string,
-  environment: (s: AgentSession) => NodeJS.ProcessEnv): TextTask {
+  environment: (s: AgentSession) => NodeJS.ProcessEnv, requestGuardEnabled: () => boolean = () => false): TextTask {
   return async (parent, prompt, signal) => {
     if (signal.aborted) throw new Error('后台任务已取消');
     const id = randomUUID(), cwd = path.join(root, 'background', id);
@@ -41,7 +41,7 @@ export function backgroundTextTask(root: string, providerPath: (s: AgentSession)
         const executable = await resolveProvider(session.provider, providerPath(session));
         const storage = session.provider === 'codex' ? await prepareCodexStorage(path.join(root, 'background-storage'), session) : undefined;
         if (signal.aborted || finished) throw new Error('后台任务已取消');
-        runtime = session.provider === 'claude' ? new ClaudeRuntime(session, executable, hooks, environment(session)) : new AgentRuntime(session, executable, hooks, storage, environment(session));
+        runtime = session.provider === 'claude' ? new ClaudeRuntime(session, executable, hooks, environment(session)) : new AgentRuntime(session, executable, hooks, storage, environment(session), undefined, false, requestGuardEnabled());
         await runtime.ensureStarted();
         if (signal.aborted || finished) throw new Error('后台任务已取消');
         await runtime.prompt(prompt);
