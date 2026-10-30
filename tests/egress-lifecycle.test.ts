@@ -24,7 +24,7 @@ test('failed probes replace an earlier available state and obsolete probes canno
     (proxy as any).connectRelay = () => new Promise(done => { resolve = done; });
     const pending = proxy.probe(), rejected = assert.rejects(pending, /已改变/);
     await proxy.configure(undefined); resolve(new MemorySocket()); await rejected;
-    assert.equal(proxy.status().enabled, false); assert.equal(proxy.status().available, undefined); assert.equal(proxy.status().detail, '使用本机网络直连');
+    assert.equal(proxy.status().enabled, false); assert.equal(proxy.status().available, undefined); assert.equal(proxy.status().detail, '使用本机网络（沿用电脑代理设置）');
   } finally { await proxy.stop(); }
 });
 

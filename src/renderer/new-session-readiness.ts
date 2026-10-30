@@ -17,6 +17,7 @@ export function newSessionBlockedReason(input: {
     const checkedAt = input.checked.auth.checkedAt || '';
     const account = latest?.checkedAt && latest.checkedAt > checkedAt ? latest : input.checked.auth;
     if (!['authenticated', 'configured', 'not-required'].includes(account.status)) return '所选 AI 账号尚未检测成功，请登录或重新检测。';
+    if (input.provider === 'cursor' && account.connectionIssue) return 'Cursor 当前连接尚未验证成功，请重新检测连接与登录。';
   }
   return undefined;
 }

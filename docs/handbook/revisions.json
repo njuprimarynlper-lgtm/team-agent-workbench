@@ -858,9 +858,16 @@
     {
       "updated_at": "2026-10-29T16:41:43+08:00",
       "base_commit": "ca0d0037224a5a761c0862231ccc46cd4e9936c6",
-      "document_commit": null,
+      "document_commit": "cf205b1e6787c1c9083aba89773acddbf9a65825",
       "summary": "更新 HTML 手册",
       "content_sha256": "a230559661d13312cf312ff7188c333f3e814482bed56a60d87dbae1943b3152"
+    },
+    {
+      "updated_at": "2026-10-30T15:40:12+08:00",
+      "base_commit": "1c4487d40ce2e91e3d47bd459ee0f8fc13246892",
+      "document_commit": null,
+      "summary": "更新 HTML 手册",
+      "content_sha256": "11b9abb713dbf651f4bd0000c0b07466e1cc1d9d06eddba5933a4b7c25e1b817"
     }
   ]
 }

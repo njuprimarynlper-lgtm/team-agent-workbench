@@ -6,6 +6,7 @@ import { assistantMessagePhase } from '../shared/message-phase';
 import { CapabilityCache } from './capability-cache';
 import { JsonRpc, type AgentRpc, type RpcMessage } from './rpc';
 import { WebSocketRpc } from './websocket-rpc';
+import { cursorNetworkEnvironment } from './cursor-network';
 import { mergeSharedThread } from './codex-live-thread';
 import { codexForkError, forkCodexHistory } from './codex-fork';
 import { CodexSideRpc, sideConversationInstructions } from './codex-side-rpc';
@@ -83,7 +84,8 @@ export class AgentRuntime {
     this.timing = new TurnTimingTracker(session);
     this.connection = new CliConnectionTracker(session, () => { this.timing.wait('network', ['connecting', 'reconnecting', 'failed'].includes(session.cliConnection?.state || '')); hooks.changed(); }, hooks.connectionChanged);
     const noProxy = [networkEnv.NO_PROXY || networkEnv.no_proxy || process.env.NO_PROXY || process.env.no_proxy || '', '127.0.0.1', 'localhost', '::1'].filter(Boolean).join(',');
-    this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', { ...networkEnv, ...storage?.env, ...(this.guardEnabled ? { NO_PROXY: noProxy, no_proxy: noProxy } : {}) }));
+    const cliEnv = { ...networkEnv, ...storage?.env, ...(this.guardEnabled ? { NO_PROXY: noProxy, no_proxy: noProxy } : {}) };
+    this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', session.provider === 'cursor' ? cursorNetworkEnvironment(cliEnv) : cliEnv));
     if (session.provider === 'codex' && storage && !storage.sharedEndpoint && !borrowedConnection) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
     if (borrowedConnection) this.codexConnected = true;

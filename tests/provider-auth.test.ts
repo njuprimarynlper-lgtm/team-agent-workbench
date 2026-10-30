@@ -8,10 +8,23 @@ import { ProviderAccounts, inspectAuth, codexAuth, cursorAuth, authFailure, logi
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import type { SessionNetworkRoute } from '../src/shared/types';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { ProviderAuthPanel } from '../src/renderer/provider-auth';
+import { inspectCatalog } from '../src/core/provider-catalog';
 // @ts-expect-error JavaScript launcher shared with Electron UI tests.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
 async function until(predicate: () => boolean) { const end = Date.now() + 15000; while (!predicate()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(r => setTimeout(r, 30)); } }
 async function cleanup(root: string) { await new Promise(r => setTimeout(r, 300)); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
+
+test('Cursor failed user lookup is separate from saved credentials; a missing optional email is not a network error', () => {
+  const result = cursorAuth(JSON.stringify({ status: 'authenticated', isAuthenticated: true, message: 'Logged in (unable to fetch user details)' }), 0);
+  assert.equal(result.status, 'authenticated'); assert.equal(result.verifiedLocally, true); assert(result.connectionIssue);
+  const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { provider: 'cursor', auth: result, autoCheck: false }));
+  assert.match(html, /已保存登录/); assert.match(html, /在线账号查询失败/); assert.doesNotMatch(html, /CLI 未提供账号名称|badge done/);
+  const anonymous = cursorAuth(JSON.stringify({ status: 'authenticated', isAuthenticated: true, message: 'Logged in (user details not available)' }), 0);
+  assert.equal(anonymous.status, 'authenticated'); assert.equal(anonymous.connectionIssue, undefined);
+});
 
 test('auth parsing distinguishes missing login, provider configuration, network and malformed responses', () => {
   assert.equal(codexAuth({ account: null, requiresOpenaiAuth: true }).status, 'unauthenticated');
@@ -74,6 +87,7 @@ test('session preflight blocks missing auth and runtime expiry enables login rec
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     await wb.store.init(); grantTestWorkspace(wb, root);
+    wb.store.settings.codexRequestGuard = false; // This fixture tests auth, not OS proxy discovery.
     wb.store.settings.providerPaths.codex = fixture.launcher;
     const session = await wb.createSession('codex', root, offlineProjectId);
     await assert.rejects(wb.send(session.id, 'do not lose this task'), /尚未登录/);
@@ -112,6 +126,28 @@ test('provider account checks and login inherit the optional workbench network r
   } finally { await accounts.close(); await cleanup(root); }
 });
 
+test('Cursor login, catalog and ACP turns inherit the same management trust; failed online checks stop sending until recovered', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-cursor-route-'));
+  const fixture = await authLauncher(root, { status: 'saved-offline', turn: 'success' });
+  const env = { HTTPS_PROXY: 'http://127.0.0.1:18001', HTTP_PROXY: 'http://127.0.0.1:18001', NODE_USE_ENV_PROXY: '1', TEAM_AGENT_MANAGEMENT_PROXY: '1' };
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, undefined, () => env);
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    wb.store.settings.providerPaths.cursor = fixture.launcher;
+    wb.store.settings.egress = { enabled: true, host: '127.0.0.1', port: 443, certificateFingerprint: 'A'.repeat(64) };
+    const session = await wb.createSession('cursor', root, offlineProjectId, 'work', undefined, undefined, 'inherit', true, 'management');
+    await assert.rejects(wb.send(session.id, 'must not send until recovered'), /在线账号查询失败/);
+    assert.equal(session.nativeId, undefined); assert.equal(session.messages.length, 0);
+    await wb.accounts.login('cursor', root, 'management'); await until(() => wb.accounts.states.cursor.status === 'authenticated');
+    assert.equal(wb.accounts.states.cursor.connectionIssue, undefined);
+    assert((await inspectCatalog('cursor', fixture.launcher, root, undefined, 3000, env)).models.length > 0);
+    await wb.send(session.id, 'fixture dialogue'); await until(() => session.status === 'idle');
+    assert(session.messages.some(m => m.role === 'assistant' && m.text.includes('Cursor 验证结果')));
+    const launches = await fixture.environments(); assert(launches.length >= 5);
+    assert(launches.every((e: any) => e.HTTPS_PROXY === env.HTTPS_PROXY && e.managementNetwork === '1' && /cursor-network\.cjs/.test(e.NODE_OPTIONS)));
+  } finally { await wb.close(); await cleanup(root); }
+});
+
 test('sessions keep independent direct and management CLI routes across restart', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-session-routes-'));
   const fixture = await authLauncher(root, { status: 'ready' });
@@ -121,6 +157,7 @@ test('sessions keep independent direct and management CLI routes across restart'
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, undefined, environment);
   try {
     await wb.store.init(); grantTestWorkspace(wb, root);
+    wb.store.settings.codexRequestGuard = false;
     wb.store.settings.providerPaths.codex = fixture.launcher;
     wb.store.settings.egress = { enabled: true, host: '127.0.0.1', port: 443, certificateFingerprint: 'A'.repeat(64) };
     const direct = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', true, 'direct');

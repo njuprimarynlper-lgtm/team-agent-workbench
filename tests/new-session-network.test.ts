@@ -12,6 +12,13 @@ const direct: UserEgressStatus = { enabled: false, configured: false, running: f
 const ready: UserEgressStatus = { enabled: true, viaSharedServer: true, configured: true, running: true, available: true, detail: '管理端网络出口可用', hasAccessCode: true };
 const render = (egress: UserEgressStatus, routeEditable = true) => renderToStaticMarkup(React.createElement(ProviderConnectionSettings, { provider: 'codex', cwd: 'D:/work', auth, egress, activeTaskCount: 0, routeEditable }));
 
+test('Cursor saved credentials with a failed online lookup do not unlock management session creation', () => {
+  const base = { projectId: 'p1', networkPending: false, networkBusy: false, busy: false, managementRoute: true, provider: 'cursor' as const, cwd: 'D:/work' };
+  const saved = { ...auth, verifiedLocally: true, connectionIssue: '在线查询失败' };
+  assert.match(newSessionBlockedReason({ ...base, checked: { provider: 'cursor', cwd: base.cwd, auth: saved } }) || '', /连接尚未验证成功/);
+  assert.equal(newSessionBlockedReason({ ...base, checked: { provider: 'cursor', cwd: base.cwd, auth } }), undefined, 'email is optional when the online query succeeds');
+});
+
 test('new sessions reuse the selected management route and saved access code without asking again', () => {
   const first = render(direct);
   assert.match(first, /通过管理端访问模型服务/);

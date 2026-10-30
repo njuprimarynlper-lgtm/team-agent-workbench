@@ -11,12 +11,13 @@ export async function checkProviderConnection(call: Call, provider: Provider, cw
   current();
   const issues: string[] = [];
   let reachable = true;
-  try { const network = await call<UserEgressStatus>('egress.test', networkRoute ? { networkRoute } : undefined); reachable = !network.enabled || network.available === true; }
+  try { const network = await call<UserEgressStatus>('egress.test', { provider, ...(networkRoute ? { networkRoute } : {}) }); reachable = !network.enabled || network.available === true; if (!reachable) issues.push('网络出口检测失败：' + network.detail); }
   catch (error: any) { reachable = false; issues.push('网络出口检测失败：' + error.message); }
   current();
   await call('providers.detect');
   current();
-  const auth = await call<ProviderAuth>('provider.auth', { provider, cwd, ...(networkRoute ? { networkRoute } : {}) });
+  let auth = await call<ProviderAuth>('provider.auth', { provider, cwd, ...(networkRoute ? { networkRoute } : {}) });
+  if (!reachable && provider === 'cursor') auth = { ...auth, connectionIssue: issues[0] };
   current();
   let catalog: ProviderCatalog | undefined;
   if (reachable && !auth.connectionIssue && ['authenticated', 'configured', 'not-required'].includes(auth.status)) {

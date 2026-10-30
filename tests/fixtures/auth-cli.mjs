@@ -11,7 +11,7 @@ const send = value => process.stdout.write(JSON.stringify(value) + '\n');
 const mode = read();
 const command = process.argv[2];
 fs.appendFileSync(path.join(root, 'cli-launches.jsonl'), JSON.stringify(process.argv.slice(2)) + '\n');
-fs.appendFileSync(path.join(root, 'cli-env.jsonl'), JSON.stringify({ HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY }) + '\n');
+fs.appendFileSync(path.join(root, 'cli-env.jsonl'), JSON.stringify({ HTTP_PROXY: process.env.HTTP_PROXY, HTTPS_PROXY: process.env.HTTPS_PROXY, NODE_USE_ENV_PROXY: process.env.NODE_USE_ENV_PROXY, NODE_OPTIONS: process.env.NODE_OPTIONS, managementNetwork: process.env.TEAM_AGENT_MANAGEMENT_PROXY }) + '\n');
 let approvalPolicy = mode.permissionConfig?.approval || 'on-request';
 let threadId = 'fake-thread';
 let cursorMode = 'agent';
@@ -38,6 +38,7 @@ else if (command === 'login' && process.argv[3] === 'status') {
   else if (mode.status === 'network') { send({ status: 'error', message: 'invalid token: fetch failed ECONNRESET DO_NOT_FORWARD_THIS_SECRET' }); process.exitCode = 1; }
   else if (mode.status === 'malformed') console.log('not a status response');
   else if (mode.status === 'ready') send({ status: 'authenticated', isAuthenticated: true, userInfo: { email: 'fake@example.com' } });
+  else if (mode.status === 'saved-offline') send({ status: 'authenticated', isAuthenticated: true, message: 'Logged in (unable to fetch user details)' });
   else send({ status: 'unauthenticated', isAuthenticated: false, message: 'Not logged in' });
 } else if (command === 'models') {
   log('models');

@@ -21,6 +21,7 @@ for (const edition of ['user', 'admin']) {
   const files = Object.fromEntries([...preload.outputFiles, ...renderer.outputFiles].map(file => [path.basename(file.path), file.contents]));
   files['index.html'] = await readFile('src/renderer/index.html');
   if (edition === 'user') files['project-journal-worker.cjs'] = await readFile('src/core/project-journal-worker.cjs');
+  if (edition === 'user') files['cursor-network.cjs'] = await readFile('src/core/cursor-network.cjs');
   if (edition === 'user') {
     const worker=await build({entryPoints:['src/core/codex-desktop-worker.ts'],outfile:out+'/codex-desktop-worker.cjs',write:false,bundle:true,platform:'node',format:'cjs',target:'node22'});
     files['codex-desktop-worker.cjs']=worker.outputFiles[0].contents;

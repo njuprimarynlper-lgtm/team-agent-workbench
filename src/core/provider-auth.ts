@@ -1,6 +1,7 @@
 import type { Provider, ProviderAuth, SessionNetworkRoute } from '../shared/types';
 import { JsonRpc, spawnCLI, stopCLI } from './rpc';
 import { resolveProvider } from './providers';
+import { cursorNetworkEnvironment } from './cursor-network';
 
 export const authReady = (auth: ProviderAuth) => ['authenticated', 'configured', 'not-required'].includes(auth.status);
 const state = (status: ProviderAuth['status'], detail: string): ProviderAuth => ({ status, detail });
@@ -69,8 +70,13 @@ export function cursorAuth(output: string, code: number | null, environmentCrede
   let result: any;
   try { result = JSON.parse(output); } catch { return state('error', '无法读取 Cursor 登录状态，请使用支持 status --format json 的 Cursor Agent CLI。'); }
   if (code !== 0 || result.status === 'error') return authFailure(result.message || 'Status check failed');
-  if (result.status === 'authenticated' && result.isAuthenticated === true)
-    return { ...state('authenticated', /unable to fetch/i.test(result.message || '') ? 'CLI 已保存登录凭据，但当前无法读取在线账号信息；可检查网络后重新检测。' : '正在使用 CLI 已登录的个人 Cursor 账号。'), identity: identityText(result.userInfo?.email) };
+  if (result.status === 'authenticated' && result.isAuthenticated === true) {
+    if (/unable to fetch/i.test(result.message || '')) return {
+      ...state('authenticated', '本机 Cursor 已保存登录凭据，尚未确认当前网络下的账号可用性。'), verifiedLocally: true,
+      connectionIssue: 'Cursor 在线账号查询失败，当前连接尚未验证成功。请点击“重新检测连接与登录”，查看网络出口检测结果。',
+    };
+    return { ...state('authenticated', '正在使用 CLI 已登录的个人 Cursor 账号。'), identity: identityText(result.userInfo?.email) };
+  }
   if (['unauthenticated', 'partially-authenticated'].includes(result.status) && result.isAuthenticated === false) {
     if (environmentCredential) return state('configured', '已配置 Cursor 环境变量凭据，尚未在线验证；实际服务可用性以任务结果为准。');
     return state('unauthenticated', result.status === 'partially-authenticated' ? 'Cursor 登录凭据不完整，请重新登录个人账号。' : '尚未登录 Cursor，请先登录个人账号。');
@@ -117,7 +123,7 @@ export async function inspectAuth(provider: Provider, executable: string, cwd: s
     return failed;
   }
   return new Promise(resolve => {
-    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'status'] : ['status', '--format', 'json'], cwd, env);
+    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'status'] : ['status', '--format', 'json'], cwd, provider === 'cursor' ? cursorNetworkEnvironment(env) : env);
     let output = '', settled = false;
     const finish = (auth: ProviderAuth, stop = false) => {
       if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
@@ -127,10 +133,15 @@ export async function inspectAuth(provider: Provider, executable: string, cwd: s
     const timer = setTimeout(() => finish(authFailure('timeout'), true), timeout);
     signal?.addEventListener('abort', abort, { once: true });
     child.stdout.on('data', data => { output += data.toString(); if (output.length > 65536) finish(state('error', 'CLI 状态输出异常，请检查配置。'), true); });
-    // Do not surface raw stderr, which may contain tokens or account data.
-    child.stderr.resume();
+    // Retain only our fixed compatibility marker, never arbitrary stderr text.
+    let diagnosticTail = '', systemCaUnavailable = false;
+    child.stderr.on('data', data => { diagnosticTail = (diagnosticTail + data.toString()).slice(-512); systemCaUnavailable ||= diagnosticTail.includes('[WB_CURSOR_SYSTEM_CA_UNAVAILABLE]'); });
     child.on('error', () => finish(state('error', '无法启动 CLI，请检查程序路径。')));
-    child.on('close', code => finish(provider === 'claude' ? claudeAuth(output, code, Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_USE_BEDROCK || process.env.CLAUDE_CODE_USE_VERTEX || process.env.CLAUDE_CODE_USE_FOUNDRY)) : cursorAuth(output, code, Boolean(process.env.CURSOR_API_KEY || process.env.CURSOR_AUTH_TOKEN))));
+    child.on('close', code => {
+      const auth = provider === 'claude' ? claudeAuth(output, code, Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_USE_BEDROCK || process.env.CLAUDE_CODE_USE_VERTEX || process.env.CLAUDE_CODE_USE_FOUNDRY)) : cursorAuth(output, code, Boolean(process.env.CURSOR_API_KEY || process.env.CURSOR_AUTH_TOKEN));
+      if (provider === 'cursor' && systemCaUnavailable && auth.connectionIssue) auth.connectionIssue += ' 当前 CLI 无法加载系统证书，请升级 Cursor Agent CLI，或为 CLI 配置企业证书后重试。';
+      finish(auth);
+    });
   });
 }
 
@@ -198,7 +209,8 @@ export class ProviderAccounts {
     try { executable = await resolveProvider(provider, this.configuredPath(provider)); }
     catch { reservation(); this.set(provider, state('error', '无法启动 CLI，请检查程序路径。')); return; }
     if (canceled || this.closed) return;
-    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'login'] : ['login'], cwd, this.environment(route)); let output = '', settled = false;
+    const env = this.environment(route);
+    const child = spawnCLI(executable, provider === 'claude' ? ['auth', 'login'] : ['login'], cwd, provider === 'cursor' ? cursorNetworkEnvironment(env) : env); let output = '', settled = false;
     const finish = (kind: 'exit' | 'cancel' | 'timeout' | 'error', code?: number | null) => {
       if (settled) return; settled = true; clearTimeout(timer); this.logins.delete(provider);
       if (kind !== 'exit') { const stopped = stopCLI(child); this.stopping.add(stopped); void stopped.finally(() => this.stopping.delete(stopped)); }

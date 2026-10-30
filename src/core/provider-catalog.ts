@@ -1,6 +1,7 @@
 import type { ModelOption, Provider, ProviderCatalog, QuotaWindow } from '../shared/types';
 import { JsonRpc, spawnCLI, stopCLI } from './rpc';
 import { codexDefaultModel } from '../shared/model-selection';
+import { cursorNetworkEnvironment } from './cursor-network';
 
 // Return only display fields. CLI diagnostics and authentication data never reach the renderer.
 const reasoningEffortId = /^[A-Za-z0-9_-]{1,32}$/;
@@ -61,7 +62,7 @@ export async function inspectCatalog(provider: Provider, executable: string, cwd
   if (provider === 'cursor') {
     try {
       const output = await new Promise<string>((resolve, reject) => {
-        const child = spawnCLI(executable, ['models'], cwd, env); let output = '', settled = false;
+        const child = spawnCLI(executable, ['models'], cwd, cursorNetworkEnvironment(env)); let output = '', settled = false;
         const finish = (ok: boolean) => {
           if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
           void stopCLI(child).then(() => ok ? resolve(output) : reject(new Error('模型查询失败')));

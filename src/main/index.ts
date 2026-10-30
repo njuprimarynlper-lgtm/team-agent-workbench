@@ -170,10 +170,12 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       if (workbench.store.settings.egress?.enabled) void egress.probe().catch(() => {}); broadcast(); return egress.status();
     }
     case 'egress.test': {
-      const route = z.object({ networkRoute: z.enum(['direct', 'management']).optional() }).optional().parse(raw)?.networkRoute;
+      const input = z.object({ networkRoute: z.enum(['direct', 'management']).optional(), provider: z.enum(['codex', 'cursor', 'claude']).optional() }).optional().parse(raw);
+      const route = input?.networkRoute;
       if (route === 'direct') return { enabled: false, configured: true, running: true, available: true, detail: '使用本机网络（沿用电脑代理设置）', hasAccessCode: false };
       if (route === 'management' && !egress.status().enabled) throw new Error('该会话的管理端出口尚未启用');
-      await egress.probe(); broadcast(); return egress.status();
+      // Codex/Claude may use custom API endpoints; retain their native checks.
+      await egress.probe(input?.provider === 'cursor' ? 'cursor' : undefined); broadcast(); return egress.status();
     }
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);

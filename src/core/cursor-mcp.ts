@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { atomicJson } from './store';
 import { mcpServerInputSchema } from './codex-mcp';
 import { spawnCLI, stopCLI } from './rpc';
+import { cursorNetworkEnvironment } from './cursor-network';
 import type { McpCatalog, McpMutation, McpServerInput } from '../shared/mcp';
 
 // Cursor owns connections and OAuth. Configuration presence does not prove connectivity.
@@ -39,7 +40,7 @@ export class CursorMcp {
     return { name, transport: value.command ? 'stdio' : 'http', ...(value.command ? { command: value.command, args: Array.isArray(value.args) ? value.args : [] } : { url: value.url }) };
   }
   private async cli(args: string[], timeout = 15000) {
-    const child = spawnCLI(this.executable, ['mcp', ...args], this.cwd, this.env);
+    const child = spawnCLI(this.executable, ['mcp', ...args], this.cwd, cursorNetworkEnvironment(this.env));
     child.stdout.resume(); child.stderr.resume();
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => { void stopCLI(child); reject(new Error('Cursor MCP 操作超时，请重试。')); }, timeout);

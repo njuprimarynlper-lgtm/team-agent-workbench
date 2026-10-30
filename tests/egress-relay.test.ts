@@ -98,7 +98,7 @@ test('administrator can test every saved route without a running listener or ser
     f.relay.update({ ...f.config, cursor: false, claude: false }, { accessCode: 'fixture-secret' });
     for (const host of ['api2.cursor.sh', 'api.anthropic.com']) {
       const socket = await f.connect(), answer = read(socket, '\n'); socket.write(f.handshake({ host }));
-      assert.match(await answer, /白名单/); socket.destroy();
+      assert.match(await answer, /管理端尚未允许.*转发/); socket.destroy();
     }
     assert.equal(f.requests.length, 3, 'denied member requests never reach the upstream');
     await assert.rejects(f.relay.probe('arbitrary-host' as any), /不支持/);

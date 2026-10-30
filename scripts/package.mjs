@@ -11,6 +11,7 @@ for (const edition of requested ? [requested] : ['admin', 'user']) {
     directories: { app: path.resolve('dist', edition), output: path.join(releaseRoot, edition) },
     electronVersion: '44.3.0', electronDist: path.resolve('node_modules/electron/dist'),
     asar: true, npmRebuild: false, nodeGypRebuild: false, compression: 'store',
+    asarUnpack: edition === 'user' ? ['cursor-network.cjs'] : [],
     files: ['**/*'],
     afterPack: async ({ appOutDir }) => {
       // Electron-builder excludes nested node_modules from extraResources. These

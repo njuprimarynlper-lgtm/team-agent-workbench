@@ -180,7 +180,8 @@ export class EgressRelay extends EventEmitter {
       }
       const host = typeof request.host === 'string' ? request.host.toLowerCase().replace(/\.$/, '') : '', port = Number(request.port), provider = providerForHost(host);
       event.target = `${host}:${port}`; event.provider = provider || 'control';
-      if (!provider || !this.config[provider] || port !== 443) throw new Error('目标不在已启用的 CLI 出口白名单内');
+      if (!provider || port !== 443) throw new Error('目标不在已启用的 CLI 出口白名单内');
+      if (!this.config[provider]) throw new Error(`管理端尚未允许 ${provider === 'cursor' ? 'Cursor' : provider === 'codex' ? 'Codex' : 'Claude Code'} 转发，请联系管理员在“网络出口”中开启`);
       allowed = true;
       const target = await connectTarget(this.config, this.secret, host, port, controller.signal); targetSocket = target.socket;
       if (socket.destroyed || controller.signal.aborted) { targetSocket.destroy(); throw new Error('连接已关闭'); }
@@ -262,8 +263,10 @@ export class EgressClientProxy extends EventEmitter {
   }
   environment(): NodeJS.ProcessEnv {
     if (!this.config?.enabled || !this.localPort) return {};
-    const proxy = `http://127.0.0.1:${this.localPort}`, noProxy = ['localhost', '127.0.0.1', '::1', process.env.NO_PROXY || process.env.no_proxy || ''].filter(Boolean).join(',');
-    return { HTTP_PROXY: proxy, HTTPS_PROXY: proxy, http_proxy: proxy, https_proxy: proxy, NO_PROXY: noProxy, no_proxy: noProxy, NODE_USE_ENV_PROXY: '1' };
+    // Explicitly selecting the management route must not inherit a corporate
+    // NO_PROXY=* (or provider suffix) and accidentally send requests directly.
+    const proxy = `http://127.0.0.1:${this.localPort}`, noProxy = 'localhost,127.0.0.1,::1';
+    return { HTTP_PROXY: proxy, HTTPS_PROXY: proxy, http_proxy: proxy, https_proxy: proxy, ALL_PROXY: proxy, all_proxy: proxy, NO_PROXY: noProxy, no_proxy: noProxy, NODE_USE_ENV_PROXY: '1', TEAM_AGENT_MANAGEMENT_PROXY: '1' };
   }
   async configure(config?: ClientOptions) {
     this.reports.clear(); this.reportQueue.clear();
@@ -293,17 +296,40 @@ export class EgressClientProxy extends EventEmitter {
     this.closeConnections();
     if (server) await new Promise<void>(resolve => server.close(() => resolve())); this.refreshStatus({ available: undefined, checkedAt: undefined });
   }
-  async probe() {
+  async probe(provider?: 'codex' | 'cursor' | 'claude') {
     if (!this.config?.enabled) { this.refreshStatus(); return true; }
     const revision = this.revision, probe = ++this.probeId;
     try {
-      const socket = await this.connectRelay({ kind: 'ping' }); socket.end();
+      if (provider) await this.probeService(provider);
+      else { const socket = await this.connectRelay({ kind: 'ping' }); socket.end(); }
       if (revision !== this.revision || probe !== this.probeId) throw new Error('出口配置或检测已改变，请查看最新状态');
-      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: this.availableDetail() }); return true;
+      this.refreshStatus({ available: true, checkedAt: new Date().toISOString(), detail: provider ? `管理端已连通 ${provider === 'cursor' ? 'Cursor' : provider === 'codex' ? 'Codex' : 'Claude Code'} 服务；账号与模型需分别检测` : this.availableDetail() }); return true;
     } catch (error) {
       if (revision === this.revision && probe === this.probeId) this.refreshStatus({ available: false, checkedAt: new Date().toISOString(), detail: clientDetail(error) });
       throw error;
     }
+  }
+  private async probeService(provider: 'codex' | 'cursor' | 'claude') {
+    const host = provider === 'cursor' ? 'api2.cursor.sh' : provider === 'codex' ? 'chatgpt.com' : 'api.anthropic.com';
+    // Credential-free TLS check through the exact member route: detects disabled
+    // providers, upstream 403/407 and trust errors that a management ping misses.
+    const tunnel = this.track(await this.connectRelay({ kind: 'connect', host, port: 443 }));
+    let secure: tls.TLSSocket | undefined;
+    try {
+      const ca = [...new Set([...tls.getCACertificates('default'), ...tls.getCACertificates('system')])];
+      secure = this.track(tls.connect({ socket: tunnel, servername: host, ca, rejectUnauthorized: true, ALPNProtocols: ['h2', 'http/1.1'] }));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => secure!.destroy(Object.assign(new Error(), { code: 'ETIMEDOUT' })), 15000);
+        const finish = (error?: Error) => { clearTimeout(timer); secure!.off('error', failed); secure!.off('close', closed); secure!.off('secureConnect', connected); error ? reject(error) : resolve(); };
+        const failed = (error: Error) => finish(error), closed = () => finish(new Error('closed')), connected = () => finish();
+        secure!.once('error', failed); secure!.once('close', closed); secure!.once('secureConnect', connected);
+      });
+    } catch (error) {
+      const code = String((error as NodeJS.ErrnoException)?.code || '');
+      throw new EgressRouteError(/CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ISSUER/.test(code)
+        ? '管理端已连接，但本机无法验证模型服务证书。请检查本机是否信任该出口使用的企业证书，再重新检测。'
+        : `管理端已连接，但模型服务的安全连接未完成（${safeDetail(error)}）。请检查管理端上游代理是否允许访问该服务。`);
+    } finally { secure?.destroy(); tunnel.destroy(); }
   }
   private availableDetail() { return this.config?.viaSharedServer ? '经共享服务器中转，管理端网络出口可用' : '管理端网络出口可用'; }
   private closeConnections() {

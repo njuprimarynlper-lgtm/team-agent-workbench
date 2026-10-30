@@ -988,6 +988,7 @@ export class Workbench {
     const prior = this.accounts.states[provider];
     const auth = prior.networkRoute === route && authReady(prior) && prior.cwd === cwd && Date.now() - Date.parse(prior.checkedAt || '') < 10000 ? prior : await this.accounts.check(provider, cwd, route);
     if (!authReady(auth)) throw new Error(auth.detail);
+    if (provider === 'cursor' && route === 'management' && auth.connectionIssue) throw new Error(auth.connectionIssue);
   }
   private clearCatalogCache(provider?: Provider) {
     for (const [key, job] of this.catalogJobs) if (!provider || job.provider === provider) { job.controller.abort(); this.catalogJobs.delete(key); }
