@@ -9,8 +9,8 @@ export function LocalProjectConnection({ create }: { create: () => void }) {
 }
 
 export function ProjectConnectionEntry({ connected, local, open }: { connected: boolean; local?: boolean; open: () => void }) {
-  const label = connected ? '已连接' : local ? '仅本机（旧版）' : '未连接';
-  return <button type="button" className="project-connection-entry" aria-label={'中央节点：' + label} title={'中央节点：' + label + '，点击管理连接'} onClick={open}><span className={'project-connection-dot' + (connected ? ' is-connected' : '')} aria-hidden="true"/><span className={'project-connection-state' + (connected ? ' is-connected' : '')}>{label}</span></button>;
+  const label = connected ? '同步已开启' : local ? '仅本机（旧版）' : '未开启同步';
+  return <button type="button" className="project-connection-entry" aria-label={'项目同步：' + label} title={'项目同步：' + label + '，点击管理同步'} onClick={open}><span className={'project-connection-dot' + (connected ? ' is-connected' : '')} aria-hidden="true"/><span className={'project-connection-state' + (connected ? ' is-connected' : '')}>{label}</span></button>;
 }
 
 export function ProjectCentralConnection({ profile, connected, configure, disconnect }: { profile: ConnectionProfile; connected: boolean; configure: () => void; disconnect?: () => Promise<void> }) {

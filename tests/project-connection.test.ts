@@ -6,7 +6,8 @@ import { accountIdentity } from '../src/shared/account-data';
 import { connectionProject, connectedProjectSelection, reusableProjectConnections, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, projectConnectionError } from '../src/shared/project-connection';
 import { ProjectRefreshButton } from '../src/renderer/project-refresh';
 import { ProjectBriefEditor } from '../src/renderer/project-brief-editor';
-import { ProjectCentralConnection, LocalProjectConnection } from '../src/renderer/project-connection';
+import { ProjectConnectionEntry, ProjectCentralConnection, LocalProjectConnection } from '../src/renderer/project-connection';
+import { CentralNodeMenu } from '../src/renderer/central-node-menu';
 import { ProjectSettingsDialog } from '../src/renderer/project-directory';
 import type { ConnectionProfile } from '../src/shared/types';
 
@@ -51,15 +52,40 @@ test('project discovery failure is reported separately from account permission d
   assert.doesNotMatch(selection.notice!, /没有.*权限/);
 });
 
-test('project refresh remains usable while disconnected and only disables for an in-flight refresh or account change', () => {
+test('project refresh only refreshes an authenticated node; disconnected clients use the explicit topbar entry', () => {
   for (const connected of [false, true]) {
     const html = renderToStaticMarkup(createElement(ProjectRefreshButton, { connected, busy: false, refresh() {} }));
-    assert.doesNotMatch(html, /disabled/);
+    if (connected) assert.doesNotMatch(html, /disabled/);
+    else { assert.match(html, /disabled/); assert.match(html, /顶部.*连接中央节点/); }
     assert.match(html, /aria-label="刷新项目和文件"/);
-    if (!connected) assert.match(html, /连接中央节点并刷新/);
+    assert.doesNotMatch(html, /连接中央节点并刷新/);
     const busy = renderToStaticMarkup(createElement(ProjectRefreshButton, { connected, busy: true, refresh() {} }));
     assert.match(busy, /disabled/);
   }
+});
+
+test('topbar node entry exposes login and never presents cached projects as an authenticated node', () => {
+  const renderLogin = () => null;
+  const offline = renderToStaticMarkup(createElement(CentralNodeMenu, { connection: { connected: false, profile, workspaces: [] }, renderLogin }));
+  assert.match(offline, /连接中央节点/);
+  assert.doesNotMatch(offline, /已登录|可访问项目/);
+  const online = renderToStaticMarkup(createElement(CentralNodeMenu, { connection: { connected: true, profile, workspaces: [] }, renderLogin }));
+  assert.match(online, /中央节点 · 节点/);
+  assert.match(online, /node-a:22 · alice/);
+  assert.match(online, /aria-haspopup="dialog"/);
+  assert.match(online, /aria-expanded="false"/);
+  const busy = renderToStaticMarkup(createElement(CentralNodeMenu, { connection: undefined, busy: true, renderLogin }));
+  assert.match(busy, /disabled/);
+});
+
+test('project entry labels describe project synchronization, not node authentication', () => {
+  for (const connected of [false, true]) {
+    const html = renderToStaticMarkup(createElement(ProjectConnectionEntry, { connected, open() {} }));
+    assert.match(html, new RegExp('项目同步：' + (connected ? '同步已开启' : '未开启同步')));
+    assert.doesNotMatch(html, /中央节点：|>已连接<|>未连接</);
+  }
+  const local = renderToStaticMarkup(createElement(ProjectConnectionEntry, { connected: false, local: true, open() {} }));
+  assert.match(local, /仅本机（旧版）/);
 });
 
 test('project settings show the actual server and account with the shared connection entry', () => {

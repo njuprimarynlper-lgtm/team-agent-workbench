@@ -49,11 +49,11 @@ try {
   await page.locator('.sidebar').waitFor();
   const row=id=>page.locator('.workgroup-project-item').filter({has:page.locator('[data-project-id="'+id+'"]')});
   const settings=page.getByRole('dialog',{name:/项目设置/});
-  await expect(page.locator('.topbar').getByRole('button',{name:/中央节点/})).toHaveCount(0);
-  await expect(row(a.id).locator('.project-connection-entry')).toContainText('已连接');
+  await expect(page.locator('.topbar').getByRole('button',{name:/中央节点/})).toHaveCount(1);
+  await expect(row(a.id).locator('.project-connection-entry')).toContainText('同步已开启');
   await expect(row(b.id).locator('.project-connection-entry')).toHaveCount(0);
   await page.locator('[data-project-id="'+b.id+'"]').click();
-  await expect(row(b.id).locator('.project-connection-entry')).toContainText('未连接');
+  await expect(row(b.id).locator('.project-connection-entry')).toContainText('未开启同步');
   await row(b.id).locator('.project-connection-entry').click();
   const central=page.getByLabel('项目中央节点',{exact:true});
   await expect(central).toContainText('未连接');
@@ -66,7 +66,7 @@ try {
   await expect(modal.getByRole('alert')).toContainText('连接已断开');
   await page.evaluate(()=>window.centralFixture.fail=false);
   await modal.getByRole('button',{name:'使用此连接',exact:true}).click();
-  await expect(modal).toHaveCount(0); await expect(row(b.id).locator('.project-connection-entry')).toContainText('已连接');
+  await expect(modal).toHaveCount(0); await expect(row(b.id).locator('.project-connection-entry')).toContainText('同步已开启');
   await page.locator('[data-project-id="'+a.id+'"]').click();await row(a.id).locator('.project-connection-entry').click();
   await central.getByRole('button',{name:'断开本项目',exact:true}).click();
   await expect(central).toContainText('未连接');

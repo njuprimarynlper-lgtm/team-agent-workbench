@@ -8,6 +8,8 @@ import { DirectoryMoveNotice } from './directory-move-notice';
 import './directory-move-notice.css';
 import './session-input-queue.css';
 import { ProjectRefreshButton } from './project-refresh';
+import { CentralNodeMenu } from './central-node-menu';
+import './central-node-menu.css';
 import type { ProjectLoginResult } from '../shared/project-connection';
 import { projectConnectionError, projectCreationInputSchema } from '../shared/project-connection';
 import { needsCentralConnection } from '../shared/central-connection';
@@ -213,7 +215,11 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
   const [preview, setPreview] = useState<FilePreview>(); const [previewOrigin, setPreviewOrigin] = useState(''); const [search, setSearch] = useState('');
   const [connectionTarget, setConnectionTarget] = useState<{ profile?: ConnectionProfile; projectId?: string; localProjectId?: string }>();
   const [connectionRecovery, setConnectionRecovery] = useState(false);
-  const openCentralPanel = () => { if (project && project.id !== PERSONAL_PROJECT_ID) openProjectConnectionSettings(project.id); else { connectProject(); } };
+  const [centralLoginRequest, setCentralLoginRequest] = useState(0);
+  const openCentralPanel = () => {
+    if (connection?.connected && project && project.id !== PERSONAL_PROJECT_ID) openProjectConnectionSettings(project.id);
+    else setCentralLoginRequest(value => value + 1);
+  };
   const [newConnection, setNewConnection] = useState(false), [creatingWithConnection, setCreatingWithConnection] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false); const [betaOpen, setBetaOpen] = useState(false); const [connectOpen, setConnectOpen] = useState(false); const [newOpen, setNewOpen] = useState(false); const [nativeProvider, setNativeProvider] = useState<'codex' | 'cursor' | ''>('');
@@ -406,10 +412,10 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
   useEffect(() => { setPreview(undefined); previewRequest.current++; setRemoteDir(project?.remoteRoot || ''); }, [projectId, connection?.profile.id, connection?.profile.username]);
   const loadGroups = async (interactive = false) => {
     if (groupsLoading.current) return;
-    if (!connection?.connected) { if (interactive) openCentralPanel(); return; }
+    if (!connection?.connected) return;
     groupsLoading.current = true; setGroupsBusy(true);
     try { await rawApi.call('remote.manifest'); setGroupsError(''); if (interactive) { setFileRefreshVersion(version => version + 1); setNotice('项目列表已刷新'); } }
-    catch (e: any) { setGroupsError(e.message); if (interactive && needsCentralConnection(e.message)) openCentralPanel(); }
+    catch (e: any) { setGroupsError(e.message); }
     finally { groupsLoading.current = false; setGroupsBusy(false); }
   };
   useEffect(() => { const timer = setInterval(() => { if (document.visibilityState === 'visible') void loadGroups(); }, 30000); return () => clearInterval(timer); }, [connection?.connected, connection?.profile.id, connection?.profile.username]);
@@ -554,9 +560,9 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
       <button className="rail-feature" title="agent管理" data-tooltip="agent管理" aria-label="agent管理" onClick={() => setSettingsOpen(true)}><Bot size={22}/><span>agent管理</span></button>
       <span className="avatar" title="当前账号" data-tooltip="当前账号">我</span>
     </nav>
-    <div className="shell"><header className="topbar"><div><strong>团队工作台 <span className="version" aria-label="客户端版本">用户版 · v{clientVersion}</span></strong></div><div className="topbar-actions"><button className="beta-entry" aria-label="Beta 功能" onClick={() => setBetaOpen(true)}><Sparkles size={14}/>Beta 功能{(sessionHandoffBetaEnabled || cursorDesktopBetaEnabled) && <span className="beta-entry-dot" aria-label="有功能已开启"/>}</button><button className="primary compact" onClick={startProjectCreate}><Plus size={14}/>创建项目</button></div></header>
+    <div className="shell"><header className="topbar"><div><strong>团队工作台 <span className="version" aria-label="客户端版本">用户版 · v{clientVersion}</span></strong></div><div className="topbar-actions"><CentralNodeMenu connection={connection} busy={!!state.accountChanging} loginRequest={centralLoginRequest} renderLogin={({ fresh, close, setBusy }) => <ConnectModal inline nodeOnly fresh={fresh} settings={state.settings} connection={connection} connections={state.reusableConnections || []} close={close} run={run} onBusyChange={setBusy} onConnected={(_selected, message) => { close(); setGroupsError(''); setNotice(message || '中央节点连接已就绪，可在左侧查看项目'); void refresh(); }}/>} /><button className="beta-entry" aria-label="Beta 功能" onClick={() => setBetaOpen(true)}><Sparkles size={14}/>Beta 功能{(sessionHandoffBetaEnabled || cursorDesktopBetaEnabled) && <span className="beta-entry-dot" aria-label="有功能已开启"/>}</button><button className="primary compact" onClick={startProjectCreate}><Plus size={14}/>创建项目</button></div></header>
     <div className="body"><aside className="sidebar sidebar-separated"><div className="sidebar-project-pane" id="sidebar-project-pane"><div className="sidebar-head"><h3>项目</h3><div className="row"><ProjectRefreshButton connected={!!connection?.connected} busy={groupsBusy || !!state.accountChanging} refresh={() => void loadGroups(true)}/></div></div>
-      {groupsError && !needsCentralConnection(groupsError) && <CentralConnectionError message={groupsError} reconnect={openCentralPanel}/>}
+      {groupsError && <CentralConnectionError message={groupsError} reconnect={() => setCentralLoginRequest(value => value + 1)}/>}
 
       <div className="workgroup-list" id="sidebar-workgroup-list" aria-label="项目列表" ref={workgroupList} style={{ height: sidebarPanes.workgroups }}><PersonalSection groups={personalGroups} sessions={personalSessions.filter(item => item.binding?.project.id === PERSONAL_PROJECT_ID)} active={projectId === PERSONAL_PROJECT_ID} selected={personalGroup} select={groupId => { setProjectId(PERSONAL_PROJECT_ID); setPersonalGroup(groupId); setView('sessions'); }} move={setMoving} call={api.call} changed={refresh}/>
         {[...localProjects, ...teamProjects].map(p => <section className="workgroup project-card" key={p.id}><SidebarProjectItem count={projectWorkSessions(state.sessions, p, teamProjects, localProjects.some(local => local.id === p.id)).filter(item => !item.closedAt).length} project={p} role={workspaces.find(w => w.groupName === p.groupName)?.role} connection={<ProjectConnectionEntry local={localProjects.some(local => local.id === p.id)} connected={!!state.projectConnections?.[p.id]?.connected} open={() => openProjectConnectionSettings(p.id)}/>} conflict={!!state.projectSync?.[p.id]?.conflict} selected={p.id === projectId} select={() => setProjectId(p.id)} settings={() => { setProjectId(p.id); const profile = localProjects.some(local => local.id === p.id) ? state.personal!.settings.workspaceSnapshot!.profile : teamDirectoryProfile!; setProjectSettings({ id: p.id, contextKey: projectDirectoryKey(profile, p.id) }); }} call={localProjects.some(local => local.id === p.id) ? api.call : rawApi.call} pending={p.id === projectId ? pendingRecommendations(recommendations.inbox) : 0} recommendations={() => openInteraction('recommendations')}/></section>)}
@@ -690,7 +696,7 @@ function PasswordModal({ close, saved }: { close: () => void; saved: () => void 
 function NewPasswordFields({ value, repeat, change, confirm }: { value: string; repeat: string; change: (v: string) => void; confirm: (v: string) => void }) {
   return <><label className="field">新密码<input aria-label="新密码" type="password" autoComplete="new-password" value={value} onChange={e => change(e.target.value)}/></label><label className="field">确认新密码<input aria-label="确认新密码" type="password" autoComplete="new-password" value={repeat} onChange={e => confirm(e.target.value)}/></label></>;
 }
-function ConnectModal({ reauthenticate = false, createProject = false, settings, connection, connections, initialProfile, projectId, localProjectId, fresh, close, run, onConnected }: { reauthenticate?: boolean; createProject?: boolean; settings: Settings; connection: Snapshot['connection']; connections: NonNullable<Snapshot['reusableConnections']>; initialProfile?: ConnectionProfile; projectId?: string; localProjectId?: string; fresh?: boolean; close: () => void; run: Run; onConnected: (projectId?: string, notice?: string) => void }) {
+function ConnectModal({ reauthenticate = false, createProject = false, inline = false, nodeOnly = false, settings, connection, connections, initialProfile, projectId, localProjectId, fresh, close, run, onConnected, onBusyChange }: { reauthenticate?: boolean; createProject?: boolean; inline?: boolean; nodeOnly?: boolean; settings: Settings; connection: Snapshot['connection']; connections: NonNullable<Snapshot['reusableConnections']>; initialProfile?: ConnectionProfile; projectId?: string; localProjectId?: string; fresh?: boolean; close: () => void; run: Run; onConnected: (projectId?: string, notice?: string) => void; onBusyChange?: (busy: boolean) => void }) {
   const savedProfile = initialProfile || (!fresh ? connection?.profile || settings.workspaceSnapshot?.profile || settings.connections.at(-1) : undefined);
   const empty: ConnectionProfile = { id: crypto.randomUUID(), name: '团队中央节点', host: settings.defaultServer?.host || '', port: settings.defaultServer?.port || 22, username: '', fingerprint: '', manifestPath: '', projects: [], workPath: '' };
   const [profile, setProfile] = useState(savedProfile?.host ? savedProfile : empty);
@@ -700,17 +706,38 @@ function ConnectModal({ reauthenticate = false, createProject = false, settings,
   const choices = projectId && initialProfile ? connections.filter(item => item.key === accountIdentity(initialProfile)) : connections;
   const [projectName, setProjectName] = useState('');
   const [password, setPassword] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  useEffect(() => { onBusyChange?.(busy); return () => onBusyChange?.(false); }, [busy, onBusyChange]);
   const [required, setRequired] = useState(false), [next, setNext] = useState(''), [repeat, setRepeat] = useState('');
   const local = profile.mode === 'local';
   const update = (key: keyof ConnectionProfile, value: unknown) => { setRequired(false); setNext(''); setRepeat(''); setProfile({ ...profile, [key]: value, ...(['host', 'port'].includes(key) ? { fingerprint: '' } : {}) }); };
   const rememberedFingerprint = !local && profile.host ? settings.trustedServerIdentities?.[serverIdentityKey(profile.host, profile.port)] || '' : '';
   const effectiveFingerprint = profile.fingerprint || rememberedFingerprint;
   const identityChanged = error.includes('服务器身份发生变化');
-  return <Modal title={createProject ? '创建项目 · 连接中央节点' : reauthenticate ? '重新连接中央节点' : projectId ? '项目中央节点' : '连接中央节点'} close={() => { if (!busy) close(); }} wide><div className="modal-body">
+  const canConnect = !busy && (!createProject || projectCreationInputSchema.safeParse({ name: projectName }).success) && (!required || (!!next && next === repeat)) && !!profile.host && !!profile.username && (!!reusable || !!password) && (!local || !!profile.localRoot?.trim());
+  const connect = async () => {
+    if (!canConnect) return;
+    setBusy(true); setError('');
+    try {
+      if (reusable) {
+        const opened = await rawApi.call<{ newWindow: boolean; projectId?: string; notice?: string }>('project.connection.open', { key: reusable.key, localProjectId, projectId: nodeOnly || createProject || localProjectId ? undefined : projectId || selectedProject || undefined, ...(createProject ? { createProject: { name: projectName } } : {}) });
+        onConnected(opened.newWindow ? undefined : opened.projectId || PERSONAL_PROJECT_ID, opened.notice); return;
+      }
+      if (required) newAccountPasswordSchema.parse(next);
+      const connected = await api.call<ProjectLoginResult>('remote.connect', { localProjectId, profile: { ...profile, fingerprint: effectiveFingerprint, projects: [], workPath: '', manifestPath: '' }, password, projectId: nodeOnly ? undefined : projectId, ...(createProject ? { createProject: { name: projectName } } : {}), expectedConnection: projectId && initialProfile ? accountIdentity(initialProfile) : undefined, ...(required ? { newPassword: next } : {}) });
+      setPassword('');
+      const current = connection?.profile || settings.workspaceSnapshot?.profile;
+      onConnected(!current || accountIdentity(current) === accountIdentity(connected) ? connected.selectedProjectId || PERSONAL_PROJECT_ID : undefined, connected.connectionNotice);
+    } catch (e: any) {
+      if (e.message.includes('PASSWORD_CHANGE_REQUIRED')) { setRequired(true); setError(''); }
+      else setError(projectConnectionError(e));
+    } finally { setBusy(false); }
+  };
+  const content = <><div className="modal-body">
+    {nodeOnly && <p className="central-node-login-help">登录后查看你加入的项目，项目资料同步单独开启。</p>}
     {createProject && <label className="field">项目名称<input aria-label="项目名称" autoFocus maxLength={24} placeholder="24 字以内，支持中文、字母、数字及 _·-" disabled={busy} value={projectName} onChange={event => setProjectName(event.target.value)}/></label>}
     {error && <div className="inline-error" role="alert"><span>{error}</span>{identityChanged && <button className="text-button" type="button" onClick={() => void run(async () => { await api.call('server.identity.forget', { host: profile.host, port: profile.port }); setProfile({ ...profile, fingerprint: '' }); setError(''); })}>重新确认</button>}</div>}
-    {<label className="field">连接方式<select aria-label="选择中央节点连接" disabled={busy} value={choice} onChange={event => { const key = event.target.value, node = connections.find(item => item.key === key); setChoice(key); setProfile(node ? node.profile : projectId && savedProfile ? savedProfile : empty); setSelectedProject(node?.profile.projects[0]?.id || ''); setPassword(''); setRequired(false); setNext(''); setRepeat(''); setError(''); }}><option value="new">新建 SSH 连接</option>{choices.map(node => <option key={node.key} value={node.key}>复用 {node.profile.host}:{node.profile.port} · {node.profile.username}</option>)}</select></label>}
-    {reusable ? <><p className="muted small">复用已登录的连接，无需再次输入密码。不同节点在独立窗口中打开。</p>{!projectId && !localProjectId && !createProject && <label className="field">项目<select aria-label="连接目标项目" value={selectedProject} onChange={event => setSelectedProject(event.target.value)}>{reusable.profile.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}{!reusable.profile.projects.length && <option value="">连接后创建项目</option>}</select></label>}</> : <fieldset className="connection-fields" disabled={busy}>
+    {(!nodeOnly || choices.length > 0) && <label className="field">连接方式<select aria-label="选择中央节点连接" disabled={busy} value={choice} onChange={event => { const key = event.target.value, node = connections.find(item => item.key === key); setChoice(key); setProfile(node ? node.profile : projectId && savedProfile ? savedProfile : empty); setSelectedProject(node?.profile.projects[0]?.id || ''); setPassword(''); setRequired(false); setNext(''); setRepeat(''); setError(''); }}><option value="new">新建 SSH 连接</option>{choices.map(node => <option key={node.key} value={node.key}>复用 {node.profile.host}:{node.profile.port} · {node.profile.username}</option>)}</select></label>}
+    {reusable ? <><p className="muted small">复用已登录的连接，无需再次输入密码。不同节点在独立窗口中打开。</p>{!nodeOnly && !projectId && !localProjectId && !createProject && <label className="field">项目<select aria-label="连接目标项目" value={selectedProject} onChange={event => setSelectedProject(event.target.value)}>{reusable.profile.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}{!reusable.profile.projects.length && <option value="">连接后创建项目</option>}</select></label>}</> : <fieldset className="connection-fields" disabled={busy}>
     {local && !profile.localRoot?.trim() && <div className="inline-error" role="alert">本地测试连接缺少共享目录，请重新生成联调配置。</div>}
     {!local && <div className="connection-server-details"><div className="form-grid">
       <label className="field">中央节点地址<input disabled={!!projectId} value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" disabled={!!projectId} value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label>
@@ -722,7 +749,8 @@ function ConnectModal({ reauthenticate = false, createProject = false, settings,
     </div>
     {required && <><p role="alert">首次登录，请先设置新密码后进入工作台。</p><NewPasswordFields value={next} repeat={repeat} change={setNext} confirm={setRepeat}/></>}
     </fieldset>}
-  </div><footer><span className="spacer"/><button className="secondary" disabled={busy} onClick={close}>{createProject || connection?.connected ? '取消' : '跳过'}</button><button className="primary" disabled={busy || (createProject && !projectCreationInputSchema.safeParse({ name: projectName }).success) || (required && (!next || next !== repeat)) || !profile.host || !profile.username || (!reusable && !password) || (local && !profile.localRoot?.trim())} onClick={async () => { setBusy(true); setError(''); try { if (reusable) { const opened = await rawApi.call<{ newWindow: boolean; projectId?: string; notice?: string }>('project.connection.open', { key: reusable.key, localProjectId, projectId: createProject || localProjectId ? undefined : projectId || selectedProject || undefined, ...(createProject ? { createProject: { name: projectName } } : {}) }); onConnected(opened.newWindow ? undefined : opened.projectId || PERSONAL_PROJECT_ID, opened.notice); return; } if (required) newAccountPasswordSchema.parse(next); const connected = await api.call<ProjectLoginResult>('remote.connect', { localProjectId, profile: { ...profile, fingerprint: effectiveFingerprint, projects: [], workPath: '', manifestPath: '' }, password, projectId, ...(createProject ? { createProject: { name: projectName } } : {}), expectedConnection: projectId && initialProfile ? accountIdentity(initialProfile) : undefined, ...(required ? { newPassword: next } : {}) }); setPassword(''); const current = connection?.profile || settings.workspaceSnapshot?.profile; onConnected(!current || accountIdentity(current) === accountIdentity(connected) ? connected.selectedProjectId || PERSONAL_PROJECT_ID : undefined, connected.connectionNotice); } catch (e: any) { if (e.message.includes('PASSWORD_CHANGE_REQUIRED')) { setRequired(true); setError(''); } else setError(projectConnectionError(e)); } finally { setBusy(false); } }}>{busy ? '正在连接…' : createProject ? '下一步' : reusable ? '使用此连接' : '连接'}</button></footer></Modal>;
+  </div><footer><span className="spacer"/><button type="button" className="secondary" disabled={busy} onClick={close}>{nodeOnly || createProject || connection?.connected ? '取消' : '跳过'}</button><button type={inline ? 'submit' : 'button'} className="primary" disabled={!canConnect} onClick={inline ? undefined : connect}>{busy ? '正在连接…' : createProject ? '下一步' : reusable ? '使用此连接' : nodeOnly ? '连接并查看项目' : '连接'}</button></footer></>;
+  return inline ? <form className="central-node-login" onSubmit={event => { event.preventDefault(); void connect(); }}>{content}</form> : <Modal title={createProject ? '创建项目 · 连接中央节点' : reauthenticate ? '重新连接中央节点' : projectId ? '项目中央节点' : '连接中央节点'} close={() => { if (!busy) close(); }} wide>{content}</Modal>;
 }
 
 function SettingsModal({ toolSessions, openTools, settings, providers, auth, close, run }: { toolSessions: AgentSession[]; openTools: (provider: Provider) => void; settings: Settings; providers: Snapshot['providers']; auth: Snapshot['auth']; close: () => void; run: Run }) {

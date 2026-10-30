@@ -37,7 +37,7 @@ try {
   await expect(page.getByRole('button', { name: '新建会话', exact: true })).toBeVisible();
   await team.click();
   await expect(page.locator('.project-session-panel [data-session-id]')).toHaveCount(2);
-  await page.getByRole('button', { name: '中央节点：已连接', exact: true }).click();
+  await page.getByRole('button', { name: '项目同步：同步已开启', exact: true }).click();
   await expect(page.locator('#fixture-notice')).toHaveText('中央节点：团队工作台');
   await page.getByRole('button', { name: '查看AI推荐：团队工作台', exact: true }).click();
   await expect(page.locator('#fixture-notice')).toHaveText('AI推荐：团队工作台');

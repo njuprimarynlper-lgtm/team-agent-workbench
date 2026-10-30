@@ -30,12 +30,12 @@ try {
   page = await app.firstWindow(); page.on('pageerror', e => errors.push(e.message));
   // Only approve this isolated fixture's first-connect dialog, never a real host.
   await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); });
-  const refresh = page.getByRole('button', { name: '刷新工作组、项目和文件', exact: true });
-  await expect(refresh).toBeEnabled();
-  await refresh.click();
-  await page.getByRole('dialog', { name: '中央节点连接', exact: true }).getByRole('button', { name: /^(连接中央节点|重新连接)$/ }).click();
-  await expect(page.getByRole('heading', { name: /^(连接中央节点|重新连接中央节点)$/ })).toBeVisible();
-  await page.getByRole('button', { name: '跳过', exact: true }).click();
+  const refresh = page.getByRole('button', { name: '刷新项目和文件', exact: true });
+  await expect(refresh).toBeDisabled();
+  await page.locator('.central-node-trigger').click();
+  const login = page.getByRole('dialog', { name: '登录中央节点', exact: true });
+  await expect(login).toBeVisible();
+  await login.getByRole('button', { name: '取消', exact: true }).click();
 
   await assert.rejects(call('remote.connect', { profile, password: 'wrong-password', projectId: unavailableId }), /authentication|密码/i);
   assert.equal((await snapshot()).connection, undefined);
@@ -62,20 +62,19 @@ try {
 
   await call('remote.disconnect');
   await expect.poll(async () => !!(await snapshot()).connection).toBe(false);
-  await expect(refresh).toBeEnabled(); await refresh.click();
-  await page.getByRole('dialog', { name: '中央节点连接', exact: true }).getByRole('button', { name: '重新连接', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '重新连接中央节点', exact: true })).toBeVisible();
+  await expect(refresh).toBeDisabled(); await page.locator('.central-node-trigger').click();
+  await expect(login).toBeVisible();
   await expect(page.getByLabel('成员账号', { exact: true })).toHaveValue('taowen');
   await page.getByLabel('登录密码', { exact: true }).fill('test-password');
-  await page.getByRole('button', { name: '连接', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '重新连接中央节点', exact: true })).toHaveCount(0);
+  await login.getByRole('button', { name: '连接并查看项目', exact: true }).click();
+  await expect(login).toHaveCount(0);
   await expect.poll(async () => !!(await snapshot()).connection?.connected).toBe(true);
   const skipDirectory = page.getByRole('button', { name: '暂不设置', exact: true });
   if (await skipDirectory.isVisible()) await skipDirectory.click();
   await expect(refresh).toBeEnabled();
   await page.screenshot({ path: path.join(data, 'reconnected.png') });
   assert.deepEqual(errors, []);
-  const report = { passed: true, data, cases: ['disconnected refresh opens login', 'wrong password still rejected', 'missing project does not reject successful SSH login', 'unavailable project remains inaccessible', 'reuse accepts connection without stale project', 'personal view refreshes the team project list', 'disconnect and UI password login recover'] };
+  const report = { passed: true, data, cases: ['disconnected clients use the explicit topbar login', 'wrong password still rejected', 'missing project does not reject successful SSH login', 'unavailable project remains inaccessible', 'reuse accepts connection without stale project', 'personal view refreshes the team project list', 'disconnect and UI password login recover'] };
   await fs.writeFile(path.join(data, 'result.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report));
 } catch (error) {
