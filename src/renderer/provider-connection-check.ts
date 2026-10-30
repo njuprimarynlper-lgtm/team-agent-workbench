@@ -3,8 +3,21 @@ import type { UserEgressStatus } from '../shared/egress';
 
 export interface ProviderConnectionCheck { auth: ProviderAuth; catalog?: ProviderCatalog; issues: string[] }
 type Call = <T = unknown>(action: string, payload?: unknown) => Promise<T>;
+type ConnectionConfiguration = { enabled: boolean; viaSharedServer?: boolean; inviteCode?: string };
 
-export async function checkProviderConnection(call: Call, provider: Provider, cwd: string, configuration?: { enabled: boolean; viaSharedServer?: boolean; inviteCode?: string }, isCurrent = () => true, networkRoute?: SessionNetworkRoute): Promise<ProviderConnectionCheck> {
+// Saving a route is independent of online login/model discovery. In particular,
+// a broken old route must not prevent choosing a working replacement. Sending a
+// turn still performs its normal auth/connection preflight on the chosen route.
+export async function applySessionConnection(call: Call, id: string, networkRoute: SessionNetworkRoute, configuration?: ConnectionConfiguration, isCurrent = () => true) {
+  const current = () => { if (!isCurrent()) throw new Error('检测范围已改变，请查看当前会话的最新状态'); };
+  current();
+  if (configuration) await call('egress.configure', configuration);
+  current();
+  await call('session.network', { id, networkRoute });
+  current();
+}
+
+export async function checkProviderConnection(call: Call, provider: Provider, cwd: string, configuration?: ConnectionConfiguration, isCurrent = () => true, networkRoute?: SessionNetworkRoute): Promise<ProviderConnectionCheck> {
   const current = () => { if (!isCurrent()) throw new Error('检测范围已改变，请查看当前会话的最新状态'); };
   // A rejected configuration must not be reported as a successful switch.
   if (configuration) await call('egress.configure', configuration);

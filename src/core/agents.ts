@@ -7,6 +7,7 @@ import { CapabilityCache } from './capability-cache';
 import { JsonRpc, type AgentRpc, type RpcMessage } from './rpc';
 import { WebSocketRpc } from './websocket-rpc';
 import { cursorNetworkEnvironment } from './cursor-network';
+import { cursorClientCapabilities, cursorRequestError } from './cursor-models';
 import { mergeSharedThread } from './codex-live-thread';
 import { codexForkError, forkCodexHistory } from './codex-fork';
 import { CodexSideRpc, sideConversationInstructions } from './codex-side-rpc';
@@ -45,6 +46,8 @@ export class AgentRuntime {
   private turnId?: string;
   private initialized = false;
   private cursorMessageId = '';
+  private cursorLoading = false;
+  private cursorProvisionalId?: string;
   private closing = false;
   private turnActive = false;
   private sharedTurnOwned = false;
@@ -99,7 +102,7 @@ export class AgentRuntime {
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
     if (borrowedConnection) this.codexConnected = true;
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
-    this.rpc.on('closed', () => { this.autoCompaction?.close(); if (!this.forkOwner) void this.requestGuard?.close(); });
+    this.rpc.on('closed', () => { this.discardEmptyCursorSession(); this.autoCompaction?.close(); if (!this.forkOwner) void this.requestGuard?.close(); });
     this.rpc.on('diagnostic', (value: string) => { if (!this.closing) this.connection.diagnostic(value); });
     this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) { void this.forkOwner?.releaseForkBorrower(this); if (session.cursorNative || storage?.sharedEndpoint || session.codexRemote) { session.desktopSyncState = 'disconnected'; session.desktopSyncError = e.message; } this.finish(e.message); } });
   }
@@ -108,6 +111,12 @@ export class AgentRuntime {
       this.autoCompaction?.close();
       this.autoCompaction = new CodexAutoCompaction(guard, this.rpc, () => this.session.nativeId);
     }
+  }
+  private discardEmptyCursorSession() {
+    // Cursor does not persist a newly-created ACP session until a prompt is
+    // submitted. Never try to resume a metadata-only session after process exit.
+    if (this.cursorProvisionalId && this.session.nativeId === this.cursorProvisionalId) this.session.nativeId = undefined;
+    this.cursorProvisionalId = undefined;
   }
   private message(id: string, role: Message['role'], text: string, append = false, metadata: Pick<Message, 'userText' | 'context' | 'phase'> = {}) {
     const existing = this.session.messages.find(x => x.id === id || this.sharedCodex && (x.nativeItemId === id || x.id === 'native:' + id));
@@ -361,31 +370,52 @@ export class AgentRuntime {
     } else {
       s.permissions = await cursorPermissions(s.cwd);
       if (s.purpose === 'work' && s.permissionMode === 'review' && (s.permissions.approval !== 'allowlist' || s.permissions.cursorConfig?.allow.length)) throw new Error('Cursor 权限策略仍包含自动审批或允许规则。请打开执行权限，点击“配置 Cursor Allowlist”后重试。');
-      await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.4.0' } });
+      await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: cursorClientCapabilities(s.model), clientInfo: { name: 'team-agent-workbench', version: '0.4.0' } });
       if (this.cursorGuardExpected && !this.cursorGuardReady) throw new Error('当前 Cursor CLI 未启用 1 MB 自动压缩适配，请使用工作台配套的 Cursor CLI，或在 agent管理 中关闭请求大小保护后重新连接');
       await this.rpc.request('authenticate', { methodId: 'cursor_login' }, 120000);
       if (s.provider !== 'cursor') throw new Error('当前会话不能接入 Cursor 的原会话');
       if (s.nativeLive && !s.nativeId) { const message = '这条会话还没有原会话标识'; this.finish(message); throw new Error(message); }
-      const result = s.nativeId ? await this.rpc.request('session/load', { sessionId: s.nativeId, cwd: s.cwd, mcpServers: [] }) : await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
+      let expectedId = s.nativeId;
+      // ACP replays history before load returns. The workbench already owns the
+      // local transcript; replayed chunks are not new output from a user turn.
+      this.cursorLoading = !!expectedId;
+      let result: any;
+      try {
+        if (expectedId) {
+          try { result = await this.rpc.request('session/load', { sessionId: expectedId, cwd: s.cwd, mcpServers: [] }); }
+          catch (error: any) {
+            // Repair empty ids saved by older releases, only on an explicit
+            // not-found response. Real conversation history must never be reset.
+            const missing = error.code === -32602 && /Session .+ not found/i.test([error.message, error.data?.message].join(' '));
+            if (!missing || s.nativeLive || s.messages.some(message => message.role === 'user')) throw error;
+            expectedId = undefined; s.nativeId = undefined; this.cursorLoading = false;
+          }
+        }
+        if (!expectedId) result = await this.rpc.request('session/new', { cwd: s.cwd, mcpServers: [] });
+      }
+      finally { this.cursorLoading = false; }
+      if (this.closing) return;
       if (s.directoryChange && result.cwd && !sameNativePath(result.cwd, s.cwd)) throw new Error('Cursor 返回的工作目录与项目目录不一致，已停止发送');
       const returned = String(result.sessionId || '');
-      if (s.nativeLive && returned !== s.nativeId || s.directoryChange && s.nativeId && returned && returned !== s.nativeId) {
+      if (expectedId && returned && returned !== expectedId) {
         const message = 'Cursor 打开了另一条会话，已停止。';
         this.closing = true; this.finish(message); await this.rpc.close().catch(() => {}); throw new Error(message);
       }
-      s.nativeId = returned || s.nativeId;
+      if (!expectedId && !returned) throw new Error('Cursor 未返回会话标识，请重试；本次没有发送消息。');
+      s.nativeId = returned || expectedId;
+      if (!expectedId) this.cursorProvisionalId = s.nativeId;
       this.cursorModes = (result.modes?.availableModes || []).map((mode: any) => mode.id);
       if (s.model) await this.rpc.request('session/set_model', { sessionId: s.nativeId, modelId: s.model });
       if (s.purpose === 'background') {
         if (!result.modes?.availableModes?.some((mode: any) => mode.id === 'ask')) throw new Error('Cursor CLI 未提供后台只读 Ask 模式，请更新 CLI');
         await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'ask' });
-      } else if (s.mode || s.permissionMode && s.permissionMode !== 'inherit') {
+      } else {
         const modeId = s.mode === 'plan' || s.mode === 'ask' ? s.mode : 'agent';
         if (modeId !== 'agent' && !this.cursorModes.includes(modeId)) throw new Error('当前 Cursor CLI 不支持此模式，请更新 CLI');
         await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId });
       }
       if (s.permissionMode === 'full') s.permissions.warnings.push('本会话已请求 Run Everything；明确拒绝规则和团队策略仍由 Cursor 执行。');
-      if (s.permissionMode === 'inherit' && ['ask', 'plan'].includes(result.modes?.currentModeId)) s.permissions.warnings.push('当前 Cursor 为 Ask 或 Plan 模式，无法直接修改代码。');
+      if (s.permissionMode === 'inherit' && (s.purpose === 'background' || s.mode === 'ask' || s.mode === 'plan')) s.permissions.warnings.push('当前 Cursor 为 Ask 或 Plan 模式，无法直接修改代码。');
     }
     if (this.closing) return;
     this.initialized = true;
@@ -403,8 +433,9 @@ export class AgentRuntime {
         // and retire the partial process so a retry resumes the same conversation.
         this.closing = true;
         await this.rpc.close().catch(() => {});
-        this.finish(detail);
-        throw error;
+        const explained = cursorRequestError(error, this.session.model);
+        this.finish(explained?.message || detail);
+        throw explained || error;
       }
       const modelError = this.session.provider === 'codex' ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined;
       if (modelError) { this.finish(detail); throw new Error(modelError, { cause: error }); }
@@ -544,13 +575,13 @@ export class AgentRuntime {
         }
         if (this.turnActive) { this.turnId = result.turn.id; this.timing.begin(promptMessage.id, result.turn.id); this.hooks.changed(); }
       } else {
-        const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, options?.submitted);
+        const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, () => { this.cursorProvisionalId = undefined; options?.submitted?.(); });
         this.hooks.event({ method: 'session/prompt/result', result });
         this.finish(this.cursorCompactionUncertain ? 'Cursor 自动压缩尚未确认结束，请重新连接会话后继续' : undefined);
       }
       if (context) { context.accepted = true; this.hooks.changed(); }
       return true;
-    } catch (e: any) { if (!this.closing) { this.connection.error(e, false); this.finish(e.message); } return false; }
+    } catch (e: any) { if (!this.closing) { this.connection.error(e, false); this.finish(this.session.provider === 'cursor' ? cursorRequestError(e, this.session.model)?.message || e.message : e.message); } return false; }
   }
   get activeTurnId(): string | undefined {
     return this.session.provider === 'codex' && this.turnActive && !this.closing && ['running', 'approval'].includes(this.session.status) ? this.turnId : undefined;
@@ -694,6 +725,8 @@ export class AgentRuntime {
       this.hooks.event({ method: 'workbench/autoCompact', provider: 'cursor', ...p });
       this.hooks.changed(); return; // Maintenance is not a chat/tool message.
     }
+    // Ignore replay before recording events too: it is already in the trajectory.
+    if (this.cursorLoading && method === 'session/update' && ['user_message_chunk', 'agent_message_chunk', 'agent_thought_chunk', 'tool_call', 'tool_call_update', 'plan'].includes(p.update?.sessionUpdate)) return;
     if (s.provider === 'codex' && m.id === undefined && this.autoCompaction?.handle(method, p)) return;
     if (method === 'workbench/approvalPendingElsewhere') { s.desktopWaitingApproval = true; this.timing.wait('approval', true); this.hooks.changed(); return; }
     if (method === 'workbench/approvalResolved') { s.desktopWaitingApproval = !!p.stillPending; this.timing.wait('approval', !!p.stillPending || !!s.approvals.length); this.hooks.changed(); return; }
@@ -838,7 +871,10 @@ export class AgentRuntime {
         this.answeringPlans.add(id);
         return this.rpc.request('session/set_mode', { sessionId: this.session.nativeId, modeId: 'agent' }).then(() => {
           if (this.closing || this.requests.get(id) !== req) throw new Error('此计划已失效');
-          this.session.mode = 'default'; complete({ outcome: { outcome: 'accepted' } });
+          // Accepting this plan changes the executing ACP mode, but must not
+          // overwrite a different mode the user already selected for next turn.
+          if (!this.session.mode || this.session.mode === 'plan') this.session.mode = 'default';
+          complete({ outcome: { outcome: 'accepted' } });
         }).finally(() => { this.answeringPlans.delete(id); });
       }
       const reason = typeof answers.reason === 'string' ? answers.reason.trim().slice(0, 100000) : '';
@@ -878,6 +914,7 @@ export class AgentRuntime {
     if (this.closing) return;
     this.timing.finish('interrupted');
     this.closing = true;
+    this.discardEmptyCursorSession();
     const compactTurnId = this.autoCompaction?.activeTurnId;
     this.autoCompaction?.close();
     await Promise.all([...this.sideConnections.values()].map(connection => connection.close()));

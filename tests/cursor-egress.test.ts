@@ -12,12 +12,17 @@ import { EgressClientProxy, EgressRelay } from '../src/core/egress';
 import { cursorNetworkEnvironment, cursorNetworkPreload } from '../src/core/cursor-network';
 import { inspectAuth } from '../src/core/provider-auth';
 import { inspectCatalog } from '../src/core/provider-catalog';
+import { JsonRpc } from '../src/core/rpc';
+import { AgentRuntime } from '../src/core/agents';
+import { cursorClientCapabilities } from '../src/core/cursor-models';
+import type { AgentSession } from '../src/shared/types';
 import { testTlsIdentity } from './fixtures/tls-identity';
 import type { AdminEgressConfig } from '../src/shared/egress';
 
 const listen = async (s: net.Server) => { await new Promise<void>(r => s.listen(0, '127.0.0.1', r)); return (s.address() as net.AddressInfo).port; };
 const close = (s: net.Server) => new Promise<void>(r => s.close(() => r()));
-const bytes = (field: number, value: string | Buffer) => { const data = Buffer.from(value); assert(data.length < 128); return Buffer.concat([Buffer.from([field * 8 + 2, data.length]), data]); };
+const varint = (value: number) => { const out: number[] = []; do { out.push((value & 127) | (value > 127 ? 128 : 0)); value >>>= 7; } while (value); return Buffer.from(out); };
+const bytes = (field: number, value: string | Buffer) => { const data = Buffer.from(value); return Buffer.concat([varint(field * 8 + 2), varint(data.length), data]); };
 type FixtureResponse = { writeHead(status: number, headers: Record<string, string | number>): unknown; write(chunk: string): unknown; end(chunk: string | Buffer): unknown; destroyed: boolean };
 
 async function fixture(options: { http1Only?: boolean; streamGate?: Promise<void> } = {}) {
@@ -36,10 +41,24 @@ async function fixture(options: { http1Only?: boolean; streamGate?: Promise<void
       res.writeHead(200, { 'content-type': 'application/x-ndjson' }); res.write('{"text":"hello"}\n');
       void (options.streamGate || new Promise(r => setTimeout(r, 15))).then(() => { if (!res.destroyed) res.end('{"text":" world"}\n'); }); return;
     }
+    // Consume chunked unary requests before completing the response. Replying
+    // while the CLI is still uploading can close a connection mid-write.
+    req.once('end', () => {
     const email = bytes(3, 'relay-test@example.invalid');
     res.writeHead(200, { 'content-type': 'application/proto' });
     const model = bytes(1, Buffer.concat([bytes(1, 'relay-test-model'), bytes(4, 'Relay Test Model')]));
-    res.end(req.url?.endsWith('/GetMe') ? email : /\/(GetUsableModels|GetDefaultModelForCli)$/.test(req.url || '') ? model : Buffer.alloc(0));
+    const grok = bytes(1, Buffer.concat([bytes(1, 'grok-4.7'), bytes(4, 'Grok 4.7')]));
+    // Faithful AvailableModels protobuf: ACP variant ids differ from the
+    // legacy slug printed by `models`. These are synthetic catalog entries.
+    const acp = (id: string, name: string, variant: string) => bytes(2, Buffer.concat([
+      bytes(1, id), Buffer.from([16, 1, 40, 1]), bytes(17, name), bytes(36, id),
+      bytes(30, Buffer.concat([bytes(2, name), bytes(9, variant), bytes(11, id)])),
+    ]));
+    res.end(req.url?.endsWith('/GetMe') ? email
+      : req.url?.endsWith('/AvailableModels') ? Buffer.concat([Buffer.from([88, 1]), acp('relay-test-model', 'Relay Test Model', 'relay-test-model'), acp('grok-4.7', 'Grok 4.7', 'grok-4.7[fast=false]')])
+        : req.url?.endsWith('/GetUsableModels') ? Buffer.concat([model, grok])
+          : req.url?.endsWith('/GetDefaultModelForCli') ? model : Buffer.alloc(0));
+    });
   };
   const target = options.http1Only ? https.createServer({ ...identity, ALPNProtocols: ['http/1.1'] }, handle)
     : http2.createSecureServer({ ...identity, allowHTTP1: true }, handle);
@@ -204,11 +223,44 @@ test('real installed Cursor account and model queries use HTTP/1.1 through manag
     assert.equal(fixed.status, 'authenticated'); assert.equal(fixed.identity, 'relay-test@example.invalid'); assert.equal(fixed.connectionIssue, undefined);
     assert(f.requests.some(x => x.path.endsWith('/GetMe')));
     const catalog = await inspectCatalog('cursor', executable, root, undefined, 15000, env);
-    assert.equal(catalog.modelError, undefined, JSON.stringify(f.requests));
+    assert.equal(catalog.modelError, undefined);
     assert(catalog.models.some(m => m.id === 'relay-test-model'));
+    assert(catalog.models.some(m => m.id === 'grok-4.7'));
     const accountRequests = f.requests.filter(x => x.path.endsWith('/GetMe'));
     const modelRequests = f.requests.filter(x => x.path.endsWith('/GetUsableModels'));
     assert(accountRequests.length > 0 && modelRequests.length > 0);
     assert([...accountRequests, ...modelRequests].every(x => x.httpVersion === '1.1'), 'assert the upstream application protocol, not just the CONNECT handshake');
+    // Exercise the installed ACP implementation too, not only our protocol fake.
+    // No prompt is sent and no real provider account/credits are used.
+    let nativeId = '';
+    for (let pass = 0; pass < 2; pass++) {
+      const rpc = new JsonRpc(executable, ['acp'], root, true, cursorNetworkEnvironment(env));
+      try {
+        await rpc.request('initialize', { protocolVersion: 1, clientCapabilities: pass ? cursorClientCapabilities('grok-4.7') : {}, clientInfo: { name: 'workbench-regression', version: '1' } }, 10000);
+        await rpc.request('authenticate', { methodId: 'cursor_login' }, 10000);
+        if (pass) await assert.rejects(rpc.request('session/load', { sessionId: nativeId, cwd: root, mcpServers: [] }, 10000), (error: any) => error.code === -32602 && /not found/.test(error.data?.message || ''));
+        const result = await rpc.request('session/new', { cwd: root, mcpServers: [] }, 10000);
+        nativeId = result.sessionId;
+        assert(nativeId); assert(result.modes.availableModes.some((m: any) => m.id === 'plan'));
+        if (!pass) {
+          await assert.rejects(rpc.request('session/set_model', { sessionId: nativeId, modelId: 'grok-4.7' }, 5000), (error: any) => error.code === -32602 && error.data?.message === 'Invalid model value: grok-4.7');
+          await rpc.request('session/set_model', { sessionId: nativeId, modelId: 'grok-4.7[fast=false]' }, 5000);
+        } else {
+          assert(result.models.availableModels.some((m: any) => m.modelId === 'grok-4.7'));
+          await rpc.request('session/set_model', { sessionId: nativeId, modelId: 'grok-4.7' }, 5000);
+          await rpc.request('session/set_model', { sessionId: nativeId, modelId: 'relay-test-model' }, 5000);
+        }
+        for (const modeId of ['plan', 'ask', 'agent']) await rpc.request('session/set_mode', { sessionId: nativeId, modeId }, 5000);
+      } finally { await rpc.close(); }
+    }
+    const session = { id: 'cursor-native-fixture', title: 'Fixture', provider: 'cursor', purpose: 'work', cwd: root, status: 'idle', mode: 'plan', model: 'grok-4.7', messages: [], approvals: [], sources: [] } as unknown as AgentSession;
+    session.nativeId = nativeId; // Empty id left behind by an older Workbench.
+    const hooks = { changed() {}, event() {}, done() {} };
+    for (let pass = 0; pass < 2; pass++) {
+      const runtime = new AgentRuntime(session, executable, hooks, undefined, env);
+      try { await runtime.ensureStarted(); assert(session.nativeId); assert.equal(session.status, 'idle'); }
+      finally { await runtime.close(); }
+      assert.equal(session.nativeId, undefined, 'metadata-only id must not survive ACP exit and break the first actual prompt');
+    }
   } finally { await f.close(); assert(path.basename(root).startsWith('cursor-relay-native-')); await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });

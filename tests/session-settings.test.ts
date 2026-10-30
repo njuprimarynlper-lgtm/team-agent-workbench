@@ -17,6 +17,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': switch m
   const calls = async () => (await fs.readFile(path.join(root, 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = fixture.launcher;
+    wb.store.settings.codexRequestGuard = false; // Isolated RPC fixture; guard transport has separate coverage.
     const session = await wb.createSession(provider, root, offlineProjectId, 'work', undefined, 'first-model', 'inherit');
     await wb.send(session.id, 'Remember the project plan'); await until(() => session.status === 'idle' && session.messages.filter(m => m.role === 'assistant').length === 1);
     const native = session.nativeId, history = structuredClone(session.messages), input = { text: '未发送的草稿', sourceIds: [], answers: {} };

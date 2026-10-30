@@ -39,7 +39,7 @@ test('an existing session can switch to the management route and asks for an acc
   assert.match(page, /通过管理端访问模型服务/);
   assert.match(page, /从下一轮开始使用所选出口/);
   assert.match(page, /aria-label="管理端网络出口接入码"/);
-  assert.match(page, /应用并重新检测/);
+  assert.match(page, /应用连接方式/);
   assert.match(page, /缺少管理端接入码/);
 });
 

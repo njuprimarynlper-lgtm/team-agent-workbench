@@ -18,6 +18,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': native p
   const calls = async () => (await fs.readFile(path.join(root, 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = fixture.launcher;
+    wb.store.settings.codexRequestGuard = false; // Isolated RPC fixture, not an OS/network guard test.
     const session = await wb.createSession(provider, root, offlineProjectId, 'work', undefined, 'selected-model', 'full');
     const first = wb.send(session.id, 'Existing work'); await until(() => session.status === 'running');
     const native = session.nativeId;
@@ -64,6 +65,7 @@ test('unsupported Plan mode is reported without changing conversation state', as
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    wb.store.settings.codexRequestGuard = false;
     const session = await wb.createSession('codex', root, offlineProjectId);
     await assert.rejects(wb.changeMode(session.id, 'plan'), /更新 CLI/); assert.equal(session.mode, undefined); assert.equal(session.messages.length, 0);
     await assert.rejects(wb.changeMode(session.id, 'ask'), /更新 CLI|不支持/);

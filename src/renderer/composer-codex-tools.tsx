@@ -26,7 +26,15 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
     catch { if (n === sequence.current) setError(`${kind === 'skill' ? 'Skill' : '插件'}列表读取失败，可刷新重试。`); }
     finally { if (n === sequence.current) setLoading(false); }
   };
-  useEffect(() => { if (menu) void refresh(menu === 'command' ? 'skill' : menu); return () => { sequence.current++; }; }, [menu, session.id]);
+  // Cursor discovers Skills by starting an ACP session. Built-in commands and
+  // the plus menu must stay local, including while typing /p -> /plan.
+  const localCommand = session.provider === 'cursor' && menu === 'command' && (!trigger?.query || ['skills', 'mcp', 'plan', 'agent', 'ask'].some(name => name.startsWith(trigger.query)));
+  const catalogKind = !menu || localCommand ? undefined : menu === 'command' ? 'skill' : menu;
+  useEffect(() => {
+    setError('');
+    if (catalogKind) void refresh(catalogKind); else setLoading(false);
+    return () => { sequence.current++; };
+  }, [catalogKind, session.id]);
   useEffect(() => { setActive(0); }, [query, menu]);
   const syncTrigger = () => {
     const textarea = input(); if (!textarea || document.activeElement !== textarea || dismissed.current === textarea.value) return;

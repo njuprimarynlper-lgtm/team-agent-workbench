@@ -17,6 +17,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': preparat
   let legacyRuntime: AgentRuntime | undefined;
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = fixture.launcher;
+    wb.store.settings.codexRequestGuard = false; // This test isolates helper permissions from OS/network guard discovery.
     const parent = await wb.createSession(provider, root, offlineProjectId, 'work', undefined, 'chosen-model', 'review');
     await wb.saveHandoff(parent.id, '# 工作记录\n已确认的成果与依据。');
     const handoff = await wb.readHandoff(parent.id);

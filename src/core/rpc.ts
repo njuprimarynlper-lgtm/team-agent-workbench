@@ -51,7 +51,7 @@ export function spawnCLI(executable: string, args: string[], cwd: string, env: N
 }
 export class JsonRpc extends EventEmitter {
   private seq = 0;
-  private pending = new Map<number, { resolve: (x: any) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
+  private pending = new Map<number, { method: string; resolve: (x: any) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
   readonly process: ChildProcessWithoutNullStreams;
   private closed = false;
   constructor(executable: string, args: string[], cwd: string, private envelope = true, env: NodeJS.ProcessEnv = {}) {
@@ -65,7 +65,7 @@ export class JsonRpc extends EventEmitter {
       else if (typeof message.id === 'number') {
         const call = this.pending.get(message.id); if (!call) return;
         this.pending.delete(message.id); clearTimeout(call.timer);
-        message.error ? call.reject(Object.assign(new Error(message.error.message), { code: message.error.code, data: message.error.data })) : call.resolve(message.result);
+        message.error ? call.reject(Object.assign(new Error(message.error.message), { code: message.error.code, data: message.error.data, method: call.method })) : call.resolve(message.result);
       }
     });
     this.process.stderr.on('data', data => this.emit('diagnostic', data.toString()));
@@ -79,7 +79,7 @@ export class JsonRpc extends EventEmitter {
     return new Promise((resolve, reject) => {
       const id = ++this.seq;
       const timer = timeout ? setTimeout(() => { this.pending.delete(id); reject(new Error(method + ' 超时')); }, timeout) : undefined;
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { method, resolve, reject, timer });
       try { this.write({ id, method, params }); onWritten?.(); } catch (e) { this.pending.delete(id); clearTimeout(timer); reject(e); }
     });
   }

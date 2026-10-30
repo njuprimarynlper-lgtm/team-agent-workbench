@@ -52,7 +52,7 @@ import { CodexRemoteService, type CodexRemoteIntegration, type RemoteImportSourc
 import { nativeSelectionKey, type NativeSessionSelection } from '../shared/native-sessions';
 import type { McpMutation } from '../shared/mcp';
 import { CursorMcp } from './cursor-mcp';
-import type { SessionMode } from '../shared/session-mode';
+import { modeOption, type SessionMode } from '../shared/session-mode';
 import { codexHome, listNativeSessions as listProviderSessions, nativeRecordAllowed, resolveNativeSession } from './native-sessions';
 import { applyNativeTranscript, nativeTranscriptChanged, readCodexTranscript, readCursorTranscript, sameNativePath } from './native-transcript';
 import { migrateSessionContext, sessionContext } from './session-context';
@@ -1049,11 +1049,12 @@ export class Workbench {
     const remoteRpc = s.codexRemote ? await this.codexRemote.rpc(s.codexRemote.hostId) : undefined;
     if (this.closing || s.closedAt || epoch !== this.accountRevision) { await remoteRpc?.close(); throw new Error('会话或账号已改变，未启动 CLI'); }
     if (s.codexPrivateFork) await this.store.save();
-    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, s.networkRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    const runtimeRoute = s.networkRoute;
+    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => {
       if (!this.configuring && this.ownsLocal(s.binding)) {
-        this.connectionReport?.(s, value);
-        if (value.state === 'connected') this.activity.providerRecovered(s.provider, s.networkRoute, s.cwd);
+        this.connectionReport?.({ ...s, networkRoute: runtimeRoute }, value);
+        if (value.state === 'connected') this.activity.providerRecovered(s.provider, runtimeRoute, s.cwd);
       }
     } });
     if (s.fork?.nativeFork && storage && !s.codexRemote) {
@@ -1468,17 +1469,21 @@ export class Workbench {
     const s = this.session(id); this.assertCanWork(s.binding);
     if (s.cursorNative) throw new Error('请在 Cursor 原生窗口选择模式');
     if (s.closedAt || s.purpose !== 'work' || s.provider === 'claude') throw new Error('此会话不支持模式切换');
+    // Cursor's ACP modes are fixed. Choosing a mode must not initialize a native
+    // conversation; installed CLI support is validated before the next prompt.
+    if (s.provider === 'cursor') return { current: s.mode || 'default', modes: (['default', 'plan', 'ask'] as const).map(modeOption) };
     if(!s.codexDesktop && !s.codexRemote)await this.requireAuth(s.provider, s.cwd, s.networkRoute);
     return (await this.runtime(s) as AgentRuntime).modes();
   }
   async changeMode(id: string, mode: SessionMode) {
     const s = this.session(id); this.assertCanWork(s.binding);
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后重试');
-    if (s.status === 'starting' && this.sending.has(id)) throw new Error('消息正在提交，请完成后再切换模式');
+    if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     if (!['default', 'plan', 'ask'].includes(mode)) throw new Error('无效会话模式');
     const catalog = await this.modes(id);
-    if (s.status === 'starting' && this.sending.has(id)) throw new Error('消息正在提交，请完成后再切换模式');
+    if (this.session(id).status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     if (!catalog.modes.some(value => value.id === mode)) throw new Error(catalog.error || '当前 CLI 不支持此模式');
+    if (s.provider === 'cursor' && (s.mode || 'default') === mode) return s;
     return this.updateSessionSettings(s, () => { s.mode = mode; });
   }
   async executePlan(id: string, messageId: string) {

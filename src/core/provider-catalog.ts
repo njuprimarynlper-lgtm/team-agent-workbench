@@ -2,6 +2,7 @@ import type { ModelOption, Provider, ProviderCatalog, QuotaWindow } from '../sha
 import { JsonRpc, spawnCLI, stopCLI } from './rpc';
 import { codexDefaultModel } from '../shared/model-selection';
 import { cursorNetworkEnvironment } from './cursor-network';
+import { cursorAcpModels, cursorClientCapabilities } from './cursor-models';
 
 // Return only display fields. CLI diagnostics and authentication data never reach the renderer.
 const reasoningEffortId = /^[A-Za-z0-9_-]{1,32}$/;
@@ -52,6 +53,21 @@ export function codexQuota(result: any): QuotaWindow[] {
   return windows;
 }
 export const quotaUrl = (provider: Provider) => provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : provider === 'claude' ? 'https://claude.ai/settings/usage' : 'https://cursor.com/dashboard/spending';
+async function inspectCursorAcpModels(executable: string, cwd: string, signal: AbortSignal | undefined, timeout: number, env: NodeJS.ProcessEnv): Promise<ModelOption[] | undefined> {
+  const rpc = new JsonRpc(executable, ['acp'], cwd, true, cursorNetworkEnvironment(env));
+  const abort = () => { void rpc.close(); }, timer = setTimeout(abort, timeout);
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    if (signal?.aborted) throw new Error('查询已取消');
+    await rpc.request('initialize', { protocolVersion: 1, clientCapabilities: cursorClientCapabilities(), clientInfo: { name: 'team-agent-workbench-catalog', version: '1' } }, timeout);
+    // Reads the saved login. Do not call authenticate here: merely opening a
+    // model picker must not launch a browser login or create an empty session.
+    return cursorAcpModels(await rpc.request('cursor/list_available_models', {}, timeout));
+  } catch (error: any) {
+    if (!signal?.aborted && error.code === -32601) return undefined; // Older CLI, legacy slugs.
+    throw error;
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); await rpc.close(); }
+}
 export async function inspectCatalog(provider: Provider, executable: string, cwd: string, signal?: AbortSignal, timeout = 20000, env: NodeJS.ProcessEnv = {}): Promise<ProviderCatalog> {
   const result: ProviderCatalog = { models: [], quota: { windows: [], detail: provider === 'cursor' ? '当前 Cursor CLI 未提供个人套餐额度查询。请打开官方额度页查看各用量池的余额和重置日期。' : provider === 'claude' ? 'Claude Code CLI 未提供可靠的套餐额度接口，请在官方额度页查看。' : '额度暂不可用；这不代表额度为零。可重试或打开官方额度页。', url: quotaUrl(provider) }, checkedAt: new Date().toISOString() };
   if (signal?.aborted) throw new Error('查询已取消');
@@ -61,13 +77,21 @@ export async function inspectCatalog(provider: Provider, executable: string, cwd
   }
   if (provider === 'cursor') {
     try {
+      const startedAt = Date.now();
+      const acpModels = await inspectCursorAcpModels(executable, cwd, signal, timeout, env);
+      if (acpModels !== undefined) {
+        result.models = acpModels;
+        if (!acpModels.length) result.modelError = 'Cursor 未返回当前会话可用的模型，请重试模型列表或沿用 CLI 默认模型。';
+        return result;
+      }
+      if (signal?.aborted || Date.now() - startedAt >= timeout) throw new Error('模型查询已结束');
       const output = await new Promise<string>((resolve, reject) => {
         const child = spawnCLI(executable, ['models'], cwd, cursorNetworkEnvironment(env)); let output = '', settled = false;
         const finish = (ok: boolean) => {
           if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort);
           void stopCLI(child).then(() => ok ? resolve(output) : reject(new Error('模型查询失败')));
         };
-        const abort = () => finish(false), timer = setTimeout(abort, timeout);
+        const abort = () => finish(false), timer = setTimeout(abort, Math.max(1, timeout - (Date.now() - startedAt)));
         signal?.addEventListener('abort', abort, { once: true });
         child.stdout.on('data', data => { output += data.toString(); if (output.length > 1024 * 1024) finish(false); });
         child.stderr.resume(); child.on('error', abort); child.on('close', code => finish(code === 0));

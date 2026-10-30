@@ -79,6 +79,12 @@ else if (command === 'login' && process.argv[3] === 'status') {
       : preparation ? current.preparationRaw ?? strictResult(current.preparationResult || { title: '模型验证结果', body: '已根据阶段摘要整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' })
         : provider === 'codex' ? '# 模型验证结果\n已根据阶段摘要整理。测试已通过。' : '# Cursor 验证结果\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m.method === 'account/login/start' ? { ...m, params: { type: m.params.type } } : m) + '\n');
+    if (current.rpcErrors?.[m.method]) { respond({ id: m.id, error: { code: current.rpcErrorCodes?.[m.method] ?? -32000, message: current.rpcErrors[m.method], data: current.rpcErrorData?.[m.method] } }); return; }
+    if (m.method === 'cursor/list_available_models') {
+      if (current.catalog === 'hang') return;
+      if (current.catalog === 'error' || current.status !== 'ready') return respond({ id: m.id, error: { code: -32000, message: 'Model catalog unavailable' } });
+      respond({ id: m.id, result: current.cursorModelsResult ?? { models: [{ value: 'cursor-fixture', name: 'Cursor Fixture' }, { value: 'other-fixture', name: 'Other Fixture' }] } }); return;
+    }
     if (m.method === 'initialize' && process.argv.includes('acp') && !current.noCursorGuard) respond({ method: '_workbench/cursorGuardReady', params: { version: 1, budget: 1_000_000 } });
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model') respond({ id: m.id, result: {} });
     else if (m.method === 'session/set_mode') { cursorMode = m.params.modeId; respond({ id: m.id, result: {} }); }
@@ -138,7 +144,13 @@ else if (command === 'login' && process.argv[3] === 'status') {
       else if (current.rejectPermissionMode) send({ id: m.id, error: { code: -32000, message: 'sandbox mode not allowed by administrator policy' } });
       else send({ id: m.id, result: { thread: { id: threadId }, ...(current.confirmCwd ? { cwd: m.params.cwd } : {}), ...(current.runtimeModel ? { model: current.runtimeModel } : {}), ...(current.permissionRuntime ? { sandbox: { type: ({ 'read-only': 'readOnly', 'workspace-write': 'workspaceWrite', 'danger-full-access': 'dangerFullAccess' })[m.params.sandbox || current.permissionConfig?.sandbox || 'workspace-write'], networkAccess: false }, approvalPolicy: m.params.approvalPolicy || current.permissionConfig?.approval || 'on-request', approvalsReviewer: m.params.approvalsReviewer || current.permissionConfig?.reviewer || 'user', ...current.permissionRuntimeOverride } : {}) } });
     }
-    else if (m.method === 'session/new' || m.method === 'session/load') { cursorSessionId = m.params.sessionId || cursorSessionId; send({ id: m.id, result: { sessionId: cursorSessionId, modes: { currentModeId: cursorMode, availableModes: (current.noPlan ? ['agent'] : ['agent', 'plan', 'ask']).map(id => ({ id, name: id })) } } }); send({ method: 'session/update', params: { sessionId: cursorSessionId, update: { sessionUpdate: 'available_commands_update', availableCommands: current.cursorCommands ?? [{ name: 'copy-request-id', description: 'internal' }, { name: 'cursor-fixture-skill', description: 'Cursor fixture skill' }] } } }); }
+    else if (m.method === 'session/new' || m.method === 'session/load') {
+      cursorSessionId = current.returnedCursorSessionId ?? m.params.sessionId ?? cursorSessionId;
+      // ACP replays saved history before session/load returns, unlike Codex resume.
+      if (m.method === 'session/load') for (const update of current.cursorReplay || []) send({ method: 'session/update', params: { sessionId: cursorSessionId, update } });
+      respond({ id: m.id, result: { ...(current.omitCursorSessionId ? {} : { sessionId: cursorSessionId }), modes: { currentModeId: cursorMode, availableModes: (current.noPlan ? ['agent'] : ['agent', 'plan', 'ask']).map(id => ({ id, name: id })) } } });
+      send({ method: 'session/update', params: { sessionId: cursorSessionId, update: { sessionUpdate: 'available_commands_update', availableCommands: current.cursorCommands ?? [{ name: 'copy-request-id', description: 'internal' }, { name: 'cursor-fixture-skill', description: 'Cursor fixture skill' }] } } });
+    }
     else if (m.method === 'turn/start') {
       log('turn/start');
       if (current.modelErrorOnTurn) { send({ id: m.id, error: { code: -32000, message: current.modelErrorOnTurn } }); return; }
@@ -191,7 +203,7 @@ else if (command === 'login' && process.argv[3] === 'status') {
           send({ method: 'session/update', params: { sessionId: cursorSessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer('cursor') } } } });
           send({ id: m.id, result: { stopReason: 'end_turn' } });
         }; if (current.turnDelay) setTimeout(done, current.turnDelay); else done();
-      } else send({ id: m.id, error: { code: -32000, message: current.turn === 'network' ? 'Network timeout: connection reset' : 'Unauthenticated: Please log in again' } });
+      } else respond({ id: m.id, error: { code: -32000, message: current.turn === 'network' ? 'Network timeout: connection reset' : 'Unauthenticated: Please log in again' } });
     }
     else if (m.id === 'plan-question' && m.result) { log({ planResult: m.result }); send({ id: globalThis.planPromptId, result: { stopReason: 'end_turn' } }); }
     else if (m.id === 'user-question' && m.result) { log({ questionResult: m.result }); if (globalThis.questionPromptId) send({ id: globalThis.questionPromptId, result: { stopReason: 'end_turn' } }); else send({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'completed' } } }); }

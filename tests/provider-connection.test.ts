@@ -1,10 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkProviderConnection } from '../src/renderer/provider-connection-check';
+import { applySessionConnection, checkProviderConnection } from '../src/renderer/provider-connection-check';
 import type { ProviderAuth, ProviderCatalog } from '../src/shared/types';
 
 const auth: ProviderAuth = { status: 'authenticated', detail: '已登录', cwd: 'D:/work', checkedAt: '2026-09-23' };
 const catalog: ProviderCatalog = { models: [{ id: 'default', name: '默认模型', isDefault: true }], quota: { windows: [], detail: '未返回额度', url: '' }, checkedAt: '2026-09-23' };
+
+test('existing Cursor session can replace a failing route without waiting for login, models or quotas', async () => {
+  const calls: { action: string; payload: unknown }[] = [];
+  const call = async <T,>(action: string, payload?: unknown): Promise<T> => {
+    calls.push({ action, payload });
+    if (!['session.network', 'egress.configure'].includes(action)) throw Error('Online discovery is unavailable');
+    return true as T;
+  };
+  await applySessionConnection(call, 'cursor-session', 'direct');
+  await applySessionConnection(call, 'cursor-session', 'management', { enabled: true, inviteCode: 'fixture' });
+  assert.deepEqual(calls.map(c => c.action), ['session.network', 'egress.configure', 'session.network']);
+  assert.deepEqual(calls[0].payload, { id: 'cursor-session', networkRoute: 'direct' });
+  assert.deepEqual(calls[2].payload, { id: 'cursor-session', networkRoute: 'management' });
+});
+
+test('a rejected management configuration or stale panel never applies the session route', async () => {
+  const calls: string[] = [];
+  await assert.rejects(applySessionConnection(async <T,>(action: string): Promise<T> => { calls.push(action); throw Error('invalid access code'); }, 's', 'management', { enabled: true }), /invalid access code/);
+  assert.deepEqual(calls, ['egress.configure']);
+  await assert.rejects(applySessionConnection(async <T,>(action: string): Promise<T> => { calls.push(action); return true as T; }, 's', 'direct', undefined, () => false), /范围已改变/);
+  assert.deepEqual(calls, ['egress.configure']);
+});
 
 test('saved login with a known connection failure does not trigger another slow model probe', async () => {
   const calls: string[] = [], saved: ProviderAuth = { ...auth, verifiedLocally: true, connectionIssue: 'Codex 工作区路由发现超时' };
