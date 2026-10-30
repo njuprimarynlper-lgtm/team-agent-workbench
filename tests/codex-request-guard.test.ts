@@ -103,6 +103,20 @@ test('unrepairable exact-limit and over-limit latest inputs never reach the upst
   assert.equal(received.length, 0); assert.equal(guard.stats.rejected, 2);
 }));
 
+test('compact keeps a small request byte-identical and never uploads an oversized protected latest turn', () => fixture(async ({ url, received, guard }) => {
+  const compact = url + '/compact', observed: string[] = [];
+  const detach = guard.observeRequests(request => observed.push(request.threadId));
+  try {
+    const raw = json({ model: 'test', instructions: 'COMPACT_INSTRUCTIONS', input: [msg('user', text('latest'))] });
+    assert.equal((await request(compact, raw)).status, 200);
+    assert.deepEqual(received[0].bytes, raw);
+    const invalid = { model: 'test', input: [msg('user', text('old')), msg('assistant', text('done')), msg('user', text('x'.repeat(1_000_000)))] };
+    assert.equal((await request(compact, json(invalid))).status, 400);
+    assert.equal(received.length, 1); assert.equal(guard.stats.summaries, 0);
+    assert.deepEqual(observed, [], 'compact must never schedule itself recursively');
+  } finally { detach(); }
+}));
+
 for (const compression of [false, true]) test(`existing history above 1 MB automatically resumes after bounded summaries (compression=${compression})`, () => fixture(async ({ url, received, guard }) => {
   const original = history();
   original.input = [original.input[0], ...Array.from({ length: 8 }, (_, i) => msg(i % 2 ? 'assistant' : 'user', [{ type: i % 2 ? 'output_text' : 'input_text', text: randomBytes(150000).toString('base64') }])), original.input.at(-1)!];

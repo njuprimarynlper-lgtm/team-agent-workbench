@@ -17,6 +17,7 @@ type Encoded = { bytes: Buffer; encoding?: string };
 type CacheEntry = { scope: string; key: string; prefixHash: string; end: number; summary: string; bytes: number; used: number };
 export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; }
 export interface GuardStats { forwarded: number; summaries: number; summaryInputTokens: number; summaryOutputTokens: number; cacheHits: number; rejected: number; maxUploadBytes: number; }
+export interface GuardRequestSize { threadId: string; inputBytes: number; budget: number; }
 
 async function readBody(source: AsyncIterable<Uint8Array>, limit: number) {
   const chunks: Buffer[] = []; let bytes = 0;
@@ -82,6 +83,7 @@ export class CodexRequestGuard {
   private sockets = new Set<import('node:net').Socket>();
   private cache: CacheEntry[] = [];
   private queues = new Map<string, Promise<unknown>>();
+  private requestObservers = new Set<(request: GuardRequestSize) => void>();
   private readonly secret = randomBytes(24).toString('hex');
   private closed = false;
   private closeJob?: Promise<void>;
@@ -109,8 +111,12 @@ export class CodexRequestGuard {
     if (this.closeJob) return this.closeJob;
     this.closed = true; for (const controller of this.controllers) controller.abort();
     for (const socket of this.sockets) socket.destroy();
-    this.cache = [];
+    this.cache = []; this.requestObservers.clear();
     return this.closeJob = new Promise<void>(resolve => this.server.close(() => resolve()));
+  }
+  observeRequests(listener: (request: GuardRequestSize) => void) {
+    this.requestObservers.add(listener);
+    return () => { this.requestObservers.delete(listener); };
   }
   async probe() {
     if (this.closed) throw new Error('连接检测已关闭');
@@ -185,7 +191,7 @@ export class CodexRequestGuard {
     let body: ResponseBody, raw: Buffer;
     try { raw = await decoded(bodyBytes, encoding); body = JSON.parse(raw.toString('utf8')); } catch { throw new Error('超限正文不是可安全处理的 JSON，原推理请求未上传'); }
     const keyBase = { scope, config: { ...body, input: undefined }, target: target.href };
-    let summariesLeft = maxSummaries, diagnostics = '';
+    let summariesLeft = maxSummaries, diagnostics = '', fallback: Encoded | undefined;
     this.prune();
     // Broaden only after the safer level cannot fit. Historical image bytes are
     // never sent to the summarizer; only verified text parts from their results are.
@@ -213,6 +219,10 @@ export class CodexRequestGuard {
       const fixedDetails = `基础字段约 ${baseBytes} 字节、保留旧媒体约 ${oldProtected.media} 字节、保留旧推理约 ${oldProtected.reasoning} 字节、其他旧项约 ${oldProtected.other} 字节`;
       diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、${fixedDetails}、占位预检${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
       if (!probeReady) continue;
+      // Prefer room for subsequent messages, but never discard a valid repair
+      // merely because fixed instructions or the active turn use that room.
+      const headroom = Math.floor(this.budget * 0.8);
+      const repairBudget = await encodeGuardBody(probe, undefined, this.options.compression, headroom) ? headroom : this.budget;
       const key = guardHash({ ...keyBase, level });
       const prior = cacheable ? this.cache.filter(entry => entry.key === key && history.cuts.includes(entry.end) && entry.prefixHash === guardHash(history.items.slice(0, entry.end))).sort((a, b) => b.end - a.end)[0] : undefined;
       let end = prior?.end || 0, summary = prior?.summary || '';
@@ -222,8 +232,9 @@ export class CodexRequestGuard {
         if (summary) for (const keepRecent of [true, false]) {
           if (!history.items.slice(0, end).some((_item, index) => !history.protectedIndices.has(index) && !history.omittedIndices.has(index) && (!keepRecent || !history.recentUsers.includes(index)))) continue;
           const final = Buffer.from(JSON.stringify(replaceGuardHistory(body, history, end, summary, keepRecent)));
-          const ready = await encodeGuardBody(final, undefined, this.options.compression, this.budget);
+          const ready = await encodeGuardBody(final, undefined, this.options.compression, repairBudget);
           if (ready) return ready;
+          fallback = await encodeGuardBody(final, undefined, this.options.compression, this.budget) || fallback;
         }
         // Reserve half the summary budget when a broader level can retain less.
         if (!summariesLeft || level !== 'completed_media' && hasThirdLevel && summariesLeft <= maxSummaries / 2
@@ -258,7 +269,14 @@ export class CodexRequestGuard {
         }
         if (!selected) break;
         summariesLeft--;
-        summary = await this.summarize(target, headers, selected.encoded, signal); end = selected.end;
+        try { summary = await this.summarize(target, headers, selected.encoded, signal); }
+        catch (error) {
+          // Extra headroom is optional. A later helper failure must not discard
+          // an already validated, under-limit request from the same safe level.
+          if (fallback && !signal.aborted && !this.closed) return fallback;
+          throw error;
+        }
+        end = selected.end;
         if (cacheable) this.store({ scope, key, prefixHash: guardHash(history.items.slice(0, end)), end, summary, bytes: Buffer.byteLength(summary) + 256, used: Date.now() });
       }
       if (summary) {
@@ -266,6 +284,7 @@ export class CodexRequestGuard {
         const wireBytes = this.options.compression ? (await compress(final)).length : final.length;
         diagnostics = `固定内容约 ${fixedBytes} 字节、最新轮次约 ${activeBytes} 字节、${fixedDetails}、最终候选${this.options.compression ? '压缩后' : '编码后'} ${wireBytes} 字节`;
       }
+      if (fallback) return fallback; // Do not broaden history loss merely to gain optional headroom.
     }
     throw new Error(`分层历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。`);
   }
@@ -287,11 +306,16 @@ export class CodexRequestGuard {
       const scope = guardHash([req.headers.authorization, req.headers['chatgpt-account-id'], session || 'unknown']);
       await this.serial(scope, async () => {
         const encoding = String(req.headers['content-encoding'] || '') || undefined;
-        const prepared = suffix === '/responses' ? await this.prepare(body, encoding, target, headers, controller.signal, scope, !!session)
+        // Compact is initiated by the native thread so its result is persisted by
+        // Codex. Its input needs the same size protection; helper summaries still
+        // go to /responses, never to the stateless /responses/compact endpoint.
+        const prepared = suffix.startsWith('/responses') ? await this.prepare(body, encoding, this.target('/responses', local.search), headers, controller.signal, scope, !!session)
           : await encodeGuardBody(body, encoding, this.options.compression, this.budget);
         if (!prepared) throw new Error('此类请求无法缩至 1 MB 以下且不能安全摘要，原请求未上传');
         const upstream = await this.send(target, headers, prepared, controller.signal, req.method);
         this.stats.forwarded++;
+        if (suffix === '/responses' && typeof session === 'string' && upstream.statusCode === 200)
+          for (const observe of this.requestObservers) observe({ threadId: session, inputBytes: body.length, budget: this.budget });
         const outgoing = guardHeaders(upstream.headers);
         if (upstream.headers['content-length']) outgoing['content-length'] = upstream.headers['content-length'];
         res.writeHead(upstream.statusCode || 502, outgoing);

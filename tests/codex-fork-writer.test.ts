@@ -48,7 +48,7 @@ test('a native child resumes and sends through the fork writer, without starting
   let guardClosed = false;
   let authClosed = false, refreshes = 0;
   (parentRuntime as any).guardConfig = { model_provider: 'guard-fixture' };
-  (parentRuntime as any).requestGuard = { close: async () => { guardClosed = true; } };
+  (parentRuntime as any).requestGuard = { observeRequests: () => () => {}, close: async () => { guardClosed = true; } };
   (parentRuntime as any).authBridge = { close: async () => { authClosed = true; }, refresh: async () => { refreshes++; } };
   let childRuntime: AgentRuntime | undefined;
   let grandchildRuntime: AgentRuntime | undefined;
