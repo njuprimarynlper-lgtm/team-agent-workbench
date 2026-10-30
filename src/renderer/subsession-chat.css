@@ -1,5 +1,9 @@
 .session-tree-node{min-width:0}.session-tree-children{margin-left:12px;border-left:1px solid #dce6df;padding-left:5px}.session-tree-children>.text-button{font-size:11px;padding:6px}
 .session-tree-node .session-row{min-width:0}.session-tree-node .personal-session-row>.icon{flex:none}
+.session-tree-node .personal-session-row>.session-quick-close{width:24px;height:26px;padding:0;margin-right:4px;opacity:0;color:#708078}
+.session-tree-node .personal-session-row:hover>.session-quick-close,.session-tree-node .personal-session-row:focus-within>.session-quick-close,.session-tree-node .personal-session-row:has(.session-row.selected)>.session-quick-close{opacity:1}
+.session-tree-node .personal-session-row>.session-quick-close:hover{background:#e7ede8;color:#314b3b}
+@media(hover:none){.session-tree-node .personal-session-row>.session-quick-close{opacity:1}}
 .subsession-workspace,.subsession-workspace-body{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;overflow:hidden}
 .subsession-switcher{display:flex;align-items:center;gap:2px;flex:none;min-width:0;padding:5px 10px 0;border-bottom:1px solid #e0e6e2;background:#f7faf8}
 .subsession-tabs{display:flex;gap:3px;flex:1;min-width:0;overflow-x:auto;scrollbar-width:none}.subsession-tabs::-webkit-scrollbar{display:none}

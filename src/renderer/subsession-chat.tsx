@@ -4,6 +4,7 @@ import { MarkdownEditor } from './markdown-editor';
 import { SessionDirectoryStatus } from './project-directory';
 import { DirectoryMoveNotice } from './directory-move-notice';
 import React, { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { ConversationMessage } from './conversation-message';
 import type { AgentSession, Message, SessionInput, SourceFile, WorkbenchAPI } from '../shared/types';
 import { quoteSessionText, subsessionParentId } from '../shared/subsessions';
@@ -54,6 +55,7 @@ export function SessionTree({ sessions, selectedId, childId, open, create, promo
         <button className="icon" aria-label={`展开会话菜单：${session.title}`} aria-expanded={isExpanded} onClick={() => setExpanded(value => ({ ...value, [session.id]: !isExpanded }))}>{isExpanded ? '▾' : '▸'}</button>
         <SessionName title={session.title} variant="sidebar" save={title => rename(session.id, title)}>{begin => <button className={'session-row ' + (session.closedAt ? 'is-closed ' : '') + ([selectedId, childId].includes(session.id) ? 'selected' : '')} data-session-id={session.id} title={session.title + ' · 双击修改名称'} onClick={() => open(session)} onDoubleClick={begin} onContextMenu={event => setContext({ id: session.id, anchor: contextAnchor(event), rename: begin })}><span className={'provider-icon ' + session.provider}>{session.provider === 'codex' ? 'G' : session.provider === 'cursor' ? 'C' : 'A'}</span><span><b>{session.title}</b><small>{session.closedAt ? '已关闭' : subsessionParentId(session) ? '子会话' : session.provider}</small></span><SessionStatusIndicator session={session}/></button>}</SessionName>
         {organize?.(session)}
+        {closeSession && !session.closedAt && <button type="button" className="icon session-quick-close" aria-label={`关闭会话：${session.title}`} title={['starting', 'running', 'approval'].includes(session.status) ? '停止并关闭会话' : '关闭会话，可从已关闭会话中恢复'} onClick={event => { event.stopPropagation(); closeSession(session); }}><X size={14}/></button>}
       </div>
       {isExpanded && <div className="session-tree-children">
         {!session.closedAt && session.provider === 'codex' && <button className="text-button" onClick={() => create(session)}>＋ 创建子会话</button>}
