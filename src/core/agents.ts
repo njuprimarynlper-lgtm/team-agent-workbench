@@ -28,6 +28,7 @@ import { codexModelUnavailableMessage } from '../shared/model-selection';
 import { TurnTimingTracker } from './turn-timing';
 import { createCodexRequestGuard, type CodexRequestGuard } from './codex-request-guard';
 import { CodexAutoCompaction } from './codex-auto-compaction';
+import { capacityFallbackModel, isCodexCapacityError, type CodexSubmission } from './codex-capacity';
 export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
 const now = () => new Date().toISOString();
 export const nativeRolloutForkError = 'Codex 没有继续写原来的会话文件，已停止，避免变成两份。';
@@ -82,6 +83,9 @@ export class AgentRuntime {
   private compacting = false;
   private guardConfig?: Record<string, unknown>;
   private guardEnabled: boolean;
+  private codexSubmission?: CodexSubmission;
+  private retiredCodexTurns = new Set<string>();
+  private uncertainCodexTurn?: { id?: string };
   private get sharedCodex() { return !!this.storage?.sharedEndpoint || !!this.session.codexRemote; }
   private get executionCwd() { return this.session.codexRemote?.cwd || this.session.cwd; }
   constructor(readonly session: AgentSession, executable: string, private hooks: AgentHooks, private storage?: CodexStorage, private networkEnv: NodeJS.ProcessEnv = {}, remoteRpc?: AgentRpc, borrowedConnection = false, requestGuardEnabled = false, private guardCertificateFile?: () => string) {
@@ -539,6 +543,7 @@ export class AgentRuntime {
     return resolved;
   }
   async prompt(text: string, options?: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'>; capabilities?: AgentCapabilityOption[]; submitted?: () => void; messageId?: string }) {
+    if (this.uncertainCodexTurn) throw new Error('尚未确认上一轮已结束，请停止任务或重新连接后再发送；本次输入已保留。');
     if (this.session.cursorNative) assertCursorSharedSessionAvailable();
     if (!text.trim()) throw new Error('请输入任务内容');
     if (this.session.status === 'running' || this.session.status === 'approval') throw new Error('当前会话仍在运行，可以新建独立会话继续工作');
@@ -565,7 +570,9 @@ export class AgentRuntime {
         const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
         const permissions = this.sharedCodex ? codexTurnPermissionParams(this.session) : {};
         const selectedMode = this.session.permissionMode;
-        const result = await this.rpc.request('turn/start', { threadId: this.session.nativeId, ...(this.session.directoryChange ? { cwd: this.executionCwd } : {}), ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(this.session.reasoningEffort ? { effort: this.session.reasoningEffort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, 60000, options?.submitted);
+        const submission: CodexSubmission = { params: { threadId: this.session.nativeId, ...(this.session.directoryChange ? { cwd: this.executionCwd } : {}), ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(this.session.reasoningEffort ? { effort: this.session.reasoningEffort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, messageId: promptMessage.id, userText: nativeText, used: new Set([this.session.model || this.nativeModel || '']), attempts: 0, revision: 0, progressed: false, rerouted: false, recovering: false };
+        this.codexSubmission = submission;
+        await this.submitCodexTurn(submission, options?.submitted);
         if ('sandboxPolicy' in permissions) {
           // Read back effective policy; Windows or organization policy may narrow the requested scope.
           try {
@@ -573,7 +580,6 @@ export class AgentRuntime {
             if (!this.closing && this.session.permissionMode === selectedMode) this.session.permissions = codexPermissions(actual, 'runtime');
           } catch { if (this.session.permissionMode === selectedMode) this.session.permissions = undefined; }
         }
-        if (this.turnActive) { this.turnId = result.turn.id; this.timing.begin(promptMessage.id, result.turn.id); this.hooks.changed(); }
       } else {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, () => { this.cursorProvisionalId = undefined; options?.submitted?.(); });
         this.hooks.event({ method: 'session/prompt/result', result });
@@ -582,6 +588,83 @@ export class AgentRuntime {
       if (context) { context.accepted = true; this.hooks.changed(); }
       return true;
     } catch (e: any) { if (!this.closing) { this.connection.error(e, false); this.finish(this.session.provider === 'cursor' ? cursorRequestError(e, this.session.model)?.message || e.message : e.message); } return false; }
+  }
+  private async submitCodexTurn(submission: CodexSubmission, submitted?: () => void) {
+    const revision = ++submission.revision;
+    try {
+      const result = await this.rpc.request('turn/start', submission.params, 60000, submitted);
+      if (submission.cancelled) {
+        if (result.turn?.id) await this.rpc.request('turn/interrupt', { threadId: submission.params.threadId, turnId: result.turn.id }, 5000).catch(() => {});
+        return;
+      }
+      // Events may finish the turn or start a fallback before this acknowledgement arrives.
+      if (this.codexSubmission === submission && submission.revision === revision && !submission.recovering && this.turnActive) {
+        this.turnId = result.turn.id; this.timing.begin(submission.messageId, result.turn.id); this.hooks.changed();
+      }
+    } catch (error) {
+      if (submission.cancelled || this.codexSubmission !== submission || submission.revision !== revision) return;
+      if (!this.recoverCodexCapacity(error, !!this.turnId)) throw error;
+    }
+  }
+  private retireCodexTurn(id?: string) {
+    if (!id) return;
+    this.retiredCodexTurns.add(id);
+    if (this.retiredCodexTurns.size > 100) this.retiredCodexTurns.delete(this.retiredCodexTurns.values().next().value!);
+  }
+  private recoverCodexCapacity(error: unknown, accepted: boolean): boolean {
+    const job = this.codexSubmission;
+    if (!job || !this.turnActive || !isCodexCapacityError(error) || this.closing) return false;
+    if (job.recovering) return true;
+    clearTimeout(job.errorTimer); job.pendingError = undefined;
+    const fail = (detail: string) => this.finish(`Codex 模型容量不足。${detail}已有对话和本次输入已保留。`);
+    if (job.progressed || job.rerouted || this.steering || this.session.stoppedAt || this.session.approvals.length) {
+      fail('本轮已有输出、工具操作或模型路由，未自动重放；请核对后选择模型继续。'); return true;
+    }
+    if (job.attempts >= 2) { fail('已尝试 2 个备选模型，仍不可用；请稍后重试或手动选择模型。'); return true; }
+    const failedTurn = this.turnId;
+    job.recovering = true; ++job.revision; this.retireCodexTurn(failedTurn); this.turnId = undefined;
+    this.connection.set({ state: 'reconnecting', kind: 'service', attempt: job.attempts + 1, retryLimit: 2 });
+    void (async () => {
+      let models: any[] = [], cursor: string | undefined;
+      const cursors = new Set<string>();
+      try {
+        do {
+          const page = await this.rpc.request('model/list', { limit: 100, includeHidden: false, ...(cursor ? { cursor } : {}) }, 5000);
+          if (this.codexSubmission !== job || job.cancelled || this.closing) return;
+          if (!Array.isArray(page.data)) throw Error('模型列表格式无效');
+          models.push(...page.data); cursor = page.nextCursor || undefined;
+          if (cursor && (cursors.has(cursor) || cursors.size >= 9)) throw Error('模型列表分页异常');
+          if (cursor) cursors.add(cursor);
+        } while (cursor);
+        const candidate = capacityFallbackModel(models, job.used, job.params.effort ?? this.nativeEffort);
+        if (!candidate) { fail('当前列表没有合适的备选模型，请稍后重试或手动选择模型。'); return; }
+        // Re-read native history immediately before a retry. Never steer another window's turn
+        // or replay input whose acceptance is uncertain. Accepted input stays in native history.
+        const current = await this.rpc.request('thread/read', { threadId: job.params.threadId, includeTurns: true }, 5000);
+        if (this.codexSubmission !== job || job.cancelled || this.closing) return;
+        const last = current.thread?.turns?.at(-1);
+        const latestUser = current.thread?.turns?.flatMap((turn: any) => turn.items || []).findLast((item: any) => item.type === 'userMessage');
+        const savedText = latestUser?.content?.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n');
+        if (!current.thread || !['idle', 'notLoaded', 'systemError'].includes(current.thread.status?.type) || accepted && (!failedTurn || last?.id !== failedTurn || last.status !== 'failed' || savedText !== job.userText || !Array.isArray(last.items) || last.items.some((item: any) => !['userMessage', 'reasoning'].includes(item.type)))) {
+          fail('无法确认本轮已安全结束，未自动重试；请核对会话后继续。'); return;
+        }
+        if (job.progressed || job.rerouted) { fail('本轮状态已变化，未自动重试；请核对后继续。'); return; }
+        const previous = job.params.model || this.nativeModel || '当前模型';
+        job.used.add(candidate.model); job.attempts++;
+        job.params = { ...job.params, model: candidate.model, effort: candidate.effort,
+          input: accepted ? [] : job.params.input,
+          ...(job.params.collaborationMode ? { collaborationMode: { ...job.params.collaborationMode, settings: { ...job.params.collaborationMode.settings, model: candidate.model, reasoning_effort: candidate.effort } } } : {}) };
+        this.session.model = candidate.model; this.session.resolvedModel = candidate.model;
+        this.session.reasoningEffort = candidate.effort || undefined; this.nativeModel = candidate.model; this.nativeEffort = candidate.effort;
+        this.message(randomUUID(), 'system', `模型「${previous}」容量不足，自动切换至「${candidate.model}」继续（${job.attempts}/2）。`);
+        this.hooks.event({ method: 'workbench/modelFallback', fromModel: previous, toModel: candidate.model, attempt: job.attempts });
+        job.recovering = false;
+        await this.submitCodexTurn(job);
+      } catch (e: any) {
+        if (this.codexSubmission === job && !job.cancelled && !this.closing) this.finish(`Codex 自动切换未完成：${e.message || '无法读取模型或会话状态'}。已有对话和本次输入已保留，请稍后重试。`);
+      }
+    })();
+    return true;
   }
   get activeTurnId(): string | undefined {
     return this.session.provider === 'codex' && this.turnActive && !this.closing && ['running', 'approval'].includes(this.session.status) ? this.turnId : undefined;
@@ -633,11 +716,14 @@ export class AgentRuntime {
   }
   private finish(error?: string) {
     if (this.compacting) return;
+    if (this.codexSubmission?.attempts) this.retireCodexTurn(this.turnId);
+    clearTimeout(this.codexSubmission?.errorTimer); this.codexSubmission = undefined;
     this.timing.finish(error ? 'error' : this.session.stoppedAt ? 'stopped' : 'completed');
     this.connection.finish(error);
-    const modelError = this.session.provider === 'codex' ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined;
+    const capacityError = this.session.provider === 'codex' && isCodexCapacityError(error);
+    const modelError = this.session.provider === 'codex' && !capacityError ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined;
     const completedTurn = this.turnActive, completedTurnId = this.turnId; this.turnActive = false;
-    if (error && !modelError) { const issue = permissionIssue(error); if (issue) this.session.permissionIssue = issue; else if (!this.session.cursorNative) this.hooks.authFailed?.(error); }
+    if (error && !modelError && !capacityError) { const issue = permissionIssue(error); if (issue) this.session.permissionIssue = issue; else if (!this.session.cursorNative) this.hooks.authFailed?.(error); }
     this.session.status = error ? 'error' : 'idle'; this.session.error = modelError || error; this.session.approvals = [];
     this.session.desktopWaitingApproval = false; this.session.desktopSyncPending = false; clearTimeout(this.sharedRefresh); this.sharedRefresh = undefined;
     this.turnId = undefined; this.requests.clear(); this.fileChanges.clear();
@@ -718,6 +804,7 @@ export class AgentRuntime {
     if (method === 'account/chatgptAuthTokens/refresh' && m.id !== undefined && this.authBridge) { void this.authBridge.refresh(this.rpc, m.id); return; }
     // Filter before archiving: shared subscriptions must not record another chat.
     if (s.provider === 'codex' && (p.threadId || p.thread?.id) && s.nativeId && (p.threadId || p.thread.id) !== s.nativeId) return;
+    if (s.provider === 'codex' && this.retiredCodexTurns.has(p.turnId || p.turn?.id)) return;
     if (s.provider === 'cursor' && p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
     if (s.provider === 'cursor' && method === '_workbench/cursorCompaction' && m.id === undefined) {
       if (p.status === 'started' && p.phase === 'after') this.timing.finish('completed');
@@ -740,12 +827,35 @@ export class AgentRuntime {
     }
     // Only session events are archived. Account/authentication messages are never stored here.
     if (/^(item\/|turn\/|session\/|cursor\/|error$)/.test(method)) this.hooks.event({ method, params: p });
-    if (m.id !== undefined) { this.onRequest(m); return; }
+    if (m.id !== undefined) { if (this.codexSubmission) this.codexSubmission.progressed = true; this.onRequest(m); return; }
     if (s.provider === 'cursor' && p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
     if (s.provider === 'codex') {
       if (p.threadId && s.nativeId && p.threadId !== s.nativeId) return;
       if (p.turnId && this.turnId && p.turnId !== this.turnId) return;
       if (method === 'turn/completed' && p.turn?.id && this.turnId && p.turn.id !== this.turnId) return;
+      const submission = this.codexSubmission;
+      if (submission && method.startsWith('item/') && !['userMessage', 'reasoning'].includes(p.item?.type) && !method.startsWith('item/reasoning/')) submission.progressed = true;
+      if (method === 'model/rerouted' && typeof p.toModel === 'string') {
+        if (submission) submission.rerouted = true;
+        s.resolvedModel = p.toModel;
+        this.message(randomUUID(), 'system', `Codex 服务已将本轮从「${p.fromModel || '原模型'}」切换至「${p.toModel}」（${p.reason || '服务端路由'}）。`);
+        this.hooks.event({ method, params: p }); return;
+      }
+      if (method === 'error' && !p.willRetry && submission && isCodexCapacityError(p.error || p)) {
+        if (submission.recovering) return;
+        // Error is not proof of a completed turn. Wait for its terminal event before retrying.
+        submission.pendingError = p.error || p;
+        clearTimeout(submission.errorTimer);
+        submission.errorTimer = setTimeout(() => {
+          if (this.codexSubmission === submission) {
+            this.uncertainCodexTurn = { id: this.turnId };
+            this.finish('Codex 模型容量不足，尚未确认本轮结束；未自动重试。请停止任务或重新连接后继续，已有输入保留。');
+          }
+        }, 5000);
+        return;
+      }
+      if (method === 'turn/completed' && (!this.uncertainCodexTurn?.id || this.uncertainCodexTurn.id === p.turn?.id)) this.uncertainCodexTurn = undefined;
+      if (method === 'turn/completed' && p.turn?.status !== 'interrupted' && (p.turn?.status === 'failed' || p.turn?.error) && this.recoverCodexCapacity(p.turn?.error || submission?.pendingError, true)) return;
       if (!this.timing.active && this.turnActive && method.startsWith('item/')) this.timing.begin(s.messages.findLast(message => message.role === 'user')?.id, p.turnId, true);
       if (s.cliConnection?.state === 'connecting' && (method === 'item/started' || method.startsWith('item/reasoning/') || method === 'item/agentMessage/delta')) this.timing.wait('network', false);
       this.timing.codex(method, p);
@@ -905,6 +1015,8 @@ export class AgentRuntime {
     complete(result);
   }
   async cancel() {
+    if (this.uncertainCodexTurn) { await this.close(); return; }
+    if (this.codexSubmission) { this.codexSubmission.cancelled = true; clearTimeout(this.codexSubmission.errorTimer); if (!this.turnId) { this.finish('已停止'); return; } }
     if (this.compacting) { if (!await this.autoCompaction?.cancel()) await this.close(); return; }
     if (this.session.provider === 'codex' && this.turnId) await this.rpc.request('turn/interrupt', { threadId: this.session.nativeId, turnId: this.turnId });
     else if (this.session.provider === 'cursor' && this.session.nativeId) { if(isCursorFileSession(this.session))await this.rpc.request('session/cancel',{sessionId:this.session.nativeId});else this.rpc.notify('session/cancel', { sessionId: this.session.nativeId }); }
@@ -914,6 +1026,7 @@ export class AgentRuntime {
     if (this.closing) return;
     this.timing.finish('interrupted');
     this.closing = true;
+    if (this.codexSubmission) { this.codexSubmission.cancelled = true; clearTimeout(this.codexSubmission.errorTimer); this.codexSubmission = undefined; }
     this.discardEmptyCursorSession();
     const compactTurnId = this.autoCompaction?.activeTurnId;
     this.autoCompaction?.close();

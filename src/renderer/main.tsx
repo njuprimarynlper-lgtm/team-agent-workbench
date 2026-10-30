@@ -9,6 +9,7 @@ import './directory-move-notice.css';
 import './session-input-queue.css';
 import { ProjectRefreshButton } from './project-refresh';
 import { CentralNodeMenu } from './central-node-menu';
+import { PortInput, validPort } from './port-input';
 import './central-node-menu.css';
 import type { ProjectLoginResult } from '../shared/project-connection';
 import { projectConnectionError, projectCreationInputSchema } from '../shared/project-connection';
@@ -715,7 +716,7 @@ function ConnectModal({ reauthenticate = false, createProject = false, inline = 
   const rememberedFingerprint = !local && profile.host ? settings.trustedServerIdentities?.[serverIdentityKey(profile.host, profile.port)] || '' : '';
   const effectiveFingerprint = profile.fingerprint || rememberedFingerprint;
   const identityChanged = error.includes('服务器身份发生变化');
-  const canConnect = !busy && (!createProject || projectCreationInputSchema.safeParse({ name: projectName }).success) && (!required || (!!next && next === repeat)) && !!profile.host && !!profile.username && (!!reusable || !!password) && (!local || !!profile.localRoot?.trim());
+  const canConnect = !busy && (!createProject || projectCreationInputSchema.safeParse({ name: projectName }).success) && (!required || (!!next && next === repeat)) && !!profile.host && !!profile.username && (!!reusable || !!password) && (local ? !!profile.localRoot?.trim() : validPort(profile.port));
   const connect = async () => {
     if (!canConnect) return;
     setBusy(true); setError('');
@@ -742,7 +743,7 @@ function ConnectModal({ reauthenticate = false, createProject = false, inline = 
     {reusable ? <><p className="muted small">复用已登录的连接，无需再次输入密码。不同节点在独立窗口中打开。</p>{!nodeOnly && !projectId && !localProjectId && !createProject && <label className="field">项目<select aria-label="连接目标项目" value={selectedProject} onChange={event => setSelectedProject(event.target.value)}>{reusable.profile.projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}{!reusable.profile.projects.length && <option value="">连接后创建项目</option>}</select></label>}</> : <fieldset className="connection-fields" disabled={busy}>
     {local && !profile.localRoot?.trim() && <div className="inline-error" role="alert">本地测试连接缺少共享目录，请重新生成联调配置。</div>}
     {!local && <div className="connection-server-details"><div className="form-grid">
-      <label className="field">中央节点地址<input disabled={!!projectId} value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<input type="number" disabled={!!projectId} value={profile.port} onChange={e => update('port', Number(e.target.value))}/></label>
+      <label className="field">中央节点地址<input disabled={!!projectId} value={profile.host} onChange={e => update('host', e.target.value)}/></label><label className="field">SFTP 端口<PortInput aria-label="SFTP 端口" disabled={!!projectId} value={profile.port} onChange={value => update('port', value)}/><small>1–65535</small></label>
     </div></div>}
     <div className="form-grid">
 

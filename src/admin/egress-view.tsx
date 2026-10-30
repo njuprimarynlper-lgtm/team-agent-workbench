@@ -5,6 +5,7 @@ import { EgressMonitorPanel, traffic } from './egress-monitor';
 import { EgressNetworkTests, egressServices, type EgressService, type EgressTestResult } from './egress-tests';
 import { EgressJumpSettings } from './egress-jump';
 import type { AdminSnapshot } from './types';
+import { PortInput, validPort } from '../renderer/port-input';
 
 const tabs = [
   { id: 'monitor', label: '运行监控', icon: Activity },
@@ -33,6 +34,7 @@ export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgres
     try { await fn(); } catch (e: any) { setError(e.message); } finally { setAction(undefined); }
   };
   const save = () => run('save', async () => {
+    if (!validPort(config.listenPort) || config.upstreamMode !== 'direct' && !validPort(config.upstreamPort)) throw new Error('端口须为 1–65535 的整数');
     await window.admin.call('egress.save', { config, upstreamPassword: password, clearUpstreamPassword: clearPassword });
     setPassword(''); setClearPassword(false); setTestResults({}); await refresh();
     setMessage(config.enabled ? '网络出口已保存并启动' : '网络出口已关闭，用户端可继续使用本机直连');
@@ -106,12 +108,12 @@ export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgres
         <fieldset className="egress-settings-fields" disabled={busy}>
           <section className="egress-setting-group"><div className="egress-setting-heading"><span>01</span><div><h4>本机如何访问模型服务</h4><p>使用本机网络，或指定已有代理。</p></div></div><div className="egress-setting-controls">
             <label className="field">管理端如何访问外网<select aria-label="上游代理类型" value={config.upstreamMode} onChange={e => update('upstreamMode', e.target.value as AdminEgressConfig['upstreamMode'])}><option value="direct">本机直接访问</option><option value="http">HTTP 代理</option><option value="socks5">SOCKS5 代理</option></select></label>
-            {config.upstreamMode !== 'direct' && <><div className="form-grid"><label className="field">代理地址<input aria-label="上游代理地址" placeholder="例如 127.0.0.1" value={config.upstreamHost} onChange={e => update('upstreamHost', e.target.value)}/></label><label className="field">代理端口<input aria-label="上游代理端口" type="number" value={config.upstreamPort || ''} onChange={e => update('upstreamPort', Number(e.target.value))}/></label></div>
+            {config.upstreamMode !== 'direct' && <><div className="form-grid"><label className="field">代理地址<input aria-label="上游代理地址" placeholder="例如 127.0.0.1" value={config.upstreamHost} onChange={e => update('upstreamHost', e.target.value)}/></label><label className="field">代理端口<PortInput aria-label="上游代理端口" value={config.upstreamPort} onChange={value => update('upstreamPort', value)}/></label></div>
               <details className="egress-inline-details"><summary>代理认证（选填）{snapshot.hasUpstreamPassword ? ' · 密码已保存' : ''}</summary><div className="form-grid"><label className="field">代理账号<input value={config.upstreamUsername} onChange={e => update('upstreamUsername', e.target.value)}/></label><label className="field">代理密码<input type="password" autoComplete="new-password" placeholder={snapshot.hasUpstreamPassword ? '留空保持已保存的密码' : '没有则留空'} value={password} onChange={e => { setPassword(e.target.value); setClearPassword(false); }}/></label></div>{snapshot.hasUpstreamPassword && <label className="check-row"><input type="checkbox" checked={clearPassword} onChange={e => setClearPassword(e.target.checked)}/>清除已保存的代理密码</label>}</details></>}
           </div></section>
           <section className="egress-setting-group"><div className="egress-setting-heading"><span>02</span><div><h4>允许成员使用的服务</h4><p>管理端无需安装或登录这些 CLI。</p></div></div><div className="egress-setting-controls egress-service-permissions"><span>成员可通过出口访问</span><div>{egressServices.map(service => <label className={'check-row ' + (config[service.id] ? 'selected' : '')} key={service.id}><input type="checkbox" checked={config[service.id]} onChange={e => update(service.id, e.target.checked)}/>{service.label}</label>)}</div></div></section>
           <section className="egress-setting-group"><div className="egress-setting-heading"><span>03</span><div><h4>本机接入地址</h4><p>直连成员需能访问此地址。</p></div></div><div className="egress-setting-controls">
-            <div className="form-grid"><label className="field">提供给成员的地址<input aria-label="提供给成员的地址" value={config.publicHost} onChange={e => update('publicHost', e.target.value)}/><small>本机名或固定内网 IP。</small></label><label className="field">监听端口<input aria-label="网络出口端口" type="number" value={config.listenPort} onChange={e => update('listenPort', Number(e.target.value))}/></label></div>
+            <div className="form-grid"><label className="field">提供给成员的地址<input aria-label="提供给成员的地址" value={config.publicHost} onChange={e => update('publicHost', e.target.value)}/><small>本机名或固定内网 IP。</small></label><label className="field">监听端口<PortInput aria-label="网络出口端口" value={config.listenPort} onChange={value => update('listenPort', value)}/></label></div>
             <details className="egress-inline-details"><summary>高级监听设置</summary><label className="field">本机监听地址<input value={config.listenHost} onChange={e => update('listenHost', e.target.value)}/></label></details>
           </div></section>
         </fieldset>
