@@ -12,6 +12,7 @@
 - 网络、模型或权限切换保留已有对话、未发送草稿和原生会话标识。尚未发送任何消息的临时 Cursor 会话由工作台自动清理，避免恢复一个 Cursor 尚未保存的标识。
 - 启动失败会退出“启动中”，允许改设置和重试。旧版本留下的空会话标识仅在 Cursor 明确返回“不存在”、且本地没有用户对话时自动修复；已有对话不会静默重建。
 - 模型列表优先读取 Cursor 会话接口提供的基础模型标识，发送时声明对应的参数化模型协议。旧版 CLI 仅在明确不支持该查询接口时回退到 `models` 命令。读取列表不新建会话、不触发登录；空列表或网络失败不回退到另一套可能无法发送的模型列表。
+- 输入栏模型菜单保留当前 Cursor 模型返回的“思考强度”选项。选择后从下一轮生效，恢复原会话并设置模型后，使用原生参数标识写入强度、读回确认，再发送消息。切换模型清除旧的强度选择；不支持或未确认生效时明确提示，不默默忽略。
 - `Invalid params` 会区分模型不被接受、原生会话不存在、发送参数被拒绝等原因，保留已有对话；不把完整错误数据或请求正文展示到界面。旧版保存的显式参数变体（如 `model[fast=false]`）仍使用对应的变体协议。
 
 ## 基础回归用例
@@ -41,11 +42,15 @@
 | 原生会话不存在，原因在 `error.data.message` | 无历史空标识自动修复，有历史时保留且明确报错 |
 | 模型列表为空、异常、查询取消、未登录 | 不制造可用模型、不启动登录、不创建空会话，取消后退出查询进程 |
 | 旧版 CLI 不支持会话模型查询接口 | 仅此情形回退旧查询命令，并遵守同一个查询时限 |
+| 思考强度、速度、上下文参数同时返回 | 仅 `thought_level` 类别作为思考强度，保留原生档位和默认值 |
+| 回复期间修改 Cursor 思考强度 | 当前回复继续，下轮恢复同一会话并应用新强度，重启后保留选择 |
+| 所选强度已不支持、CLI 接口不支持、读回值不同 | 不提交消息，明确失败；允许清除设置后重试 |
+| 切换至不支持思考强度的模型 | 清除原模型的强度选择，菜单说明无可选强度 |
 
 ## 执行方式
 
 ```powershell
-node scripts/test-background.mjs tests/cursor-models.test.ts tests/cursor-session-settings.test.ts tests/provider-connection.test.ts tests/new-session-network.test.ts tests/session-mode.test.ts tests/session-settings.test.ts tests/provider-auth.test.ts tests/session-input-queue.test.ts tests/cursor-egress.test.ts
+node scripts/test-background.mjs tests/cursor-models.test.ts tests/cursor-reasoning-effort.test.ts tests/reasoning-effort.test.ts tests/cursor-session-settings.test.ts tests/provider-connection.test.ts tests/new-session-network.test.ts tests/session-mode.test.ts tests/session-settings.test.ts tests/provider-auth.test.ts tests/session-input-queue.test.ts tests/cursor-egress.test.ts
 npm run test:cursor-session-ui
 npm run typecheck
 npm run build:check

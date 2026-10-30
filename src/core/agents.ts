@@ -7,7 +7,7 @@ import { CapabilityCache } from './capability-cache';
 import { JsonRpc, type AgentRpc, type RpcMessage } from './rpc';
 import { WebSocketRpc } from './websocket-rpc';
 import { cursorNetworkEnvironment } from './cursor-network';
-import { cursorClientCapabilities, cursorRequestError } from './cursor-models';
+import { applyCursorReasoningEffort, cursorClientCapabilities, cursorRequestError } from './cursor-models';
 import { mergeSharedThread } from './codex-live-thread';
 import { codexForkError, forkCodexHistory } from './codex-fork';
 import { CodexSideRpc, sideConversationInstructions } from './codex-side-rpc';
@@ -409,7 +409,9 @@ export class AgentRuntime {
       s.nativeId = returned || expectedId;
       if (!expectedId) this.cursorProvisionalId = s.nativeId;
       this.cursorModes = (result.modes?.availableModes || []).map((mode: any) => mode.id);
-      if (s.model) await this.rpc.request('session/set_model', { sessionId: s.nativeId, modelId: s.model });
+      if (s.reasoningEffort) await applyCursorReasoningEffort(this.rpc, s.nativeId!, s.model, s.reasoningEffort, result);
+      else if (s.model) await this.rpc.request('session/set_model', { sessionId: s.nativeId, modelId: s.model });
+      s.resolvedModel = s.model || result.models?.currentModelId || undefined;
       if (s.purpose === 'background') {
         if (!result.modes?.availableModes?.some((mode: any) => mode.id === 'ask')) throw new Error('Cursor CLI 未提供后台只读 Ask 模式，请更新 CLI');
         await this.rpc.request('session/set_mode', { sessionId: s.nativeId, modeId: 'ask' });

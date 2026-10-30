@@ -14,7 +14,7 @@ import { inspectAuth } from '../src/core/provider-auth';
 import { inspectCatalog } from '../src/core/provider-catalog';
 import { JsonRpc } from '../src/core/rpc';
 import { AgentRuntime } from '../src/core/agents';
-import { cursorClientCapabilities } from '../src/core/cursor-models';
+import { applyCursorReasoningEffort, cursorClientCapabilities, cursorThoughtLevel } from '../src/core/cursor-models';
 import type { AgentSession } from '../src/shared/types';
 import { testTlsIdentity } from './fixtures/tls-identity';
 import type { AdminEgressConfig } from '../src/shared/egress';
@@ -50,9 +50,13 @@ async function fixture(options: { http1Only?: boolean; streamGate?: Promise<void
     const grok = bytes(1, Buffer.concat([bytes(1, 'grok-4.7'), bytes(4, 'Grok 4.7')]));
     // Faithful AvailableModels protobuf: ACP variant ids differ from the
     // legacy slug printed by `models`. These are synthetic catalog entries.
+    const thoughtValues = Buffer.concat(['low', 'high'].map(value => bytes(1, Buffer.concat([bytes(1, value), bytes(2, value)]))));
+    const thoughtDefinition = bytes(29, Buffer.concat([bytes(1, 'thinking_budget'), bytes(2, 'Reasoning effort'), bytes(4, bytes(2, thoughtValues))]));
     const acp = (id: string, name: string, variant: string) => bytes(2, Buffer.concat([
       bytes(1, id), Buffer.from([16, 1, 40, 1]), bytes(17, name), bytes(36, id),
-      bytes(30, Buffer.concat([bytes(2, name), bytes(9, variant), bytes(11, id)])),
+      ...(id === 'grok-4.7' ? [thoughtDefinition] : []),
+      bytes(30, Buffer.concat([...(id === 'grok-4.7' ? [bytes(1, Buffer.concat([bytes(1, 'thinking_budget'), bytes(2, 'low')]))] : []), bytes(2, name), bytes(9, variant), bytes(11, id)])),
+      ...(id === 'grok-4.7' ? [bytes(30, Buffer.concat([bytes(1, Buffer.concat([bytes(1, 'thinking_budget'), bytes(2, 'high')])), bytes(2, name + ' High'), bytes(9, 'grok-4.7[thinking_budget=high]')]))] : []),
     ]));
     res.end(req.url?.endsWith('/GetMe') ? email
       : req.url?.endsWith('/AvailableModels') ? Buffer.concat([Buffer.from([88, 1]), acp('relay-test-model', 'Relay Test Model', 'relay-test-model'), acp('grok-4.7', 'Grok 4.7', 'grok-4.7[fast=false]')])
@@ -226,6 +230,7 @@ test('real installed Cursor account and model queries use HTTP/1.1 through manag
     assert.equal(catalog.modelError, undefined);
     assert(catalog.models.some(m => m.id === 'relay-test-model'));
     assert(catalog.models.some(m => m.id === 'grok-4.7'));
+    assert.deepEqual(catalog.models.find(m => m.id === 'grok-4.7')?.reasoningEfforts?.map(option => option.id), ['low', 'high']);
     const accountRequests = f.requests.filter(x => x.path.endsWith('/GetMe'));
     const modelRequests = f.requests.filter(x => x.path.endsWith('/GetUsableModels'));
     assert(accountRequests.length > 0 && modelRequests.length > 0);
@@ -248,12 +253,15 @@ test('real installed Cursor account and model queries use HTTP/1.1 through manag
         } else {
           assert(result.models.availableModels.some((m: any) => m.modelId === 'grok-4.7'));
           await rpc.request('session/set_model', { sessionId: nativeId, modelId: 'grok-4.7' }, 5000);
+          const confirmed = await rpc.request('session/set_config_option', { sessionId: nativeId, configId: 'thinking_budget', value: 'high' }, 5000);
+          assert.equal(cursorThoughtLevel(confirmed.configOptions)?.current, 'high', JSON.stringify(confirmed.configOptions));
+          await applyCursorReasoningEffort(rpc, nativeId, 'grok-4.7', 'high', result);
           await rpc.request('session/set_model', { sessionId: nativeId, modelId: 'relay-test-model' }, 5000);
         }
         for (const modeId of ['plan', 'ask', 'agent']) await rpc.request('session/set_mode', { sessionId: nativeId, modeId }, 5000);
       } finally { await rpc.close(); }
     }
-    const session = { id: 'cursor-native-fixture', title: 'Fixture', provider: 'cursor', purpose: 'work', cwd: root, status: 'idle', mode: 'plan', model: 'grok-4.7', messages: [], approvals: [], sources: [] } as unknown as AgentSession;
+    const session = { id: 'cursor-native-fixture', title: 'Fixture', provider: 'cursor', purpose: 'work', cwd: root, status: 'idle', mode: 'plan', model: 'grok-4.7', reasoningEffort: 'high', messages: [], approvals: [], sources: [] } as unknown as AgentSession;
     session.nativeId = nativeId; // Empty id left behind by an older Workbench.
     const hooks = { changed() {}, event() {}, done() {} };
     for (let pass = 0; pass < 2; pass++) {

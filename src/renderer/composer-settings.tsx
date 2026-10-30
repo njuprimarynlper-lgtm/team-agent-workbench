@@ -6,8 +6,8 @@ import { permissionEffects, permissionLabels, sessionPermissionDescription, sess
 import { CursorNativeSettingsControls } from './cursor-native-settings';
 
 type Choice = { kind: 'model' | 'permission'; value: string };
-const effortLabels: Record<string, string> = { none: '关闭', minimal: '最少', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大', ultra: '极高' };
-const effortLabel = (id?: string) => id ? effortLabels[id] || id : '';
+const effortLabels: Record<string, string> = { none: '关闭', false: '关闭', true: '开启', minimal: '最少', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大', ultra: '极高' };
+const effortLabel = (id?: string, name?: string) => id ? effortLabels[id] || name || id : '';
 function replacementEffort(session: AgentSession, model?: ModelOption) {
   if (session.provider !== 'codex' || !session.reasoningEffort || !model?.reasoningEfforts) return undefined;
   if (model.reasoningEfforts.some(item => item.id === session.reasoningEffort)) return undefined;
@@ -55,10 +55,13 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
   const models = catalog?.models || [];
   const selectedModel = session.model || session.resolvedModel || catalog?.defaultModel;
   const selected = models.find(m => m.id === selectedModel);
-  const efforts = session.provider === 'codex' ? selected?.reasoningEfforts || [] : [];
-  const activeEffort = efforts.some(item => item.id === session.reasoningEffort) ? session.reasoningEffort : efforts.some(item => item.id === selected?.defaultReasoningEffort) ? selected?.defaultReasoningEffort : session.provider === 'codex' ? session.reasoningEffort : undefined;
-  const modelName = (catalog?.models.find(m => m.id === selectedModel)?.name || selectedModel || 'CLI 默认模型') + (activeEffort ? ' · ' + effortLabel(activeEffort) : '');
-  const chooseEffort = async (effort: string) => {
+  const effortSupported = session.provider === 'codex' || session.provider === 'cursor';
+  const efforts = effortSupported ? selected?.reasoningEfforts || [] : [];
+  // Cursor's catalog exposes model defaults, not the effective saved CLI
+  // setting. Do not label a default as the user's current explicit selection.
+  const activeEffort = session.provider === 'cursor' ? session.reasoningEffort : efforts.some(item => item.id === session.reasoningEffort) ? session.reasoningEffort : efforts.some(item => item.id === selected?.defaultReasoningEffort) ? selected?.defaultReasoningEffort : effortSupported ? session.reasoningEffort : undefined;
+  const modelName = (catalog?.models.find(m => m.id === selectedModel)?.name || selectedModel || 'CLI 默认模型') + (activeEffort ? ' · ' + effortLabel(activeEffort, efforts.find(item => item.id === activeEffort)?.name) : '');
+  const chooseEffort = async (effort: string | null) => {
     if (disabled || session.reasoningEffort === effort) { close(); return; }
     setSaving(true); setError('');
     try { await window.workbench.call('session.reasoningEffort', { id: session.id, effort }); close(); }
@@ -82,7 +85,7 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
           {catalog?.modelError && <p className="inline-error" role="alert">{catalog.modelError}</p>}
           {!loading && catalog && !models.length && !catalog.modelError && <p className="muted small">暂未获取可用模型，请刷新重试。</p>}
           <div role="group" aria-label="可用模型">{models.map(m => <button key={m.id} className="setting-option" aria-pressed={selectedModel === m.id} disabled={disabled || loading && !models.length} onClick={() => void apply({ kind: 'model', value: m.id })}><span>{m.name}{m.isDefault && <small>CLI 推荐</small>}</span>{selectedModel === m.id && <Check size={14}/>}</button>)}</div>
-          {session.provider === 'codex' && (efforts.length > 0 || (!loading && !!selected)) && <div role="group" aria-label="思考努力程度"><p>思考努力程度</p>{efforts.map(effort => <button key={effort.id} className="setting-option" aria-pressed={activeEffort === effort.id} disabled={disabled || loading} onClick={() => void chooseEffort(effort.id)}><span>{effortLabel(effort.id)}{effort.description && <small>{effort.description}</small>}</span>{activeEffort === effort.id && <Check size={14}/>}</button>)}{!efforts.length && <p className="muted small">当前模型没有可选的思考努力程度。</p>}</div>}
+          {effortSupported && (efforts.length > 0 || (!loading && (!!selected || !!session.reasoningEffort))) && <div role="group" aria-label="思考努力程度"><p>思考强度</p>{efforts.map(effort => <button key={effort.id} className="setting-option" aria-pressed={activeEffort === effort.id} disabled={disabled || loading} onClick={() => void chooseEffort(effort.id)}><span>{effortLabel(effort.id, effort.name)}{effort.description && <small>{effort.description}</small>}</span>{activeEffort === effort.id && <Check size={14}/>}</button>)}{!efforts.length && <p className="muted small">当前模型没有可选的思考强度。</p>}{session.provider === 'cursor' && session.reasoningEffort && !efforts.some(item => item.id === session.reasoningEffort) && <button className="text-button" disabled={disabled || loading} onClick={() => void chooseEffort(null)}>清除原思考强度设置</button>}</div>}
           <div className="quota-panel"><div className="row"><strong>账号额度</strong><span className="spacer"/><button className="text-button" onClick={() => void window.workbench.call('open.link', session.provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : session.provider === 'claude' ? 'https://claude.ai/settings/usage' : 'https://cursor.com/dashboard/spending').catch(() => setError('无法打开浏览器，请稍后重试。'))}><ExternalLink size={12}/>官方额度页</button></div>
             {!catalog?.quota.windows.length && <p className="muted small">{catalog?.quota.detail || (session.provider === 'cursor' ? '请在官方额度页查看' : '额度未读取')}</p>}
             {catalog?.quota.windows.map((w, i) => <div className="quota-window" key={i}><div className="row"><span>{w.name}{w.windowMinutes ? `（${w.windowMinutes >= 1440 ? w.windowMinutes / 1440 + ' 天' : w.windowMinutes / 60 + ' 小时'}）` : ''}</span><b>剩余 {Number((100 - w.usedPercent).toFixed(1))}%</b></div><progress max={100} value={100 - w.usedPercent}/>{w.resetsAt && <small>重置：{new Date(w.resetsAt * 1000).toLocaleString('zh-CN')}</small>}</div>)}

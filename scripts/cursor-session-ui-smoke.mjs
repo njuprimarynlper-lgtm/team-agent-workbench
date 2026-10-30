@@ -11,7 +11,8 @@ import { authLauncher } from '../tests/fixtures/auth-launcher.mjs';
 
 const root = process.cwd(), out = path.join(root, '.test-data', 'cursor-session-ui-' + Date.now());
 await fs.mkdir(out, { recursive: true });
-const fixture = await authLauncher(path.join(out, 'cli'), { status: 'ready', turn: 'success' });
+const thought = { id: 'thinking_budget', category: 'thought_level', type: 'select', currentValue: 'low', options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }] };
+const fixture = await authLauncher(path.join(out, 'cli'), { status: 'ready', turn: 'success', cursorConfigOptions: [thought], cursorModelsResult: { models: [{ value: 'cursor-fixture', name: 'Cursor Fixture', configOptions: [thought] }, { value: 'other-fixture', name: 'Other Fixture' }] } });
 let page, session, holdAuth = false, holdModes = false, holdModeSave = false, failModeSave = false;
 const pendingAuth = [], pendingModes = [], pendingModeSaves = [], calls = [], errors = [];
 const publish = () => { if (page && session) void page.evaluate(value => window.patchSession?.(value), session).catch(() => {}); };
@@ -41,6 +42,7 @@ try {
       if (action === 'session.modes') { if (holdModes) await new Promise(resolve => pendingModes.push(resolve)); return await wb.modes(p.id); }
       if (action === 'session.mode') { if (holdModeSave) await new Promise(resolve => pendingModeSaves.push(resolve)); if (failModeSave) throw Error('fixture mode save failed'); return await wb.changeMode(p.id, p.mode); }
       if (action === 'session.model') return await wb.changeModel(p.id, p.model);
+      if (action === 'session.reasoningEffort') return await wb.changeReasoningEffort(p.id, p.effort);
       if (action === 'session.permissions') return await wb.changePermissions(p.id, p.mode);
       if (action === 'session.network') return await wb.changeNetworkRoute(p.id, p.networkRoute);
       if (action === 'session.send') return await wb.send(p.id, p.text);
@@ -95,10 +97,20 @@ try {
   assert.equal(session.nativeId, undefined); assert.equal(calls.includes('provider.auth'), false);
   await page.getByLabel('选择模型', { exact: true }).click();
   await page.getByRole('group', { name: '可用模型' }).getByRole('button').first().click();
+  await page.getByLabel('选择模型', { exact: true }).click();
+  await page.getByRole('group', { name: '思考努力程度' }).getByRole('button', { name: '高', exact: true }).click();
+  await expect(page.getByLabel('选择模型', { exact: true })).toContainText('高');
+  assert.equal(session.reasoningEffort, 'high');
+  await page.getByLabel('选择模型', { exact: true }).click();
+  await expect(page.getByRole('group', { name: '思考努力程度' }).getByRole('button', { name: '高', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.screenshot({ path: path.join(out, 'cursor-reasoning.png') });
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '发送', exact: true }).click();
   await expect(page.getByText('会话状态：idle', { exact: true })).toBeVisible();
   await expect.poll(() => session.messages.filter(m => m.role === 'assistant').length).toBe(1);
   const nativeId = session.nativeId;
+  const rpcCalls = (await fs.readFile(path.join(out, 'cli', 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  assert(rpcCalls.some(call => call.method === 'session/set_config_option' && call.params.configId === 'thinking_budget' && call.params.value === 'high'));
   // An unresponsive account lookup must not stop switching or returning to chat.
   holdAuth = true;
   await page.getByLabel('网络与登录设置').click();
@@ -120,6 +132,10 @@ try {
   assert.equal(session.nativeId, nativeId); assert.equal(session.networkRoute, 'direct');
   // A failed metadata startup used to disable all settings indefinitely.
   await wb.changeModel(session.id, 'other-fixture');
+  assert.equal(session.reasoningEffort, undefined);
+  await page.getByLabel('选择模型', { exact: true }).click();
+  await expect(page.getByRole('group', { name: '思考努力程度' })).toContainText('当前模型没有可选的思考强度');
+  await page.keyboard.press('Escape');
   await fixture.write({ status: 'ready', turn: 'success', rpcErrors: { authenticate: 'fixture startup failure' } });
   await assert.rejects(wb.capabilities(session.id, true, 'skill'), /fixture startup failure/); publish();
   await expect(mode).toBeEnabled(); await mode.click();
@@ -129,5 +145,5 @@ try {
   await expect.poll(() => session.messages.filter(m => m.role === 'assistant').length).toBe(3);
   await expect(mode).toContainText('Plan'); await expect(mode).toBeEnabled();
   await page.screenshot({ path: path.join(out, 'cursor-settings.png') }); assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, checks: ['Agent/Plan/Ask', 'local slash modes without CLI startup', 'dismiss slow mode read/save', 'mode save failure preserves view and draft', 'model selection', 'direct/management/direct during slow auth', 'saved connection reuse', 'same session resumed', 'startup failure recovery'], screenshot: path.join(out, 'cursor-settings.png') }));
+  console.log(JSON.stringify({ passed: true, checks: ['Agent/Plan/Ask', 'local slash modes without CLI startup', 'dismiss slow mode read/save', 'mode save failure preserves view and draft', 'model selection', 'Cursor thinking selection and native parameter submission', 'unsupported model clears old thinking choice', 'direct/management/direct during slow auth', 'saved connection reuse', 'same session resumed', 'startup failure recovery'], screenshot: path.join(out, 'cursor-settings.png') }));
 } finally { holdAuth = holdModes = holdModeSave = false; [...pendingAuth.splice(0), ...pendingModes.splice(0), ...pendingModeSaves.splice(0)].forEach(resolve => resolve()); await browser.close(); page = undefined; await wb.close(); }

@@ -18,10 +18,11 @@ test('codex reasoning effort is sent on the next turn and can be changed without
   const calls = async () => (await fs.readFile(path.join(root, 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    wb.store.settings.codexRequestGuard = false;
     const session = await wb.createSession('codex', root, offlineProjectId);
     await assert.rejects(wb.changeReasoningEffort(session.id, 'not valid'), /有效/);
-    const cursor = await wb.createSession('cursor', root, offlineProjectId);
-    await assert.rejects(wb.changeReasoningEffort(cursor.id, 'high'), /只有 Codex/);
+    const claude = await wb.createSession('claude', root, offlineProjectId);
+    await assert.rejects(wb.changeReasoningEffort(claude.id, 'high'), /不支持/);
     await wb.changeReasoningEffort(session.id, 'high');
     await wb.send(session.id, '先按高努力程度处理'); await until(() => session.status === 'idle');
     const started = (await calls()).filter(call => call.method === 'thread/start' || call.method === 'turn/start');

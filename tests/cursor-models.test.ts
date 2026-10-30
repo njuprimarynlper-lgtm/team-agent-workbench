@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { cursorAcpModels, cursorClientCapabilities, cursorRequestError } from '../src/core/cursor-models';
+import { cursorAcpModels, cursorClientCapabilities, cursorRequestError, cursorThoughtLevel } from '../src/core/cursor-models';
 import { inspectCatalog } from '../src/core/provider-catalog';
 // @ts-expect-error Shared JS fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -24,6 +24,15 @@ test('Cursor uses parameterized base ids and preserves saved explicit variants w
   assert.deepEqual(cursorClientCapabilities().fs, { readTextFile: false, writeTextFile: false });
   assert.deepEqual(cursorAcpModels({ models: [{ value: 'grok-4.7', name: 'Grok 4.7' }, { value: 'grok-4.7', name: 'Grok 4.7' }, { value: '', name: 'bad' }, { value: 4 }, { value: 'bad\nid' }] }), [{ id: 'grok-4.7', name: 'Grok 4.7' }]);
   assert.throws(() => cursorAcpModels({ unexpected: [] }), /无法识别/);
+});
+
+test('Cursor retains native thought-level choices and default without confusing context or speed parameters', () => {
+  const config = { id: 'thinking_budget', name: 'Reasoning', category: 'thought_level', type: 'select', currentValue: 'high', options: [{ value: 'low', name: 'Low' }, { value: 'high', name: 'High' }, { value: 'bad value' }] };
+  const models = cursorAcpModels({ models: [{ value: 'grok-4.7', name: 'Grok', configOptions: [config, { ...config, id: 'context', category: 'model_parameter' }] }, { value: 'no-thinking', configOptions: [] }] });
+  assert.deepEqual(models[0].reasoningEfforts, [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]);
+  assert.equal(models[0].defaultReasoningEffort, 'high'); assert.equal(models[1].reasoningEfforts, undefined);
+  assert.equal(cursorThoughtLevel([config])?.id, 'thinking_budget');
+  assert.equal(cursorThoughtLevel([config, { ...config, id: 'reasoning' }]), undefined);
 });
 
 test('catalog uses ACP ids on the chosen route, without creating sessions or starting login', async () => {

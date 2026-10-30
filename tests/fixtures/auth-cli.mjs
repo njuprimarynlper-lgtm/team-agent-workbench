@@ -15,6 +15,7 @@ fs.appendFileSync(path.join(root, 'cli-env.jsonl'), JSON.stringify({ HTTP_PROXY:
 let approvalPolicy = mode.permissionConfig?.approval || 'on-request';
 let threadId = 'fake-thread';
 let cursorMode = 'agent';
+let cursorConfigValues = {};
 let cursorSessionId = 'fake-session-' + process.pid;
 if (command === '--version') console.log('fixture-cli-1.0');
 else if (command === 'login' && process.argv[3] === 'status') {
@@ -86,6 +87,10 @@ else if (command === 'login' && process.argv[3] === 'status') {
       respond({ id: m.id, result: current.cursorModelsResult ?? { models: [{ value: 'cursor-fixture', name: 'Cursor Fixture' }, { value: 'other-fixture', name: 'Other Fixture' }] } }); return;
     }
     if (m.method === 'initialize' && process.argv.includes('acp') && !current.noCursorGuard) respond({ method: '_workbench/cursorGuardReady', params: { version: 1, budget: 1_000_000 } });
+    if (m.method === 'session/set_config_option') {
+      if (!current.ignoreCursorConfigUpdate) cursorConfigValues[m.params.configId] = m.params.value;
+      respond({ id: m.id, result: { configOptions: (current.cursorConfigOptions || []).map(option => ({ ...option, currentValue: cursorConfigValues[option.id] ?? option.currentValue })) } }); return;
+    }
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model') respond({ id: m.id, result: {} });
     else if (m.method === 'session/set_mode') { cursorMode = m.params.modeId; respond({ id: m.id, result: {} }); }
     else if (m.method === 'collaborationMode/list') send(current.noPlan ? { id: m.id, error: { code: -32601, message: 'Method not found' } } : { id: m.id, result: { data: [{ name: 'Agent', mode: 'default', model: 'gpt-fixture', reasoning_effort: 'medium' }, { name: 'Plan', mode: 'plan', model: 'gpt-fixture', reasoning_effort: 'medium' }] } });

@@ -1550,11 +1550,11 @@ export class Workbench {
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     // Reconnect on the next send and resume the original native conversation.
     // Cursor applies session/set_model after session/load; Codex and Claude resume with the selected model.
-    return this.updateSessionSettings(s, () => { s.model = model; });
+    return this.updateSessionSettings(s, () => { if (s.provider === 'cursor' && s.model !== model) delete s.reasoningEffort; s.model = model; });
   }
   async changeReasoningEffort(id: string, effort: string | null) {
     const s = this.session(id);
-    if (s.provider !== 'codex' || s.cursorNative) throw new Error('只有 Codex 会话可以设置思考努力程度');
+    if (!['codex', 'cursor'].includes(s.provider) || s.cursorNative) throw new Error('此会话不支持在工作台单独设置思考强度');
     if (s.purpose !== 'work') throw new Error('成果整理使用来源会话的思考努力程度');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
