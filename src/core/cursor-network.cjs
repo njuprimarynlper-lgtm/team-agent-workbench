@@ -11,3 +11,9 @@ if (process.env.TEAM_AGENT_MANAGEMENT_PROXY === '1') {
     process.stderr.write('[WB_CURSOR_SYSTEM_CA_UNAVAILABLE]\n');
   }
 }
+// Only the Workbench's ACP process uses this adapter, never spawned tools,
+// workers, interactive Cursor windows or account/model probes.
+if (process.env.TEAM_AGENT_CURSOR_REQUEST_GUARD === '1' && process.argv.includes('acp')) {
+  delete process.env.TEAM_AGENT_CURSOR_REQUEST_GUARD;
+  require('./cursor-request-guard.cjs').install();
+}

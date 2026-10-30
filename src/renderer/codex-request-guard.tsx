@@ -7,9 +7,9 @@ export function CodexRequestGuardSetting({ enabled, disabled, changed, certifica
 }) {
   const [testing, setTesting] = useState(false), [result, setResult] = useState<GuardConnectionCheck>(), [route, setRoute] = useState<'direct' | 'management'>('direct');
   const [expanded, setExpanded] = useState(!!certificateFile);
-  return <section aria-label="Codex 请求大小保护"><div className="row"><strong>Codex 请求大小保护（1 MB）</strong><span className="spacer"/><button type="button" role="switch" className="project-ai-switch" aria-label="Codex 请求大小保护（1 MB）" aria-checked={enabled} disabled={disabled} onClick={() => changed(!enabled)}><span/></button></div>
-    <p className="muted small">上传正文必须小于 1 MB（1,000,000 字节）。已超限的请求会先自动压缩，仍超限再摘要历史；无法安全缩小时停止发送。历史摘要会增加等待时间和模型用量，也可能遗漏信息。</p>
-    <p className="muted small">首次使用默认开启，此后沿用上次保存的开关状态。开关保存后对新启动或重新连接的本机 Codex 生效，已连接会话保持原设置。共用后台的子会话沿用该后台设置。暂不覆盖 Codex 桌面同步、远程会话及其他 Agent。</p>
+  return <section aria-label="Codex / Cursor 请求大小保护"><div className="row"><strong>Codex / Cursor 请求大小保护（1 MB）</strong><span className="spacer"/><button type="button" role="switch" className="project-ai-switch" aria-label="Codex / Cursor 请求大小保护（1 MB）" aria-checked={enabled} disabled={disabled} onClick={() => changed(!enabled)}><span/></button></div>
+    <p className="muted small">上传正文必须小于 1 MB（1,000,000 字节）。Codex 会压缩请求并按需摘要历史；Cursor 沿用原生传输压缩，并在上下文变大时自动生成原生摘要。无法安全缩小时停止发送。历史摘要会增加等待时间和模型用量，也可能遗漏信息。</p>
+    <p className="muted small">首次使用默认开启，此后沿用上次保存的开关状态。保存后对新启动或重新连接的本机 Codex、配套 Cursor CLI 工作会话生效。已连接会话保持原设置，子会话沿用所属后台设置。暂不覆盖桌面同步、远程会话及其他 Agent。</p>
     {certificateChanged && <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}><summary>企业证书与连接检测</summary>
       <p className="muted small">自动使用系统及 Codex 已配置的信任证书；需要补充时再选择企业 CA 证书。证书保存后从下一次请求连接生效。</p>
       <fieldset disabled={disabled || testing} style={{ border: 0, padding: 0, margin: 0 }}>

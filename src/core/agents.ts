@@ -73,6 +73,9 @@ export class AgentRuntime {
   private forkBorrowers = new Set<AgentRuntime>();
   private requestGuard?: CodexRequestGuard;
   private autoCompaction?: CodexAutoCompaction;
+  private cursorCompactionUncertain = false;
+  private cursorGuardExpected = false;
+  private cursorGuardReady = false;
   private compacting = false;
   private guardConfig?: Record<string, unknown>;
   private guardEnabled: boolean;
@@ -87,7 +90,10 @@ export class AgentRuntime {
     this.timing = new TurnTimingTracker(session);
     this.connection = new CliConnectionTracker(session, () => { this.timing.wait('network', ['connecting', 'reconnecting', 'failed'].includes(session.cliConnection?.state || '')); hooks.changed(); }, hooks.connectionChanged);
     const noProxy = [networkEnv.NO_PROXY || networkEnv.no_proxy || process.env.NO_PROXY || process.env.no_proxy || '', '127.0.0.1', 'localhost', '::1'].filter(Boolean).join(',');
-    const cliEnv = { ...networkEnv, ...storage?.env, ...(this.guardEnabled ? { NO_PROXY: noProxy, no_proxy: noProxy } : {}) };
+    const cursorGuard = requestGuardEnabled && session.provider === 'cursor' && session.purpose === 'work' && !session.cursorNative && !remoteRpc;
+    this.cursorGuardExpected = cursorGuard;
+    const cliEnv = { ...networkEnv, ...storage?.env, ...(this.guardEnabled ? { NO_PROXY: noProxy, no_proxy: noProxy } : {}),
+      ...(cursorGuard ? { TEAM_AGENT_CURSOR_REQUEST_GUARD: '1' } : {}) };
     this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', session.provider === 'cursor' ? cursorNetworkEnvironment(cliEnv) : cliEnv));
     if (session.provider === 'codex' && storage && !storage.sharedEndpoint && !borrowedConnection) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
@@ -356,6 +362,7 @@ export class AgentRuntime {
       s.permissions = await cursorPermissions(s.cwd);
       if (s.purpose === 'work' && s.permissionMode === 'review' && (s.permissions.approval !== 'allowlist' || s.permissions.cursorConfig?.allow.length)) throw new Error('Cursor 权限策略仍包含自动审批或允许规则。请打开执行权限，点击“配置 Cursor Allowlist”后重试。');
       await this.rpc.request('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false }, clientInfo: { name: 'team-agent-workbench', version: '0.4.0' } });
+      if (this.cursorGuardExpected && !this.cursorGuardReady) throw new Error('当前 Cursor CLI 未启用 1 MB 自动压缩适配，请使用工作台配套的 Cursor CLI，或在 agent管理 中关闭请求大小保护后重新连接');
       await this.rpc.request('authenticate', { methodId: 'cursor_login' }, 120000);
       if (s.provider !== 'cursor') throw new Error('当前会话不能接入 Cursor 的原会话');
       if (s.nativeLive && !s.nativeId) { const message = '这条会话还没有原会话标识'; this.finish(message); throw new Error(message); }
@@ -391,6 +398,14 @@ export class AgentRuntime {
     try { await this.start(); }
     catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      if (this.session.provider === 'cursor' && !this.session.cursorNative && !this.closing) {
+        // Skill queries also initialize ACP. Their failures must release starting
+        // and retire the partial process so a retry resumes the same conversation.
+        this.closing = true;
+        await this.rpc.close().catch(() => {});
+        this.finish(detail);
+        throw error;
+      }
       const modelError = this.session.provider === 'codex' ? codexModelUnavailableMessage(error, this.session.model || this.nativeModel) : undefined;
       if (modelError) { this.finish(detail); throw new Error(modelError, { cause: error }); }
       if (this.session.fork?.nativeFork && /already has an active writer/i.test(detail)) {
@@ -498,6 +513,7 @@ export class AgentRuntime {
     if (this.session.status === 'running' || this.session.status === 'approval') throw new Error('当前会话仍在运行，可以新建独立会话继续工作');
     await this.ensureStarted();
     if (this.closing) return false;
+    if (this.cursorCompactionUncertain) throw new Error('尚未确认 Cursor 自动压缩已结束，请重新连接会话后继续');
     await this.autoCompaction?.assertReady();
     if (this.closing) return false;
     if (this.sharedCodex) {
@@ -529,7 +545,8 @@ export class AgentRuntime {
         if (this.turnActive) { this.turnId = result.turn.id; this.timing.begin(promptMessage.id, result.turn.id); this.hooks.changed(); }
       } else {
         const result = await this.rpc.request('session/prompt', { sessionId: this.session.nativeId, prompt: [{ type: 'text', text: nativeText }] }, 0, options?.submitted);
-        this.hooks.event({ method: 'session/prompt/result', result }); this.finish();
+        this.hooks.event({ method: 'session/prompt/result', result });
+        this.finish(this.cursorCompactionUncertain ? 'Cursor 自动压缩尚未确认结束，请重新连接会话后继续' : undefined);
       }
       if (context) { context.accepted = true; this.hooks.changed(); }
       return true;
@@ -615,6 +632,9 @@ export class AgentRuntime {
   private onMessage(m: RpcMessage) {
     if (this.closing && this.forkBorrowers.size && m.method === 'account/chatgptAuthTokens/refresh' && m.id !== undefined && this.authBridge) { void this.authBridge.refresh(this.rpc, m.id); return; }
     if (this.closing) return;
+    if (this.session.provider === 'cursor' && m.method === '_workbench/cursorGuardReady' && m.id === undefined) {
+      this.cursorGuardReady = m.params?.version === 1 && m.params?.budget === 1_000_000; return;
+    }
     if (this.session.cursorNative && m.method === 'cursor/nativeConnection') {
       if (m.params?.sessionId !== this.session.nativeId) return;
       const s = this.session;
@@ -668,6 +688,12 @@ export class AgentRuntime {
     // Filter before archiving: shared subscriptions must not record another chat.
     if (s.provider === 'codex' && (p.threadId || p.thread?.id) && s.nativeId && (p.threadId || p.thread.id) !== s.nativeId) return;
     if (s.provider === 'cursor' && p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
+    if (s.provider === 'cursor' && method === '_workbench/cursorCompaction' && m.id === undefined) {
+      if (p.status === 'started' && p.phase === 'after') this.timing.finish('completed');
+      if (p.status === 'uncertain') this.cursorCompactionUncertain = true;
+      this.hooks.event({ method: 'workbench/autoCompact', provider: 'cursor', ...p });
+      this.hooks.changed(); return; // Maintenance is not a chat/tool message.
+    }
     if (s.provider === 'codex' && m.id === undefined && this.autoCompaction?.handle(method, p)) return;
     if (method === 'workbench/approvalPendingElsewhere') { s.desktopWaitingApproval = true; this.timing.wait('approval', true); this.hooks.changed(); return; }
     if (method === 'workbench/approvalResolved') { s.desktopWaitingApproval = !!p.stillPending; this.timing.wait('approval', !!p.stillPending || !!s.approvals.length); this.hooks.changed(); return; }

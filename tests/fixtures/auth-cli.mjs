@@ -79,6 +79,7 @@ else if (command === 'login' && process.argv[3] === 'status') {
       : preparation ? current.preparationRaw ?? strictResult(current.preparationResult || { title: '模型验证结果', body: '已根据阶段摘要整理。测试已通过。', repoUrl: 'https://github.com/owner/repo', destinationId: 'default' })
         : provider === 'codex' ? '# 模型验证结果\n已根据阶段摘要整理。测试已通过。' : '# Cursor 验证结果\n已完成。';
     if (m.method) fs.appendFileSync(path.join(root, 'rpc-calls.jsonl'), JSON.stringify(m.method === 'account/login/start' ? { ...m, params: { type: m.params.type } } : m) + '\n');
+    if (m.method === 'initialize' && process.argv.includes('acp') && !current.noCursorGuard) respond({ method: '_workbench/cursorGuardReady', params: { version: 1, budget: 1_000_000 } });
     if (m.method === 'initialize' || m.method === 'authenticate' || m.method === 'session/set_model') respond({ id: m.id, result: {} });
     else if (m.method === 'session/set_mode') { cursorMode = m.params.modeId; respond({ id: m.id, result: {} }); }
     else if (m.method === 'collaborationMode/list') send(current.noPlan ? { id: m.id, error: { code: -32601, message: 'Method not found' } } : { id: m.id, result: { data: [{ name: 'Agent', mode: 'default', model: 'gpt-fixture', reasoning_effort: 'medium' }, { name: 'Plan', mode: 'plan', model: 'gpt-fixture', reasoning_effort: 'medium' }] } });

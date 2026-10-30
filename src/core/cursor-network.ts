@@ -7,7 +7,7 @@ export function cursorNetworkPreload(directory = __dirname) {
 
 /** Only Workbench-managed Cursor children receive the additional Windows trust. */
 export function cursorNetworkEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (env.TEAM_AGENT_MANAGEMENT_PROXY !== '1') return env;
+  if (env.TEAM_AGENT_MANAGEMENT_PROXY !== '1' && env.TEAM_AGENT_CURSOR_REQUEST_GUARD !== '1') return env;
   const preload = cursorNetworkPreload();
   const existing = env.NODE_OPTIONS ?? process.env.NODE_OPTIONS ?? '';
   return { ...env, NODE_OPTIONS: existing.includes(JSON.stringify(preload)) ? existing : `${existing} --require ${JSON.stringify(preload)}`.trim() };
