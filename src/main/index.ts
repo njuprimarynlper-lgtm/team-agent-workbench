@@ -1,3 +1,4 @@
+import { saveAgentSettings } from '../core/agent-settings';
 import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, type ProjectCreationIntent } from '../shared/project-connection';
 import { assertPersonalRelay, isNativeSessionRecordAction } from '../core/personal-relay';
 import { PERSONAL_PROJECT_ID, isPersonalBinding } from '../shared/personal-workspace';
@@ -94,7 +95,7 @@ function actionContext(action: string, raw: any, owner: BrowserWindow, preferPer
 }
 async function alignPersonalRelay(team: DataContext, action: string, raw: any) {
   // Importing history must not inherit, validate, or switch the model's relay.
-  if (!personalContext || isNativeSessionRecordAction(action) || action === 'session.codexDesktop.disable' || action === 'session.codexDesktop.cancel') return;
+  if (!personalContext || action === 'settings.agent.save' || isNativeSessionRecordAction(action) || action === 'session.codexDesktop.disable' || action === 'session.codexDesktop.cancel') return;
   const local = personalContext.workbench;
   if (!local.store.settings.egress && team.workbench.store.settings.egress) {
     const settings = structuredClone(team.workbench.store.settings.egress), accessCode = await readProtected(team.egressSecretFile);
@@ -124,7 +125,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
   const { workbench, egress, broadcast, notice } = context;
   if (context === personalContext && active) await alignPersonalRelay(active, action, raw);
   if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(action)) workbench.assertAccountReady();
-  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
+  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'settings.agent.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'workspace.select': {
@@ -176,6 +177,10 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       if (route === 'management' && !egress.status().enabled) throw new Error('该会话的管理端出口尚未启用');
       // Codex/Claude may use custom API endpoints; retain their native checks.
       await egress.probe(input?.provider === 'cursor' ? 'cursor' : undefined); broadcast(); return egress.status();
+    }
+    case 'settings.agent.save': {
+      await saveAgentSettings(workbench.store, raw, provider => workbench.accounts.invalidate(provider));
+      broadcast(); return true;
     }
     case 'settings.save': {
       const next: import('../shared/types').Settings = settingsSchema.parse(raw);

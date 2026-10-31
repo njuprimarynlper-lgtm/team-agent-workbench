@@ -113,6 +113,11 @@ export class Store {
     });
     this.writes = next; await next;
   }
+  saveSettings() {
+    const settings = JSON.parse(JSON.stringify(this.settings));
+    const next = this.writes.catch(() => {}).then(() => atomicJson(path.join(this.root, 'settings.json'), settings));
+    this.writes = next; return next.then(() => { this.saved?.(); });
+  }
   save() {
     const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts, conclusions: this.conclusions, 'activity-assistant': this.activity }));
     const next = this.writes.catch(() => {}).then(async () => { for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value); });
