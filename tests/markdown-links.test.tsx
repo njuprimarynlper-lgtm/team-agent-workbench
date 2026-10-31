@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Markdown } from '../src/renderer/markdown';
+import { markdownHeadingSlugs, markdownLinkTarget } from '../src/renderer/markdown-links';
 
 test('a bare URL in a sent conversation message only links the URL', () => {
   for (const text of [
@@ -67,4 +68,42 @@ test('dash separation preserves adjacent formatting, multiple URLs, code and exp
   assert.equal((code.match(/<a\b/g) || []).length, 0);
   const ascii = render('https://example.com/a--b?q=part-1#section-2');
   assert.match(ascii, /href="https:\/\/example.com\/a--b\?q=part-1#section-2"/);
+});
+
+test('link routing distinguishes web addresses, local files and reply anchors', () => {
+  for (const value of ['https://example.com/report', 'http://localhost:3000/a?q=1#part', 'HTTPS://example.com']) {
+    assert.deepEqual(markdownLinkTarget(value), { kind: 'web', value });
+  }
+  assert.deepEqual(markdownLinkTarget('//example.com/a'), { kind: 'web', value: 'https://example.com/a' });
+  assert.deepEqual(markdownLinkTarget('www.example.com/a'), { kind: 'web', value: 'https://www.example.com/a' });
+  for (const value of ['report.md', './www.example.com/report.md', '../report.md', '/tmp/report.md', 'C:/项目/报告.md:12', 'C:\\项目\\报告.md', '/C:/项目/报告.md', 'file:///C:/report.md', 'docs/report.md#L12', 'docs/%E6%8A%A5%E5%91%8A.md#L12-L14']) {
+    assert.deepEqual(markdownLinkTarget(value), { kind: 'file', value });
+  }
+  for (const value of ['#heading', '#%E6%A0%87%E9%A2%98', '#user-content-fn-1']) {
+    assert.deepEqual(markdownLinkTarget(value), { kind: 'anchor', value });
+  }
+});
+
+test('unsupported and malformed links cannot become external browser URLs', () => {
+  for (const value of [undefined, '', ' ', 'javascript:alert(1)', 'JAVASCRIPT:alert(1)', 'data:text/html,test', 'mailto:a@example.com', 'vscode://file/C:/test.md', 'sandbox:/mnt/data/report.md', 'https://', 'https:example.com', 'https://[invalid', '///server/share', '\\\\server\\share', 'java\tscript:alert(1)', 'a\u0000.md']) {
+    assert.equal(markdownLinkTarget(value).kind, 'unsupported', String(value));
+  }
+  const html = renderToStaticMarkup(React.createElement(Markdown, { text: '[危险](javascript:alert%281%29) [数据](data:text/html,test) [空]()' }));
+  assert.doesNotMatch(html, /href=|javascript:|data:text/);
+  assert.equal((html.match(/<button\b/g) || []).length, 3, html);
+  assert.match(html, /不受支持/);
+});
+
+test('heading fragments retain Chinese and code text, and disambiguate duplicate headings', () => {
+  assert.deepEqual(markdownHeadingSlugs(['测试标题', '测试标题', 'Hello, World!', 'Hello, World!', 'Hello World-1', '使用 foo_bar.ts', 'Résumé']),
+    ['测试标题', '测试标题-1', 'hello-world', 'hello-world-1', 'hello-world-1-1', '使用-foo_barts', 'résumé']);
+});
+
+test('footnote link IDs and accessibility attributes survive custom link rendering', () => {
+  const html = renderToStaticMarkup(React.createElement(Markdown, { text: '说明[^1]\n\n[^1]: 详情。' }));
+  assert.match(html, /id="user-content-fnref-1"/);
+  assert.match(html, /data-footnote-ref="true"/);
+  assert.match(html, /aria-describedby="footnote-label"/);
+  assert.match(html, /href="#user-content-fn-1"/);
+  assert.match(html, /href="#user-content-fnref-1"/);
 });

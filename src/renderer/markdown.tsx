@@ -1,19 +1,42 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from './math-markdown';
-import type { Components } from 'react-markdown';
+import type { Components, ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ExternalLink } from 'lucide-react';
 import { loadMarkdownImage, markdownImageSource } from './markdown-images';
 import { MermaidDiagram } from './mermaid-diagram';
 import { isMermaidSource, prepareDiagramMarkdown } from './mermaid-source';
 import { CopyTextButton } from './copy-text-button';
+import { SessionFilesDialog } from './session-files';
+import { markdownLinkTarget, revealMarkdownAnchor } from './markdown-links';
 
-type MarkdownContext = { sessionId?: string; openFile?: (path: string) => void; conversation?: boolean };
+type MarkdownContext = { sessionId?: string; openFile?: (path: string) => void | Promise<void>; conversation?: boolean };
 const context = createContext<MarkdownContext>({});
 
-function MarkdownLink({ href, children }: React.ComponentPropsWithoutRef<'a'>) {
-  const { openFile } = useContext(context);
-  return <a href={href} title={href} onClick={event => { event.preventDefault(); if (href && /^https?:/i.test(href)) void window.workbench.call('open.link', href); else if (href && !href.startsWith('#')) openFile?.(href); }}>{children}<ExternalLink size={11}/></a>;
+function MarkdownLink({ href, children, node, ...props }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) {
+  const { openFile, sessionId } = useContext(context), target = markdownLinkTarget(href);
+  const [failure, setFailure] = useState<{ key: string; message: string }>();
+  const key = JSON.stringify([sessionId, href]), error = failure?.key === key ? failure.message : undefined;
+  const open = async (element: HTMLElement) => {
+    setFailure(undefined);
+    try {
+      if (target.kind === 'unsupported') throw new Error('链接地址为空或不受支持；请使用网页、本地文件路径或本条回复内的标题链接');
+      if (target.kind === 'web') await window.workbench.call('open.link', target.value);
+      else if (target.kind === 'anchor') revealMarkdownAnchor(element, target.value);
+      else {
+        if (!openFile) throw new Error('请在所属会话中打开文件，当前页面没有关联的文件目录');
+        await openFile(target.value);
+      }
+    } catch (reason) {
+      setFailure({ key, message: reason instanceof Error ? reason.message : '链接打开失败，请稍后重试' });
+    }
+  };
+  return <>{target.kind === 'unsupported'
+    ? <button type="button" className="markdown-link-unsupported" title="此链接地址为空或不受支持，点击查看说明" onClick={event => void open(event.currentTarget)}>{children}</button>
+    : <a {...props} href={target.value} title={props.title || target.value} onClick={event => { event.preventDefault(); void open(event.currentTarget); }} onAuxClick={event => { event.preventDefault(); if (event.button === 1) void open(event.currentTarget); }}>{children}{target.kind === 'web' && <ExternalLink size={11}/>}</a>}
+    {error && <span className="markdown-link-error" role="alert">{error}<button type="button" aria-label="关闭链接提示" onClick={() => setFailure(undefined)}>×</button></span>}
+  </>;
 }
 
 function MarkdownImage({ src, alt, title }: React.ComponentPropsWithoutRef<'img'>) {
@@ -56,5 +79,13 @@ function MarkdownTable({ children }: React.ComponentPropsWithoutRef<'table'>) {
 // Stable component identities keep already-loaded images and diagrams mounted as a reply streams.
 const components: Components = { a: MarkdownLink, img: MarkdownImage, pre: MarkdownPre, table: MarkdownTable };
 export function Markdown({ text, openFile, sessionId, conversation }: { text: string } & MarkdownContext) {
-  return <context.Provider value={{ sessionId, openFile, conversation }}><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url, key) => key === 'src' ? markdownImageSource(url).kind === 'unsupported' ? '' : url : /^(https?:|file:|[a-z]:[/\\])/i.test(url) || !/^[a-z][a-z\d+.-]*:/i.test(url) ? url : ''} components={components}>{prepareDiagramMarkdown(text)}</ReactMarkdown></div></context.Provider>;
+  const [file, setFile] = useState<{ sessionId: string; path: string }>();
+  const preview = openFile ?? (sessionId ? (path: string) => setFile({ sessionId, path }) : undefined);
+  return <context.Provider value={{ sessionId, openFile: preview, conversation }}><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url, key) => {
+    if (key === 'src') return markdownImageSource(url).kind === 'unsupported' ? '' : url;
+    const target = markdownLinkTarget(url);
+    return target.kind === 'unsupported' ? '' : target.value;
+  }} components={components}>{prepareDiagramMarkdown(text)}</ReactMarkdown></div>
+    {file && file.sessionId === sessionId && createPortal(<SessionFilesDialog key={JSON.stringify(file)} sessionId={file.sessionId} initialPath={file.path} close={() => setFile(undefined)}/>, document.body)}
+  </context.Provider>;
 }
