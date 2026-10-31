@@ -1,10 +1,10 @@
 import type { AgentRpc } from './rpc';
 import type { CodexRequestGuard, GuardRequestSize } from './codex-request-guard';
 
-export type AutoCompactionResult = { status: 'completed' | 'failed' | 'uncertain' | 'closed'; message?: string };
+export type AutoCompactionResult = { status: 'completed' | 'failed' | 'uncertain' | 'closed'; message?: string; turnId?: string };
 type Job = {
   previousTurnId?: string; turnId?: string; itemCompleted: boolean; turnCompleted: boolean;
-  acknowledged: boolean; resolve: (result: AutoCompactionResult) => void; timer: ReturnType<typeof setTimeout>;
+  acknowledged: boolean; error?: string; resolve: (result: AutoCompactionResult) => void; timer: ReturnType<typeof setTimeout>;
 };
 
 /** Per native thread, including borrowed forks. Never start from an HTTP callback:
@@ -22,30 +22,35 @@ export class CodexAutoCompaction {
   private closed = false;
   private uncertain?: Job;
   private finishedTurns = new Set<string>();
+  private rejection?: string;
   constructor(readonly guard: CodexRequestGuard, private rpc: AgentRpc, private threadId: () => string | undefined,
     private timeoutMs = 10 * 60_000) {
     this.detach = guard.observeRequests(request => this.observe(request));
   }
   get active() { return !!this.job; }
   get activeTurnId() { return this.job?.turnId; }
+  get localRejection() { return this.rejection; }
   private observe(request: GuardRequestSize) {
-    if (request.threadId !== this.threadId() || this.closed || this.disabled || this.job || this.uncertain) return;
+    if (request.threadId !== this.threadId() || this.closed || this.job || this.uncertain) return;
+    this.rejection = request.rejected;
+    if (this.disabled) return;
     this.observedBytes = request.inputBytes;
-    if (request.inputBytes < request.budget * 0.8) { this.armed = true; return; }
+    if (request.rejected) { this.pendingBytes = Math.max(this.pendingBytes, request.inputBytes); return; }
+    if (request.inputBytes < request.budget * 0.6) { this.armed = true; return; }
     // If native compaction still leaves a large payload, do not compact every
     // turn. Rearm after a small request or substantial further history growth.
-    if (request.inputBytes >= request.budget && Date.now() >= this.retryAfter
+    if (request.inputBytes >= request.budget * 0.8 && Date.now() >= this.retryAfter
       && (this.armed || this.attemptedBytes > 0 && request.inputBytes >= this.attemptedBytes * 1.2))
       this.pendingBytes = Math.max(this.pendingBytes, request.inputBytes);
   }
   nativeCompacted() {
     this.attemptedBytes = Math.max(this.observedBytes, this.pendingBytes);
-    this.pendingBytes = 0; this.armed = false;
+    this.pendingBytes = 0; this.rejection = undefined; this.armed = false;
   }
-  discardPending() { this.pendingBytes = 0; }
-  start(previousTurnId?: string): Promise<AutoCompactionResult> | undefined {
-    if (!this.pendingBytes || this.job || this.closed || this.disabled || this.uncertain) return;
-    this.attemptedBytes = this.pendingBytes; this.pendingBytes = 0; this.armed = false;
+  discardPending() { this.pendingBytes = 0; this.rejection = undefined; }
+  start(previousTurnId?: string, recovery = false): Promise<AutoCompactionResult> | undefined {
+    if (!this.pendingBytes || this.job || this.closed || this.disabled || this.uncertain || Date.now() < this.retryAfter || recovery && !this.rejection) return;
+    this.attemptedBytes = this.pendingBytes; this.pendingBytes = 0; this.rejection = undefined; this.armed = false;
     const threadId = this.threadId(); if (!threadId) return;
     let resolve!: Job['resolve'];
     const result = new Promise<AutoCompactionResult>(done => { resolve = done; });
@@ -96,11 +101,13 @@ export class CodexAutoCompaction {
     if (method === 'turn/started' && turnId) job.turnId ||= turnId;
     if (p.item?.type === 'contextCompaction' && turnId) job.turnId ||= turnId;
     if (!turnId || turnId !== job.turnId) return true;
+    if (method === 'error' && !p.willRetry) job.error = p.error?.message;
     if (method === 'item/completed' && p.item?.type === 'contextCompaction') job.itemCompleted = true;
     if (method === 'turn/completed') {
       job.turnCompleted = true;
       if (p.turn?.error || p.turn?.status !== 'completed') {
-        this.complete({ status: 'failed', message: '本次自动压缩未完成，后续请求继续使用大小保护。' }); return true;
+        const detail = p.turn?.error?.message || job.error;
+        this.complete({ status: 'failed', message: `原生 compact 未完成${detail ? '：' + detail : '；后续请求继续使用大小保护。'}` }); return true;
       }
     }
     if (job.itemCompleted && job.turnCompleted) this.complete({ status: 'completed' });
@@ -120,7 +127,7 @@ export class CodexAutoCompaction {
       this.armed = true;
       this.retryAfter = Date.now() + Math.min(30 * 60_000, 60_000 * 2 ** Math.min(this.failures++, 5));
     }
-    job.resolve(result);
+    job.resolve({ ...result, turnId: job.turnId });
   }
   async assertReady() {
     if (this.closed) throw new Error('自动压缩所属的 CLI 连接已关闭，请重新连接会话');

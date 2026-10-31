@@ -17,9 +17,10 @@ const compress = promisify(zlib.zstdCompress);
 type Encoded = { bytes: Buffer; encoding?: string };
 type CacheEntry = { scope: string; key: string; prefixHash: string; end: number; summary: string; bytes: number; used: number };
 class RetryableSummaryError extends Error {}
+class GuardSizeError extends Error {}
 export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; }
 export interface GuardStats { forwarded: number; summaries: number; summaryInputTokens: number; summaryOutputTokens: number; cacheHits: number; rejected: number; maxUploadBytes: number; }
-export interface GuardRequestSize { threadId: string; inputBytes: number; budget: number; }
+export interface GuardRequestSize { threadId: string; inputBytes: number; budget: number; rejected?: string; }
 
 async function readBody(source: AsyncIterable<Uint8Array>, limit: number) {
   const chunks: Buffer[] = []; let bytes = 0;
@@ -39,7 +40,7 @@ async function decoded(body: Buffer, encoding?: string) {
 // request and must never be reused for this independent request.
 function isolatedSummaryHeaders(headers: http.OutgoingHttpHeaders) {
   const next = { ...headers };
-  for (const name of ['session_id', 'x-codex-session-id', 'x-session-id', 'x-codex-turn-metadata',
+  for (const name of ['thread-id', 'session-id', 'session_id', 'x-codex-session-id', 'x-session-id', 'x-codex-turn-metadata',
     'x-codex-turn-state', 'x-codex-window-id', 'x-codex-parent-thread-id', 'x-codex-routing-hint',
     'x-openai-subagent']) delete next[name];
   next['x-client-request-id'] = randomUUID();
@@ -327,7 +328,7 @@ export class CodexRequestGuard {
       }
       if (fallback) return fallback; // Do not broaden history loss merely to gain optional headroom.
     }
-    throw new Error(`分层历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。请减少本轮附件或在 Codex 中压缩上下文后重试。`);
+    throw new GuardSizeError(`分层历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。原生 compact 尚未执行，需在确认本轮结束后尝试恢复。`);
   }
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const controller = new AbortController(); this.controllers.add(controller);
@@ -343,19 +344,35 @@ export class CodexRequestGuard {
       }
       const headers = guardHeaders(req.headers), body = await readBody(req, readLimit);
       const target = this.target(suffix, local.search);
-      const session = req.headers.session_id || req.headers['x-codex-session-id'] || req.headers['x-session-id'];
+      const session = req.headers['thread-id'] || req.headers['session-id'] || req.headers.session_id || req.headers['x-codex-session-id'] || req.headers['x-session-id'];
+      // Newer CLIs also stream native compaction through /responses (memento).
+      // Keep it inside the same cap, but never schedule maintenance from itself.
+      let compact = suffix === '/responses/compact';
+      try { compact ||= JSON.parse(String(req.headers['x-codex-turn-metadata'] || '{}')).request_kind === 'compaction'; } catch { /* Not native compaction metadata. */ }
       const scope = guardHash([req.headers.authorization, req.headers['chatgpt-account-id'], session || 'unknown']);
       await this.serial(scope, async () => {
         const encoding = String(req.headers['content-encoding'] || '') || undefined;
         // Compact is initiated by the native thread so its result is persisted by
         // Codex. Its input needs the same size protection; helper summaries still
         // go to /responses, never to the stateless /responses/compact endpoint.
-        const prepared = suffix.startsWith('/responses') ? await this.prepare(body, encoding, this.target('/responses', local.search), headers, controller.signal, scope, !!session)
-          : await encodeGuardBody(body, encoding, this.options.compression, this.budget);
+        let prepared: Encoded | undefined;
+        try {
+          prepared = suffix.startsWith('/responses') ? await this.prepare(body, encoding, this.target('/responses', local.search), headers, controller.signal, scope, !!session)
+            : await encodeGuardBody(body, encoding, this.options.compression, this.budget);
+        } catch (error) {
+          // Only a verified local size rejection can schedule recovery. Summary,
+          // authentication and network failures must not masquerade as one.
+          if (error instanceof GuardSizeError && !controller.signal.aborted) {
+            if (compact) throw new GuardSizeError(`原生 compact 请求经分层历史处理后仍超限，未上传；${error.message.replace(/原生 compact 尚未执行.*$/, '')}`);
+            if (suffix === '/responses' && typeof session === 'string')
+              for (const observe of this.requestObservers) observe({ threadId: session, inputBytes: body.length, budget: this.budget, rejected: error.message });
+          }
+          throw error;
+        }
         if (!prepared) throw new Error('此类请求无法缩至 1 MB 以下且不能安全摘要，原请求未上传');
         const upstream = await this.send(target, headers, prepared, controller.signal, req.method);
         this.stats.forwarded++;
-        if (suffix === '/responses' && typeof session === 'string' && upstream.statusCode === 200)
+        if (!compact && suffix === '/responses' && typeof session === 'string' && upstream.statusCode === 200)
           for (const observe of this.requestObservers) observe({ threadId: session, inputBytes: body.length, budget: this.budget });
         const outgoing = guardHeaders(upstream.headers);
         if (upstream.headers['content-length']) outgoing['content-length'] = upstream.headers['content-length'];

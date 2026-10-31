@@ -613,6 +613,63 @@ export class AgentRuntime {
     this.retiredCodexTurns.add(id);
     if (this.retiredCodexTurns.size > 100) this.retiredCodexTurns.delete(this.retiredCodexTurns.values().next().value!);
   }
+  private recoverCodexGuard(): boolean {
+    const job = this.codexSubmission, rejection = this.autoCompaction?.localRejection;
+    if (!job || !rejection || !this.turnActive || this.closing) return false;
+    if (job.recovering) return true;
+    clearTimeout(job.errorTimer); job.pendingError = undefined;
+    const failedTurn = this.turnId;
+    this.retireCodexTurn(failedTurn); // Ignore duplicate terminal errors even when recovery is refused.
+    const refusal = rejection.replace(/原生 compact 尚未执行.*$/, '').trim();
+    const fail = (detail: string) => this.finish(`${refusal}\n${detail}已有对话和本次输入已保留。`);
+    if (job.cancelled || this.session.stoppedAt) { fail('已停止，原生 compact 未启动。'); return true; }
+    if (job.guardRecoveries) { fail('原生 compact 已执行一次，但重试仍被大小保护拒发；已停止自动重试，请减少附件或拆分本轮输入。'); return true; }
+    if (job.progressed || job.rerouted || this.steering || this.session.approvals.length) {
+      fail('本轮已有输出、工具操作或状态变化，原生 compact 未启动，未自动重放；请核对后继续。'); return true;
+    }
+    job.recovering = true; ++job.revision; this.turnId = undefined;
+    const live = () => this.codexSubmission === job && !job.cancelled && !this.closing && !this.session.stoppedAt;
+    const read = () => this.rpc.request('thread/read', { threadId: job.params.threadId, includeTurns: true }, 5000);
+    const sameInput = (thread: any) => {
+      const user = thread?.turns?.flatMap((turn: any) => turn.items || []).findLast((item: any) => item.type === 'userMessage');
+      return user?.content?.filter((part: any) => part.type === 'text').map((part: any) => part.text).join('\n') === job.userText;
+    };
+    void (async () => {
+      try {
+        const before = (await read()).thread;
+        if (!live()) return;
+        const last = before?.turns?.at(-1);
+        if (!failedTurn || !['idle', 'notLoaded', 'systemError'].includes(before?.status?.type) || last?.id !== failedTurn || last.status !== 'failed'
+          || !sameInput(before) || !Array.isArray(last.items) || last.items.some((item: any) => !['userMessage', 'reasoning'].includes(item.type))) {
+          fail('无法确认原轮次和保留输入，原生 compact 未启动，未自动重试。'); return;
+        }
+        const compact = this.autoCompaction?.start(failedTurn, true);
+        if (!compact) { fail('原生 compact 暂不可用或处于失败退避期，未自动重试。'); return; }
+        job.guardRecoveries = 1; this.compacting = true;
+        this.message(randomUUID(), 'system', '分层历史处理后请求仍超限，原轮次已结束；正在尝试原生 compact，完成并核对后恢复本次输入（最多一次）。');
+        this.hooks.event({ method: 'workbench/autoCompact', reason: 'local-rejection', status: 'started' });
+        const result = await compact;
+        this.compacting = false;
+        if (this.closing || this.codexSubmission !== job) return;
+        this.hooks.event({ method: 'workbench/autoCompact', reason: 'local-rejection', ...result });
+        if (!live()) { fail('恢复已停止，未重试输入。'); return; }
+        if (result.status !== 'completed') { fail(`原生 compact ${result.status === 'uncertain' ? '尚未确认结束' : '失败'}，本次输入未重试。${result.message || ''}`); return; }
+        const after = (await read()).thread;
+        if (!live()) return;
+        if (!['idle', 'notLoaded'].includes(after?.status?.type) || !sameInput(after) || ![failedTurn, result.turnId].includes(after?.turns?.at(-1)?.id)) {
+          fail('原生 compact 已完成，但无法核对保留输入或会话状态，未自动重试。'); return;
+        }
+        // Native history already contains this input. Resume it without appending
+        // a second user message, changing instructions, or releasing the FIFO.
+        job.params = { ...job.params, input: [] }; job.recovering = false;
+        this.connection.begin();
+        await this.submitCodexTurn(job);
+      } catch (error: any) {
+        if (live()) fail(`原生 compact 恢复失败，未继续重试：${error.message || '无法核对会话状态'}。`);
+      }
+    })();
+    return true;
+  }
   private recoverCodexCapacity(error: unknown, accepted: boolean): boolean {
     const job = this.codexSubmission;
     if (!job || !this.turnActive || !isCodexCapacityError(error) || this.closing) return false;
@@ -718,7 +775,7 @@ export class AgentRuntime {
   }
   private finish(error?: string) {
     if (this.compacting) return;
-    if (this.codexSubmission?.attempts) this.retireCodexTurn(this.turnId);
+    if (this.codexSubmission?.attempts || this.codexSubmission?.guardRecoveries) this.retireCodexTurn(this.turnId);
     clearTimeout(this.codexSubmission?.errorTimer); this.codexSubmission = undefined;
     this.timing.finish(error ? 'error' : this.session.stoppedAt ? 'stopped' : 'completed');
     this.connection.finish(error);
@@ -740,6 +797,7 @@ export class AgentRuntime {
         const unsafe = result.status === 'uncertain' || result.status === 'closed';
         this.session.status = unsafe ? 'error' : 'idle';
         this.session.error = unsafe ? result.message || '自动压缩期间 CLI 连接已关闭，请重新连接后继续。' : undefined;
+        if (result.status === 'failed') this.message(randomUUID(), 'system', result.message || '原生 compact 未完成，后续请求继续使用大小保护。');
         this.hooks.event({ method: 'workbench/autoCompact', status: result.status, message: result.message });
         this.hooks.changed(); this.hooks.done();
       });
@@ -843,7 +901,7 @@ export class AgentRuntime {
         this.message(randomUUID(), 'system', `Codex 服务已将本轮从「${p.fromModel || '原模型'}」切换至「${p.toModel}」（${p.reason || '服务端路由'}）。`);
         this.hooks.event({ method, params: p }); return;
       }
-      if (method === 'error' && !p.willRetry && submission && isCodexCapacityError(p.error || p)) {
+      if (method === 'error' && !p.willRetry && submission && (this.autoCompaction?.localRejection || isCodexCapacityError(p.error || p))) {
         if (submission.recovering) return;
         // Error is not proof of a completed turn. Wait for its terminal event before retrying.
         submission.pendingError = p.error || p;
@@ -851,12 +909,13 @@ export class AgentRuntime {
         submission.errorTimer = setTimeout(() => {
           if (this.codexSubmission === submission) {
             this.uncertainCodexTurn = { id: this.turnId };
-            this.finish('Codex 模型容量不足，尚未确认本轮结束；未自动重试。请停止任务或重新连接后继续，已有输入保留。');
+            this.finish(this.autoCompaction?.localRejection ? '请求被本地大小保护拒发，尚未确认本轮结束；原生 compact 未启动，输入已保留，请停止任务或重新连接后继续。' : 'Codex 模型容量不足，尚未确认本轮结束；未自动重试。请停止任务或重新连接后继续，已有输入保留。');
           }
         }, 5000);
         return;
       }
       if (method === 'turn/completed' && (!this.uncertainCodexTurn?.id || this.uncertainCodexTurn.id === p.turn?.id)) this.uncertainCodexTurn = undefined;
+      if (method === 'turn/completed' && p.turn?.status === 'failed' && this.recoverCodexGuard()) return;
       if (method === 'turn/completed' && p.turn?.status !== 'interrupted' && (p.turn?.status === 'failed' || p.turn?.error) && this.recoverCodexCapacity(p.turn?.error || submission?.pendingError, true)) return;
       if (!this.timing.active && this.turnActive && method.startsWith('item/')) this.timing.begin(s.messages.findLast(message => message.role === 'user')?.id, p.turnId, true);
       if (s.cliConnection?.state === 'connecting' && (method === 'item/started' || method.startsWith('item/reasoning/') || method === 'item/agentMessage/delta')) this.timing.wait('network', false);
@@ -1018,8 +1077,9 @@ export class AgentRuntime {
   }
   async cancel() {
     if (this.uncertainCodexTurn) { await this.close(); return; }
-    if (this.codexSubmission) { this.codexSubmission.cancelled = true; clearTimeout(this.codexSubmission.errorTimer); if (!this.turnId) { this.finish('已停止'); return; } }
+    if (this.codexSubmission) { this.codexSubmission.cancelled = true; clearTimeout(this.codexSubmission.errorTimer); }
     if (this.compacting) { if (!await this.autoCompaction?.cancel()) await this.close(); return; }
+    if (this.codexSubmission && !this.turnId) { this.finish('已停止'); return; }
     if (this.session.provider === 'codex' && this.turnId) await this.rpc.request('turn/interrupt', { threadId: this.session.nativeId, turnId: this.turnId });
     else if (this.session.provider === 'cursor' && this.session.nativeId) { if(isCursorFileSession(this.session))await this.rpc.request('session/cancel',{sessionId:this.session.nativeId});else this.rpc.notify('session/cancel', { sessionId: this.session.nativeId }); }
     else this.close();

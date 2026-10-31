@@ -25,6 +25,7 @@
 .subsession-messages .mermaid-diagram{contain:paint;isolation:isolate}
 .subsession-messages .mermaid-diagram-viewport{max-height:none;overflow-x:auto;overflow-y:hidden;contain:paint;overscroll-behavior-x:contain}
 .subsession-composer{padding:12px;border-top:1px solid #e0e6e2}.subsession-composer textarea{width:100%;min-height:100px;resize:vertical;max-height:35vh}.subsession-composer>.row{margin-top:8px}.subsession-empty{padding:20px;color:#718578;font-size:13px;line-height:1.7}
+.subsession-composer-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:auto}
 .inherited-conversation{font-size:12px;margin-bottom:12px;color:#60796b}.inherited-conversation>summary{cursor:pointer;padding:6px 0}.inherited-conversation .message{opacity:.85}
 .selection-content{min-width:0}.selection-actions{position:fixed;z-index:1500;display:flex;gap:4px;padding:4px;border:1px solid #dce6df;border-radius:8px;background:white;box-shadow:0 4px 16px #26352f22}
 .selection-actions button{font-size:12px;border:0;background:#edf5ef;color:#285b40;padding:8px;border-radius:5px}

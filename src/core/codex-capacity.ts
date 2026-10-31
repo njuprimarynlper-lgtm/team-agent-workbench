@@ -30,4 +30,5 @@ export interface CodexSubmission {
   params: any; messageId: string; userText: string; used: Set<string>; attempts: number; revision: number;
   progressed: boolean; rerouted: boolean; recovering: boolean; cancelled?: boolean;
   pendingError?: unknown; errorTimer?: ReturnType<typeof setTimeout>;
+  guardRecoveries?: number;
 }

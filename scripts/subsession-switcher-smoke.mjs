@@ -16,6 +16,34 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.context().setOffline(true); await page.goto(pathToFileURL(path.join(output, 'index.html')).href);
   const tabs = page.locator('.subsession-tabs'), selected = tabs.locator('[aria-selected="true"]'), input = page.getByRole('textbox', { name: '子会话输入', exact: true });
+  const assertActionsRight = async (count, scenario) => {
+    const metrics = await page.locator('.subsession-composer .composer-bottom').evaluate(el => {
+      const bar = el.getBoundingClientRect(), style = getComputedStyle(el);
+      return { left: bar.left + parseFloat(style.paddingLeft), right: bar.right - parseFloat(style.paddingRight), buttons: [...el.querySelectorAll('button.send')].map(button => { const r = button.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, width: r.width }; }) };
+    });
+    assert.equal(metrics.buttons.length, count, scenario);
+    assert(Math.abs(metrics.right - metrics.buttons.at(-1).right) <= 1, `${scenario}: action group is not right-aligned: ${JSON.stringify(metrics)}`);
+    assert(metrics.buttons.every(button => button.left >= metrics.left && button.right <= metrics.right + 1 && button.width >= 30), scenario + ': action is clipped or squeezed');
+    assert(metrics.buttons.every(button => Math.abs(button.top - metrics.buttons[0].top) <= 1), scenario + ': send and stop must stay on the same row');
+  };
+  // Test panel width independently of viewport width: the old spacer collapsed
+  // above the global 1250px breakpoint even in a narrow right-hand child pane.
+  for (const [viewport, pane] of [[1600, 720], [1600, 340], [1300, 440], [1100, 340]]) {
+    await page.setViewportSize({ width: viewport, height: 900 });
+    await page.getByLabel('右栏宽度').fill(String(pane));
+    for (const long of [false, true]) {
+      await page.getByLabel('长模型名称').setChecked(long);
+      for (const state of ['idle', 'running', 'starting', 'approval', 'stopping']) {
+        await page.getByLabel('子会话状态').selectOption(state);
+        await assertActionsRight(state === 'idle' ? 1 : 2, `${viewport}/${pane}, long=${long}, ${state}`);
+      }
+    }
+  }
+  await page.screenshot({ path: path.join(output, 'composer-actions-narrow.png') });
+  await page.setViewportSize({ width: 1300, height: 900 });
+  await page.getByLabel('右栏宽度').fill('440');
+  await page.getByLabel('长模型名称').uncheck();
+  await page.getByLabel('子会话状态').selectOption('idle');
   await expect(tabs.getByRole('tab')).toHaveCount(2); await expect(selected).toHaveText('误差分析');
   await expect(tabs).not.toContainText('已关闭'); await expect(tabs).not.toContainText('版面分析');
   await input.fill('误差分析的未发送草稿'); await tabs.getByRole('tab', { name: '速度验证', exact: false }).click();

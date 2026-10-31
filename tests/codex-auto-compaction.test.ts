@@ -8,7 +8,7 @@ import type { AgentRpc } from '../src/core/rpc';
 class Requests {
   listeners = new Set<(request: GuardRequestSize) => void>();
   observeRequests(listener: (request: GuardRequestSize) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  send(inputBytes = 1000, threadId = 'a') { for (const listener of this.listeners) listener({ inputBytes, threadId, budget: 1000 }); }
+  send(inputBytes = 1000, threadId = 'a', rejected?: string) { for (const listener of this.listeners) listener({ inputBytes, threadId, budget: 1000, rejected }); }
 }
 class Rpc extends EventEmitter implements AgentRpc {
   calls: { method: string; params: any }[] = [];
@@ -51,8 +51,34 @@ test('successful compaction rearms only after headroom or substantial further gr
     f.requests.send(1100); const first = f.compact.start()!; f.begin(); f.item(); f.end(); await first;
     for (const bytes of [1100, 1150, 1319]) { f.requests.send(bytes); assert.equal(f.compact.start(), undefined); }
     f.requests.send(1320); const growth = f.compact.start()!; f.begin('compact-2'); f.item('compact-2'); f.end('compact-2'); await growth;
-    f.requests.send(700); f.requests.send(1000); const rearmed = f.compact.start()!;
+    f.requests.send(599); f.requests.send(800); const rearmed = f.compact.start()!;
     assert(rearmed); f.begin('compact-3'); f.item('compact-3'); f.end('compact-3'); await rearmed;
+  } finally { f.compact.close(); }
+});
+
+test('compact is scheduled at 80 percent with a 60 percent rearm threshold, not on every borderline turn', async () => {
+  const f = setup();
+  try {
+    f.requests.send(799); assert.equal(f.compact.start(), undefined);
+    f.requests.send(800); const job = f.compact.start()!; assert(job);
+    f.begin(); f.item(); f.end(); await job;
+    f.requests.send(799); f.requests.send(800); assert.equal(f.compact.start(), undefined);
+    f.requests.send(600); f.requests.send(800); assert.equal(f.compact.start(), undefined);
+    f.requests.send(599); f.requests.send(800); assert(f.compact.start());
+  } finally { f.compact.close(); }
+});
+
+test('local refusal is observable but never starts work from HTTP; recovery respects failure backoff', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+  const f = setup();
+  try {
+    f.requests.send(1001, 'other', 'rejected'); assert.equal(f.compact.localRejection, undefined);
+    f.requests.send(1001, 'a', 'size rejected'); assert.equal(f.compact.localRejection, 'size rejected');
+    assert.equal(f.rpc.calls.length, 0);
+    const job = f.compact.start('failed-user', true)!; assert(job);
+    f.begin(); f.end('compact-1', 'failed'); await job;
+    f.requests.send(1001, 'a', 'size rejected'); assert.equal(f.compact.start('retry', true), undefined);
+    t.mock.timers.tick(60_001); assert(f.compact.start('retry', true));
   } finally { f.compact.close(); }
 });
 

@@ -109,6 +109,42 @@ test('unrepairable exact-limit and over-limit latest inputs never reach the upst
   assert.equal(received.length, 0); assert.equal(guard.stats.rejected, 2);
 }));
 
+test('a verified local size refusal notifies the matching thread; compact refuses without scheduling recursion', () => fixture(async ({ url, received, guard }) => {
+  const observed: any[] = []; const detach = guard.observeRequests(value => observed.push(value));
+  try {
+    const body = json({ model: 'test', instructions: 'KEEP_INSTRUCTIONS', input: [msg('user', text('old')), msg('assistant', text('done')), msg('user', text('PRIVATE_LATEST_' + 'x'.repeat(1_000_000)))] });
+    const refusal = await request(url, body);
+    assert.equal(refusal.status, 400); assert.equal(observed.length, 1);
+    assert.equal(observed[0].threadId, 'thread-A'); assert.equal(observed[0].inputBytes, body.length);
+    assert.match(observed[0].rejected, /分层历史处理.*原生 compact 尚未执行/);
+    assert.doesNotMatch(observed[0].rejected, /PRIVATE_LATEST/);
+    const compact = await request(url + '/compact', body);
+    assert.equal(compact.status, 400); assert.match(compact.body.toString(), /原生 compact 请求.*未上传/);
+    assert.doesNotMatch(compact.body.toString(), /尚未执行/);
+    const streamedCompact = await request(url, body, { 'thread-id': 'thread-A', 'x-codex-turn-metadata': '{"request_kind":"compaction"}' });
+    assert.equal(streamedCompact.status, 400); assert.match(streamedCompact.body.toString(), /原生 compact 请求.*未上传/);
+    assert.doesNotMatch(streamedCompact.body.toString(), /尚未执行/);
+    assert.equal(observed.length, 1); assert.equal(received.length, 0);
+  } finally { detach(); }
+}));
+
+test('native thread header spellings select the right observer and isolate summary caches', () => fixture(async ({ url, received, guard }) => {
+  const observed: any[] = []; const detach = guard.observeRequests(value => observed.push(value));
+  try {
+    for (const header of ['thread-id', 'session-id', 'x-codex-session-id', 'x-session-id']) {
+      const result = await request(url, json(history()), { session_id: '', [header]: header + '-native' });
+      assert.equal(result.status, 200); assert.equal(observed.at(-1).threadId, header + '-native');
+    }
+    assert.equal(guard.stats.cacheHits, 0);
+    assert.equal((await request(url, json({ input: [] }), { 'thread-id': 'child', 'session-id': 'parent' })).status, 200);
+    assert.equal(observed.at(-1).threadId, 'child', 'thread identity takes precedence over a broader session');
+    const count = observed.length;
+    assert.equal((await request(url, json({ input: [] }), { 'x-codex-turn-metadata': '{"request_kind":"compaction"}' })).status, 200);
+    assert.equal(observed.length, count, 'successful streamed compact cannot trigger another compact');
+    assert(received.every(item => item.bytes.length < 3000));
+  } finally { detach(); }
+}, { budget: 3000 }));
+
 test('compact keeps a small request byte-identical and never uploads an oversized protected latest turn', () => fixture(async ({ url, received, guard }) => {
   const compact = url + '/compact', observed: string[] = [];
   const detach = guard.observeRequests(request => observed.push(request.threadId));
@@ -322,13 +358,13 @@ test('persistent upstream overload stops after three summary attempts without fo
 }, { budget: 3000 }));
 
 test('summary uses independent request identity while the original inference keeps its native headers', () => fixture(async ({ url, received }) => {
-  const original = { 'x-codex-turn-metadata': '{"turn_id":"native-turn"}', 'x-codex-turn-state': 'native-state',
+  const original = { 'thread-id': 'thread-A', 'session-id': 'session-A', 'x-codex-turn-metadata': '{"turn_id":"native-turn"}', 'x-codex-turn-state': 'native-state',
     'x-codex-window-id': 'native-window', 'x-codex-routing-hint': 'native-route', 'x-client-request-id': 'native-request',
     'x-openai-subagent': 'native-agent', 'x-custom-auth': 'custom-secret', 'chatgpt-account-id': 'account-A' };
   assert.equal((await request(url, json(history()), original)).status, 200);
   assert(received.length > 1);
   for (const item of received.slice(0, -1)) {
-    for (const name of ['session_id', 'x-codex-turn-metadata', 'x-codex-turn-state', 'x-codex-window-id', 'x-codex-routing-hint', 'x-openai-subagent']) assert.equal(item.headers[name], undefined, name);
+    for (const name of ['thread-id', 'session-id', 'session_id', 'x-codex-turn-metadata', 'x-codex-turn-state', 'x-codex-window-id', 'x-codex-routing-hint', 'x-openai-subagent']) assert.equal(item.headers[name], undefined, name);
     assert.match(String(item.headers['x-client-request-id']), /^[0-9a-f-]{36}$/);
     assert.notEqual(item.headers['x-client-request-id'], original['x-client-request-id']);
     assert.equal(item.headers['x-custom-auth'], original['x-custom-auth']);

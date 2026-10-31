@@ -169,9 +169,13 @@ node scripts/test-background.mjs tests/cursor-request-guard.test.ts tests/cursor
 
 摘要缓存仅在内存中存在，按账号、会话、模型、指令、工具、上游与精确前缀核对；最多 128 项、32 MiB，闲置 1 小时失效，原请求回到预算内时清除。程序结束不保存摘要映射。用户原始会话仍由原有存储管理。
 
-工作会话的普通推理请求达到上传边界且修复后成功接入上游时，会为对应原生线程标记一次自动 compact。同一轮多个请求只合并为一次：当前用户轮次正常结束后，工作台调用 `thread/compact/start`，下一轮消息留在现有等待队列。只收到 RPC 的空确认不算完成，必须收到同一压缩轮次的 `contextCompaction` 完成与 `turn/completed`；这些内部事件不显示成工具消息，不增加用户轮次、日志或完成通知。Codex 自行保存原生压缩状态，后续请求使用新上下文；工作台不自行拼接或裁剪 compact 返回的加密状态。若 Codex 已在本轮完成自动压缩，则取消待执行的重复 compact。成果整理、推荐等一次性后台任务仅执行请求大小保护，不额外启动维护轮次。
+工作会话的普通推理请求原始正文达到预算的 **80%** 且成功接入上游时，就会为对应原生线程标记一次自动 compact，不必等到超限。同一轮多个请求只合并为一次：当前用户轮次正常结束后，工作台调用 `thread/compact/start`，下一轮消息留在现有等待队列。只收到 RPC 的空确认不算完成，必须收到同一压缩轮次的 `contextCompaction` 完成与 `turn/completed`；这些内部事件不显示成工具消息，不增加用户轮次、日志或完成通知。Codex 自行保存原生压缩状态，后续请求使用新上下文；工作台不自行拼接或裁剪 compact 返回的加密状态。若 Codex 已在本轮完成自动压缩，则取消待执行的重复 compact。成果整理、推荐等一次性后台任务仅执行请求大小保护，不额外启动维护轮次。
 
-`/responses/compact` 的输入也会先经过大小保护，必要的交接摘要仍通过 `/responses` 生成，不会递归调用 compact。压缩成功后，原生请求降到 80% 以下会重新启用下一次超限触发；若仍在边界附近，则须比上次触发时至少增长 20% 才再次安排，避免每轮重复压缩。明确失败后继续使用请求保护，后续新超限请求按 1 分钟起步、最多 30 分钟的指数退避再尝试；CLI 明确不支持该方法时，本连接停止自动尝试。维护最多等待 10 分钟，超时会尝试中断已知压缩轮次；无法确认原生任务结束时暂停后续发送，不能把超时当作取消成功。原生完成事件或已确认启动后的空闲状态可解除发送屏障，断开、停止或关闭会话会清理监听与等待任务。父会话、子会话、临时侧聊按各自的原生线程隔离标记和压缩。
+分层历史处理后仍超限而在本地拒发时，HTTP 保护层只标记拒发，不在请求回调里启动 compact。工作台等待原轮次的失败完成事件，再读取原生历史核对空闲状态、失败轮次和已保留的完整用户文本；仅有错误通知而没有完成事件时，不启动恢复，也不放行新轮次。确认本轮尚未输出、执行工具、切换模型或接受引导后，最多尝试一次原生 compact。完整完成后再核对历史和状态，以空 `input` 续跑原生历史中已接受的输入，不追加第二条用户消息，不改变本轮模型、权限和指令，也不让后续排队消息抢先发送。无法核对、已执行工具、停止/关闭或重试仍超限时，保留输入并明确提示，不循环重放。
+
+线程关联同时兼容新版 `thread-id` / `session-id` 和旧版 `session_id` / `x-codex-session-id` / `x-session-id` 请求头，优先使用线程身份；独立摘要请求移除这些原生身份字段。新版 CLI 通过 `/responses` 流式执行的原生 compact（元数据 `request_kind=compaction`）也受相同保护，并且不会再次安排 compact。
+
+`/responses/compact` 的输入也会先经过大小保护，必要的交接摘要仍通过 `/responses` 生成，不会递归调用 compact。compact 自身仍超限时不上传，提示明确区分“分层处理失败”“原生 compact 未启动”和“原生 compact 失败”。压缩成功后，原生请求降到 **60%** 以下会重新启用 80% 触发；若仍在边界附近，则须比上次触发时至少增长 20% 才再次安排，避免每轮重复压缩。明确失败后继续使用请求保护，后续请求按 1 分钟起步、最多 30 分钟的指数退避再尝试；CLI 明确不支持该方法时，本连接停止自动尝试。维护最多等待 10 分钟，超时会尝试中断已知压缩轮次；无法确认原生任务结束时暂停后续发送，不能把超时当作取消成功。原生完成事件或已确认启动后的空闲状态可解除发送屏障，断开、停止或关闭会话会清理监听与等待任务。父会话、子会话、临时侧聊按各自的原生线程隔离标记和压缩。
 
 访问上游沿用原环境代理；Windows 未提供环境代理时读取系统固定代理及排除列表，不更改系统设置。自动代理脚本（PAC）和 SOCKS 暂不支持，需配置 HTTP 代理或关闭本功能。证书仍需有效，代理失败不会改走直连。本机入口显式排除于代理，避免本机 Codex 的模型请求被绕到外部代理。当前版本通过真实 CLI 核对 provider；未确认保护通路时停止发送。
 
@@ -185,11 +189,13 @@ node scripts/test-background.mjs tests/cursor-request-guard.test.ts tests/cursor
 
 ```text
 npx tsx --test tests/codex-request-guard.test.ts tests/codex-request-guard-runtime.test.ts tests/codex-fork-writer.test.ts
-node scripts/test-background.mjs tests/codex-auto-compaction.test.ts tests/codex-auto-compaction-runtime.test.ts
+node scripts/test-background.mjs tests/codex-auto-compaction.test.ts tests/codex-auto-compaction-runtime.test.ts tests/codex-guard-recovery.test.ts
 npx tsx --test tests/codex-guard-tls.test.ts
 node scripts/codex-guard-ui-smoke.mjs
 npx tsx scripts/codex-request-guard-smoke.ts
 npx tsx scripts/codex-request-guard-smoke.ts --builtin
+npx tsx scripts/codex-guard-recovery-smoke.ts
+npx tsx scripts/codex-guard-recovery-smoke.ts --refused
 ```
 
 将环境变量 `RUN_GUARD_NATIVE_CLI` 设为 `1` 后运行 TLS 用例，还会调用本机已安装的 Codex CLI，以隔离的虚构账号和模拟 HTTPS 服务验证：真实 CLI 的证书错误能到达会话界面、修改证书后同一会话继续回复。它不会调用外部模型或使用个人额度。
@@ -201,6 +207,8 @@ npx tsx scripts/codex-request-guard-smoke.ts --builtin
 **真实摘要验证：** 真实 `gpt-6-astra` 的算法研究材料测试用 3,000 字节预算触发同一摘要算法：28,959 字节材料经 2 次摘要后续聊成功，每次上传最大 2,926 字节；额外摘要用量 7,786 输入 / 625 输出 Token，最终推理用量 2,778 输入 / 185 输出 Token，全链路约 30 秒。项目名、精度门槛、禁写约束、各方案已测/未测状态、撤回的错误和下一步均保留；这只代表该合成样本，不能保证任意项目无语义损失。
 
 **验证范围：** 工作台自行执行严格上传边界，不依赖网关是否拒绝超限请求。此前独立负对照表明当前通路可能接受更大的请求，不能据此宣称目标网关本身具有严格的 1 MB 限制；本次复验全部经过保护入口。如果后续中转会解压或重新编码正文，本机出口预算不能代表其后续出口预算。
+
+**#22 回归验证：** 协议桩覆盖提前触发、本地拒发后一次恢复、保留输入、完整生命周期屏障、等待队列顺序、取消、缺失完成事件、compact 自身超限和重试再次超限。另用本机已安装的 Codex CLI、隔离配置和回环模拟服务验证新版请求头与流式 compact：约 93 万字节请求在正常结束后提前压缩，下一次原生续跑请求降至约 33 万字节；超过 1 MB 且原生 compact 也不能缩小的样本全程零上传，并明确停止恢复。此项使用合成数据和本地模拟模型，不代表真实模型的语义摘要效果。
 
 后台验证（不打开界面）：
 
