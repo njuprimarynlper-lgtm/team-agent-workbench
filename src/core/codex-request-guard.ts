@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import * as zlib from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentRpc } from './rpc';
 import { guardHeaders, guardRequest, guardNetworkEnvironment, guardProbe } from './codex-guard-transport';
 import { GuardNetworkError } from './codex-guard-trust';
@@ -15,6 +16,7 @@ const summaryRawTarget = 200_000, summaryTimeout = 240_000, maxSummaries = 16;
 const compress = promisify(zlib.zstdCompress);
 type Encoded = { bytes: Buffer; encoding?: string };
 type CacheEntry = { scope: string; key: string; prefixHash: string; end: number; summary: string; bytes: number; used: number };
+class RetryableSummaryError extends Error {}
 export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; }
 export interface GuardStats { forwarded: number; summaries: number; summaryInputTokens: number; summaryOutputTokens: number; cacheHits: number; rejected: number; maxUploadBytes: number; }
 export interface GuardRequestSize { threadId: string; inputBytes: number; budget: number; }
@@ -65,7 +67,18 @@ async function summaryHttpFailure(response: http.IncomingMessage, encoded: Encod
   const requestId = safeDiagnostic(response.headers['x-request-id'] || response.headers['openai-request-id'], 128);
   if (requestId) details.push(`上游请求 ${requestId}`);
   details.push(`上传 ${encoded.bytes.length} 字节${encoded.encoding ? `/${encoded.encoding}` : ''}`);
-  return new Error(`历史摘要请求失败（${details.join('；')}），原推理请求未上传`);
+  const message = `历史摘要请求失败（${details.join('；')}），原推理请求未上传`;
+  return error?.code === 'server_is_overloaded' || [502, 503, 504].includes(response.statusCode || 0)
+    ? new RetryableSummaryError(message) : new Error(message);
+}
+
+function summaryResultFailure(reason: string, response: http.IncomingMessage, encoded: Encoded, retryable = false) {
+  const details = [reason];
+  const requestId = safeDiagnostic(response.headers['x-request-id'] || response.headers['openai-request-id'], 128);
+  if (requestId) details.push(`上游请求 ${requestId}`);
+  details.push(`上传 ${encoded.bytes.length} 字节${encoded.encoding ? `/${encoded.encoding}` : ''}`);
+  const message = `历史摘要未完整完成或返回了非文本结果（${details.join('；')}），原推理请求未上传`;
+  return retryable ? new RetryableSummaryError(message) : new Error(message);
 }
 
 /** Under-budget bodies are byte-identical; only oversized requests are re-encoded. */
@@ -151,6 +164,16 @@ export class CodexRequestGuard {
     return guardRequest(target, next, encoded.bytes, this.env, signal, method, this.options.certificateFile?.(), 15000, responseTimeout);
   }
   private async summarize(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal) {
+    for (let attempt = 0; ; attempt++) {
+      try { return await this.summarizeOnce(target, headers, encoded, signal); }
+      catch (error) {
+        if (!(error instanceof RetryableSummaryError) || signal.aborted || this.closed) throw error;
+        if (attempt >= 2) throw new Error(`${error.message}（已尝试 3 次）`);
+        await delay(2000 * 2 ** attempt, undefined, { signal });
+      }
+    }
+  }
+  private async summarizeOnce(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal) {
     this.stats.summaries++;
     const deadline = AbortSignal.any([signal, AbortSignal.timeout(summaryTimeout)]);
     let raw: Buffer, response: http.IncomingMessage;
@@ -162,28 +185,46 @@ export class CodexRequestGuard {
       if (!signal.aborted && deadline.aborted) throw new Error(`历史摘要请求超时（${summaryTimeout / 1000} 秒；上传 ${encoded.bytes.length} 字节），原推理请求未上传`);
       throw error;
     }
-    let completed: any;
-    try {
-      const text = raw.toString('utf8');
-      // Some Codex gateways stream valid SSE without a Content-Type header.
-      if (String(response.headers['content-type']).includes('text/event-stream') || /^(?:event:|data:|:)/.test(text.trimStart())) {
-        for (const event of text.split(/\r?\n\r?\n/)) {
-          const data = event.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
-          if (!data || data.trim() === '[DONE]') continue;
-          const parsed = JSON.parse(data);
-          if (['response.failed', 'response.incomplete', 'error'].includes(parsed.type)) throw Error();
-          if (parsed.type === 'response.completed') completed = parsed.response;
+    const fail = (reason: string, retryable = false): never => { throw summaryResultFailure(reason, response, encoded, retryable); };
+    let completed: any, terminalType = '', lastType = '';
+    const text = raw.toString('utf8');
+    // Some Codex gateways stream valid SSE without a Content-Type header.
+    if (String(response.headers['content-type']).includes('text/event-stream') || /^(?:event:|data:|:)/.test(text.trimStart())) {
+      for (const event of text.split(/\r?\n\r?\n/)) {
+        const data = event.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+        if (!data || data.trim() === '[DONE]') continue;
+        let parsed: any;
+        try { parsed = JSON.parse(data); } catch { fail('SSE 事件不是有效 JSON'); }
+        lastType = safeDiagnostic(parsed?.type) || 'unknown';
+        if (['response.failed', 'response.incomplete', 'error'].includes(parsed?.type)) {
+          const code = safeDiagnostic(parsed.response?.error?.code || parsed.error?.code);
+          const reason = safeDiagnostic(parsed.response?.incomplete_details?.reason);
+          fail(`事件 ${lastType}${code ? `、代码 ${code}` : ''}${reason ? `、原因 ${reason}` : ''}`, code === 'server_is_overloaded');
         }
-      } else completed = JSON.parse(raw.toString('utf8'));
-      if (completed?.status !== 'completed' || !Array.isArray(completed.output) || !completed.output.length || completed.output.some((item: any) => !['message', 'reasoning'].includes(item.type))) throw Error();
-      const parts = completed.output.filter((item: any) => item.type === 'message');
-      if (parts.some((item: any) => item.role !== 'assistant' || item.status && item.status !== 'completed' || !Array.isArray(item.content) || item.content.some((part: any) => part.type !== 'output_text' || typeof part.text !== 'string'))) throw Error();
-      const summary = parts.flatMap((item: any) => item.content.map((part: any) => part.text)).join('\n').trim();
-      if (!summary || Buffer.byteLength(summary) > 64000) throw Error();
-      this.stats.summaryInputTokens += Number(completed.usage?.input_tokens) || 0;
-      this.stats.summaryOutputTokens += Number(completed.usage?.output_tokens) || 0;
-      return summary;
-    } catch { throw new Error('历史摘要未完整完成或返回了非文本结果，原推理请求未上传'); }
+        if (parsed?.type === 'response.completed') { completed = parsed.response; terminalType = lastType; }
+      }
+      if (!terminalType) fail(`缺少完成事件；末尾事件 ${lastType || 'none'}`);
+    } else {
+      try { completed = JSON.parse(text); } catch { fail('响应不是有效 JSON 或 SSE'); }
+    }
+    const status = safeDiagnostic(completed?.status) || 'missing';
+    if (status !== 'completed') fail(`响应状态 ${status}`);
+    if (!Array.isArray(completed.output) || !completed.output.length) fail('响应没有输出项');
+    const outputTypes = completed.output.map((item: any) => safeDiagnostic(item?.type) || 'unknown');
+    if (outputTypes.some((type: string) => !['message', 'reasoning'].includes(type))) fail(`输出类型 ${[...new Set(outputTypes)].slice(0, 5).join(',')}`);
+    const parts = completed.output.filter((item: any) => item.type === 'message');
+    for (const item of parts) {
+      if (item.role !== 'assistant' || item.status && item.status !== 'completed' || !Array.isArray(item.content))
+        fail(`消息结构异常；角色 ${safeDiagnostic(item.role) || 'unknown'}；状态 ${safeDiagnostic(item.status) || 'missing'}`);
+      const contentTypes = item.content.map((part: any) => safeDiagnostic(part?.type) || 'unknown');
+      if (item.content.some((part: any) => part?.type !== 'output_text' || typeof part.text !== 'string'))
+        fail(`消息内容类型 ${[...new Set(contentTypes)].slice(0, 5).join(',')}`);
+    }
+    const summary = parts.flatMap((item: any) => item.content.map((part: any) => part.text)).join('\n').trim();
+    if (!summary || Buffer.byteLength(summary) > 64000) fail(`摘要文本长度 ${Buffer.byteLength(summary)} 字节`);
+    this.stats.summaryInputTokens += Number(completed.usage?.input_tokens) || 0;
+    this.stats.summaryOutputTokens += Number(completed.usage?.output_tokens) || 0;
+    return summary;
   }
   private async prepare(bodyBytes: Buffer, encoding: string | undefined, target: URL, headers: http.OutgoingHttpHeaders, signal: AbortSignal, scope: string, cacheable: boolean) {
     const ready = await encodeGuardBody(bodyBytes, encoding, this.options.compression, this.budget);

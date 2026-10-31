@@ -31,8 +31,8 @@ async function request(url: string, body: Buffer, headers: http.OutgoingHttpHead
     }); req.on('error', reject); req.end(body);
   });
 }
-async function fixture(run: (v: { url: string; guard: CodexRequestGuard; received: { bytes: Buffer; headers: http.IncomingHttpHeaders; value: any }[]; response: { mode: string; delay: number }; upstream: string }) => Promise<void>, options: { budget?: number; compression?: boolean } = {}) {
-  const received: { bytes: Buffer; headers: http.IncomingHttpHeaders; value: any }[] = [], response = { mode: 'ok', delay: 0 };
+async function fixture(run: (v: { url: string; guard: CodexRequestGuard; received: { bytes: Buffer; headers: http.IncomingHttpHeaders; value: any }[]; response: { mode: string; delay: number; overloadRemaining: number }; upstream: string }) => Promise<void>, options: { budget?: number; compression?: boolean } = {}) {
+  const received: { bytes: Buffer; headers: http.IncomingHttpHeaders; value: any }[] = [], response = { mode: 'ok', delay: 0, overloadRemaining: 0 };
   const upstreamServer = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const bytes = Buffer.concat(chunks), raw = req.headers['content-encoding'] === 'zstd' ? zstdDecompressSync(bytes) : bytes;
@@ -45,9 +45,15 @@ async function fixture(run: (v: { url: string; guard: CodexRequestGuard; receive
     if (summary && response.mode === 'fail') { res.writeHead(500).end('PRIVATE_UPSTREAM_ERROR'); return; }
     if (summary && response.mode === 'fail-json') { res.writeHead(429, { 'content-type': 'application/json', 'x-request-id': 'req-summary-42' }).end(JSON.stringify({ error: { type: 'rate_limit_error', code: 'rate_limit_exceeded', param: 'input', message: 'PRIVATE_HISTORY_AND_TOKEN' } })); return; }
     if (summary && response.mode === 'fail-html') { res.writeHead(403, { 'content-type': 'text/html' }).end('<html>PRIVATE_PROXY_PAGE</html>'); return; }
+    if (summary && response.overloadRemaining > 0) { response.overloadRemaining--; res.writeHead(200, { 'content-type': 'text/event-stream' }).end('data: ' + JSON.stringify({ type: 'error', error: { code: 'server_is_overloaded', message: 'PRIVATE_UPSTREAM_DETAILS' } }) + '\n\n'); return; }
     res.writeHead(200, { ...(response.mode === 'missing-type' ? {} : { 'content-type': 'text/event-stream' }), 'x-test-stream': 'preserved' });
     const output = summary && response.mode === 'tool' ? [{ type: 'function_call', name: 'bad' }] : [{ type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: summary ? 'History: diagnosed the old attempt; keep constraints and unresolved work.' : 'FINAL' }] }];
-    const event = { type: response.mode === 'incomplete' && summary ? 'response.incomplete' : 'response.completed', response: { status: response.mode === 'incomplete' && summary ? 'incomplete' : 'completed', output, usage: { input_tokens: 123, output_tokens: 9 } } };
+    const terminalFailure = summary && ['incomplete', 'failed-event'].includes(response.mode);
+    const event = { type: terminalFailure ? `response.${response.mode === 'incomplete' ? 'incomplete' : 'failed'}` : 'response.completed', response: {
+      status: terminalFailure ? response.mode === 'incomplete' ? 'incomplete' : 'failed' : 'completed', output,
+      ...(response.mode === 'incomplete' ? { incomplete_details: { reason: 'max_output_tokens' } } : {}),
+      ...(response.mode === 'failed-event' ? { error: { code: 'server_error', message: 'PRIVATE_UPSTREAM_DETAILS' } } : {}),
+      usage: { input_tokens: 123, output_tokens: 9 } } };
     res.write('data: ' + JSON.stringify(event) + '\n\n'); res.end('data: [DONE]\n\n');
   });
   await new Promise<void>(resolve => upstreamServer.listen(0, '127.0.0.1', resolve));
@@ -283,10 +289,36 @@ test('summary and inference obey the same wire budget, preserving instructions, 
   assert.equal(guard.stats.summaryInputTokens, 123 * guard.stats.summaries);
 }, { budget: 3000 }));
 
-for (const mode of ['fail', 'tool', 'incomplete']) test(`summary ${mode} fails locally without uploading the inference`, () => fixture(async ({ url, received, response }) => {
+for (const mode of ['fail', 'tool', 'incomplete', 'failed-event']) test(`summary ${mode} fails locally without uploading the inference`, () => fixture(async ({ url, received, response }) => {
   response.mode = mode;
   const result = await request(url, json(history())); assert.equal(result.status, 400); assert(!result.body.includes('PRIVATE_UPSTREAM_ERROR'));
+  const message = JSON.parse(result.body.toString()).error.message;
+  if (mode === 'tool') assert.match(message, /输出类型 function_call/);
+  if (mode === 'incomplete') assert.match(message, /事件 response\.incomplete、原因 max_output_tokens/);
+  if (mode === 'failed-event') { assert.match(message, /事件 response\.failed、代码 server_error/); assert.doesNotMatch(message, /PRIVATE_UPSTREAM_DETAILS/); }
   assert(received.length > 0); assert(received.every(item => item.value.tool_choice === 'none'));
+}, { budget: 3000 }));
+
+test('upstream overload retries the summary with a new identity, then forwards the original turn', () => fixture(async ({ url, received, response, guard }) => {
+  response.overloadRemaining = 1;
+  assert.equal((await request(url, json(history()))).status, 200);
+  const summaries = received.filter(item => item.value?.tool_choice === 'none');
+  assert(summaries.length >= 2);
+  assert.notEqual(summaries[0].headers['x-client-request-id'], summaries[1].headers['x-client-request-id']);
+  assert.equal(guard.stats.summaries, summaries.length);
+  assert.equal(received.at(-1)?.value?.instructions, 'KEEP_SYSTEM');
+}, { budget: 3000 }));
+
+test('persistent upstream overload stops after three summary attempts without forwarding the original turn', () => fixture(async ({ url, received, response, guard }) => {
+  response.overloadRemaining = 3;
+  const result = await request(url, json(history()));
+  assert.equal(result.status, 400);
+  assert.match(JSON.parse(result.body.toString()).error.message, /server_is_overloaded/);
+  assert.match(JSON.parse(result.body.toString()).error.message, /已尝试 3 次/);
+  assert.doesNotMatch(result.body.toString(), /PRIVATE_UPSTREAM_DETAILS/);
+  assert.equal(guard.stats.summaries, 3);
+  assert.equal(received.length, 3);
+  assert(received.every(item => item.value?.tool_choice === 'none'));
 }, { budget: 3000 }));
 
 test('summary uses independent request identity while the original inference keeps its native headers', () => fixture(async ({ url, received }) => {
