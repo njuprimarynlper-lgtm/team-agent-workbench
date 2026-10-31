@@ -175,6 +175,8 @@ node scripts/test-background.mjs tests/cursor-request-guard.test.ts tests/cursor
 
 线程关联同时兼容新版 `thread-id` / `session-id` 和旧版 `session_id` / `x-codex-session-id` / `x-session-id` 请求头，优先使用线程身份；独立摘要请求移除这些原生身份字段。新版 CLI 通过 `/responses` 流式执行的原生 compact（元数据 `request_kind=compaction`）也受相同保护，并且不会再次安排 compact。
 
+本机 Codex 的后台进程与界面会话分别管理。根会话停止或关闭后，只要原生子会话仍在使用后台，工作台就保留该后台及其认证连接、请求保护器；根会话重开和已知子会话重连时，按工作台会话 ID、原生 thread ID 及账号存储目录核对并复用原 writer。各会话仍独立接收消息、处理授权和停止任务。最后一个使用者关闭后才释放共享后台；重开若遇到后台退出中，会等待清理完成，再创建替代进程。原生上一轮尚在运行或停止时，保留新输入并提示稍后重试。相关行为覆盖 #23 的根会话重开场景。
+
 `/responses/compact` 的输入也会先经过大小保护，必要的交接摘要仍通过 `/responses` 生成，不会递归调用 compact。compact 自身仍超限时不上传，提示明确区分“分层处理失败”“原生 compact 未启动”和“原生 compact 失败”。压缩成功后，原生请求降到 **60%** 以下会重新启用 80% 触发；若仍在边界附近，则须比上次触发时至少增长 20% 才再次安排，避免每轮重复压缩。明确失败后继续使用请求保护，后续请求按 1 分钟起步、最多 30 分钟的指数退避再尝试；CLI 明确不支持该方法时，本连接停止自动尝试。维护最多等待 10 分钟，超时会尝试中断已知压缩轮次；无法确认原生任务结束时暂停后续发送，不能把超时当作取消成功。原生完成事件或已确认启动后的空闲状态可解除发送屏障，断开、停止或关闭会话会清理监听与等待任务。父会话、子会话、临时侧聊按各自的原生线程隔离标记和压缩。
 
 访问上游沿用原环境代理；Windows 未提供环境代理时读取系统固定代理及排除列表，不更改系统设置。自动代理脚本（PAC）和 SOCKS 暂不支持，需配置 HTTP 代理或关闭本功能。证书仍需有效，代理失败不会改走直连。本机入口显式排除于代理，避免本机 Codex 的模型请求被绕到外部代理。当前版本通过真实 CLI 核对 provider；未确认保护通路时停止发送。
@@ -196,6 +198,7 @@ npx tsx scripts/codex-request-guard-smoke.ts
 npx tsx scripts/codex-request-guard-smoke.ts --builtin
 npx tsx scripts/codex-guard-recovery-smoke.ts
 npx tsx scripts/codex-guard-recovery-smoke.ts --refused
+npx tsx scripts/codex-writer-reopen-smoke.ts
 ```
 
 将环境变量 `RUN_GUARD_NATIVE_CLI` 设为 `1` 后运行 TLS 用例，还会调用本机已安装的 Codex CLI，以隔离的虚构账号和模拟 HTTPS 服务验证：真实 CLI 的证书错误能到达会话界面、修改证书后同一会话继续回复。它不会调用外部模型或使用个人额度。

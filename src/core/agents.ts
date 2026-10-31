@@ -75,6 +75,9 @@ export class AgentRuntime {
   private sideConnections = new Map<string, CodexSideRpc>();
   private forkOwner?: AgentRuntime;
   private forkBorrowers = new Set<AgentRuntime>();
+  private writerThreads = new Map<string, string>();
+  private closeJob?: Promise<void>;
+  private writerCloseJob?: Promise<void>;
   private requestGuard?: CodexRequestGuard;
   private autoCompaction?: CodexAutoCompaction;
   private cursorCompactionUncertain = false;
@@ -106,9 +109,13 @@ export class AgentRuntime {
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
     if (borrowedConnection) this.codexConnected = true;
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
-    this.rpc.on('closed', () => { this.discardEmptyCursorSession(); this.autoCompaction?.close(); if (!this.forkOwner) void this.requestGuard?.close(); });
+    this.rpc.on('closed', () => {
+      this.discardEmptyCursorSession(); this.autoCompaction?.close();
+      if (this.codexWriterOwner === this) void this.closeWriter().catch(() => {});
+      else if (!this.forkOwner) void this.requestGuard?.close();
+    });
     this.rpc.on('diagnostic', (value: string) => { if (!this.closing) this.connection.diagnostic(value); });
-    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); void this.authBridge?.close(); if (!this.closing) { void this.forkOwner?.releaseForkBorrower(this); if (session.cursorNative || storage?.sharedEndpoint || session.codexRemote) { session.desktopSyncState = 'disconnected'; session.desktopSyncError = e.message; } this.finish(e.message); } });
+    this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); if (!this.codexWriterOwner) void this.authBridge?.close(); if (!this.closing) { void this.forkOwner?.releaseForkBorrower(this); if (session.cursorNative || storage?.sharedEndpoint || session.codexRemote) { session.desktopSyncState = 'disconnected'; session.desktopSyncError = e.message; } this.finish(e.message); } });
   }
   private monitorGuard(guard?: CodexRequestGuard) {
     if (guard && this.session.purpose === 'work') {
@@ -203,19 +210,48 @@ export class AgentRuntime {
     if (this.closing || !this.codexConnected || !this.storage || this.storage.sharedEndpoint || storage.sharedEndpoint ||
         !sameNativePath(this.storage.home, storage.home) || session.provider !== 'codex' || !session.fork?.nativeFork ||
         !session.nativeId || session.codexStorage !== 'workbench' || session.codexRemote || session.codexDesktop) return;
-    let owner = this.rpc;
-    while (owner instanceof CodexSideRpc) owner = owner.owner;
-    const borrowed = new CodexSideRpc(owner, session.nativeId, '子会话');
+    return (this.forkOwner || this).borrowWriterRuntime(session, executable, hooks, storage, networkEnv);
+  }
+  /** The process owner outlives its original chat while forks still use it. */
+  get codexWriterOwner(): AgentRuntime | undefined {
+    return this.session.provider === 'codex' && this.storage && !this.sharedCodex && !this.session.codexDesktop ? this.forkOwner || this : undefined;
+  }
+  async borrowRetainedRuntime(session: AgentSession, executable: string, hooks: AgentHooks, storage: CodexStorage, networkEnv: NodeJS.ProcessEnv = {}) {
+    if (this.codexWriterOwner !== this || !this.storage || storage.sharedEndpoint || !sameNativePath(this.storage.home, storage.home)
+      || session.provider !== 'codex' || session.codexRemote || session.codexDesktop || !session.nativeId
+      || this.writerThreads.get(session.id) !== session.nativeId) return;
+    if (this.writerCloseJob) { await this.writerCloseJob; return; }
+    const previous = [...this.forkBorrowers].find(runtime => runtime.session.id === session.id) || (session.id === this.session.id ? this : undefined);
+    if (previous && !previous.closing) throw new Error('原生会话仍在当前后台运行，请等待停止完成后重试；输入已保留。');
+    // A late unsubscribe must not remove the replacement chat's subscription.
+    await previous?.closeJob;
+    if (this.writerCloseJob) { await this.writerCloseJob; return; }
+    if (!this.codexConnected) return;
+    return this.borrowWriterRuntime(session, executable, hooks, storage, networkEnv);
+  }
+  private borrowWriterRuntime(session: AgentSession, executable: string, hooks: AgentHooks, storage: CodexStorage, networkEnv: NodeJS.ProcessEnv) {
+    if (this.session.nativeId) this.writerThreads.set(this.session.id, this.session.nativeId);
+    this.writerThreads.set(session.id, session.nativeId!);
+    const borrowed = new CodexSideRpc(this.rpc, session.nativeId!, session.id === this.session.id ? '会话' : '子会话');
     const runtime = new AgentRuntime(session, executable, hooks, storage, networkEnv, borrowed, true);
-    const forkOwner = this.forkOwner || this;
-    runtime.guardConfig = forkOwner.guardConfig;
-    runtime.monitorGuard(forkOwner.requestGuard);
-    runtime.forkOwner = forkOwner; forkOwner.forkBorrowers.add(runtime);
+    runtime.forkOwner = this;
+    runtime.guardConfig = this.guardConfig;
+    runtime.monitorGuard(this.requestGuard);
+    this.forkBorrowers.add(runtime);
     return runtime;
+  }
+  waitForWriterExit() { return this.writerCloseJob || Promise.resolve(); }
+  private closeWriter() {
+    return this.writerCloseJob ||= Promise.resolve().then(async () => {
+      const results = await Promise.allSettled([this.rpc.close(), this.requestGuard?.close(), this.authBridge?.close()]);
+      this.writerThreads.clear();
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+    });
   }
   private async releaseForkBorrower(runtime: AgentRuntime) {
     if (!this.forkBorrowers.delete(runtime)) return;
-    if (this.closing && !this.forkBorrowers.size) await Promise.all([this.rpc.close(), this.requestGuard?.close(), this.authBridge?.close()]);
+    if (this.closing && !this.forkBorrowers.size) await this.closeWriter();
   }
   async createSideChat(session: AgentSession, hooks: AgentHooks, boundary: () => string) {
     if (this.session.provider !== 'codex') throw new Error('侧边提问目前仅支持 Codex');
@@ -295,6 +331,7 @@ export class AgentRuntime {
         result = await this.rpc.request('thread/resume', { ...resume, modelProvider, config: { ...threadConfig, model_provider: modelProvider } });
       }
       if (this.guardConfig && result.modelProvider !== this.guardConfig.model_provider) throw new Error('Codex 未确认请求保护通路，已停止发送，请更新 CLI 后重试');
+      if (this.forkOwner && result.thread?.status?.type === 'active') throw new Error('原生会话上一轮仍在运行或停止中，请稍后重试；本次输入已保留。');
       if (s.directoryChange && !s.codexRemote && (!result.cwd || !sameNativePath(result.cwd, s.cwd))) throw new Error('Codex 未确认新的工作目录，已停止发送，请更新 CLI 后重试');
       if (s.codexPrivateFork && this.storage && !this.storage.sharedEndpoint) {
         if (!sameNativePath(result.thread?.path || '', this.storage.resumePath || '')) throw new Error('未能核对独立副本，原桌面会话保持不变');
@@ -335,6 +372,7 @@ export class AgentRuntime {
         s.nativeId = result.thread.id; s.nativePath = result.thread.path || this.storage?.resumePath || s.nativePath;
         if (this.storage) { s.codexStorage = 'workbench'; delete s.codexNeedsRegistration; }
       }
+      if (s.nativeId) this.codexWriterOwner?.writerThreads.set(s.id, s.nativeId);
       this.nativeModel = result.model; this.nativeEffort = result.reasoningEffort;
       if (typeof result.model === 'string' && result.model) s.resolvedModel = result.model;
       if (this.sharedCodex && result.thread?.status?.type === 'active') { this.turnActive = true; this.sharedTurnOwned = false; }
@@ -1084,7 +1122,8 @@ export class AgentRuntime {
     else if (this.session.provider === 'cursor' && this.session.nativeId) { if(isCursorFileSession(this.session))await this.rpc.request('session/cancel',{sessionId:this.session.nativeId});else this.rpc.notify('session/cancel', { sessionId: this.session.nativeId }); }
     else this.close();
   }
-  async close() {
+  close() { return this.closeJob ||= this.closeRuntime(); }
+  private async closeRuntime() {
     if (this.closing) return;
     this.timing.finish('interrupted');
     this.closing = true;
@@ -1105,7 +1144,8 @@ export class AgentRuntime {
       // until its last borrowed fork has unsubscribed.
       if (turnId) await this.rpc.request('turn/interrupt', { threadId: this.session.nativeId, turnId }, 5000).catch(() => {});
       await this.rpc.request('thread/unsubscribe', { threadId: this.session.nativeId }, 5000).catch(() => {});
-    } else await Promise.all([this.rpc.close(), this.authBridge?.close(), !this.forkOwner ? this.requestGuard?.close() : undefined]);
+    } else if (this.forkOwner) await this.rpc.close();
+    else await this.closeWriter();
     await this.forkOwner?.releaseForkBorrower(this);
   }
 }

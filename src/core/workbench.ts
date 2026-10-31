@@ -112,6 +112,7 @@ export class Workbench {
   private assignmentUploads: AssignmentUploads;
   private sideChats = new Map<string, { view: import('../shared/types').SideChat; runtime: AgentRuntime; busy?: boolean }>();
   private runtimes = new Map<string, AgentRuntime | ClaudeRuntime>(); private sending = new Set<string>();
+  private codexWriters = new Set<AgentRuntime>();
   private steering = new Set<string>();
   private changingSettings = new Set<string>();
   private attachingCodex = new Set<string>();
@@ -1057,7 +1058,13 @@ export class Workbench {
         if (value.state === 'connected') this.activity.providerRecovered(s.provider, runtimeRoute, s.cwd);
       }
     } });
-    if (s.fork?.nativeFork && storage && !s.codexRemote) {
+    if (storage && !s.codexRemote) {
+      for (const writer of this.codexWriters) {
+        runtime = await writer.borrowRetainedRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s));
+        if (runtime) break;
+      }
+    }
+    if (!runtime && s.fork?.nativeFork && storage && !s.codexRemote) {
       let ancestorId: string | undefined = s.fork.parentId;
       const seen = new Set<string>();
       while (ancestorId && !seen.has(ancestorId) && !runtime) {
@@ -1067,9 +1074,20 @@ export class Workbench {
         ancestorId = this.store.sessions.find(item => item.id === ancestorId)?.fork?.parentId;
       }
     }
+    if (this.closing || s.closedAt || epoch !== this.accountRevision) { await runtime?.close(); await remoteRpc?.close(); throw new Error('会话或账号已改变，未启动 CLI'); }
     runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc, false, !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || '');
     this.runtimes.set(s.id, runtime);
-    if (runtime instanceof AgentRuntime) runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
+    if (runtime instanceof AgentRuntime) {
+      const writer = runtime.codexWriterOwner;
+      if (writer && !this.codexWriters.has(writer)) {
+        this.codexWriters.add(writer);
+        writer.rpc.once('closed', () => {
+          const remove = () => this.codexWriters.delete(writer);
+          void writer.waitForWriterExit().then(remove, remove);
+        });
+      }
+      runtime.rpc.on('closed', () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); });
+    }
     else runtime.onClosed = () => { if (this.runtimes.get(s.id) === runtime) this.runtimes.delete(s.id); };
     return runtime;
   }
