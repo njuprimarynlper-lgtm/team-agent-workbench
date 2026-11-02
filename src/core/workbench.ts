@@ -1521,28 +1521,34 @@ export class Workbench {
     return this.send(id, '请根据以下修改重新制定计划，继续处于 Plan 模式，等待我确认执行：\n\n' + text);
   }
   private async applyDeferredSettings(s: AgentSession) {
-    if (!this.deferredSettings.has(s.id) || ['starting', 'running', 'approval'].includes(s.status) || this.changingSettings.has(s.id)) return;
+    if (!s.settingsPending || ['starting', 'running', 'approval'].includes(s.status) || this.changingSettings.has(s.id)) return;
     this.changingSettings.add(s.id);
     try {
-      const runtime = this.runtimes.get(s.id);
-      this.runtimes.delete(s.id);
-      if (runtime) await runtime.close();
-      this.deferredSettings.delete(s.id);
+      // The pending badge also covers per-turn changes. Only settings that
+      // actually require a reconnect may release the native writer lease.
+      if (this.deferredSettings.has(s.id)) {
+        const runtime = this.runtimes.get(s.id);
+        this.runtimes.delete(s.id);
+        if (runtime) await runtime.close();
+        this.deferredSettings.delete(s.id);
+        s.permissions = undefined;
+      }
       s.settingsPending = undefined;
-      s.permissions = undefined;
       await this.store.save(); this.broadcast();
     } finally { this.changingSettings.delete(s.id); }
   }
-  private async updateSessionSettings(s: AgentSession, update: () => void) {
+  private async updateSessionSettings(s: AgentSession, update: () => void, reconnect = true) {
     if (this.stoppingSessions.has(s.id)) throw new Error('此会话正在停止，请稍后重试');
     if (this.changingSettings.has(s.id)) throw new Error('正在切换会话设置，请稍后重试');
     this.changingSettings.add(s.id);
     try {
       const active = ['running', 'approval'].includes(s.status);
-      if (!active) { const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
+      if (reconnect && !active) { const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
       update();
-      if (active) { this.deferredSettings.add(s.id); s.settingsPending = true; }
-      else { this.deferredSettings.delete(s.id); s.settingsPending = undefined; s.permissions = undefined; s.status = 'idle'; s.approvals = []; }
+      if (active) { if (reconnect) this.deferredSettings.add(s.id); s.settingsPending = true; }
+      else if (reconnect) { this.deferredSettings.delete(s.id); s.settingsPending = undefined; s.permissions = undefined; s.status = 'idle'; s.approvals = []; }
+      // A per-turn update must not erase an earlier pending permission/route
+      // reconnect, nor change the current turn's status or effective policy.
       await this.store.save(); this.broadcast(); return s;
     } finally { this.changingSettings.delete(s.id); }
   }
@@ -1566,9 +1572,9 @@ export class Workbench {
     model = model.trim();
     if (!model || model.length > 256 || /[\x00-\x1f\x7f]/.test(model)) throw new Error('请选择有效的模型');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
-    // Reconnect on the next send and resume the original native conversation.
-    // Cursor applies session/set_model after session/load; Codex and Claude resume with the selected model.
-    return this.updateSessionSettings(s, () => { if (s.provider === 'cursor' && s.model !== model) delete s.reasoningEffort; s.model = model; });
+    // Codex applies model and effort on turn/start, without rebuilding its
+    // writer connection. Cursor and Claude still resume with the new model.
+    return this.updateSessionSettings(s, () => { if (s.provider === 'cursor' && s.model !== model) delete s.reasoningEffort; s.model = model; }, s.provider !== 'codex');
   }
   async changeReasoningEffort(id: string, effort: string | null) {
     const s = this.session(id);
@@ -1579,7 +1585,7 @@ export class Workbench {
     const next = effort === null ? undefined : effort.trim();
     if (next !== undefined && !/^[A-Za-z0-9_-]{1,32}$/.test(next)) throw new Error('请选择有效的思考努力程度');
     if ((s.reasoningEffort || undefined) === next) return s;
-    return this.updateSessionSettings(s, () => { if (next) s.reasoningEffort = next; else delete s.reasoningEffort; });
+    return this.updateSessionSettings(s, () => { if (next) s.reasoningEffort = next; else delete s.reasoningEffort; }, s.provider !== 'codex');
   }
   async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true, networkRoute?: SessionNetworkRoute, desktopSync = false, personalGroupId?: string, deferRegistration = false) {
     this.assertWorkspace();

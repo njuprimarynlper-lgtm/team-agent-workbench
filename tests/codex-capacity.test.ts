@@ -91,6 +91,21 @@ test('rejected start retries original input exactly, without a second displayed 
     f.rpc.complete(); assert.equal(f.done(), 1);
   } finally { await f.runtime.close(); }
 });
+test('capacity fallback retains model and effort selected for the next turn', async () => {
+  const f = setup();
+  try {
+    await f.runtime.prompt('CURRENT');
+    f.session.model = 'user-next'; f.session.reasoningEffort = 'low';
+    f.rpc.complete(capacity); await until(() => f.rpc.turns.length === 2);
+    assert.equal(f.session.model, 'user-next'); assert.equal(f.session.reasoningEffort, 'low');
+    assert.equal(f.session.resolvedModel, 'backup');
+    f.rpc.complete(); await f.runtime.prompt('NEXT');
+    const next = f.rpc.calls.filter(call => call.method === 'turn/start').at(-1)!.params;
+    assert.equal(next.model, 'user-next'); assert.equal(next.effort, 'low');
+    assert.equal(f.session.messages.filter(message => message.role === 'user').length, 2);
+    f.rpc.complete();
+  } finally { await f.runtime.close(); }
+});
 test('at most two alternative models, with no loop or duplicate input if all are at capacity', async () => {
   const f = setup();
   try {

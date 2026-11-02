@@ -35,7 +35,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': switch m
     await wb.send(session.id, 'Continue the same plan'); await until(() => session.status === 'idle');
     const changedCalls = await calls();
     if (provider === 'codex') {
-      assert(changedCalls.some(c => c.method === 'thread/resume' && c.params.threadId === native && c.params.model === 'second-model'));
+      assert(!changedCalls.some(c => c.method === 'thread/resume' && c.params.threadId === native), 'model-only changes must not resume or reconnect Codex');
       assert(changedCalls.some(c => c.method === 'turn/start' && c.params.model === 'second-model'));
     } else {
       assert(changedCalls.some(c => c.method === 'session/load' && c.params.sessionId === native));

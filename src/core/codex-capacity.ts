@@ -28,6 +28,7 @@ export function capacityFallbackModel(models: any[], used: Set<string>, effort?:
 
 export interface CodexSubmission {
   params: any; messageId: string; userText: string; used: Set<string>; attempts: number; revision: number;
+  selection: { model?: string; effort?: string };
   progressed: boolean; rerouted: boolean; recovering: boolean; cancelled?: boolean;
   pendingError?: unknown; errorTimer?: ReturnType<typeof setTimeout>;
   guardRecoveries?: number;

@@ -10,6 +10,7 @@ import type { CodexStorage } from '../src/core/codex-storage';
 import type { AgentRpc } from '../src/core/rpc';
 import type { AgentSession } from '../src/shared/types';
 import { Workbench } from '../src/core/workbench';
+import { Store } from '../src/core/store';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 
 class WriterRpc extends EventEmitter implements AgentRpc {
@@ -18,6 +19,7 @@ class WriterRpc extends EventEmitter implements AgentRpc {
   closeCount = 0;
   holdClose?: Promise<void>;
   resumeStatus = 'idle';
+  configuredEffort?: string;
   constructor(private ownsWriter: boolean, private home: string) { super(); }
   async request(method: string, params: any = {}) {
     this.calls.push({ method, params });
@@ -27,7 +29,7 @@ class WriterRpc extends EventEmitter implements AgentRpc {
     }
     if (method === 'thread/resume') {
       if (!this.ownsWriter) throw new Error(`thread ${params.threadId} already has an active writer`);
-      return { thread: { id: params.threadId, path: path.join(this.home, 'sessions', params.threadId + '.jsonl'), status: { type: this.resumeStatus } }, modelProvider: params.config?.model_provider, approvalPolicy: 'never', sandbox: { type: 'externalSandbox' } };
+      return { thread: { id: params.threadId, path: path.join(this.home, 'sessions', params.threadId + '.jsonl'), status: { type: this.resumeStatus } }, model: params.model, reasoningEffort: params.config?.model_reasoning_effort, modelProvider: params.config?.model_provider, approvalPolicy: 'never', approvalsReviewer: 'user', sandbox: { type: params.sandbox === 'danger-full-access' ? 'dangerFullAccess' : 'externalSandbox' } };
     }
     if (method === 'turn/start') return { turn: { id: params.threadId === 'parent-native' ? 'root-turn' : 'child-turn', status: 'inProgress' } };
     if (method === 'turn/interrupt') {
@@ -35,6 +37,10 @@ class WriterRpc extends EventEmitter implements AgentRpc {
       return {};
     }
     if (method === 'thread/unsubscribe') return { status: 'unsubscribed' };
+    if (method === 'command/exec') return { exitCode: 0, stdout: 'WORKBENCH_PERMISSION_OK' };
+    if (method === 'config/read') return { config: { model_reasoning_effort: this.configuredEffort } };
+    if (method === 'model/list') return { data: [{ model: 'first-model', defaultReasoningEffort: 'medium' }] };
+    if (method === 'collaborationMode/list') return { data: [{ mode: 'plan', model: 'first-model' }] };
     throw new Error('unexpected RPC: ' + method);
   }
   notify() {}
@@ -159,7 +165,8 @@ async function retainedWriter(run: (f: { wb: Workbench; parent: AgentSession; ch
     wb.store.settings.codexRequestGuard = false;
     // All model traffic uses the in-memory protocol fixture, without personal login.
     (wb as any).requireAuth = async () => {};
-    const parent = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false, 'direct');
+    const parent = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, 'first-model', 'inherit', false, 'direct');
+    parent.reasoningEffort = 'high';
     parent.nativeId = 'parent-native'; parent.codexStorage = 'workbench';
     const home = path.join(wb.store.root, 'codex-home'), rpc = new WriterRpc(true, home);
     const owner = new AgentRuntime(parent, 'unused', { changed() {}, event() {}, done() {} }, { home, sourceHome: home, args: ['app-server'], env: {} }, {}, rpc);
@@ -272,4 +279,96 @@ test('root reopening waits for a draining writer before creating a replacement',
     finishClose(); await closeChild;
     assert.notEqual((await replacement).rpc, rpc);
   } finally { finishClose(); await closeChild; }
+}));
+
+function complete(rpc: WriterRpc, session: AgentSession) {
+  rpc.emit('message', { method: 'turn/completed', params: { threadId: session.nativeId, turn: { id: session.nativeId === 'parent-native' ? 'root-turn' : 'child-turn', status: 'completed' } } });
+}
+
+for (const running of [false, true]) test(`native child model/effort changes keep its writer while ${running ? 'running' : 'idle'}`, () => retainedWriter(async ({ wb, child, childRuntime, rpc }) => {
+  await wb.send(child.id, '原模型任务');
+  if (!running) complete(rpc, child);
+  const permissions = child.permissions, history = structuredClone(child.messages), native = child.nativeId;
+  const draft = { text: '保留草稿', sourceIds: [], answers: {} }; wb.store.inputs[child.id] = draft;
+  const resumes = rpc.calls.filter(call => call.method === 'thread/resume').length;
+  await wb.changeModel(child.id, 'second-model'); await wb.changeReasoningEffort(child.id, 'low');
+  assert((wb as any).runtimes.get(child.id) === childRuntime, 'model and effort must not close the runtime');
+  assert.equal(rpc.calls.some(call => call.method === 'thread/unsubscribe'), false);
+  assert.equal(child.permissions, permissions); assert.equal(child.nativeId, native);
+  assert.deepEqual(child.messages, history); assert.deepEqual(wb.store.inputs[child.id], draft);
+  assert.equal(child.status, running ? 'running' : 'idle');
+  const original = rpc.calls.find(call => call.method === 'turn/start')!.params;
+  assert.equal(original.model, 'first-model'); assert.equal(original.effort, 'high');
+  if (running) {
+    assert.equal(child.settingsPending, true);
+    assert.equal(child.resolvedModel, 'first-model', 'saving next-turn settings does not relabel the current turn');
+    await assert.rejects(wb.send(child.id, '不能插入另一轮'), /正在运行/);
+    complete(rpc, child);
+  }
+  assert.equal(await wb.send(child.id, '新模型任务'), true);
+  const next = rpc.calls.filter(call => call.method === 'turn/start').at(-1)!.params;
+  assert.equal(next.model, 'second-model'); assert.equal(next.effort, 'low'); assert.equal(next.threadId, native);
+  assert.equal(child.resolvedModel, 'second-model'); assert.equal(child.settingsPending, undefined);
+  assert.equal(rpc.calls.filter(call => call.method === 'thread/resume').length, resumes, 'the next turn must not resume again');
+  assert.equal(rpc.calls.filter(call => call.method === 'turn/start').length, 2);
+  assert.equal(child.messages.filter(message => message.role === 'user').length, 2);
+  complete(rpc, child);
+}));
+
+test('parent model changes leave a running native child and both writer leases untouched', () => retainedWriter(async ({ wb, parent, child, owner, childRuntime, rpc }) => {
+  await wb.send(child.id, '子任务持续运行');
+  await wb.changeModel(parent.id, 'parent-next'); await wb.changeReasoningEffort(parent.id, 'low');
+  assert((wb as any).runtimes.get(parent.id) === owner);
+  assert((wb as any).runtimes.get(child.id) === childRuntime);
+  assert.equal(child.status, 'running'); assert.equal(child.model, 'first-model');
+  assert.equal(rpc.calls.some(call => ['turn/interrupt', 'thread/unsubscribe'].includes(call.method)), false);
+  assert.equal(await wb.send(parent.id, '根任务新模型'), true);
+  assert.equal(rpc.calls.findLast(call => call.method === 'turn/start')?.params.model, 'parent-next');
+  complete(rpc, child); complete(rpc, parent);
+}));
+
+for (const order of ['model-first', 'permission-first'] as const) test(`next-turn model changes preserve pending permission reconnect: ${order}`, () => retainedWriter(async ({ wb, child, childRuntime, rpc }) => {
+  await wb.send(child.id, '旧设置');
+  if (order === 'model-first') await wb.changeModel(child.id, 'second-model');
+  await wb.changePermissions(child.id, 'full');
+  if (order === 'permission-first') await wb.changeModel(child.id, 'second-model');
+  complete(rpc, child);
+  // A further hot change after completion must not clear the required reconnect.
+  await wb.changeReasoningEffort(child.id, 'low');
+  assert((wb as any).runtimes.get(child.id) === childRuntime);
+  assert.equal(child.settingsPending, true);
+  assert.equal(await wb.send(child.id, '应用全部设置'), true);
+  const runtime = (wb as any).runtimes.get(child.id) as AgentRuntime;
+  assert.notEqual(runtime, childRuntime); assert(runtime.rpc instanceof CodexSideRpc); assert.equal(runtime.rpc.owner, rpc);
+  const resume = rpc.calls.findLast(call => call.method === 'thread/resume')!.params;
+  assert.equal(resume.model, 'second-model'); assert.equal(resume.config.model_reasoning_effort, 'low');
+  assert.equal(resume.approvalPolicy, 'never'); assert.equal(resume.sandbox, 'danger-full-access');
+  assert.equal(rpc.calls.filter(call => call.method === 'thread/unsubscribe').length, 1);
+  assert.equal(rpc.calls.filter(call => call.method === 'turn/start').length, 2);
+  assert.equal(child.messages.filter(message => message.role === 'user').length, 2);
+  assert.equal(child.settingsPending, undefined); complete(rpc, child);
+}));
+
+test('native model/effort selections and history survive storing for a workbench restart', () => retainedWriter(async ({ wb, child, rpc }) => {
+  await wb.send(child.id, '重启前的历史'); complete(rpc, child);
+  await wb.changeModel(child.id, 'restart-model'); await wb.changeReasoningEffort(child.id, 'low');
+  await wb.store.save(); const restored = new Store(wb.store.root); await restored.init();
+  const saved = restored.sessions.find(session => session.id === child.id)!;
+  assert.equal(saved.model, 'restart-model'); assert.equal(saved.reasoningEffort, 'low');
+  assert.equal(saved.nativeId, child.nativeId); assert.deepEqual(saved.fork, JSON.parse(JSON.stringify(child.fork)));
+  assert.deepEqual(saved.messages, JSON.parse(JSON.stringify(child.messages)));
+}));
+
+for (const configured of [false, true]) test(`clearing native effort restores ${configured ? 'configured' : 'model'} default without reconnecting`, () => retainedWriter(async ({ wb, child, childRuntime, rpc }) => {
+  child.mode = 'plan';
+  await wb.send(child.id, '高强度'); complete(rpc, child);
+  if (configured) rpc.configuredEffort = 'low';
+  await wb.changeReasoningEffort(child.id, null);
+  assert.equal(await wb.send(child.id, '恢复默认强度'), true);
+  assert((wb as any).runtimes.get(child.id) === childRuntime);
+  const next = rpc.calls.findLast(call => call.method === 'turn/start')!.params;
+  assert.equal(next.effort, configured ? 'low' : 'medium');
+  assert.equal(next.collaborationMode.settings.reasoning_effort, next.effort);
+  assert.equal(child.reasoningEffort, undefined);
+  assert.equal(rpc.calls.some(call => call.method === 'thread/unsubscribe'), false); complete(rpc, child);
 }));

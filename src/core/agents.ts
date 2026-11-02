@@ -69,6 +69,7 @@ export class AgentRuntime {
   private cursorModes: string[] = [];
   private nativeModel?: string;
   private nativeEffort?: string | null;
+  private explicitEffortApplied = false;
   private connecting?: Promise<void>;
   private connection: CliConnectionTracker;
   private timing: TurnTimingTracker;
@@ -374,6 +375,7 @@ export class AgentRuntime {
       }
       if (s.nativeId) this.codexWriterOwner?.writerThreads.set(s.id, s.nativeId);
       this.nativeModel = result.model; this.nativeEffort = result.reasoningEffort;
+      this.explicitEffortApplied = !!s.reasoningEffort;
       if (typeof result.model === 'string' && result.model) s.resolvedModel = result.model;
       if (this.sharedCodex && result.thread?.status?.type === 'active') { this.turnActive = true; this.sharedTurnOwned = false; }
       if (this.sharedCodex) {
@@ -515,7 +517,25 @@ export class AgentRuntime {
       return { current: this.session.mode || 'default', modes: [modeOption('default'), ...(this.modePresets!.some(value => value.mode === 'plan') ? [modeOption('plan')] : [])] };
     } catch { return { current: this.session.mode || 'default', modes: [modeOption('default')], error: '当前 Codex CLI 未提供 Plan 模式，请更新 CLI 后重试。' }; }
   }
-  private async collaborationMode() {
+  private async codexTurnEffort() {
+    if (this.session.reasoningEffort || !this.explicitEffortApplied) return this.session.reasoningEffort;
+    // Omission keeps the previous native override. Clearing a saved effort must
+    // explicitly restore the CLI configuration or the selected model's default.
+    const { config } = await this.rpc.request('config/read', { cwd: this.executionCwd, includeLayers: false }, 5000);
+    if (typeof config?.model_reasoning_effort === 'string') return config.model_reasoning_effort;
+    const model = this.session.model || this.nativeModel, cursors = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await this.rpc.request('model/list', { limit: 100, includeHidden: true, ...(cursor ? { cursor } : {}) }, 5000);
+      const selected = page.data?.find((value: any) => value.model === model);
+      if (typeof selected?.defaultReasoningEffort === 'string') return selected.defaultReasoningEffort;
+      cursor = page.nextCursor || undefined;
+      if (cursor && (cursors.has(cursor) || cursors.size >= 9)) break;
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    throw new Error('无法确定当前模型的默认思考强度，请明确选择思考强度后重试；本次输入已保留。');
+  }
+  private async collaborationMode(effort?: string) {
     if (!this.session.mode) return undefined;
     const catalog = await this.modes();
     if (catalog.error && this.session.mode === 'default') return undefined;
@@ -523,7 +543,7 @@ export class AgentRuntime {
     const preset = this.modePresets?.find(value => value.mode === this.session.mode);
     const model = this.session.model || this.nativeModel || preset?.model;
     if (!model) throw new Error('无法确定 Plan 模式使用的模型，请先选择模型');
-    return { mode: this.session.mode, settings: { model, reasoning_effort: this.session.reasoningEffort ?? this.nativeEffort ?? preset?.reasoning_effort ?? null, developer_instructions: null } };
+    return { mode: this.session.mode, settings: { model, reasoning_effort: effort ?? this.nativeEffort ?? preset?.reasoning_effort ?? null, developer_instructions: null } };
   }
   async mcpLogin(name: string) { await this.connectCodex(); if (!this.mcp) throw new Error('当前 CLI 不支持 MCP 管理'); return this.mcp.login(name); }
   async mcpEditable(name: string) { await this.connectCodex(); if (!this.mcp) throw new Error('当前 CLI 不支持 MCP 管理'); return this.mcp.editable(name); }
@@ -596,7 +616,8 @@ export class AgentRuntime {
       const current = await this.rpc.request('thread/read', { threadId: this.session.nativeId });
       if (current.thread?.status?.type === 'active' || ['running', 'approval'].includes(this.session.status)) throw new Error('这条会话正在 Codex 桌面版或其他窗口运行，请等本轮结束后发送');
     }
-    const collaborationMode = this.session.provider === 'codex' ? await this.collaborationMode() : undefined;
+    const effort = this.session.provider === 'codex' ? await this.codexTurnEffort() : undefined;
+    const collaborationMode = this.session.provider === 'codex' ? await this.collaborationMode(effort) : undefined;
     const selected = options?.capabilities || [], prefixes = selected.filter(item => item.kind === 'skill' || this.session.provider === 'codex').map(item => this.session.provider === 'cursor' ? '/' + item.invocation : item.kind === 'skill' ? '$' + item.invocation : '@' + item.invocation);
     const nativeText = [prefixes.join(' '), text].filter(Boolean).join(' ');
     const context = options ? { ...options.context, capabilities: selected.map(({ id, kind, name }) => ({ id, kind, name })), nativeId: this.session.nativeId!, accepted: false } : undefined;
@@ -610,7 +631,7 @@ export class AgentRuntime {
         const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
         const permissions = this.sharedCodex ? codexTurnPermissionParams(this.session) : {};
         const selectedMode = this.session.permissionMode;
-        const submission: CodexSubmission = { params: { threadId: this.session.nativeId, ...(this.session.directoryChange ? { cwd: this.executionCwd } : {}), ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(this.session.reasoningEffort ? { effort: this.session.reasoningEffort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, messageId: promptMessage.id, userText: nativeText, used: new Set([this.session.model || this.nativeModel || '']), attempts: 0, revision: 0, progressed: false, rerouted: false, recovering: false };
+        const submission: CodexSubmission = { params: { threadId: this.session.nativeId, ...(this.session.directoryChange ? { cwd: this.executionCwd } : {}), ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(effort ? { effort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, selection: { model: this.session.model, effort: this.session.reasoningEffort }, messageId: promptMessage.id, userText: nativeText, used: new Set([this.session.model || this.nativeModel || '']), attempts: 0, revision: 0, progressed: false, rerouted: false, recovering: false };
         this.codexSubmission = submission;
         await this.submitCodexTurn(submission, options?.submitted);
         if ('sandboxPolicy' in permissions) {
@@ -639,12 +660,22 @@ export class AgentRuntime {
       }
       // Events may finish the turn or start a fallback before this acknowledgement arrives.
       if (this.codexSubmission === submission && submission.revision === revision && !submission.recovering && this.turnActive) {
+        this.acceptCodexTurnSettings(submission);
         this.turnId = result.turn.id; this.timing.begin(submission.messageId, result.turn.id); this.hooks.changed();
       }
     } catch (error) {
       if (submission.cancelled || this.codexSubmission !== submission || submission.revision !== revision) return;
       if (!this.recoverCodexCapacity(error, !!this.turnId)) throw error;
     }
+  }
+  private acceptCodexTurnSettings(submission: CodexSubmission) {
+    // Use the submitted snapshot, never next-turn selections saved while this
+    // request was in flight. A service-side reroute remains authoritative.
+    const model = submission.params.collaborationMode?.settings.model || submission.params.model;
+    const effort = submission.params.collaborationMode?.settings.reasoning_effort ?? submission.params.effort;
+    if (model) { this.nativeModel = model; if (!submission.rerouted) this.session.resolvedModel = model; }
+    if (effort !== undefined) this.nativeEffort = effort;
+    this.explicitEffortApplied = !!submission.selection.effort;
   }
   private retireCodexTurn(id?: string) {
     if (!id) return;
@@ -751,8 +782,13 @@ export class AgentRuntime {
         job.params = { ...job.params, model: candidate.model, effort: candidate.effort,
           input: accepted ? [] : job.params.input,
           ...(job.params.collaborationMode ? { collaborationMode: { ...job.params.collaborationMode, settings: { ...job.params.collaborationMode.settings, model: candidate.model, reasoning_effort: candidate.effort } } } : {}) };
-        this.session.model = candidate.model; this.session.resolvedModel = candidate.model;
-        this.session.reasoningEffort = candidate.effort || undefined; this.nativeModel = candidate.model; this.nativeEffort = candidate.effort;
+        // Capacity recovery belongs to this turn. Do not overwrite a model or
+        // effort that the user already selected for the following turn.
+        if (this.session.model === job.selection.model && this.session.reasoningEffort === job.selection.effort) {
+          this.session.model = candidate.model; this.session.reasoningEffort = candidate.effort || undefined;
+          job.selection = { model: this.session.model, effort: this.session.reasoningEffort };
+        }
+        this.session.resolvedModel = candidate.model; this.nativeModel = candidate.model; this.nativeEffort = candidate.effort;
         this.message(randomUUID(), 'system', `模型「${previous}」容量不足，自动切换至「${candidate.model}」继续（${job.attempts}/2）。`);
         this.hooks.event({ method: 'workbench/modelFallback', fromModel: previous, toModel: candidate.model, attempt: job.attempts });
         job.recovering = false;
@@ -986,7 +1022,7 @@ export class AgentRuntime {
         else if (i.type === 'commandExecution') { if (i.exitCode !== 0 || i.status === 'failed') { const issue = permissionIssue(i.aggregatedOutput); if (issue) { s.permissionIssue = issue; this.hooks.changed(); } } this.message(i.id, 'tool', '$ ' + i.command + '\n' + (i.aggregatedOutput || '') + '\n退出码：' + i.exitCode); }
         else if (i.type !== 'userMessage' && i.type !== 'reasoning' && i.type !== 'contextCompaction') this.message(i.id || randomUUID(), 'tool', pretty(i));
       }
-      if (method === 'turn/started') { if (this.turnId !== p.turn?.id) this.sharedRevision++; this.turnId = p.turn?.id; if (this.sharedCodex) { if (!this.turnActive) this.sharedTurnOwned = false; this.turnActive = true; } s.status = 'running'; this.hooks.changed(); }
+      if (method === 'turn/started') { if (submission) this.acceptCodexTurnSettings(submission); if (this.turnId !== p.turn?.id) this.sharedRevision++; this.turnId = p.turn?.id; if (this.sharedCodex) { if (!this.turnActive) this.sharedTurnOwned = false; this.turnActive = true; } s.status = 'running'; this.hooks.changed(); }
       if (method === 'turn/completed' && (!this.turnId || !p.turn?.id || p.turn.id === this.turnId)) { if (p.turn?.error) this.connection.error(p.turn.error, false); this.finish(p.turn?.error ? p.turn.error.message || 'CLI 请求失败' : undefined); }
       if (method === 'error') { this.connection.error(p.error || p, p.willRetry === true); this.message(randomUUID(), 'system', p.error?.message || pretty(p)); if (!p.willRetry) this.finish(p.error?.message || '运行失败'); }
     } else if (method === 'session/update') {
