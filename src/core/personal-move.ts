@@ -3,16 +3,23 @@ import path from 'node:path';
 import { atomicJson, Store } from './store';
 import type { AgentSession, Draft, ProjectConclusion, SessionInput } from '../shared/types';
 import type { JournalRecord } from '../shared/project-journal';
+import { randomUUID } from 'node:crypto';
+import { resultDirectoryPath, resolveResultFolder, type PersonalResultDirectory } from '../shared/result-directories';
 
 export interface PersonalMove {
   version: 1; targetRoot: string; groupId?: string; retainedConclusions?: ProjectConclusion[]; journals?: JournalRecord[];
   sessions: AgentSession[]; drafts: Draft[]; conclusions: ProjectConclusion[]; inputs: Record<string, SessionInput>;
+  directories?: PersonalResultDirectory[];
 }
 const journal = (root: string) => path.join(root, 'pending-personal-move.json');
 export class PersonalMovePendingError extends Error {
   constructor() { super('迁移记录已保留，磁盘保存尚未完成；请检查磁盘后重启工作台恢复迁移，勿重复操作'); }
 }
 export function applyPersonalMove(store: Store, move: PersonalMove, target: boolean) {
+  if (target && move.directories?.length) {
+    const ids = new Set(move.directories.map(item => item.id));
+    store.settings.resultDirectories = [...(store.settings.resultDirectories || []).filter(item => !ids.has(item.id)), ...structuredClone(move.directories)];
+  }
   for (const key of ['sessions', 'drafts', 'conclusions'] as const) {
     const ids = new Set(move[key].map(item => item.id));
     (store[key] as any[]) = [...(target ? structuredClone(move[key]) : key === 'conclusions' ? structuredClone(move.retainedConclusions || []) : []), ...store[key].filter(item => !ids.has(item.id))];
@@ -27,6 +34,27 @@ export function applyPersonalMove(store: Store, move: PersonalMove, target: bool
   if (!target && move.groupId) store.settings.personalGroups = store.settings.personalGroups?.filter(group => group.id !== move.groupId);
 }
 export async function persistPersonalMove(source: Store, target: Store, move: PersonalMove) {
+  // Copy only referenced paths, reuse matching destination paths, and journal
+  // generated IDs so crash recovery never duplicates the destination tree.
+  if (!move.directories) {
+    move.directories = [];
+    const available = [...(target.settings.resultDirectories || [])];
+    for (const item of move.conclusions) {
+      const origin = source.settings.resultDirectories?.find(directory => directory.id === item.folderId);
+      if (!origin) continue;
+      const accountOwner = item.accountOwner || origin.accountOwner, projectId = item.projectId;
+      const sourceDirectories = (source.settings.resultDirectories || []).filter(directory => directory.accountOwner === origin.accountOwner && directory.projectId === origin.projectId);
+      const chain = resultDirectoryPath(origin.id, sourceDirectories);
+      let parentId = chain[0]?.id || 'exploration';
+      for (const node of chain.slice(1)) {
+        const destination = available.filter(directory => directory.accountOwner === accountOwner && directory.projectId === projectId);
+        let folder = destination.find(directory => !directory.deletedAt && resolveResultFolder(directory.parentId, destination) === parentId && directory.name.normalize('NFC').toLocaleLowerCase() === node.name.normalize('NFC').toLocaleLowerCase());
+        if (!folder) { folder = { id: randomUUID(), parentId, name: node.name, revision: 1, accountOwner, projectId }; available.push(folder); move.directories.push(folder); }
+        parentId = folder.id;
+      }
+      item.folderId = parentId;
+    }
+  }
   await atomicJson(journal(source.root), move);
   applyPersonalMove(target, move, true);
   if (source !== target) applyPersonalMove(source, move, false);

@@ -1,3 +1,4 @@
+import { useResultDestination } from './result-directories';
 import { MarkdownEditor } from './markdown-editor';
 import { isPersonalBinding } from '../shared/personal-workspace';
 import { destinationLabel as projectDestinationLabel } from '../shared/submission';
@@ -24,6 +25,8 @@ import { DraftDeleteDialog } from './draft-delete';
 import { RequestCard, isQuestionRequest } from './request-card';
 import { CliConnectionNotice } from './cli-connection-notice';
 export function DraftEditor({ draft, projects = [], session, sourceTitle, sourceSession, transfers, run, notice, close, reorganized, returnToList = false, viewShared, viewConclusion }: { draft: Draft; projects?: Project[]; session?: AgentSession; sourceTitle?: string; sourceSession?: AgentSession; transfers: Transfer[]; run: <T>(fn: () => Promise<T>) => Promise<T | undefined>; notice: (s: string) => void; close: () => void; reorganized: (draft: Draft) => void; returnToList?: boolean; viewShared: (projectId: string, path: string) => void; viewConclusion: (projectId: string, id: string) => void }) {
+  const destination = useResultDestination(draft.binding?.project.id || draft.mergeProjectId || draft.conclusionMergeProjectId || '');
+  const chooseMergeFolder = async (scope: 'personal' | 'team') => destination.choose({ scope, title: scope === 'personal' ? '保存整理结论到个人目录' : '选择团队提交目录', items: [{ id: draft.id, title: draft.title, category: draft.resultCategory }] });
   const uploadLabel = draft.binding ? `提交到 ${projectDestinationLabel(draft.binding.project, projects)}` : '提交到团队';
   const reviewRef = useRef<PreparationReviewHandle>(null);
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [expanded, setExpanded] = useState(false);
@@ -127,7 +130,8 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
           setBusy(true);
           try {
             if (!draft.mergeCompletedAt) await mergeEditor.flush();
-            const result = await api.call<{ id: string }>('content.merge.personal', { id: draft.id, confirmDuplicateTodos });
+            const folders = await chooseMergeFolder('personal'); if (!folders) return;
+            const result = await api.call<{ id: string }>('content.merge.personal', { id: draft.id, confirmDuplicateTodos, folderId: folders[draft.id] });
             notice('融合结果已保存到个人成果库；团队来源保持原状');
             viewConclusion(draft.mergeProjectId!, result.id);
           } finally { setBusy(false); }
@@ -136,7 +140,8 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
           setBusy(true);
           try {
             await mergeEditor.flush();
-            await api.call('conclusion.merge.submit', { id: draft.id, confirmDuplicateTodos });
+            const folders = await chooseMergeFolder('team'); if (!folders) return;
+            await api.call('conclusion.merge.submit', { id: draft.id, confirmDuplicateTodos, folderId: folders[draft.id] });
             setSubmitted(true);
             notice('已开始提交团队成果；个人来源保持原状，上传完成后项目成员可见');
           } finally { setBusy(false); }
@@ -149,12 +154,14 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             try {
               await mergeEditor.flush();
               if (isLocalMerge) {
-                const result = await api.call<{ id: string }>('conclusion.merge.commit', { id: draft.id, replaceIds, confirmDuplicateTodos });
+                const folders = await chooseMergeFolder('personal'); if (!folders) return;
+                const result = await api.call<{ id: string }>('conclusion.merge.commit', { id: draft.id, replaceIds, confirmDuplicateTodos, folderId: folders[draft.id] });
                 setSubmitted(true);
                 notice(replaceIds.length ? `已保存到个人成果库，${replaceIds.length} 条个人来源移入历史` : '已保存到个人成果库，来源仍可继续使用');
                 viewConclusion(draft.conclusionMergeProjectId!, result.id);
               } else {
-                const result = await api.call<{ path: string }>('content.merge.commit', { id: draft.id, replaceIds, confirmDuplicateTodos });
+                const folders = await chooseMergeFolder('team'); if (!folders) return;
+                const result = await api.call<{ path: string }>('content.merge.commit', { id: draft.id, replaceIds, confirmDuplicateTodos, folderId: folders[draft.id] });
                 setSubmitted(true);
                 notice(replaceIds.length ? `已提交为团队成果，${replaceIds.length} 条团队来源移入历史` : '已提交为团队成果，来源仍可继续使用');
                 viewShared(draft.mergeProjectId!, result.path);
@@ -172,7 +179,8 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
           setBusy(true);
           try {
             if (!draft.submitted) await reviewRef.current?.flush(); await editor.flush();
-            await api.call('draft.personal.save', { id: draft.id, artifactIds: selectedIds });
+            const folders = await destination.choose({ scope: 'personal', title: '保存整理结论到个人目录', items: unsavedIds.map(id => { const item = artifacts.find(item => item.id === id); return { id, title: item?.title || draft.title, category: item?.category || draft.resultCategory }; }) }); if (!folders) return;
+            await api.call('draft.personal.save', { id: draft.id, artifactIds: selectedIds, folders });
             notice(`已将 ${unsavedIds.length} 项成果保存到个人成果库；团队成员暂不可见`);
           } finally { setBusy(false); }
         })}><Check size={15}/>{unsavedIds.length ? `保存到个人成果库${unsavedIds.length > 1 ? `（${unsavedIds.length} 项）` : ''}` : '已保存到个人成果库'}</button>}
@@ -180,7 +188,8 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
           setBusy(true);
           try {
             await reviewRef.current?.flush(); await editor.flush();
-            await api.call('draft.submit', { id: draft.id });
+            const folders = await destination.choose({ scope: 'team', title: '选择团队提交目录', items: selectedIds.map(id => { const item = artifacts.find(item => item.id === id); return { id, title: item?.title || draft.title, category: item?.category || draft.resultCategory }; }) }); if (!folders) return;
+            await api.call('draft.submit', { id: draft.id, folders });
             setSubmitted(true);
             notice(`已开始提交 ${selectedIds.length} 项成果到团队`);
           } finally { setBusy(false); }
@@ -189,6 +198,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
         {!artifacts.length && transfer?.status === 'done' && <button className="primary compact" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看团队成果</button>}
       </div>
     )}
+    {destination.dialog}
     {renaming && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="rename-result-title"><header><h2 id="rename-result-title">修改成果名称</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setRenaming(undefined)}>×</button></header><div className="modal-body"><label className="field">成果名称<input autoFocus aria-label="成果名称" maxLength={120} value={renaming.title} onChange={e => setRenaming({ ...renaming, title: e.target.value })}/></label><p className="muted small">{uploaded ? '只修改本机显示名称，已上传的成果包和共享区标题保持不变。' : draft.personalSavedIds?.includes(renaming.artifactId || draft.id) ? '只修改整理草稿；已保存的个人成果请在个人成果库单独改名。' : '修改后保存个人成果或提交团队时将使用新名称。'}</p></div><footer><button className="secondary" disabled={busy} onClick={() => setRenaming(undefined)}>取消</button><button className="primary" disabled={busy || !renaming.title.trim()} onClick={() => void run(async () => { setBusy(true); try { await api.call('draft.renameResult', { id: draft.id, artifactId: renaming.artifactId, title: renaming.title }); setRenaming(undefined); notice(uploaded ? '本地名称已保存，远端未修改' : '成果名称已保存'); } finally { setBusy(false); } })}>保存名称</button></footer></section></div>}
     {confirmingDelete && <DraftDeleteDialog draft={draft} close={() => setConfirmingDelete(false)} remove={async () => { if (!uploaded && !draft.mergeCompletedAt) await reviewRef.current?.flush(); await (isMerge ? mergeEditor.flush() : editor.flush()); await api.call('draft.delete', { id: draft.id }); notice('整理记录已删除，已保存成果和增量进度保留'); close(); }}/>}
     {choosingScope && sourceSession && <PreparationOptionsModal initialDirections={draft.preparationDirections} session={sourceSession} baseline={preparationCheckpoint(sourceSession, [draft])} again close={() => setChoosingScope(false)} started={async (scope, categories, directions) => { if (!uploaded && !empty) await reviewRef.current?.flush(); await editor.flush(); const next = await api.call<Draft>('draft.reorganize', { id: draft.id, scope, categories, directions }); notice(`已创建${scope === 'incremental' ? '增量' : '全量'}整理任务，原任务已保留`); reorganized(next); }}/>}

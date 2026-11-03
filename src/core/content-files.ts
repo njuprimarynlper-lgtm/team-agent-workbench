@@ -13,12 +13,44 @@ import type { RemoteBinding } from '../shared/types';
 import { inspectContentFiles } from './content-files-state';
 import { assertContentReadable } from '../shared/content-files-state';
 import { missingContentIndexMessage } from '../shared/content-index';
+import { assertResultFolder, changeResultDirectory, resultDirectorySchema, resultDirectoryMoveSchema, type ResultDirectory, type ResultDirectoryCommand, type ResultDirectoryMove } from '../shared/result-directories';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
 export class ContentFiles {
   constructor(private root: string, private authorize: (binding: RemoteBinding) => Promise<{ username: string; admin: boolean; destination?: SubmissionDestination }>) {}
   private index(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content.json'), true); }
   private historyIndex(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-content-history.json'), true); }
+  private directoryIndex(binding: RemoteBinding) { return diskPath(this.root, childRemote(binding.project.remoteRoot, '.workbench-result-directories.json'), true); }
+  private async readDirectories(binding: RemoteBinding): Promise<ResultDirectory[]> {
+    try { return resultDirectorySchema.array().parse(JSON.parse(await fs.readFile(await this.directoryIndex(binding), 'utf8'))); }
+    catch (error: any) { if (error.code === 'ENOENT') return []; throw error; }
+  }
+  async directories(binding: RemoteBinding, command?: ResultDirectoryCommand) {
+    return registryLock(this.root, async () => {
+      const actor = await this.authorize(binding), current = await this.readDirectories(binding);
+      if (!command) return current;
+      if (command.action !== 'create' && !actor.admin) throw new Error('只有本组组管理员可以修改或删除团队目录');
+      const next = changeResultDirectory(current, command);
+      await this.authorize(binding);
+      await atomicJson(await this.directoryIndex(binding), next); return next;
+    });
+  }
+  async moveResults(binding: RemoteBinding, raw: ResultDirectoryMove) {
+    const change = resultDirectoryMoveSchema.parse(raw);
+    return registryLock(this.root, async () => {
+      const actor = await this.authorize(binding);
+      if (!actor.admin) throw new Error('只有本组组管理员可以移动团队成果');
+      assertResultFolder(change.folderId, await this.readDirectories(binding));
+      const items = await this.read(binding);
+      const selected = change.items.map(ref => {
+        const item = items.find(value => value.id === ref.id);
+        if (!item || item.revision !== ref.version || (item.folderVersion || 0) !== ref.folderVersion) throw new Error('成果或目录位置已更新，请刷新后再移动');
+        return item;
+      });
+      for (const item of selected) { item.folderId = change.folderId; item.folderVersion = (item.folderVersion || 0) + 1; }
+      await this.authorize(binding); await atomicJson(await this.index(binding), items); return selected;
+    });
+  }
   private async read(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.index(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
   private async historyRead(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.historyIndex(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
   private async tasks(binding: RemoteBinding): Promise<import('../shared/assignments').ProjectAssignment[]> {
@@ -58,6 +90,7 @@ export class ContentFiles {
         if (new Set(prior.replaces?.map(ref => ref.id) || []).size !== change.replaceIds.length || change.replaceIds.some(id => !prior.replaces?.some(ref => ref.id === id))) throw new Error('这次整理已用另一组替代来源保存，请刷新');
         return prior;
       }
+      if (change.folderId) assertResultFolder(change.folderId, await this.readDirectories(binding));
       const sources = change.sources.map(ref => {
         const item = items.find(value => value.id === ref.id);
         if (!item || item.revision !== ref.revision || item.kind !== 'contribution') throw new Error('待整理成果已更新或移出当前列表，请刷新');
@@ -78,7 +111,7 @@ export class ContentFiles {
       const refs = sources.map(source => ({ scope: 'team' as const, projectId: binding.project.id, id: source.id, version: source.revision }));
       const replacedSources = sources.filter(source => change.replaceIds.includes(source.id));
       const submission = acceptedSubmission(undefined, binding, actor.username, actor.destination, sources.map(source => ({ kind: 'team_result' as const, id: source.id, title: source.title, version: source.revision, projectId: binding.project.id, author: source.author })));
-      const result: SharedContent = { submission, id, title: change.title, description: change.description, kind: 'contribution', category, resultStatus: resultDefaultStatus(category), sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
+      const result: SharedContent = { folderId: change.folderId, submission, id, title: change.title, description: change.description, kind: 'contribution', category, resultStatus: resultDefaultStatus(category), sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
       const archived = replacedSources.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id, version: 1 }, supersededAt: now }));
       await this.authorize(binding);
       await fs.mkdir(path.dirname(file), { recursive: true });
@@ -118,6 +151,7 @@ export class ContentFiles {
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), project = binding.project;
       const metadata = contentMetadataSchema.parse(raw || { title: path.posix.basename(target), kind: target.includes('/trajectories/') ? 'trajectory' : 'file' });
+      if (metadata.folderId) assertResultFolder(metadata.folderId, await this.readDirectories(binding));
       validateResultStatus(metadata.category, metadata.resultStatus);
       if (metadata.category) metadata.resultStatus ??= resultDefaultStatus(metadata.category);
       for (const attachment of metadata.attachments || []) {
@@ -166,6 +200,8 @@ export class ContentFiles {
       const history = await this.historyRead(binding);
       if (replacing) {
         Object.assign(item, { id: replacing.id, revision: replacing.revision + 1, createdAt: replacing.createdAt });
+        if (metadata.folderId || replacing.folderId) item.folderId = metadata.folderId || replacing.folderId;
+        item.folderVersion = (replacing.folderVersion || 0) + (item.folderId !== replacing.folderId ? 1 : 0);
         items.splice(items.indexOf(replacing), 1);
         await atomicJson(await this.historyIndex(binding), [structuredClone(replacing), ...history]);
       }

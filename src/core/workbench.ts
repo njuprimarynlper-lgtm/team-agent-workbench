@@ -2,6 +2,7 @@ import { teamAccessRevoked } from '../shared/team-cache';
 import { pruneTeamCache, refreshTeamCache } from './team-cache';
 import { conclusionPublicationOrigin, resolveConclusionPublication } from './conclusion-sharing';
 import type { ConclusionDeletePreview } from '../shared/conclusion-upload';
+import { assertResultFolder, changeResultDirectory, resultDirectoryMoveSchema, type ResultDirectoryCommand, type ResultDirectoryMove } from '../shared/result-directories';
 import { workbenchRsi } from './rsi-workbench';
 import { ProjectSync } from './project-sync';
 import type { RsiEngine } from './rsi';
@@ -179,7 +180,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'project.connection.open'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -388,6 +389,36 @@ export class Workbench {
     const profile = this.localProfile();
     return this.store.conclusions.filter(item => !item.deletedAt && (!item.accountOwner || profile && item.accountOwner === accountIdentity(profile)) && item.projectId === projectId && (includeArchived || !item.archived)).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   }
+  personalResultDirectories(projectId: string) {
+    const profile = this.localProfile();
+    if (!profile?.projects.some(project => project.id === projectId)) throw new Error('当前账号无法访问此项目');
+    const owner = accountIdentity(profile);
+    return (this.store.settings.resultDirectories || []).filter(item => item.accountOwner === owner && item.projectId === projectId);
+  }
+  changePersonalResultDirectory(projectId: string, command: ResultDirectoryCommand) {
+    return this.edit('result-directories:' + projectId, async () => {
+      const current = this.personalResultDirectories(projectId), owner = accountIdentity(this.localProfile()!);
+      const changed = changeResultDirectory(current, command).map(item => ({ ...item, projectId, accountOwner: owner }));
+      const before = this.store.settings.resultDirectories;
+      this.store.settings.resultDirectories = [...(before || []).filter(item => item.accountOwner !== owner || item.projectId !== projectId), ...changed];
+      try { await this.store.save(); } catch (error) { this.store.settings.resultDirectories = before; throw error; }
+      this.broadcast(); return changed;
+    }, false);
+  }
+  movePersonalResults(projectId: string, raw: ResultDirectoryMove) {
+    return this.edit('result-directories:' + projectId, async () => {
+      const change = resultDirectoryMoveSchema.parse(raw);
+      assertResultFolder(change.folderId, this.personalResultDirectories(projectId));
+      const selected = change.items.map(ref => {
+        const item = this.conclusion(ref.id);
+        if (item.projectId !== projectId || item.archived || item.version !== ref.version || (item.folderVersion || 0) !== ref.folderVersion) throw new Error('成果或目录位置已更新，请刷新后再移动');
+        return { item, folderId: item.folderId, folderVersion: item.folderVersion };
+      });
+      for (const { item } of selected) { item.folderId = change.folderId; item.folderVersion = (item.folderVersion || 0) + 1; }
+      try { await this.store.save(); } catch (error) { for (const prior of selected) { prior.item.folderId = prior.folderId; prior.item.folderVersion = prior.folderVersion; } throw error; }
+      this.broadcast(); return selected.map(({ item }) => item);
+    }, false);
+  }
   conclusionUploadState(id: string) {
     const item = this.conclusion(id);
     return this.publishingConclusions.has(id) ? { status: 'running' as const } : conclusionUploadState(item, this.store.transfers);
@@ -398,7 +429,7 @@ export class Workbench {
     return merging ? { contract: 4, categories: [...categories!] } : preparationRuleSnapshot(categories);
   }
   matchConclusions(projectId: string, query: string) { return rankConclusions(this.conclusions(projectId), query); }
-  async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, resultOwner?: string, fileIds: string[] = []) {
+  async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, resultOwner?: string, fileIds: string[] = [], folderId?: string) {
     if (this.linkingProjects.has(projectId)) throw new Error('项目正在迁移，请稍候');
     validateResultStatus(category, resultStatus);
     if (category) title = contributionTitle(category, title);
@@ -407,6 +438,7 @@ export class Workbench {
     if (!conclusion.title || !conclusion.content) throw new Error('请填写结论标题和内容');
     if (category) { conclusion.category = category; const status = resultStatus ?? resultDefaultStatus(category); if (status) conclusion.resultStatus = status; }
     if (resultOwner !== undefined) conclusion.resultOwner = resultOwner;
+    if (folderId) conclusion.folderId = assertResultFolder(folderId, this.personalResultDirectories(projectId));
     const staged = fileIds.map(fileId => this.stagedConclusionFiles.find(file => file.id === fileId));
     if (staged.some(file => !file)) throw new Error('有附件已失效，请重新选择');
     if (staged.length) conclusion.localFiles = staged.map(file => ({ id: file!.id, name: file!.name, sha256: file!.sha256, size: file!.size, localPath: file!.localPath }));
@@ -438,7 +470,7 @@ export class Workbench {
     if (value) conclusion.titleAlias = value; else delete conclusion.titleAlias;
     await this.store.save(); this.broadcast(); return conclusion;
   }
-  async publishConclusion(id: string, disclose: { scope: 'personal' | 'team'; projectId: string; id: string; version: number }[] = [], expectedVersion?: number) {
+  async publishConclusion(id: string, disclose: { scope: 'personal' | 'team'; projectId: string; id: string; version: number }[] = [], expectedVersion?: number, folderId?: string) {
     if (this.personal) throw new Error('先将原会话迁移到团队项目，再发布成果');
     if (this.publishingConclusions.has(id)) throw new Error('这条成果正在上传，请等待完成');
     this.publishingConclusions.add(id); this.broadcast();
@@ -455,6 +487,7 @@ export class Workbench {
       const allowed = conclusion.derivedFrom || [];
       if (disclose.length > 30 || disclose.some(ref => !allowed.some(source => source.scope === ref.scope && source.projectId === ref.projectId && source.id === ref.id && source.version === ref.version))) throw new Error('公开来源必须是这条成果的直接来源');
       const binding = this.remote.binding(conclusion.projectId); this.assertCanWork(binding);
+      if (folderId) assertResultFolder(folderId, await this.remote.resultDirectories(binding));
       let publicationTarget: { id: string; revision: number } | undefined;
       if (conclusionPublicationOrigin(conclusion)) {
         const origin = resolveConclusionPublication(conclusion, binding.username, await this.remote.contentList(binding), await this.remote.contentHistory(binding));
@@ -477,7 +510,7 @@ export class Workbench {
         const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
         attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
       }
-      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { ...(publicationTarget ? { publicationTarget } : {}), kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { ...(publicationTarget ? { publicationTarget } : {}), ...(folderId ? { folderId } : {}), kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
     } finally { this.publishingConclusions.delete(id); this.broadcast(); }
   }
   async archiveConclusion(id: string, archived: boolean) {
@@ -698,13 +731,17 @@ export class Workbench {
     linkConclusionPublications(this.store.conclusions, this.store.drafts, this.store.transfers);
     return results;
   }
-  saveDraftPersonal(id: string, artifactIds: string[]) {
+  saveDraftPersonal(id: string, artifactIds: string[], folders: Record<string, string> = {}) {
     return this.edit('draft:' + id, async () => {
       const draft = this.draft(id);
       if (draft.mergeSources?.length) throw new Error('请在合并结果页面选择保存位置');
       if (draft.generation !== 'ready' || !draft.binding) throw new Error('请等待整理完成并确认项目');
       const available = draft.artifacts?.length ? draft.artifacts.filter(item => item.selected).map(item => item.id) : draft.body.trim() ? [draft.id] : [];
       if (!artifactIds.length || new Set(artifactIds).size !== artifactIds.length || artifactIds.some(item => !available.includes(item))) throw new Error('请选择要保存的整理结果');
+      for (const [sourceId, folderId] of Object.entries(folders)) {
+        if (!artifactIds.includes(sourceId)) throw new Error('目录选择不属于本次保存的成果');
+        assertResultFolder(folderId, this.personalResultDirectories(draft.binding.project.id));
+      }
       const before = structuredClone(this.store.conclusions), savedBefore = draft.personalSavedIds;
       try {
         const results = this.syncDraftConclusions(draft, true, new Set(artifactIds));
@@ -712,12 +749,13 @@ export class Workbench {
         const owner = accountIdentity(draft.binding);
         const saved = artifactIds.map(sourceId => this.store.conclusions.find(item => !item.deletedAt && item.projectId === draft.binding!.project.id && item.accountOwner === owner && item.sources.some(source => source.kind === 'session' && source.id === sourceId)));
         if (saved.some(item => !item)) throw new Error('选中的个人成果曾被删除，请重新整理后保存');
+        saved.forEach((item, index) => { const folderId = folders[artifactIds[index]]; if (item && folderId && item.folderId !== folderId) { item.folderId = folderId; item.folderVersion = (item.folderVersion || 0) + 1; } });
         draft.personalSavedIds = [...new Set([...(draft.personalSavedIds || []), ...artifactIds])];
         await this.store.save(); this.broadcast(); return saved.map(item => item!);
       } catch (error) { this.store.conclusions = before; draft.personalSavedIds = savedBefore; throw error; }
     }, false);
   }
-  async importContentConclusion(projectId: string, contentId: string, expectedRevision?: number) {
+  async importContentConclusion(projectId: string, contentId: string, expectedRevision?: number, folderId?: string) {
     const owner = () => { const profile = this.localProfile(); return profile ? accountIdentity(profile) : ''; };
     const expectedOwner = owner();
     return this.edit('content-import:' + projectId + ':' + contentId, async () => {
@@ -727,9 +765,11 @@ export class Workbench {
       if (!item) throw new Error('内容已删除，请刷新');
       assertContentReadable(item);
       if (expectedRevision !== undefined && item.revision !== expectedRevision) throw new Error('这条成果已更新，请刷新并确认最新内容后再存入个人成果库');
+      if (folderId) assertResultFolder(folderId, this.personalResultDirectories(projectId));
       const before = this.conclusions(projectId, true).map(value => ({ value, snapshot: structuredClone(value) }));
       const events = (this.store.settings.contentUpdates || []).filter(event => event.projectId === projectId && event.id === contentId).map(value => ({ value, snapshot: structuredClone(value) }));
       const result = this.organizeSharedContent(projectId, item);
+      if (folderId && result.conclusion.folderId !== folderId) { result.conclusion.folderId = folderId; result.conclusion.folderVersion = (result.conclusion.folderVersion || 0) + 1; }
       this.recordContentAction(projectId, contentId, item.revision, { kind: 'saved_conclusion', targetId: result.conclusion.id, targetTitle: conclusionTitle(result.conclusion), sourceTitle: item.title });
       const changed = [...before, ...events].filter(({ value, snapshot }) => JSON.stringify(value) !== JSON.stringify(snapshot)).map(entry => ({ ...entry, applied: JSON.stringify(entry.value) }));
       const createdValue = JSON.stringify(result.conclusion);
@@ -3097,10 +3137,11 @@ export class Workbench {
     if (d.generation !== 'ready') throw new Error('请等待处理完成');
     d.title = d.resultCategory ? contributionTitle(d.resultCategory, title) : d.conclusionMergeProjectId ? title.trim() : resultTitle('综合整理', title, 200); d.body = body; await fs.writeFile(d.outputPath, body, 'utf8'); await this.store.save(); this.broadcast(); return d;
   }
-  saveContentMergePersonal(id: string, confirmDuplicateTodos = false) {
+  saveContentMergePersonal(id: string, confirmDuplicateTodos = false, folderId?: string) {
     return this.edit('draft:' + id, async () => {
       const draft = this.draft(id);
       if (!draft.mergeProjectId || !draft.mergeSources?.length || !draft.binding) throw new Error('这不是团队成果融合草稿');
+      if (folderId) assertResultFolder(folderId, this.personalResultDirectories(draft.mergeProjectId));
       if (draft.generation !== 'ready' || !draft.title.trim() || !draft.body.trim()) throw new Error('请等待融合完成并填写标题与正文');
       const owner = accountIdentity(draft.binding);
       const existing = this.store.conclusions.find(item => !item.deletedAt && item.accountOwner === owner && item.projectId === draft.mergeProjectId && item.sources.some(source => source.kind === 'session' && source.id === draft.id));
@@ -3109,7 +3150,7 @@ export class Workbench {
       const now = new Date().toISOString();
       const frozen: { id: string; revision: number; description?: string }[] = await fs.readFile(path.join(draft.inputDir, 'merge-sources.json'), 'utf8').then(JSON.parse).catch(() => []);
       const conclusion: ProjectConclusion = {
-        id: randomUUID(), projectId: draft.mergeProjectId, accountOwner: owner,
+        id: randomUUID(), projectId: draft.mergeProjectId, accountOwner: owner, folderId,
         title: draft.title, content: draft.body, category: draft.resultCategory,
         sources: [
           { id: draft.id, kind: 'session', title: '团队成果融合草稿', content: draft.body, updatedAt: now },
@@ -3127,7 +3168,7 @@ export class Workbench {
       this.broadcast(); return conclusion;
     }, false);
   }
-  async commitContentMerge(id: string, replaceIds: string[] = [], confirmDuplicateTodos = false) {
+  async commitContentMerge(id: string, replaceIds: string[] = [], confirmDuplicateTodos = false, folderId?: string) {
     if (this.submittingDrafts.has(id)) throw new Error('正在确认合并，请等待结果');
     this.submittingDrafts.add(id);
     try {
@@ -3145,18 +3186,19 @@ export class Workbench {
         catch (error) { delete d.mergeReplacementIds; throw error; }
       }
       const added = await this.uploadedDraftAttachments(d);
-      const result = await this.remote.contentMerge(d.binding, { requestId: d.id, confirmDuplicateTodos, sources: d.mergeSources.map(source => ({ id: source.id, revision: source.revision })), replaceIds, title: d.title, description: d.body, category: d.resultCategory, sourceDetails: d.resultSourceDetails, sourceSessionTitle: this.session(d.sessionId).title, ...(added.length ? { attachments: added } : {}) });
+      const result = await this.remote.contentMerge(d.binding, { folderId, requestId: d.id, confirmDuplicateTodos, sources: d.mergeSources.map(source => ({ id: source.id, revision: source.revision })), replaceIds, title: d.title, description: d.body, category: d.resultCategory, sourceDetails: d.resultSourceDetails, sourceSessionTitle: this.session(d.sessionId).title, ...(added.length ? { attachments: added } : {}) });
       if (!result) throw new Error('服务端未返回合并结果');
       d.mergeCompletedAt = new Date().toISOString(); d.mergeResultId = result.id; d.mergeResultPath = result.path; d.submitted = 'merge:' + result.id;
       await this.store.save(); this.broadcast(); return result;
     } finally { this.submittingDrafts.delete(id); }
   }
-  async commitConclusionMerge(id: string, replaceIds: string[] = [], confirmDuplicateTodos = false) {
+  async commitConclusionMerge(id: string, replaceIds: string[] = [], confirmDuplicateTodos = false, folderId?: string) {
     if (this.submittingDrafts.has(id)) throw new Error('正在保存处理结果，请等待');
     this.submittingDrafts.add(id);
     try {
       await this.edits; const d = this.draft(id);
       if (!d.mergeSources?.length || !d.conclusionMergeProjectId) throw new Error('预处理结果缺少来源或项目');
+      if (folderId) assertResultFolder(folderId, this.personalResultDirectories(d.conclusionMergeProjectId));
       if (d.mergeCompletedAt) throw new Error('该处理结果已经保存');
       if (d.generation !== 'ready' || !d.title.trim() || !d.body.trim()) throw new Error('请等待处理完成并填写标题与正文');
       if (new Set(replaceIds).size !== replaceIds.length || replaceIds.some(sourceId => !d.mergeSources!.some(source => source.id === sourceId))) throw new Error('移入历史的成果必须属于本次整理来源，且不能重复');
@@ -3168,7 +3210,7 @@ export class Workbench {
       const previousDraft = { mergeCompletedAt: d.mergeCompletedAt, mergeResultId: d.mergeResultId, submitted: d.submitted };
       const now = new Date().toISOString(), refs = current.map(item => ({ scope: 'personal' as const, projectId: d.conclusionMergeProjectId!, id: item!.id, version: item!.version }));
       const replaced = refs.filter(ref => replaceIds.includes(ref.id));
-      const conclusion: ProjectConclusion = { id: randomUUID(), projectId: d.conclusionMergeProjectId, title: d.title, category: d.resultCategory, resultStatus: resultDefaultStatus(d.resultCategory), content: d.body, sources: current.map(item => ({ id: item!.id, kind: 'conclusion' as const, title: item!.title, content: item!.content, revision: item!.version, updatedAt: item!.updatedAt, details: item!.id === d.mergeSources![0].id ? d.resultSourceDetails : undefined })), derivedFrom: refs, replaces: replaced, updatedAt: now, version: 1, automatic: false };
+      const conclusion: ProjectConclusion = { id: randomUUID(), folderId, projectId: d.conclusionMergeProjectId, title: d.title, category: d.resultCategory, resultStatus: resultDefaultStatus(d.resultCategory), content: d.body, sources: current.map(item => ({ id: item!.id, kind: 'conclusion' as const, title: item!.title, content: item!.content, revision: item!.version, updatedAt: item!.updatedAt, details: item!.id === d.mergeSources![0].id ? d.resultSourceDetails : undefined })), derivedFrom: refs, replaces: replaced, updatedAt: now, version: 1, automatic: false };
       this.attachConclusionFiles(conclusion, this.selectedConclusionFiles(d, d.id));
       for (const source of current.filter(item => replaceIds.includes(item!.id))) { source!.archived = true; source!.supersededBy = { scope: 'personal', projectId: d.conclusionMergeProjectId!, id: conclusion.id, version: 1 }; }
       if (d.binding) conclusion.accountOwner = accountIdentity(d.binding);
@@ -3183,7 +3225,7 @@ export class Workbench {
       this.broadcast(); return conclusion;
     } finally { this.submittingDrafts.delete(id); }
   }
-  async submitConclusionMerge(id: string, confirmDuplicateTodos = false) {
+  async submitConclusionMerge(id: string, confirmDuplicateTodos = false, folderId?: string) {
     if (this.submittingDrafts.has(id)) throw new Error('成果正在提交，请稍后重试');
     this.submittingDrafts.add(id);
     try {
@@ -3198,13 +3240,14 @@ export class Workbench {
         if (!current || current.version !== source.revision) throw new Error(`来源“${source.title}”已更新或删除，请重新审阅后整理`);
       }
       assertTodoMerge(draft.mergeSources, confirmDuplicateTodos);
+      if (folderId) assertResultFolder(folderId, await this.remote.resultDirectories(draft.binding));
       const local = path.join(this.store.root, 'uploads', randomUUID() + '.md');
       await fs.mkdir(path.dirname(local), { recursive: true });
       await fs.writeFile(local, `# ${draft.title}\n\n${draft.body}`, 'utf8');
       const category = draft.resultCategory || 'finding';
       const carrier = { id: draft.id, category, title: draft.title, fields: {}, body: draft.body, target: contributionCategoryDirectory(draft.binding, category), selected: true, attachments: draft.attachments };
       const attachments = await freezeDraftAttachments(draft, [carrier], this.store.root);
-      const metadata = { kind: 'contribution' as const, category, title: draft.title, description: draft.body, submission: submissionRecord(draft.binding, draft.mergeSources!.map(source => ({ kind: 'personal_result' as const, id: source.id, title: source.title, version: source.revision, projectId: draft.conclusionMergeProjectId }))), ...(attachments.byArtifact.get(draft.id)!.files.length ? { attachments: attachments.byArtifact.get(draft.id)!.files } : {}) };
+      const metadata = { folderId, kind: 'contribution' as const, category, title: draft.title, description: draft.body, submission: submissionRecord(draft.binding, draft.mergeSources!.map(source => ({ kind: 'personal_result' as const, id: source.id, title: source.title, version: source.revision, projectId: draft.conclusionMergeProjectId }))), ...(attachments.byArtifact.get(draft.id)!.files.length ? { attachments: attachments.byArtifact.get(draft.id)!.files } : {}) };
       const transfer = attachments.transfers.length
         ? (await this.queue.enqueueMany([...attachments.transfers, { local, binding: draft.binding, folder: carrier.target, kind: 'upload' as const, sessionId: draft.sessionId, dependsOn: attachments.byArtifact.get(draft.id)!.dependsOn, metadata }])).at(-1)!
         : await this.queue.enqueue(local, draft.binding, carrier.target, 'upload', draft.sessionId, metadata);
@@ -3290,12 +3333,17 @@ export class Workbench {
     if (!entry || !d.files.some(file => file.id === fileId)) throw new Error('附件不存在');
     entry.selected = selected; await this.store.save(); this.broadcast();
   }
-  async submitDraft(id: string, target?: string) {
+  async submitDraft(id: string, target?: string, folders: Record<string, string> = {}) {
     if (this.personal) throw new Error('先将原会话迁移到团队项目，再提交团队成果');
     if (this.submittingDrafts.has(id)) throw new Error('此草稿正在提交，请等待结果');
     this.submittingDrafts.add(id);
     try {
       await this.edits; const d = this.draft(id); if (d.submitted) throw new Error('该批成果已提交'); if (!d.binding) throw new Error('此会话没有绑定远端项目，可导出文件后从团队文件区手动上传');
+      if (Object.keys(folders).length) {
+        const directories = await this.remote.resultDirectories(d.binding);
+        const ids = d.artifacts?.length ? d.artifacts.filter(item => item.selected).map(item => item.id) : [d.id];
+        for (const [id, folder] of Object.entries(folders)) { if (!ids.includes(id)) throw new Error('目录选择不属于本次提交'); assertResultFolder(folder, directories); }
+      }
       const sourceSessionTitle = d.sourceSessionTitle;
       const submission = submissionRecord(d.binding, sourceSessionTitle ? [{ kind: 'session', id: d.sessionId, title: sourceSessionTitle, capturedAt: d.snapshot?.capturedAt, snapshotHash: d.snapshot?.conversationHash }] : [{ kind: 'unknown' }]);
       if (d.preparationVersion === 3) {
@@ -3310,7 +3358,7 @@ export class Workbench {
         this.remote.channel(d.binding);
         const attachments = await freezeDraftAttachments(d, selected, this.store.root);
         const packages = await Promise.all(selected.map(item => packageDraftArtifact(d, item, this.store.root, submission)));
-        const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ conclusionSourceId: item.id, local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { submission, kind: 'contribution' as const, category: item.category, resultStatus: item.resultStatus, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
+        const batch = await this.queue.enqueueMany([...attachments.transfers, ...selected.map((item, index) => ({ conclusionSourceId: item.id, local: packages[index], binding: d.binding!, folder: item.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(item.id)!.dependsOn, metadata: { folderId: folders[item.id], submission, kind: 'contribution' as const, category: item.category, resultStatus: item.resultStatus, fields: item.fields, sourceDetails: item.sourceDetails, title: item.title, description: artifactContributionBody(d, item), repoUrl: d.repoUrlOverride || item.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, snapshotHash: d.snapshot?.conversationHash, ...(attachments.byArtifact.get(item.id)!.files.length ? { attachments: attachments.byArtifact.get(item.id)!.files } : {}) } }))]);
         const transfers = batch.slice(attachments.transfers.length);
         selected.forEach((item, index) => { item.submitted = transfers[index].id; });
         d.submitted = transfers[0].id; await this.store.save(); this.broadcast(); return transfers[0];
@@ -3319,7 +3367,7 @@ export class Workbench {
       this.remote.channel(d.binding); const artifact = { id: d.id, category: 'finding' as const, title: d.title, fields: { statement: d.body }, body: d.body, repoUrl: d.repoUrl, target: target || d.target || d.binding.project.uploadPath, selected: true, attachments: d.attachments };
       const attachments = await freezeDraftAttachments(d, [artifact], this.store.root);
       const zip = await packageDraftArtifact(d, artifact, this.store.root, submission);
-      const metadata = { submission, kind: 'contribution' as const, title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, ...(attachments.byArtifact.get(d.id)!.files.length ? { attachments: attachments.byArtifact.get(d.id)!.files } : {}) };
+      const metadata = { folderId: folders[d.id], submission, kind: 'contribution' as const, title: d.title, description: contributionBody(d), repoUrl: d.repoUrlOverride || d.repoUrl, git: d.includeGit ? d.git : undefined, sourceSessionId: d.sessionId, sourceSessionTitle, ...(attachments.byArtifact.get(d.id)!.files.length ? { attachments: attachments.byArtifact.get(d.id)!.files } : {}) };
       const transfer = attachments.transfers.length
         ? (await this.queue.enqueueMany([...attachments.transfers, { conclusionSourceId: d.id, local: zip, binding: d.binding, folder: artifact.target, kind: 'upload' as const, sessionId: d.sessionId, dependsOn: attachments.byArtifact.get(d.id)!.dependsOn, metadata }])).at(-1)!
         : await this.queue.enqueue(zip, d.binding, artifact.target, 'upload', d.sessionId, metadata, undefined, d.id);

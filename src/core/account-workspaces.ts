@@ -74,6 +74,7 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
       const pending = await json<Record<string, any>>(path.join(source.directory, 'accounts', hash + '.json.pending'), {});
       for (const [key, value] of Object.entries(pending)) {
         if (key.startsWith('alias:') && typeof value === 'string') settings.contentAliases[key.slice(6)] = value;
+        else if (key.startsWith('directory:') && value?.accountOwner === owner) settings.resultDirectories = [...(settings.resultDirectories || []).filter(item => item.id !== value.id), value];
         else if (key.startsWith('seen:') && value) settings.contentSeen[prefix + key.slice(5)] = value;
         else if (key.startsWith('update:') && value) { const eventId = prefix + key.slice(7); settings.contentUpdates = [...settings.contentUpdates.filter(item => item.eventId !== eventId), { ...value, eventId }]; }
         else if (key.startsWith('dismissed:') && value) settings.dismissedContentUpdateIds.push(prefix + key.slice(10));
@@ -81,6 +82,7 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
       continue;
     }
     const old = source.settings!;
+    settings.resultDirectories = [...new Map([...(settings.resultDirectories || []), ...(old.resultDirectories || []).filter(item => item.accountOwner === owner)].map(item => [item.id, item])).values()];
     Object.assign(settings.contentAliases, old.contentAliases);
     Object.assign(settings.contentSeen, old.contentSeen);
     settings.contentUpdates = [...new Map([...settings.contentUpdates!, ...(old.contentUpdates || [])].map(item => [item.eventId, item])).values()];

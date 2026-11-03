@@ -2,6 +2,7 @@ import type { ConnectionProfile, WorkspaceAccess } from './types';
 import { z } from 'zod';
 
 export const teamCacheRequestSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('result.directory.list'), projectId: z.string().min(1) }),
   z.object({ action: z.literal('content.list'), projectId: z.string().min(1) }),
   z.object({ action: z.literal('content.history'), projectId: z.string().min(1) }),
   z.object({ action: z.literal('assignment.list'), projectId: z.string().min(1) }),

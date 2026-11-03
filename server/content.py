@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import uuid
+import unicodedata
 if "tg_handle" not in globals():
     exec(compile(pathlib.Path(__file__).with_name("group_ops.py").read_text(encoding="utf-8"), "group_ops.py", "exec"))
 
@@ -78,6 +79,87 @@ def result_category(item):
         if label == '已有能力':
             return 'capability'
     return 'exploration'
+
+def result_folder_id(value):
+    if not isinstance(value, str) or (value not in RESULT_CATEGORIES and not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}', value)):
+        raise ValueError('目录标识无效')
+    return value
+
+def assert_result_folder(value, directories):
+    result_folder_id(value)
+    if value not in RESULT_CATEGORIES and not any(item['id'] == value and not item.get('deletedAt') for item in directories):
+        raise ValueError('所选目录已删除或不存在，请重新选择保存位置')
+    return value
+
+def resolve_result_folder(value, directories):
+    seen = set()
+    while value and value not in seen:
+        if value in RESULT_CATEGORIES:
+            return value
+        seen.add(value)
+        item = next((entry for entry in directories if entry['id'] == value), None)
+        if not item:
+            break
+        if not item.get('deletedAt'):
+            return item['id']
+        value = item['parentId']
+    return 'exploration'
+
+def result_directories_operation(directory, command, admin, gid):
+    file = directory / '.workbench-result-directories.json'
+    directories = read_json(file, [])
+    if command is None:
+        return directories
+    if not isinstance(command, dict) or command.get('action') not in ('create', 'rename', 'delete'):
+        raise ValueError('目录操作无效')
+    action = command['action']
+    if action != 'create' and not admin:
+        raise PermissionError('只有本组组管理员可以修改或删除团队目录')
+    identifier = result_folder_id(command.get('id'))
+    if identifier in RESULT_CATEGORIES:
+        raise ValueError('五类一级目录不能修改或删除')
+    item = next((entry for entry in directories if entry['id'] == identifier), None)
+    name = text(command.get('name'), 60).strip() if action != 'delete' else None
+    if name is not None and (not name or re.search(r'[\x00-\x1f/\\]', name)):
+        raise ValueError('请填写有效目录名称')
+    if action == 'create':
+        parent = assert_result_folder(command.get('parentId'), directories)
+        if item:
+            if not item.get('deletedAt') and item['parentId'] == parent and item['name'] == name:
+                return directories
+            raise ValueError('目录标识已存在，请刷新')
+        cursor, seen = parent, set()
+        while cursor not in RESULT_CATEGORIES:
+            if cursor in seen or len(seen) >= 31:
+                raise ValueError('目录层级过深或存在循环')
+            seen.add(cursor)
+            ancestor = next((entry for entry in directories if entry['id'] == cursor), None)
+            if not ancestor:
+                raise ValueError('上级目录不存在')
+            cursor = resolve_result_folder(ancestor['parentId'], directories)
+        if len([entry for entry in directories if not entry.get('deletedAt')]) >= 2000:
+            raise ValueError('目录数量已达到上限')
+        item = dict(id=identifier, parentId=parent, name=name, revision=1)
+        directories.append(item)
+    else:
+        if not item or item.get('deletedAt') or type(command.get('revision')) is not int or command['revision'] != item['revision']:
+            raise ValueError('目录已更新或删除，请刷新后再操作')
+        item['revision'] += 1
+        if action == 'delete':
+            item['deletedAt'] = now()
+        else:
+            item['name'] = name
+    if action != 'delete':
+        parent = resolve_result_folder(item['parentId'], directories)
+        if any(entry['id'] != item['id'] and not entry.get('deletedAt') and resolve_result_folder(entry['parentId'], directories) == parent and unicodedata.normalize('NFC', entry['name']).lower() == unicodedata.normalize('NFC', item['name']).lower() for entry in directories):
+            raise ValueError('同一级已有这个名称的目录')
+    else:
+        parent = resolve_result_folder(identifier, directories)
+        names = [unicodedata.normalize('NFC', entry['name']).lower() for entry in directories if not entry.get('deletedAt') and resolve_result_folder(entry['parentId'], directories) == parent]
+        if len(names) != len(set(names)):
+            raise ValueError('子目录移到上一级后会重名，请先重命名同名目录再删除')
+    atom(file, directories, gid)
+    return directories
 
 def validate_result_status(category, status):
     if status is not None and status not in RESULT_STATUSES[result_category({'category': category})]:
@@ -865,7 +947,7 @@ def handle(root, state, username, request, incoming=None):
         if op == 'account_read':
             return current
         records = request.get('records')
-        if not isinstance(records, dict) or len(json.dumps(records, ensure_ascii=False).encode('utf-8')) > 2 * 1024 * 1024 or any(not re.fullmatch(r'(material|draft|alias|update|seen|dismissed|result-rules):[^\x00-\x1f]{1,500}', key) for key in records):
+        if not isinstance(records, dict) or len(json.dumps(records, ensure_ascii=False).encode('utf-8')) > 2 * 1024 * 1024 or any(not re.fullmatch(r'(material|draft|alias|update|seen|dismissed|result-rules|directory):[^\x00-\x1f]{1,500}', key) for key in records):
             raise ValueError('账号资料格式无效或超过 2 MB')
         if type(request.get('revision')) is not int or request['revision'] != current['revision']:
             return dict(current, conflict=True)
@@ -925,6 +1007,8 @@ def handle(root, state, username, request, incoming=None):
     gid = group['gid']
     if op == 'content_capabilities':
         return {'publicationUpdate': 1}
+    if op == 'result_directories':
+        return result_directories_operation(directory, request.get('command'), admin, gid)
     if op == 'publish_attachment':
         sha = request.get('sha256')
         if not isinstance(sha, str) or not re.fullmatch(r'[a-f0-9]{64}', sha) or not incoming or not incoming.is_file() or incoming.stat().st_size > MAX_FILE or digest(incoming) != sha:
@@ -964,6 +1048,25 @@ def handle(root, state, username, request, incoming=None):
     index = directory / '.workbench-content.json'
     items = read_json(index, [])
     history_index = directory / '.workbench-content-history.json'
+    if op == 'move_results':
+        if not admin:
+            raise PermissionError('只有本组组管理员可以移动团队成果')
+        change = request.get('change') or {}
+        folder = assert_result_folder(change.get('folderId'), read_json(directory / '.workbench-result-directories.json', []))
+        refs = change.get('items')
+        if not isinstance(refs, list) or not 1 <= len(refs) <= 100 or any(not isinstance(ref, dict) for ref in refs) or len({ref.get('id') for ref in refs}) != len(refs):
+            raise ValueError('请选择不重复的成果')
+        selected = []
+        for ref in refs:
+            item = next((entry for entry in items if entry['id'] == ref.get('id')), None)
+            if not item or type(ref.get('version')) is not int or item['revision'] != ref['version'] or type(ref.get('folderVersion', 0)) is not int or item.get('folderVersion', 0) != ref.get('folderVersion', 0):
+                raise ValueError('成果或目录位置已更新，请刷新后再移动')
+            selected.append(item)
+        for item in selected:
+            item['folderId'] = folder
+            item['folderVersion'] = item.get('folderVersion', 0) + 1
+        atom(index, items, gid)
+        return selected
     if op == 'content_task_links':
         # Expose only the existence of another member's private task.
         links = {item['id']: [] for item in items if item.get('kind') == 'contribution' and result_category(item) == 'todo'}
@@ -1002,6 +1105,9 @@ def handle(root, state, username, request, incoming=None):
             if not isinstance(replace_ids, list) or any(not isinstance(source_id, str) for source_id in replace_ids) or set(ref['id'] for ref in prior.get('replaces', [])) != set(replace_ids):
                 raise ValueError('这次整理已用另一组替代来源保存，请刷新')
             return prior
+        folder_id = change.get('folderId')
+        if folder_id is not None:
+            assert_result_folder(folder_id, read_json(directory / '.workbench-result-directories.json', []))
         refs = change.get('sources')
         if not isinstance(refs, list) or not 2 <= len(refs) <= 20 or any(not isinstance(ref, dict) for ref in refs) or len({ref.get('id') for ref in refs}) != len(refs):
             raise ValueError('待整理成果列表无效')
@@ -1059,6 +1165,8 @@ def handle(root, state, username, request, incoming=None):
         refs = [dict(scope='team', projectId=project['id'], id=source['id'], version=source['revision']) for source in sources]
         result = dict(id=result_id, title=title, description=description, kind='contribution', path='/' + file.relative_to(root).as_posix(), author=username, state='curated', revision=1, createdAt=timestamp, updatedAt=timestamp, updatedBy=username, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload), attachments=attachments, derivedFrom=refs, replaces=[ref for ref in refs if ref['id'] in replace_ids], sources=[source['id'] for source in sources], provenance=[dict(id=source['id'], revision=source['revision'], title=source['title'], author=source['author'], updatedAt=source['updatedAt']) for source in sources])
         result['submission'] = submission_value(dict(version=1, submittedBy=username, destination=dict(projectId=project['id'], groupName=group_name), sources=[dict(kind='team_result', id=source['id'], version=source['revision'], projectId=project['id']) for source in sources]), username, project, group_name, group, sources, [])
+        if folder_id is not None:
+            result['folderId'] = folder_id
         if request_id:
             result['mergeRequestId'] = request_id
         if category is not None:
@@ -1101,6 +1209,9 @@ def handle(root, state, username, request, incoming=None):
     if op == 'publish':
         target = text(request.get('target'), 4096)
         meta = request.get('metadata') or {}
+        folder_id = meta.get('folderId')
+        if folder_id is not None:
+            assert_result_folder(folder_id, read_json(directory / '.workbench-result-directories.json', []))
         origin = meta.get('submission')
         if origin is None and meta.get('sourceSessionTitle'):
             source = dict(kind='session', title=text(meta['sourceSessionTitle'], 120))
@@ -1199,8 +1310,13 @@ def handle(root, state, username, request, incoming=None):
         history = read_json(history_index, [])
         if replacing:
             item.update(id=replacing['id'], revision=replacing['revision'] + 1, createdAt=replacing['createdAt'])
+            if folder_id or replacing.get('folderId'):
+                item['folderId'] = folder_id or replacing['folderId']
+            item['folderVersion'] = replacing.get('folderVersion', 0) + (1 if item.get('folderId') != replacing.get('folderId') else 0)
             items.remove(replacing)
             atom(history_index, [replacing] + history, gid)
+        if folder_id is not None:
+            item['folderId'] = folder_id
         items.insert(0, item)
         try:
             atom(index, items, gid)

@@ -47,7 +47,7 @@ test('result names stay in the draft until personal save and never rewrite submi
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-rename-result-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     const session = await wb.createSession('codex', root, offlineProjectId), draft = await wb.prepare(session.id, [], ['exploration']);
     await until(() => draft.generation === 'ready');
     assert(wb.session(draft.prepareSessionId!).messages.some(message => message.role === 'user' && message.text.includes(preparationWritingGuide)));
@@ -112,7 +112,7 @@ test('reorganization creates preserved incremental or full tasks from an exact m
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     const session = await wb.createSession('codex', root, offlineProjectId);
     session.messages.push(
       { id: 'before-user', role: 'user', text: '第一阶段问题', createdAt: '2026-09-20T01:00:00.000Z' },
@@ -147,7 +147,7 @@ test('legacy category drafts on local storage retain upload, immutable packages,
     await admin.operation({ op: 'initialize' }); await admin.operation({ op: 'group_create', label: 'prepare' });
     for (const username of ['alice', 'bob']) await admin.operation({ op: 'user_create', username, name: username, password: 'member-password', groups: ['local_prepare'], contentAdminGroups: username === 'alice' ? ['local_prepare'] : [] });
     const profile = (username: string) => memberProfile(admin.snapshot.profile!, admin.snapshot.state!, username, 'local_prepare');
-    await wb.store.init(); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     await wb.configureWorkspace(profile('alice'), 'member-password', root, async () => false);
     const p = await syncedProject(wb, '整理成果测试'), dir = p.remoteRoot + '/方案说明';
     const diskDir = await diskPath(share, dir, true); await fs.mkdir(diskDir); await fs.writeFile(path.join(diskDir, 'README.md'), '此目录接收设计与方案修改说明。');
@@ -328,7 +328,7 @@ test('cancel preparation preserves notes and supplements, stops only the helper,
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     const parent = await wb.createSession('codex', root, offlineProjectId);
     await wb.saveHandoff(parent.id, '# Agent 工作记录\n已有方向性结论');
     await wb.send(parent.id, '持续运行的独立工作');
@@ -361,7 +361,7 @@ test('deleting a preparation removes its local task, helper session and temporar
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     const parent = await wb.createSession('codex', root, offlineProjectId), draft = await wb.prepare(parent.id);
     await until(() => wb.session(draft.prepareSessionId!).status === 'running');
     const helperId = draft.prepareSessionId!, draftRoot = path.join(wb.store.root, 'drafts', draft.id);

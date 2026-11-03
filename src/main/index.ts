@@ -19,6 +19,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { resultDirectoryCommandSchema, resultDirectoryMoveSchema, resultFolderIdSchema, resultFolderSelectionsSchema } from '../shared/result-directories';
 import { serverIdentityKey } from '../shared/server-identity';
 import { Workbench } from '../core/workbench';
 import { CodexDesktopService } from '../core/codex-desktop-service';
@@ -324,9 +325,21 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'project.brief.save': { const p = z.object({ projectId: z.string(), brief: projectBriefSchema, revision: z.number().int().nonnegative() }).parse(raw); workbench.assertCanWork(workbench.projectBinding(p.projectId)); return workbench.projectSync.save(p.projectId, p.brief, p.revision); }
     case 'project.sync.undo': { const p = z.object({ projectId: z.string(), id: z.string().uuid() }).parse(raw); return workbench.projectSync.undo(p.projectId, p.id); }
     case 'project.sync.resolve': { const p = z.object({ projectId: z.string(), token: z.string(), choice: z.enum(['local', 'remote', 'merged']), fields: z.array(z.object({ path: z.array(z.string()), text })).optional() }).parse(raw); return workbench.projectSync.resolve(p.projectId, p.token, p.choice, p.fields); }
+    case 'result.directory.list': {
+      const p = z.object({ projectId: z.string(), scope: z.enum(['personal', 'team']) }).parse(raw);
+      return p.scope === 'personal' ? workbench.personalResultDirectories(p.projectId) : refreshTeamCache(workbench, { action: 'result.directory.list', projectId: p.projectId }, () => workbench.remote.resultDirectories(workbench.projectBinding(p.projectId)));
+    }
+    case 'result.directory.change': {
+      const p = z.object({ projectId: z.string(), scope: z.enum(['personal', 'team']), command: resultDirectoryCommandSchema }).parse(raw);
+      return p.scope === 'personal' ? workbench.changePersonalResultDirectory(p.projectId, p.command) : refreshTeamCache(workbench, { action: 'result.directory.list', projectId: p.projectId }, () => workbench.remote.resultDirectories(workbench.projectBinding(p.projectId), p.command));
+    }
+    case 'result.directory.move': {
+      const p = z.object({ projectId: z.string(), scope: z.enum(['personal', 'team']), change: resultDirectoryMoveSchema }).parse(raw);
+      return p.scope === 'personal' ? workbench.movePersonalResults(p.projectId, p.change) : workbench.remote.moveResults(workbench.projectBinding(p.projectId), p.change);
+    }
     case 'content.list': { const p = z.object({ projectId: z.string() }).parse(raw); return refreshTeamCache(workbench, { action, ...p }, () => workbench.remote.contentList(workbench.remote.binding(p.projectId))); }
     case 'content.history': { const p = z.object({ projectId: z.string(), id: z.string().uuid().optional(), revision: z.number().int().positive().optional() }).parse(raw); return p.id ? workbench.remote.contentHistory(workbench.remote.binding(p.projectId), p.id, p.revision) : refreshTeamCache(workbench, { action, projectId: p.projectId }, () => workbench.remote.contentHistory(workbench.remote.binding(p.projectId))); }
-    case 'conclusion.publish': { const p = z.object({ id: z.string().uuid(), version: z.number().int().positive().optional(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose, p.version); }
+    case 'conclusion.publish': { const p = z.object({ folderId: resultFolderIdSchema.optional(), id: z.string().uuid(), version: z.number().int().positive().optional(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose, p.version, p.folderId); }
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'rsi.settings': { const p = z.object({ projectId: text }).parse(raw); const view = await workbench.rsi.view(p.projectId); return { config: view.config, sourceSession: view.sourceSession, cwd: workbench.store.root }; }
     case 'rsi.shadow.configure': { const p = z.object({ projectId: text, config: z.unknown() }).parse(raw); return workbench.rsi.configureShadow(p.projectId, p.config); }
@@ -394,7 +407,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'assignment.status': { const p = z.object({ projectId: z.string(), change: assignmentStatusSchema }).parse(raw); return workbench.updateAssignment(p.projectId, p.change); }
     case 'assignment.start': { const p = z.object({ projectId: z.string(), taskId: id, revision: z.number().int().positive(), provider, cwd: text, model: z.string().min(1).max(256).optional(), permissionMode: z.enum(['inherit', 'review', 'auto', 'full']).optional(), includeBrief: z.boolean().default(true), networkRoute: z.enum(['direct', 'management']).optional(), desktopSync: z.boolean().default(false) }).parse(raw); if ((p.networkRoute || (workbench.store.settings.egress?.enabled ? 'management' : 'direct')) === 'management') await workbench.requireAuth(p.provider, p.cwd.trim() || await workbench.researchWorkspace(), 'management'); return workbench.startAssignment(p.projectId, p.taskId, p.revision, p.provider, p.cwd, p.model, p.permissionMode, p.includeBrief, p.networkRoute, p.desktopSync); }
     case 'conclusion.match': { const p = z.object({ projectId: z.string(), query: text.min(1) }).parse(raw); return workbench.matchConclusions(p.projectId, p.query); }
-    case 'conclusion.create': { const p = z.object({ projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional(), fileIds: z.array(id).max(30).optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category, p.resultStatus, p.resultOwner, p.fileIds); }
+    case 'conclusion.create': { const p = z.object({ folderId: resultFolderIdSchema.optional(), projectId: z.string(), title: z.string().trim().min(1).max(200), content: text.min(1), category: contributionCategorySchema.optional(), resultStatus: resultStatusSchema.optional(), resultOwner: z.string().max(160).optional(), fileIds: z.array(id).max(30).optional() }).parse(raw); return workbench.createConclusion(p.projectId, p.title, p.content, p.category, p.resultStatus, p.resultOwner, p.fileIds, p.folderId); }
     case 'conclusion.files.stage': return workbench.stageConclusionFiles(await chooseFiles(owner));
     case 'conclusion.files.add': { const p = z.object({ id }).parse(raw); return workbench.addConclusionFiles(p.id, await chooseFiles(owner)); }
     case 'conclusion.files.remove': { const p = z.object({ id: id.optional(), fileId: id }).parse(raw); return workbench.removeConclusionFile(p.id, p.fileId); }
@@ -412,14 +425,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'conclusion.deletePreview': return workbench.previewConclusionDeletion(z.object({ selections: z.array(z.object({ id, version: z.number().int().positive() })).min(1).max(1000) }).parse(raw).selections);
     case 'conclusion.deleteMany': { const p = z.object({ selections: z.array(z.object({ id, version: z.number().int().positive() })).min(1).max(1000), syncTeam: z.boolean().default(false), publications: z.array(z.object({ localId: id, projectId: z.string(), title: z.string().default(''), status: z.enum(['linked', 'missing', 'reference', 'error']), contentId: id.optional(), revision: z.number().int().positive().optional() })).max(1000).default([]) }).parse(raw); return workbench.deleteConclusions(p.selections, p.syncTeam, p.publications); }
     case 'content.updates.delete': return workbench.deleteContentUpdates(z.object({ eventIds: z.array(z.string()).min(1).max(10000) }).parse(raw).eventIds);
-    case 'conclusion.import': { const p = z.object({ projectId: z.string(), contentId: id, expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.importContentConclusion(p.projectId, p.contentId, p.expectedRevision); }
+    case 'conclusion.import': { const p = z.object({ folderId: resultFolderIdSchema.optional(), projectId: z.string(), contentId: id, expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.importContentConclusion(p.projectId, p.contentId, p.expectedRevision, p.folderId); }
     case 'conclusion.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(id).min(1).max(20), instruction: z.string().max(8000).default('') }).parse(raw); return workbench.prepareConclusionMerge(p.projectId, p.sessionId, p.sourceIds, p.instruction); }
-    case 'conclusion.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]), confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.commitConclusionMerge(p.id, p.replaceIds, p.confirmDuplicateTodos); }
-    case 'conclusion.merge.submit': { const p = z.object({ id, confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.submitConclusionMerge(p.id, p.confirmDuplicateTodos); }
+    case 'conclusion.merge.commit': { const p = z.object({ folderId: resultFolderIdSchema.optional(), id, replaceIds: z.array(id).max(20).default([]), confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.commitConclusionMerge(p.id, p.replaceIds, p.confirmDuplicateTodos, p.folderId); }
+    case 'conclusion.merge.submit': { const p = z.object({ id, confirmDuplicateTodos: z.boolean().optional(), folderId: resultFolderIdSchema.optional() }).parse(raw); return workbench.submitConclusionMerge(p.id, p.confirmDuplicateTodos, p.folderId); }
     case 'content.merge.prepare': { const p = z.object({ projectId: z.string(), sessionId: id, sourceIds: z.array(z.string().uuid()).min(2).max(20) }).parse(raw); return workbench.prepareContentMerge(p.projectId, p.sessionId, p.sourceIds); }
     case 'content.merge.save': { const p = z.object({ id, title: z.string().max(200), body: text }).parse(raw); return workbench.saveContentMerge(p.id, p.title, p.body); }
-    case 'content.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]), confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.commitContentMerge(p.id, p.replaceIds, p.confirmDuplicateTodos); }
-    case 'content.merge.personal': { const p = z.object({ id, confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.saveContentMergePersonal(p.id, p.confirmDuplicateTodos); }
+    case 'content.merge.commit': { const p = z.object({ id, replaceIds: z.array(id).max(20).default([]), confirmDuplicateTodos: z.boolean().optional(), folderId: resultFolderIdSchema.optional() }).parse(raw); return workbench.commitContentMerge(p.id, p.replaceIds, p.confirmDuplicateTodos, p.folderId); }
+    case 'content.merge.personal': { const p = z.object({ folderId: resultFolderIdSchema.optional(), id, confirmDuplicateTodos: z.boolean().optional() }).parse(raw); return workbench.saveContentMergePersonal(p.id, p.confirmDuplicateTodos, p.folderId); }
     case 'content.adopt': { const p = z.object({ projectId: z.string(), path: text }).parse(raw); return workbench.remote.contentAdopt(workbench.remote.binding(p.projectId), p.path); }
     case 'content.edit': { const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw); return workbench.editSharedContent(p.projectId, p.change); }
     case 'content.deleteMany': { const p = z.object({ projectId: z.string(), selections: contentDeleteSelectionsSchema }).parse(raw); return workbench.deleteSharedContents(p.projectId, p.selections); }
@@ -526,8 +539,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       if (await hashFile(temporary) !== file.sha256) throw new Error('附件校验失败，未写入所选位置');
       await fs.copyFile(temporary, result.filePath); await fs.unlink(temporary); notice('附件已下载'); return true;
     }
-    case 'draft.submit': { const p = z.object({ id, target: z.string().optional() }).parse(raw); return workbench.submitDraft(p.id, p.target); }
-    case 'draft.personal.save': { const p = z.object({ id, artifactIds: z.array(id).min(1).max(5) }).parse(raw); return workbench.saveDraftPersonal(p.id, p.artifactIds); }
+    case 'draft.submit': { const p = z.object({ folders: resultFolderSelectionsSchema.optional(), id, target: z.string().optional() }).parse(raw); return workbench.submitDraft(p.id, p.target, p.folders); }
+    case 'draft.personal.save': { const p = z.object({ folders: resultFolderSelectionsSchema.optional(), id, artifactIds: z.array(id).min(1).max(5) }).parse(raw); return workbench.saveDraftPersonal(p.id, p.artifactIds, p.folders); }
     case 'draft.export': {
       const d = workbench.draft(sessionInput.parse(raw).id); const target = await dialog.showSaveDialog(owner, { defaultPath: 'contribution.zip', filters: [{ name: '成果包', extensions: ['zip'] }] }); if (!target.filePath) return false;
       const zip = await packageDraft(d, workbench.store.root); await fs.copyFile(zip, target.filePath); return true;

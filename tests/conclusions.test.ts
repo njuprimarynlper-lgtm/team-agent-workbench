@@ -126,7 +126,7 @@ test('local conclusions persist, can be edited and freeze an exact session sourc
 test('personal conclusion processing follows directions and archives sources only after confirmation', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-conclusion-merge-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' }), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     const session = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
     const first = await wb.createConclusion(offlineProjectId, '部署约束', '启动程序时隐藏终端窗口。'), second = await wb.createConclusion(offlineProjectId, '启动验证', 'Windows 启动器已通过回归测试。');
     const draft = await wb.prepareConclusionMerge(offlineProjectId, session.id, [first.id, second.id], '保留 Windows 约束，不要补造测试结果。');
@@ -159,7 +159,7 @@ test('personal conclusion processing follows directions and archives sources onl
 test('personal results can reuse one source in different combinations', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-conclusion-branches-')), fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' }), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher; wb.store.settings.codexRequestGuard = false; // Fake CLI: no upstream transport; avoid OS proxy discovery in background tests.
     const session = await wb.createSession('codex', root, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
     const a = await wb.createConclusion(offlineProjectId, '输入 A', '观察 A');
     const b = await wb.createConclusion(offlineProjectId, '输入 B', '观察 B');

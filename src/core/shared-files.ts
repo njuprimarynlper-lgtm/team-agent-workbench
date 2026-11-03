@@ -59,6 +59,8 @@ export class SharedFiles {
   groupCommand(command: GroupCommand) { return this.backend.groupCommand(command); }
   createProject(name: string, groupName?: string, brief?: ProjectBrief, id?: string) { return this.backend.createProject(name, groupName, brief, id); }
   contentList(binding: RemoteBinding) { return this.access(binding, () => this.backend.contentList(binding)); }
+  resultDirectories(binding: RemoteBinding, command?: import('../shared/result-directories').ResultDirectoryCommand) { return this.access(binding, () => this.backend.resultDirectories(binding, command)); }
+  moveResults(binding: RemoteBinding, change: import('../shared/result-directories').ResultDirectoryMove) { return this.access(binding, () => this.backend.moveResults(binding, change)); }
   contentPublicationSupport(binding: RemoteBinding) { return this.access(binding, () => this.backend.contentPublicationSupport(binding)); }
   contentHistory(binding: RemoteBinding, id?: string, revision?: number, summary = false) { return this.access(binding, () => this.backend.contentHistory(binding, id, revision, summary)); }
   contentMerge(binding: RemoteBinding, change: ContentMerge) { return this.access(binding, () => this.backend.contentMerge(binding, change)); }

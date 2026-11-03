@@ -65,6 +65,7 @@ export async function recoverAccountWindows(destination: string, owner: string, 
   const settings = await read<any>(path.join(destination, 'settings.json'), {}), recovered = await read<any>(path.join(staging, 'settings.json'), {});
   before['settings.json'] = settings;
   files['settings.json'] = settingsSchema.parse({ ...settings,
+    resultDirectories: [...new Map([...(recovered.resultDirectories || []).filter((item: any) => item.accountOwner === owner), ...(settings.resultDirectories || [])].map((item: any) => [item.id, item])).values()],
     projectDirectories: { ...recovered.projectDirectories, ...settings.projectDirectories },
   });
   const inputs = await read<Record<string, unknown>>(path.join(destination, 'inputs.json'), {}), recoveredInputs = await read<Record<string, unknown>>(path.join(staging, 'inputs.json'), {});

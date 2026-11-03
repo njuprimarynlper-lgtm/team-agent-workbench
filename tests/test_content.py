@@ -21,6 +21,37 @@ spec.loader.exec_module(content)
 BRIEF = dict(background='项目背景', objectives='提升质量', acceptance='指标验收')
 
 class ContentRules(unittest.TestCase):
+    def test_result_directories_permissions_promotions_and_atomic_moves(self):
+        parent, child = str(uuid.uuid4()), str(uuid.uuid4())
+        create = dict(action='create', id=parent, parentId='exploration', name='团队试验')
+        self.call('bob', op='result_directories', command=create)
+        self.assertEqual(len(self.call('bob', op='result_directories', command=create)), 1)
+        self.call('bob', op='result_directories', command=dict(action='create', id=child, parentId=parent, name='指标'))
+        with self.assertRaises(PermissionError):
+            self.call('bob', op='result_directories', command=dict(action='delete', id=parent, revision=1))
+        with self.assertRaises(PermissionError):
+            self.call('carol', op='result_directories')
+        a, b = self.publish(name='folder-a.zip'), self.publish(name='folder-b.zip')
+        refs = [dict(id=item['id'], version=item['revision'], folderVersion=0) for item in (a, b)]
+        with self.assertRaises(PermissionError):
+            self.call('bob', op='move_results', change=dict(folderId=parent, items=refs))
+        with self.assertRaises(ValueError):
+            self.call('alice', op='move_results', change=dict(folderId=parent, items=[refs[0], dict(refs[1], version=42)]))
+        self.assertTrue(all('folderId' not in item for item in content.read_json(self.directory / '.workbench-content.json', [])))
+        moved = self.call('alice', op='move_results', change=dict(folderId=parent, items=refs))
+        self.assertTrue(all(item['revision'] == 1 and item['folderVersion'] == 1 for item in moved))
+        with self.assertRaises(ValueError):
+            self.call('alice', op='move_results', change=dict(folderId=child, items=refs))
+        dirs = self.call('alice', op='result_directories', command=dict(action='delete', id=parent, revision=1))
+        self.assertEqual(content.resolve_result_folder(parent, dirs), 'exploration')
+        self.assertEqual(content.resolve_result_folder(next(item for item in dirs if item['id'] == child)['parentId'], dirs), 'exploration')
+        with self.assertRaises(ValueError):
+            self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/deleted.zip', sha256=content.digest(self.incoming), metadata=dict(kind='contribution', title='已删目录', description='body', folderId=parent))
+        published = self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/child.zip', sha256=content.digest(self.incoming), metadata=dict(kind='contribution', title='子目录成果', description='body', folderId=child))
+        self.assertEqual(published['folderId'], child)
+        merged = self.call('alice', op='merge_content', change=dict(sources=[dict(id=item['id'], revision=1) for item in (a, b)], replaceIds=[], title='合并', description='正文', folderId=child))
+        self.assertEqual(merged['folderId'], child)
+
     def test_offline_project_identity_is_idempotent_and_does_not_cross_groups(self):
         identifier = 'project_' + uuid.uuid4().hex
         args = dict(op='create_project_v2', name='离线项目', groupName='relation', brief=BRIEF, clientProjectId=identifier)

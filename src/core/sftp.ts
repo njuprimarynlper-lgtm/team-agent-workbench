@@ -280,6 +280,13 @@ export class SftpConnection {
   }
   assignmentStatus(binding: RemoteBinding, input: AssignmentStatusChange): Promise<ProjectAssignment> { return this.assignmentRequest(binding, { op: 'assignment_lifecycle', change: input }); }
   contentPublicationSupport(binding: RemoteBinding) { return this.request({ op: 'content_capabilities', projectId: binding.project.id }, binding) as Promise<{ publicationUpdate: number }>; }
+  resultDirectories(binding: RemoteBinding, command?: import('../shared/result-directories').ResultDirectoryCommand): Promise<import('../shared/result-directories').ResultDirectory[]> {
+    return this.request({ op: 'result_directories', projectId: binding.project.id, command }, binding).catch((error: Error) => {
+      if (/不支持的内容操作/.test(error.message)) throw new Error('中央节点尚未支持成果目录，请管理员在新版管理端更新服务端功能；现有成果仍可查看');
+      throw error;
+    });
+  }
+  moveResults(binding: RemoteBinding, change: import('../shared/result-directories').ResultDirectoryMove): Promise<SharedContent[]> { return this.request({ op: 'move_results', projectId: binding.project.id, change }, binding); }
   contentEdit(binding: RemoteBinding, change: ContentEdit) { return this.request({ op: 'edit_content', projectId: binding.project.id, change }, binding) as Promise<SharedContent | undefined>; }
   contentReap(binding: RemoteBinding) { return this.request({ op: 'reap_project_files', projectId: binding.project.id }, binding) as Promise<{ removed: number }>; }
   contentAdopt(binding: RemoteBinding, target: string) { return this.request({ op: 'adopt_content', projectId: binding.project.id, target }, binding); }

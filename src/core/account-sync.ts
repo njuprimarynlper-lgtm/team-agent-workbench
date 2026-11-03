@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { personalResultDirectorySchema } from '../shared/result-directories';
 import { accountIdentity, accountRecordsSchema, type AccountRecords, type AccountSnapshot, type AccountSyncState } from '../shared/account-data';
 import type { ConnectionProfile, Draft, ProjectConclusion } from '../shared/types';
 import { Store, atomicJson } from './store';
@@ -109,6 +110,7 @@ export class AccountSync {
       // Account restoration contains reviewed results, never conversations, CLI state or local code paths.
       records['draft:' + draft.id] = { id: draft.id, sessionId: draft.sessionId, sourceSessionTitle: draft.sourceSessionTitle, projectId: draft.binding!.project.id, title: draft.title, titleAlias: draft.titleAlias, body: draft.body, supplement: draft.supplement, artifacts: draft.artifacts?.map(item => ({ ...item, evidenceIds: undefined, attachments: item.attachments?.filter(entry => entry.selected), submitted: item.submitted ? 'restored' : undefined })), attachments: draft.attachments?.filter(entry => entry.selected), personalSavedIds: draft.personalSavedIds, files: draft.files.filter(file => selectedFiles.has(file.id)).map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, fetchedAt: file.fetchedAt })), generation: draft.generation === 'running' ? 'error' : draft.generation, createdAt: draft.createdAt, generationFinishedAt: draft.generationFinishedAt, preparationVersion: draft.preparationVersion, emptyResult: draft.emptyResult, resultRules: draft.resultRules, preparationDirections: draft.preparationDirections, resultCategory: draft.resultCategory, resultSourceDetails: draft.resultSourceDetails, mergeProjectId: draft.mergeProjectId, conclusionMergeProjectId: draft.conclusionMergeProjectId, conclusionMergeInstruction: draft.conclusionMergeInstruction, mergeSources: draft.mergeSources, mergeCompletedAt: draft.mergeCompletedAt, mergeResultId: draft.mergeResultId, mergeResultPath: draft.mergeResultPath, submitted: draft.submitted ? 'restored' : undefined };
     }
+    for (const directory of this.store.settings.resultDirectories || []) if (directory.accountOwner === key) records['directory:' + directory.id] = directory;
     for (const [id, alias] of Object.entries(this.store.settings.contentAliases || {})) records['alias:' + id] = alias;
     const prefix = `${profile.id}:${profile.username}:`;
     for (const update of this.store.settings.contentUpdates || []) if (update.eventId.startsWith(prefix)) { const id = update.eventId.slice(prefix.length); records['update:' + id] = { ...update, eventId: id }; }
@@ -121,6 +123,12 @@ export class AccountSync {
     const owner = accountIdentity(profile), projectIds = new Set(profile.projects.map(project => project.id));
     // A deletion received from another computer must not erase local progress.
     for (const session of this.store.sessions) rememberPreparationProgress(session, this.store.drafts);
+    const directories = Object.entries(records).flatMap(([key, value]) => {
+      if (!key.startsWith('directory:') || !value || updateKeys && !updateKeys.has(key)) return [];
+      const parsed = personalResultDirectorySchema.safeParse({ ...value, accountOwner: owner });
+      return parsed.success && parsed.data.id === key.slice(10) ? [parsed.data] : [];
+    });
+    this.store.settings.resultDirectories = [...(this.store.settings.resultDirectories || []).filter(item => item.accountOwner !== owner || updateKeys && !updateKeys.has('directory:' + item.id)), ...directories];
     const materials: ProjectConclusion[] = [];
     for (const [key, value] of Object.entries(records)) {
       if (updateKeys && !updateKeys.has(key)) continue;
