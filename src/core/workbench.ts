@@ -1997,7 +1997,7 @@ export class Workbench {
         await this.store.save(); this.broadcast(); return session;
       } catch (error) {
         // This new session has never been exposed to the user or sent to a model.
-        this.store.sessions = this.store.sessions.filter(item => item.id !== session.id); delete this.store.inputs[session.id]; await this.store.save(); this.broadcast(); throw error;
+        this.store.sessions = this.store.sessions.filter(item => item.id !== session.id); delete this.store.inputs[session.id]; await this.store.save({ removedSessionIds: [session.id], source: 'assignment-start:rollback' }); this.broadcast(); throw error;
       }
     }, false);
   }
@@ -2286,7 +2286,7 @@ export class Workbench {
           await this.cursorDesktop.prepare(session,false,()=>this.store.save());await(await this.runtime(session)).ensureStarted();
         }
         await this.store.save();this.broadcast();return added;
-      }catch(error){for(const session of added){await this.cursorDesktop.release(session.id);await this.runtimes.get(session.id)?.close();this.runtimes.delete(session.id);this.store.sessions=this.store.sessions.filter(value=>value.id!==session.id);}await this.store.save();this.broadcast();throw error;}
+      }catch(error){for(const session of added){await this.cursorDesktop.release(session.id);await this.runtimes.get(session.id)?.close();this.runtimes.delete(session.id);}this.store.sessions=this.store.sessions.filter(value=>!added.some(session=>session.id===value.id));await this.store.save({removedSessionIds:added.map(session=>session.id),source:'cursor-import:rollback'});this.broadcast();throw error;}
     },false);
   }
   async cursorNativeSettings(id:string,kind?:import('../shared/cursor-native-settings').CursorSettingKind,value?:string,revision?:string,cancel=false){
@@ -2486,7 +2486,7 @@ export class Workbench {
       }
       this.store.sessions.unshift(...sessions);
       try { await this.store.save(); }
-      catch (error) { this.store.sessions = this.store.sessions.filter(session => !sessions.includes(session)); throw error; }
+      catch (error) { this.store.sessions = this.store.sessions.filter(session => !sessions.includes(session)); await this.store.save({ removedSessionIds: sessions.map(session => session.id), source: 'native-import:rollback' }).catch(() => {}); throw error; }
       this.broadcast();
       this.ensureNativeTranscriptSync();
       return sessions;
@@ -2668,7 +2668,7 @@ export class Workbench {
       this.store.sessions = sessions.filter(value => !ids.has(value.id));
       this.store.inputs = Object.fromEntries(Object.entries(inputs).filter(([key]) => !ids.has(key)));
       this.store.activity.jobs = jobs.filter(job => !ids.has(job.sessionId));
-      try { await this.store.save(); }
+      try { await this.store.save({ removedSessionIds: [...ids], source: 'session:delete-family' }); }
       catch (error) { this.store.sessions = sessions; this.store.inputs = inputs; this.store.activity.jobs = jobs; throw error; }
       for (const [key, entry] of this.sideChats) if (ids.has(entry.view.parentId)) {
         this.sideChats.delete(key); await entry.runtime.close();
@@ -3022,7 +3022,7 @@ export class Workbench {
       this.store.drafts = drafts.filter(item => item.id !== id);
       this.store.sessions = sessions.filter(session => !helperIds.has(session.id));
       this.store.inputs = Object.fromEntries(Object.entries(inputs).filter(([sessionId]) => !helperIds.has(sessionId)));
-      try { await this.store.save(); }
+      try { await this.store.save({ removedSessionIds: [...helperIds], source: 'draft:delete' }); }
       catch (error) { this.store.drafts = drafts; this.store.sessions = sessions; this.store.inputs = inputs; throw error; }
       this.broadcast();
       // Uploaded/retryable packages and revised drafts own independent lifetimes.
@@ -3605,7 +3605,7 @@ export class Workbench {
         this.store.sessions.unshift(child);
         await this.store.save(); this.broadcast(); return child;
       } catch (error) {
-        if (child) { this.store.sessions = this.store.sessions.filter(value => value.id !== child!.id); delete this.store.inputs[child.id]; await this.store.save().catch(() => {}); }
+        if (child) { this.store.sessions = this.store.sessions.filter(value => value.id !== child!.id); delete this.store.inputs[child.id]; await this.store.save({ removedSessionIds: [child.id], source: 'subsession-create:rollback' }).catch(() => {}); }
         throw error;
       }
     }, false);

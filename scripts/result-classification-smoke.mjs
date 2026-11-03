@@ -38,6 +38,8 @@ await page.addInitScript(() => {
   window.fixture={project,session,draft,items,personal,history};window.calls=[];
   window.workbench={subscribe:()=>()=>{},call:async(action,p={})=>{
     window.calls.push({action,p:structuredClone(p)});
+    if(action==='team.cache.read')return undefined;
+    if(action==='result.directory.list')return [];
     if(action==='content.list')return structuredClone(items);
     if(action==='content.history')return structuredClone(history);
     if(action==='conclusion.list')return structuredClone(personal);
@@ -53,6 +55,9 @@ await page.addInitScript(() => {
   }};
 });
 const url = pathToFileURL(path.join(out, 'index.html')).href, checks=[];
+const directories = () => page.locator('.result-directory-sidebar').getByRole('navigation', { name:'成果目录' });
+const directory = name => directories().locator('.result-directory-name').filter({hasText:name});
+const allDirectories = () => directories().getByRole('button', {name:'全部目录', exact:true});
 async function resultAction(name, scope = page) {
   const button = scope.getByRole('button', { name, exact: true, includeHidden: true }).first();
   if (!(await button.isVisible())) await button.locator('xpath=ancestor::details[contains(@class,"result-more")]').locator('summary').click();
@@ -60,8 +65,9 @@ async function resultAction(name, scope = page) {
 }
 try {
   await page.goto(url);
-  await expect(page.getByRole('navigation',{name:'团队成果类别'})).toBeVisible();
-  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/已有能力/}).click();
+  await expect(directories()).toBeVisible();
+  await expect(page.locator('.result-category-tabs')).toHaveCount(0);
+  await directory('已有能力').click();
   await expect(page.locator('.result-card')).toHaveCount(1);
   await page.screenshot({path:path.join(out,'team-capabilities.png')});
   await (await resultAction('历史版本 · 2')).click();
@@ -69,7 +75,7 @@ try {
   await page.screenshot({path:path.join(out,'capability-history.png')});
   await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toHaveCount(0);
   checks.push('当前能力只显示当前版本；历史侧栏可打开并用 Escape 关闭');
-  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/待办事项/}).click();
+  await directory('待办事项').click();
   await expect(page.locator('.result-completed')).toHaveCount(1);await page.screenshot({path:path.join(out,'team-todos.png')});
   await (await resultAction('重新打开')).click();await expect(page.locator('.result-completed')).toHaveCount(0);
   checks.push('已完成待办仍显示且可以重新打开');
@@ -83,21 +89,24 @@ try {
   await page.getByRole('button',{name:'刷新',exact:true}).click();
   await expect(linkedTodo).toHaveClass(/result-completed/);
   checks.push('关联项目任务的待办显示真实验收状态，不能绕过验收直接完成，验收后置灰保留');
-  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/^全部/}).click();
+  await allDirectories().click();
   await page.getByRole('button',{name:'合并整理',exact:true}).click();
   await page.getByRole('checkbox',{name:'选择合并：词典增强的效果与适用范围'}).check();
   await expect(page.getByRole('checkbox',{name:'选择合并：离线批处理与词典增强'})).toBeDisabled();
   await expect(page.getByRole('checkbox',{name:'选择合并：误匹配样本复盘'})).toBeEnabled();
-  await expect(page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/待办事项/})).toBeDisabled();
+  await expect(directory('待办事项')).toBeEnabled();
+  await directory('待办事项').click();
+  await expect(page.getByRole('region', {name:'语义合并设置'})).toContainText('已选择 0 条文字成果');
+  await allDirectories().click();
   await page.getByRole('button',{name:'退出多选'}).click();
-  checks.push('合并选择锁定同一类别，跨分类条目和切换入口禁用');
-  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/探索记录/}).click();
+  checks.push('合并选择锁定同一类别，跨分类条目禁用；切换目录清空选择，保留唯一目录导航');
+  await directory('探索记录').click();
   await (await resultAction('修改分类')).click();
   await expect(page.getByRole('dialog',{name:'修改分类'})).toBeVisible();await page.screenshot({path:path.join(out,'reclassify.png')});
   await page.getByRole('dialog').getByRole('radio',{name:/待办事项/}).check();await page.getByRole('button',{name:'确认修改',exact:true}).click();
   await expect(page.locator('.result-card')).toHaveCount(1);checks.push('分类修改使用独立窗口，保存后条目移到对应分类');
   await page.getByRole('button',{name:'切换普通成员'}).click();await expect(page.getByRole('button',{name:'合并整理',exact:true})).toHaveCount(0);checks.push('普通成员无法进入团队合并入口');
-  await page.getByRole('tab',{name:'个人',exact:true}).click();await page.getByRole('navigation',{name:'个人成果类别'}).getByRole('button',{name:/待办事项/}).click();await expect(page.locator('.result-completed')).toHaveCount(1);checks.push('个人库同样保留完成待办');
+  await page.getByRole('tab',{name:'个人',exact:true}).click();await expect(page.locator('.result-category-tabs')).toHaveCount(0);await directory('待办事项').click();await expect(page.locator('.result-completed')).toHaveCount(1);checks.push('个人库使用相同的目录导航并保留完成待办');
   await page.getByRole('tab', { name: '团队', exact: true }).click();
   await page.evaluate(() => {
     const {items, history} = window.fixture, now = items[0].updatedAt;
@@ -117,7 +126,7 @@ try {
   await page.screenshot({path:path.join(out,'team-history-all.png')});
   await historyFilter.selectOption('merged');
   await expect(page.locator('.result-card')).toHaveCount(2);
-  await page.getByRole('navigation',{name:'团队成果类别'}).getByRole('button',{name:/探索记录/}).click();
+  await directory('探索记录').click();
   await expect(page.locator('.result-card')).toHaveCount(1);
   await page.locator('.result-card-toggle').click();
   await expect(page.locator('.team-history-note')).toContainText('此条作为合并来源保留');
@@ -126,6 +135,9 @@ try {
   await expect(page.locator('.result-card')).toHaveCount(0);
   await page.getByRole('button', {name:'清除筛选', exact:true}).click();
   await expect(historyFilter).toHaveValue('all');
+  await expect(page.locator('.result-card')).toHaveCount(2);
+  await expect(directory('探索记录')).toHaveAttribute('aria-current', 'page');
+  await allDirectories().click();
   await expect(page.locator('.result-card')).toHaveCount(4);
   await historyFilter.selectOption('deleted');
   await expect(page.locator('.result-card')).toHaveCount(2);
@@ -140,7 +152,7 @@ try {
   await page.getByRole('button', {name:'查看团队历史', exact:true}).click();
   await expect(historyFilter).toHaveValue('all');
   await expect(page.locator('.result-card')).toHaveCount(4);
-  checks.push('团队历史区分合并和删除，支持类别与搜索组合筛选、清除筛选；不混入编辑旧版本或当前成果，也不显示个人库已有或删除操作');
+  checks.push('团队历史区分合并和删除，支持目录与搜索组合筛选；清除筛选保留当前目录，全部目录恢复完整历史；不混入编辑旧版本或当前成果');
   await page.goto(url+'?prepare=1');await expect(page.getByRole('region',{name:'检查整理结果'})).toBeVisible().catch(()=>expect(page.locator('.preparation-review')).toBeVisible());
   await expect(page.getByLabel('已有能力更新目标')).toHaveValue('00000000-0000-4000-8000-000000000002');
   await page.getByLabel('整理成果正文').fill('用户补充：目前只覆盖离线环境。');

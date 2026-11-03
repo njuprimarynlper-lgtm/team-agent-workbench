@@ -60,7 +60,8 @@ export async function persistPersonalMove(source: Store, target: Store, move: Pe
   if (source !== target) applyPersonalMove(source, move, false);
   else if (move.groupId) source.settings.personalGroups = source.settings.personalGroups?.filter(group => group.id !== move.groupId);
   const save = async () => {
-    await target.save(); await source.save();
+    await target.save({ source: 'personal-move:target' });
+    if (source !== target) await source.save({ removedSessionIds: move.sessions.map(session => session.id), source: 'personal-move:source' });
     for (const record of move.journals || []) {
       if (!move.sessions.some(session => session.id === record.sessionId)) throw new Error('迁移日志与会话不一致');
       await atomicJson(path.join(target.root, 'project-journals', record.sessionId + '.json'), record);

@@ -13,6 +13,33 @@ import { migrateProjectDirectories, followsProjectDirectory } from '../shared/pr
 import { linkConclusionPublications } from './conclusion-publications';
 import { recoverInputQueue } from './session-input-queue';
 import { interruptStoredTimings } from '../shared/turn-timing';
+
+export interface StoreSaveOptions {
+  /** Only the IDs intentionally deleted or moved by this operation. Never a blanket bypass. */
+  removedSessionIds?: readonly string[];
+  source?: string;
+}
+// Account windows normally share a Store. Also serialize recovery/temporary Stores
+// for the same directory so the disk check and replacement cannot interleave.
+const storeWrites = new Map<string, Promise<void>>();
+function sessionIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.some(item => !item || typeof item.id !== 'string' || !item.id)) throw new Error('本地 sessions.json 格式无效，原文件已保留');
+  const ids = value.map(item => item.id as string);
+  if (new Set(ids).size !== ids.length) throw new Error('本地 sessions.json 包含重复会话 ID，原文件已保留');
+  return ids;
+}
+export async function readSessionIndex(root: string, required = false): Promise<AgentSession[] | undefined> {
+  const file = path.join(root, 'sessions.json');
+  try {
+    const sessions = JSON.parse(await fs.readFile(file, 'utf8'));
+    sessionIds(sessions); return sessions;
+  } catch (error: any) {
+    if (error.code !== 'ENOENT') throw new Error('本地 sessions.json 无法读取，原文件已保留：' + file, { cause: error });
+    const migrated = await fs.stat(path.join(root, 'migration.json')).then(() => true).catch((e: any) => { if (e.code === 'ENOENT') return false; throw e; });
+    if (required || migrated) throw new Error('本地会话索引 sessions.json 缺失，已停止加载和保存，请保留账号目录后恢复：' + root);
+    return undefined;
+  }
+}
 export async function atomicJson(file: string, data: unknown, ascii = false) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = file + '.' + randomUUID() + '.tmp';
@@ -35,10 +62,21 @@ export class Store {
   settings: Settings = { codexRequestGuard: true, connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '', trustedServerIdentities: {} };
   sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = []; conclusions: ProjectConclusion[] = [];
   inputs: Record<string, SessionInput> = {};
-  private writes: Promise<void> = Promise.resolve();
+  private sessionIndexExpected = false;
   constructor(public root: string) {}
+  private enqueue(write: () => Promise<void>) {
+    const resolved = path.resolve(this.root), key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+    const next = (storeWrites.get(key) || Promise.resolve()).catch(() => {}).then(write);
+    storeWrites.set(key, next);
+    const release = () => { if (storeWrites.get(key) === next) storeWrites.delete(key); };
+    void next.then(release, release);
+    return next;
+  }
   async init() {
     await fs.mkdir(this.root, { recursive: true });
+    const sessions = await readSessionIndex(this.root, this.sessionIndexExpected);
+    this.sessionIndexExpected = sessions !== undefined;
+    this.sessions = sessions || [];
     try {
       const state = JSON.parse(await fs.readFile(path.join(this.root, 'activity-assistant.json'), 'utf8'));
       this.activity = activityStateSchema.parse(state);
@@ -53,7 +91,7 @@ export class Store {
       this.settings = settingsSchema.parse(raw);
       migrateProjectDirectories(this.settings);
     } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地设置损坏，请保留文件并检查：' + path.join(this.root, 'settings.json')); }
-    for (const key of ['sessions', 'transfers', 'drafts', 'conclusions'] as const) {
+    for (const key of ['transfers', 'drafts', 'conclusions'] as const) {
       try { const data = JSON.parse(await fs.readFile(path.join(this.root, key + '.json'), 'utf8')); if (!Array.isArray(data)) throw new Error('Invalid array'); (this[key] as unknown[]) = data; } catch (e: any) { if (e.code !== 'ENOENT') throw new Error(`本地 ${key}.json 无法读取`); }
     }
     try { this.inputs = JSON.parse(await fs.readFile(path.join(this.root, 'inputs.json'), 'utf8')); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地 inputs.json 无法读取'); }
@@ -106,22 +144,34 @@ export class Store {
     if (!repairConclusionImports(this.conclusions, this.settings.contentUpdates || [], profile ? accountIdentity(profile) : '')) return;
     // Keep the pre-repair records recoverable; never edit Sessions or drafts.
     const after = structuredClone({ conclusions: this.conclusions, settings: this.settings });
-    const next = this.writes.catch(() => {}).then(async () => {
+    await this.enqueue(async () => {
       await atomicJson(path.join(this.root, 'migrations', 'import-links-' + randomUUID() + '.json'), before);
       await atomicJson(path.join(this.root, 'conclusions.json'), after.conclusions);
       await atomicJson(path.join(this.root, 'settings.json'), after.settings);
     });
-    this.writes = next; await next;
   }
   saveSettings() {
     const settings = JSON.parse(JSON.stringify(this.settings));
-    const next = this.writes.catch(() => {}).then(() => atomicJson(path.join(this.root, 'settings.json'), settings));
-    this.writes = next; return next.then(() => { this.saved?.(); });
+    return this.enqueue(() => atomicJson(path.join(this.root, 'settings.json'), settings)).then(() => { this.saved?.(); });
   }
-  save() {
+  save(options: StoreSaveOptions = {}) {
     const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts, conclusions: this.conclusions, 'activity-assistant': this.activity }));
-    const next = this.writes.catch(() => {}).then(async () => { for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value); });
-    this.writes = next; return next.then(() => { this.saved?.(); });
+    const allowed = new Set(options.removedSessionIds || []);
+    const source = options.source || new Error('Store.save 调用来源').stack || 'Store.save';
+    return this.enqueue(async () => {
+      const incomingIds = sessionIds(data.sessions), incoming = new Set(incomingIds);
+      const previous = await readSessionIndex(this.root, this.sessionIndexExpected);
+      const previousIds = (previous || []).map(session => session.id);
+      const removedIds = previousIds.filter(id => !incoming.has(id));
+      const unexpectedIds = removedIds.filter(id => !allowed.has(id));
+      if (unexpectedIds.length) {
+        const recovery = path.join(this.root, 'recovery', 'blocked-session-removal-' + randomUUID() + '.json');
+        await atomicJson(recovery, { version: 1, at: new Date().toISOString(), pid: process.pid, source, previousSessions: previous, incomingIds, removedIds, unexpectedIds, allowedRemovedIds: [...allowed] });
+        throw new Error(`已拦截未声明的会话移除（${unexpectedIds.length} 条），原账号资料未覆盖。恢复快照：${recovery}`);
+      }
+      for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value);
+      this.sessionIndexExpected = true;
+    }).then(() => { this.saved?.(); });
   }
   sessionDir(id: string) { if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('无效会话 ID'); return path.join(this.root, 'sessions', id); }
   async event(id: string, event: unknown) {

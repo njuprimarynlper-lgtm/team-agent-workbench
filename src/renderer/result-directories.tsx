@@ -94,7 +94,7 @@ export function ResultDirectorySidebar({ state, value, change, items, manage = t
   const counts: Record<string, number> = {};
   for (const item of items) for (const node of resultDirectoryPath(resultItemFolder(item, state.directories), state.directories)) counts[node.id] = (counts[node.id] || 0) + 1;
   useEffect(() => { if (state.loaded && value !== 'all') { const resolved = resolveResultFolder(value, state.directories); if (resolved !== value) change(resolved); } }, [value, state.directories, state.loaded]);
-  return <aside className="result-directory-sidebar"><div className="result-directory-heading"><b>目录</b><span className="muted small">含子目录数量</span></div><DirectoryTree directories={state.directories} value={value} change={change} all counts={counts} disabled={disabled}/><DirectoryManagement state={state} value={value} select={change} manage={manage} disabled={disabled}/>{state.error && <p className="small directory-error" role="status">目录暂未更新：{state.error}<button type="button" className="text-button" onClick={() => void state.load()}>刷新目录</button></p>}</aside>;
+  return <aside className="result-directory-sidebar"><div className="result-directory-heading"><b>目录</b><span className="muted small">成果数含子目录</span></div><DirectoryTree directories={state.directories} value={value} change={change} all counts={counts} disabled={disabled}/><DirectoryManagement state={state} value={value} select={change} manage={manage} disabled={disabled}/>{state.error && <p className="small directory-error" role="status">目录暂未更新：{state.error}<button type="button" className="text-button" onClick={() => void state.load()}>刷新目录</button></p>}</aside>;
 }
 
 interface DestinationItem { id: string; title: string; category?: string; folderId?: string; kind?: string }

@@ -5,7 +5,7 @@ import { accountIdentity } from '../shared/account-data';
 import { ownsBinding } from '../shared/account-scope';
 import { projectDirectoryKey } from '../shared/project-directory';
 import type { AgentSession, ConnectionProfile, Draft, ProjectConclusion, Settings, Transfer } from '../shared/types';
-import { atomicJson } from './store';
+import { atomicJson, readSessionIndex } from './store';
 import { settingsSchema } from './config';
 import { recoverAccountWindows, resumeAccountRecovery, type AccountMigration } from './account-workspace-recovery';
 
@@ -40,6 +40,7 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
   await resumeAccountRecovery(destination, owner, copy);
   const existing = await json<AccountMigration | undefined>(path.join(destination, 'migration.json'), undefined);
   if (existing && existing.owner !== owner) throw new Error('账号数据目录身份不匹配');
+  if (existing) await readSessionIndex(destination, true);
   if (!existing && await fs.stat(destination).catch(() => undefined)) throw new Error('账号数据目录缺少迁移记录，请保留目录后检查：' + destination);
   const normalize = (directory: string) => process.platform === 'win32' ? path.resolve(directory).toLowerCase() : path.resolve(directory);
   const scanned = new Set(existing?.sources.map(normalize));

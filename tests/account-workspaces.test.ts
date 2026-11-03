@@ -20,13 +20,21 @@ import { teamServer } from './fixtures/team-server.mjs';
 
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-account-windows-')));
-  t.after(async () => { assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('workbench-account-windows-')); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); });
+  const cleanup: (() => Promise<void>)[] = [];
+  const dispose = (fn: () => Promise<void>) => { cleanup.push(fn); };
+  t.after(async () => {
+    // Close writers while their index still exists; deleting the directory first
+    // used to make shutdown silently recreate an incomplete account dataset.
+    for (const close of cleanup.reverse()) await close();
+    assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('workbench-account-windows-'));
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 5 });
+  });
   const first = new Workbench(path.join(root, 'user'), () => {}, () => {});
   await first.store.init(); grantTestWorkspace(first, root);
   await first.store.save();
   const profile = structuredClone(first.store.settings.workspaceSnapshot!.profile);
-  t.after(() => first.close());
-  return { root, first, profile };
+  dispose(() => first.close());
+  return { root, first, profile, dispose };
 }
 
 test('account migration inherits the previous Codex request guard choice', async t => {
@@ -38,6 +46,20 @@ test('account migration inherits the previous Codex request guard choice', async
   const next = new Store(await migrateAccountWorkspace(first.store.root, { ...profile, username: 'next-user' }, first.store.root)); await next.init();
   assert.equal(next.settings.codexRequestGuard, false, 'a newly created account inherits the previous setting');
   assert.equal(next.settings.codexCaCertificate, 'C:\\company\\root.pem');
+});
+
+test('a migrated account with a missing index is not rebuilt from unscanned legacy windows', async t => {
+  const { root, first, profile } = await fixture(t);
+  await first.createSession('codex', root, offlineProjectId);
+  const destination = await migrateAccountWorkspace(first.store.root, profile);
+  const settings = await fs.readFile(path.join(destination, 'settings.json'), 'utf8');
+  const migration = await fs.readFile(path.join(destination, 'migration.json'), 'utf8');
+  await fs.unlink(path.join(destination, 'sessions.json'));
+  await fs.mkdir(path.join(first.store.root, 'window-state', '3'), { recursive: true });
+  await assert.rejects(migrateAccountWorkspace(first.store.root, profile), /索引.*缺失/);
+  assert.equal(await fs.readFile(path.join(destination, 'settings.json'), 'utf8'), settings);
+  assert.equal(await fs.readFile(path.join(destination, 'migration.json'), 'utf8'), migration);
+  await assert.rejects(fs.stat(path.join(destination, 'sessions.json')), { code: 'ENOENT' });
 });
 
 test('account migration retains owned compressed Codex histories for native resume and fork', async t => {
@@ -59,9 +81,9 @@ test('account migration retains owned compressed Codex histories for native resu
 });
 
 test('login discovers imported Codex sessions in window-state without changing native history or importing another account', async t => {
-  const { root, first, profile } = await fixture(t), base = first.store.root;
+  const { root, first, profile, dispose } = await fixture(t), base = first.store.root;
   const window = new Workbench(path.join(base, 'window-state', '2'), () => {}, () => {});
-  t.after(() => window.close()); await window.store.init(); grantTestWorkspace(window, root);
+  dispose(() => window.close()); await window.store.init(); grantTestWorkspace(window, root);
   const session = await window.createSession('codex', root, offlineProjectId);
   session.nativeId = randomUUID(); session.nativeLive = true;
   session.nativePath = path.join(root, 'desktop-history.jsonl');
@@ -83,15 +105,15 @@ test('login discovers imported Codex sessions in window-state without changing n
 });
 
 test('v1 migration repairs previously omitted windows once, preserves newer edits, and never resurrects deleted sessions', async t => {
-  const { root, first, profile } = await fixture(t), base = first.store.root;
+  const { root, first, profile, dispose } = await fixture(t), base = first.store.root;
   const deleted = await first.createSession('codex', root, offlineProjectId); await first.store.save();
   const destination = await migrateAccountWorkspace(base, profile), current = new Store(destination); await current.init();
   const fresh = { ...structuredClone(deleted), id: randomUUID(), title: '新版已有会话', messages: [] };
-  current.sessions = [fresh]; await current.save();
+  current.sessions = [fresh]; await current.save({ removedSessionIds: [deleted.id], source: 'test:explicit-delete' });
   const manifest = JSON.parse(await fs.readFile(path.join(destination, 'migration.json'), 'utf8'));
   manifest.version = 1; delete manifest.recordIds; await atomicJson(path.join(destination, 'migration.json'), manifest);
   const window = new Workbench(path.join(base, 'window-state', '1'), () => {}, () => {});
-  t.after(() => window.close()); await window.store.init(); grantTestWorkspace(window, root);
+  dispose(() => window.close()); await window.store.init(); grantTestWorkspace(window, root);
   const imported = await window.createSession('codex', root, offlineProjectId);
   imported.title = '旧窗口的桌面会话'; imported.nativeId = randomUUID(); imported.nativeLive = true;
   await window.saveInput(imported.id, { text: '待发送草稿', sourceIds: [], answers: {} });
@@ -109,17 +131,17 @@ test('v1 migration repairs previously omitted windows once, preserves newer edit
   const backups = await fs.readdir(path.join(destination, 'migrations'));
   assert.equal(backups.length, 1);
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(destination, 'migrations', backups[0], 'sessions.json'), 'utf8')).map((item: any) => item.id), [fresh.id]);
-  repaired.sessions = [fresh]; await repaired.save();
+  repaired.sessions = [fresh]; await repaired.save({ removedSessionIds: [imported.id], source: 'test:explicit-delete' });
   await migrateAccountWorkspace(base, profile);
   const reopened = new Store(destination); await reopened.init();
   assert.deepEqual(reopened.sessions.map(item => item.id), [fresh.id]);
 });
 
 test('interrupted omitted-window recovery resumes before the account opens and retains pre-repair backup', async t => {
-  const { root, first, profile } = await fixture(t), base = first.store.root;
+  const { root, first, profile, dispose } = await fixture(t), base = first.store.root;
   const destination = await migrateAccountWorkspace(base, profile);
   const window = new Workbench(path.join(base, 'window-state', '3'), () => {}, () => {});
-  t.after(() => window.close()); await window.store.init(); grantTestWorkspace(window, root);
+  dispose(() => window.close()); await window.store.init(); grantTestWorkspace(window, root);
   const session = await window.createSession('codex', root, offlineProjectId); await window.store.save();
   await window.saveInput(session.id, { text: '恢复中断后仍要保留', sourceIds: [], answers: {} });
   const rename = fs.rename.bind(fs);
@@ -185,9 +207,9 @@ test('account migration retries a transient Windows directory lock without publi
 });
 
 test('account migration finds sessions in a window now logged in as someone else and preserves histories, drafts, inputs and account isolation', async t => {
-  const { root, first, profile } = await fixture(t), base = first.store.root;
+  const { root, first, profile, dispose } = await fixture(t), base = first.store.root;
   const second = new Workbench(path.join(base, 'instances', '2'), () => {}, () => {});
-  await second.store.init(); grantTestWorkspace(second, root); t.after(() => second.close());
+  await second.store.init(); grantTestWorkspace(second, root); dispose(() => second.close());
   second.store.settings.workspaceSnapshot!.profile.id = 'second-window-login';
   const a = await first.createSession('codex', root, offlineProjectId);
   const b = await second.createSession('codex', root, offlineProjectId);
@@ -230,7 +252,8 @@ test('account migration finds sessions in a window now logged in as someone else
   assert.equal(await fs.readFile(path.join(second.store.root, 'sessions.json'), 'utf8'), before, 'migration never changes the old window');
   assert.equal(await fs.readFile(rollout, 'utf8'), 'native context');
   // Explicit deletions in the new account directory must not resurrect from backups.
-  store.sessions = []; store.drafts = []; store.conclusions = []; await store.save();
+  const removedSessionIds = store.sessions.map(session => session.id);
+  store.sessions = []; store.drafts = []; store.conclusions = []; await store.save({ removedSessionIds, source: 'test:explicit-delete' });
   assert.equal(await migrateAccountWorkspace(base, profile, second.store.root), destination);
   const reopened = new Store(destination); await reopened.init(); assert.equal(reopened.sessions.length, 0); assert.equal(reopened.conclusions.length, 0);
   const bob = { ...profile, username: 'bob' }, bobStore = new Store(await migrateAccountWorkspace(base, bob)); await bobStore.init();
@@ -289,10 +312,10 @@ test('failed close preserves the account lease and simultaneous different accoun
 });
 
 test('authenticated connection handoff logs in once and rejected passwords leave the existing account live', async t => {
-  const { root, first } = await fixture(t), server = await teamServer(); t.after(() => server.close());
+  const { root, first, dispose } = await fixture(t), server = await teamServer(); dispose(() => server.close());
   const verifier = new SharedFiles(() => {});
   const profile: ConnectionProfile = await verifier.connect(server.profile('alice'), 'test-password', async () => true); await verifier.loadManifest();
-  const wb = new Workbench(await migrateAccountWorkspace(first.store.root, profile), () => {}, () => {}); wb.detect = async () => []; await wb.init(); t.after(() => wb.close());
+  const wb = new Workbench(await migrateAccountWorkspace(first.store.root, profile), () => {}, () => {}); wb.detect = async () => []; await wb.init(); dispose(() => wb.close());
   await wb.configureWorkspace(profile, '', '', async () => { throw new Error('no second login'); }, verifier);
   verifier.disconnect(); assert.equal(wb.remote.connected, true, 'closing the verifier must not close the adopted connection');
   const project = await syncedProject(wb, '账号项目'), session = await wb.createSession('codex', root, project.id);

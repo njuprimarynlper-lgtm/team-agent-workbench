@@ -76,7 +76,7 @@ test('deleting a running preparation excludes retries and removes helper attempt
     const draft = { id, sessionId: parent.id, prepareSessionId: last.id, generation: 'running', title: '删除边界', body: '', files: [], inputDir: path.join(base, 'input'), outputPath: path.join(base, 'draft.md'), createdAt: '' } as Draft;
     wb.store.drafts.push(draft);
     const save = wb.store.save.bind(wb.store), saving = gate(), release = gate(); let held = false;
-    wb.store.save = async () => { if (!held) { held = true; saving.release(); await release.promise; } await save(); };
+    wb.store.save = async (...args) => { if (!held) { held = true; saving.release(); await release.promise; } await save(...args); };
     const deleting = wb.deleteDraft(id); await saving.promise;
     await assert.rejects(wb.retryPreparation(id), /正在删除/); await assert.rejects(wb.deleteDraft(id), /正在删除/);
     release.release(); await deleting;

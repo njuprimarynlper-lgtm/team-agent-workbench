@@ -15,7 +15,7 @@ export function ResultCard({ id, title, badges, metadata, preview, expanded, sel
   selection?: React.ReactNode; children?: React.ReactNode; actions: React.ReactNode;
 }) {
   const detailId = useId();
-  return <article className={'content-card result-card' + (completed ? ' result-completed' : '') + (expanded ? ' selected is-expanded' : '') + (selected ? ' merge-selected' : '')} data-result-id={id}>
+  return <article className={'content-card result-card' + (completed ? ' result-completed' : '') + (expanded ? ' is-expanded' : '') + (selected ? ' merge-selected' : '')} data-result-id={id}>
     <div className="result-card-top">
       {selection && <div className="result-card-selection">{selection}</div>}
       <button className="content-card-summary result-card-toggle" aria-expanded={expanded} aria-controls={expanded ? detailId : undefined} disabled={disabled} onClick={toggle}>

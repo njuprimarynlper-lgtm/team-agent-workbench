@@ -15,6 +15,9 @@ const picker = () => page.getByRole('dialog', { name: '选择成果保存目录'
 async function moreAction(card, name) { await card.locator('.result-more summary').click(); await card.getByRole('button', { name, exact: true }).click(); }
 try {
   await page.goto(pathToFileURL(path.join(out, 'index.html')).href);
+  await expect(page.getByRole('heading', { name: '项目成果库 · 实体抽取优化' })).toBeVisible();
+  await expect(page.locator('.result-category-tabs')).toHaveCount(0);
+  await expect(page.getByLabel('团队成果数量')).toHaveCount(1);
   await expect(page.locator('.result-directory-sidebar .result-directory-name')).toHaveCount(6);
   await expect(page.getByRole('button', { name: '新建成果', exact: true })).toHaveCount(0);
   await page.locator('.result-directory-sidebar').getByRole('button', { name: /联合验证/ }).click();
@@ -34,9 +37,37 @@ try {
   await expect(page.locator('output')).toContainText('已存入');
   const imported = await page.evaluate(() => window.fixtureCalls.find(call => call.action === 'conclusion.import').payload);
   if (imported.folderId !== '11111111-1111-4111-8111-111111111111') throw Error('team import did not select personal folder');
-  await page.getByRole('button', { name: '个人成果库', exact: true }).click();
+  await page.getByRole('tab', { name: '个人', exact: true }).click();
+  await expect(page.locator('.result-category-tabs')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '批量管理', exact: true })).not.toHaveClass(/danger/);
+  await expect(page.locator('.results-library-pane')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await page.locator('.result-directory-sidebar .result-directory-name').filter({ hasText: '待办事项' }).click();
+  await expect(page.locator('.result-card')).toHaveCount(2);
+  await page.getByLabel('待办状态筛选').selectOption('completed');
+  await expect(page.locator('.result-card')).toHaveCount(1);
+  await page.getByRole('textbox', { name: '搜索个人成果' }).fill('独有证据');
+  await expect(page.locator('.result-card')).toHaveCount(1);
+  await expect(page.locator('.result-card')).toContainText('低频实体分析');
+  await expect(page.locator('.result-directory-all')).toHaveClass(/is-selected/);
   await page.locator('.result-directory-sidebar .result-directory-name').filter({ hasText: '我的验证' }).click();
   await expect(page.locator('.result-card')).toHaveCount(2);
+  await expect(page.locator('.result-directory-main .content-category-badge').first()).toHaveCSS('background-color', 'rgb(245, 246, 247)');
+  const expanded = page.locator('.result-card').filter({ hasText: '当前层结论' });
+  await expanded.locator('.result-card-toggle').click();
+  await expect(expanded).toHaveCSS('border-top-color', 'rgb(224, 227, 230)');
+  await expanded.getByRole('checkbox').check();
+  await expect(expanded).toHaveCSS('border-top-color', 'rgb(142, 180, 154)');
+  await expanded.getByRole('checkbox').uncheck();
+  await expect(expanded).toHaveCSS('border-top-color', 'rgb(224, 227, 230)');
+  for (const width of [1280, 1000, 800]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect(page.locator('.result-directory-main')).toBeVisible();
+    const overflow = await page.locator('.project-results-page').evaluate(element => element.scrollWidth > element.clientWidth + 1);
+    if (overflow) throw Error('Library overflows at width ' + width);
+    await page.locator('.project-results-page').screenshot({ path: path.join(out, `library-clean-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expanded.locator('.result-card-toggle').click();
   await expect(page.locator('.result-directory-main').getByText('低频样本', { exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: '搜索个人成果' }).fill('独有证据');
   await expect(page.locator('.result-card')).toHaveCount(1);
