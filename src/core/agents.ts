@@ -700,9 +700,8 @@ export class AgentRuntime {
     if (!job || !this.turnActive) return;
     if (this.closing || job.cancelled || this.session.stoppedAt) throw Error('会话已停止，原请求未上传');
     if (job.recovering) throw Error('原请求正在等待原生压缩，未上传');
-    if (request.inputBytes < request.budget * 0.8) { job.pressureAttempt = undefined; return; }
     if (job.pressureAttempt && (request.inputBytes >= job.pressureAttempt.bytes || job.pressureAttempt.count >= 3))
-      throw Error(`原生 compact 后的请求仍达到 80%（${request.inputBytes} 字节），输入已保留；请缩小本次输入。`);
+      throw Error(`原生 compact 后请求仍无法无损压至 1 MB 以下（解码后 ${request.inputBytes} 字节），输入已保留；请缩小本次输入。`);
     if (!this.turnId || this.session.approvals.length || this.steering)
       throw Error('当前轮次状态无法安全启动压缩，原请求未上传');
     // thread/read can still show a started item after Codex has serialized
@@ -727,14 +726,14 @@ export class AgentRuntime {
     if (job.cancelled || this.session.stoppedAt) { fail('已停止，原生 compact 未启动。'); return true; }
     if (job.guardRecoveries) { fail('原生 compact 已执行一次，但重试仍被大小保护拒发；已停止自动重试，请减少附件或拆分本轮输入。'); return true; }
     if (job.progressed || job.rerouted || this.steering || this.session.approvals.length) {
-      fail('本轮已有输出、工具操作或状态变化，原生 compact 未启动，未自动重放；请核对后继续。'); return true;
+      fail('本轮已有输出、工具操作或状态变化，原生 compact 未启动；已停止自动重放以免重复执行。'); return true;
     }
     if (!failedTurn) { fail('无法确认原轮次。'); return true; }
     void this.compactCodexSubmission(job, failedTurn);
     return true;
   }
   private async compactCodexSubmission(job: CodexSubmission, previousTurn: string, pressure?: { bytes: number; results: Set<string> }) {
-    const reason = pressure ? 'pre-compression-threshold' : 'local-rejection';
+    const reason = pressure ? 'pre-upload-overflow' : 'local-rejection';
     job.recovering = true; ++job.revision;
     this.compacting = true; this.session.contextCompacting = true; this.hooks.changed();
     if (pressure) {

@@ -361,14 +361,19 @@ export class CodexRequestGuard {
       if (!compact && suffix === '/responses' && typeof session === 'string') {
         const raw = await decoded(body, encoding);
         measured = { threadId: session, inputBytes: raw.length, budget: this.budget };
-        for (const check of this.uploadChecks) {
-          const pause = check(measured, raw);
-          if (!pause) continue;
-          // Native compact supersedes the pending inference and closes its HTTP
-          // stream. Keep the scope lock free for the native maintenance request.
-          await pause;
-          if (controller.signal.aborted || res.destroyed) return;
-          throw new Error('原请求已暂停，不能上传压缩前的上下文');
+        // The decoded context can be larger than the actual upload, especially
+        // when Codex already sent zstd. Interrupt only if lossless encoding
+        // cannot fit the hard wire limit; the 80% mark is not a send limit.
+        if (!await encodeGuardBody(body, encoding, this.options.compression, this.budget)) {
+          for (const check of this.uploadChecks) {
+            const pause = check(measured, raw);
+            if (!pause) continue;
+            // Native compact supersedes the pending inference and closes its
+            // HTTP stream. Leave the scope lock free for maintenance.
+            await pause;
+            if (controller.signal.aborted || res.destroyed) return;
+            throw new Error('原请求已暂停，不能上传压缩前的上下文');
+          }
         }
       }
       await this.serial(scope, async () => {

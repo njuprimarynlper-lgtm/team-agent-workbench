@@ -8,7 +8,7 @@ export function CodexRequestGuardSetting({ enabled, disabled, changed, certifica
   const [testing, setTesting] = useState(false), [result, setResult] = useState<GuardConnectionCheck>(), [route, setRoute] = useState<'direct' | 'management'>('direct');
   const [expanded, setExpanded] = useState(!!certificateFile);
   return <section aria-label="Codex / Cursor 请求大小保护"><div className="row"><strong>Codex / Cursor 请求大小保护（1 MB）</strong><span className="spacer"/><button type="button" role="switch" className="project-ai-switch" aria-label="Codex / Cursor 请求大小保护（1 MB）" aria-checked={enabled} disabled={disabled} onClick={() => changed(!enabled)}><span/></button></div>
-    <p className="muted small">上传正文必须小于 1 MB（1,000,000 字节）。Codex 按传输压缩前的请求大小检测，Cursor 按原生上下文大小检测。达到 800,000 字节时可在当前轮暂停并压缩上下文，确认完成后继续。历史摘要会增加等待时间和模型用量，也可能遗漏信息。</p>
+    <p className="muted small">上传正文必须小于 1 MB（1,000,000 字节）。Codex 按实际上传大小把关：能无损压入上限的请求继续发送；放不下时才可能暂停当前轮并压缩。接近上限的会话也可能在轮次结束后压缩。Cursor 按原生上下文大小检测。历史摘要会增加等待时间和模型用量，也可能遗漏信息。</p>
     <p className="muted small">首次使用默认开启。切换开关后自动保存，无需检测账号。对新启动或重新连接的本机 Codex、配套 Cursor CLI 工作会话生效。已连接会话保持原设置，子会话沿用所属后台设置。暂不覆盖桌面同步、远程会话及其他 Agent。</p>
     {certificateChanged && <details open={expanded} onToggle={event => setExpanded(event.currentTarget.open)}><summary>企业证书与连接检测</summary>
       <p className="muted small">自动使用系统及 Codex 已配置的信任证书；需要补充时再选择企业 CA 证书。证书保存后从下一次请求连接生效。</p>

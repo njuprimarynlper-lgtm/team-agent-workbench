@@ -80,33 +80,30 @@ async function main() {
     const deadline = Date.now() + 60_000;
     while (!done) { if (Date.now() > deadline) throw Error('Native recovery timed out'); await new Promise(resolve => setTimeout(resolve, 20)); }
     assert.equal(calls.filter(call => call.method === 'thread/compact/start').length, 1);
-    assert.equal(calls.filter(call => call.method === 'turn/start').length, refused ? 1 : 2);
+    assert.equal(calls.filter(call => call.method === 'turn/start').length, 1);
     assert.equal(session.messages.filter(message => message.role === 'user').length, 1);
     assert.equal(observations.length, refused ? 0 : withTool ? 2 : 1, 'only forwarded normal requests are observed');
     if (refused) {
       assert.equal(session.status, 'error'); assert.match(session.error!, /原生 compact 请求.*未上传/);
       assert.doesNotMatch(session.error!, /尚未执行/); assert.equal(uploads.length, 0);
-      assert(events.some(event => event.reason === 'pre-compression-threshold' && event.status === 'failed'));
+      assert(events.some(event => event.reason === 'pre-upload-overflow' && event.status === 'failed'));
     } else {
       assert.equal(session.status, 'idle', session.error);
       assert(events.some(event => event.method === 'workbench/autoCompact' && event.status === 'completed'));
-      // Verify the real CLI retains the accepted user in its read history and
-      // permits empty-input continuation without re-appending that user message.
+      // Verify the real CLI completes the accepted user turn without replaying it.
       const current = (await runtime.rpc.request('thread/read', { threadId: session.nativeId, includeTurns: true })).thread;
       const users = current.turns.flatMap((turn: any) => turn.items).filter((item: any) => item.type === 'userMessage');
       assert.equal(users.at(-1).content[0].text, latest);
-      assert.equal(current.turns.find((t: any) => t.items.some((item: any) => item.type === 'userMessage' && item.content[0].text === latest)).status, 'interrupted');
+      assert.equal(current.turns.find((t: any) => t.items.some((item: any) => item.type === 'userMessage' && item.content[0].text === latest)).status, 'completed');
       if (withTool) {
         assert.equal((await fs.readFile(path.join(root, 'marker.txt'), 'utf8')).trim(), 'once');
         assert(uploads.some(u => u.value.input.some((i: any) => i.call_id === 'call_build_once' && i.type === 'function_call_output')));
       }
-      assert.deepEqual(calls.filter(call => call.method === 'turn/start').at(-1)!.params.input, []);
-      const resumed = uploads.at(-1)!.value;
-      assert(resumed.input.some((item: any) => item.type === 'compaction' && item.encrypted_content === 'FAKE_NATIVE_STATE'));
+      assert(calls.filter(call => call.method === 'turn/start').at(-1)!.params.input.length > 0);
       assert(uploads.every(upload => upload.bytes < 1_000_000));
     }
     assert.equal(await fs.readFile(path.join(root, 'config.toml'), 'utf8'), withTool ? initialConfig : config);
-    console.log(JSON.stringify({ passed: true, scenario: refused ? 'local-refusal-compact-also-refused' : withTool ? 'tool-once-across-native-compact' : 'proactive-native-compact-and-continuation', uploads: uploads.map(({ route, bytes }) => ({ route, bytes })), configUnchanged: true }));
+    console.log(JSON.stringify({ passed: true, scenario: refused ? 'oversized-compact-also-refused' : withTool ? 'tool-once-without-mid-turn-interruption' : 'under-limit-turn-completes-before-compact', uploads: uploads.map(({ route, bytes }) => ({ route, bytes })), configUnchanged: true }));
   } catch (error) {
     // Never print the large synthetic inputs or any real authentication/configuration.
     console.error(JSON.stringify({ status: session.status, error: session.error, calls: calls.map(call => call.method),

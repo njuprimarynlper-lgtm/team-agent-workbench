@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { zstdCompressSync } from 'node:zlib';
+import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { EventEmitter } from 'node:events';
 import { AgentRuntime } from '../src/core/agents';
 import { CodexRequestGuard } from '../src/core/codex-request-guard';
@@ -148,7 +148,8 @@ async function fixture(scenario: Scenario, run: (value: {
   const uploads: { url: string; bytes: number; value: any }[] = [], events: any[] = [];
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
-    const body = Buffer.concat(chunks), value = JSON.parse(body.toString());
+    const body = Buffer.concat(chunks);
+    const value = JSON.parse((req.headers['content-encoding'] === 'zstd' ? zstdDecompressSync(body) : body).toString());
     uploads.push({ url: req.url!, bytes: body.length, value });
     if (body.length >= 1_000_000) { res.writeHead(413).end(); return; }
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -166,34 +167,35 @@ async function fixture(scenario: Scenario, run: (value: {
   finally { await runtime.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }
 
-test('zstd tool output crosses the raw threshold inside a single turn; resume never replays the tool or user input', () => fixture('mid-turn-zstd', async ({ rpc, runtime, session, uploads, latest, done }) => {
-  await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
-  assert.equal(uploads.length, 1); assert.equal(uploads[0].bytes, 799_999);
-  assert.equal(session.contextCompacting, true); assert.equal(session.error, undefined);
-  assert.equal(rpc.records[0].status, 'interrupted'); assert.equal(rpc.failureSeen, false);
-  rpc.compactStart.resolve(); rpc.compactEnd.resolve(); await until(() => done() === 1);
-  assert.equal(session.status, 'idle', session.error || 'paused turn should resume'); assert.equal(rpc.compactCount, 1);
+test('zstd tool output over 80% stays in the same turn when its wire body fits', () => fixture('mid-turn-zstd', async ({ rpc, runtime, session, uploads, latest, done }) => {
+  rpc.compactStart.resolve(); rpc.compactEnd.resolve();
+  await runtime.prompt(latest); await until(() => done() === 1);
+  assert.equal(uploads.filter(upload => upload.url === '/v1/responses').length, 2);
+  assert.equal(uploads[0].bytes, 799_999); assert(uploads[1].bytes < 1_000_000);
+  assert.equal(rpc.records[0].status, 'completed'); assert.equal(rpc.failureSeen, false);
+  assert.equal(session.status, 'idle', session.error || 'turn should complete without interruption');
+  assert.equal(rpc.turns, 1); assert.equal(rpc.compactCount, 1); // Maintenance follows the completed turn.
   assert.equal(session.messages.filter(m => m.role === 'user').length, 1);
-  assert.deepEqual(rpc.calls.filter(c => c.method === 'turn/start').at(-1)?.params.input, []);
   assert.equal(rpc.records.flatMap(t => t.items).filter(i => i.id === 'cmd').length, 1);
   assert.equal(session.contextCompacting, undefined); assert.equal(session.messages.some(m => m.role === 'system'), false);
 }));
 
-test('a near-budget request is paused before upload and compacted while the FIFO waits', () => fixture('near-budget', async ({ rpc, runtime, session, queue, uploads, latest, done }) => {
+test('a near-budget request uploads and completes before optional compaction blocks the FIFO', () => fixture('near-budget', async ({ rpc, runtime, session, queue, uploads, latest, done }) => {
   await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
-  assert.equal(uploads.length, 0);
+  assert.equal(uploads[0].url, '/v1/responses'); assert(uploads[0].bytes < 1_000_000);
+  assert.equal(rpc.records[0].status, 'completed'); assert.equal(session.contextCompacting, true);
   await queue.enqueue(session.id, { text: 'NEXT', sourceIds: [], answers: {} }); await queue.pump(session.id);
   assert.equal(rpc.turns, 1); assert.equal(done(), 0);
   rpc.compactStart.resolve(); await until(() => rpc.compactItemDone); await queue.pump(session.id); assert.equal(rpc.turns, 1);
   rpc.compactEnd.resolve(); await until(() => done() === 1); await queue.pump(session.id); await until(() => done() === 2);
-  assert.equal(rpc.turns, 3); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
+  assert.equal(rpc.turns, 2); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
 }));
 
-test('a smaller continuation still over 80% compacts again on the same thread before uploading', () => fixture('shrinking', async ({ rpc, runtime, session, latest, uploads, done }) => {
+test('an oversized request compacts once and its smaller continuation may upload above 80%', () => fixture('shrinking', async ({ rpc, runtime, session, latest, uploads, done }) => {
   rpc.compactStart.resolve(); rpc.compactEnd.resolve();
   await runtime.prompt(latest); await until(() => done() === 1);
   assert.equal(session.status, 'idle', session.error || 'expected automatic continuation');
-  assert.equal(rpc.compactCount, 2); assert.equal(rpc.turns, 3);
+  assert.equal(rpc.compactCount, 1); assert.equal(rpc.turns, 2);
   assert.equal(uploads.filter(upload => !upload.url.endsWith('/compact')).length, 1);
   assert.equal(session.messages.filter(m => m.role === 'user').length, 1);
 }));
@@ -222,7 +224,7 @@ test('native compact supersedes the held upload even before turn/start acknowled
   assert.equal(session.messages.filter(item => item.role === 'user').length, 1); assert.equal(session.turnTimings?.length, 1);
   await queue.pump(session.id); await until(() => done() === 2);
   assert.equal(rpc.turns, 3); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
-  assert.equal(events.filter(e => e.reason === 'pre-compression-threshold' && e.status === 'completed').length, 1);
+  assert.equal(events.filter(e => e.reason === 'pre-upload-overflow' && e.status === 'completed').length, 1);
 }));
 
 for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'changed-input', 'partial-tool', 'unsupported', 'ambiguous'] as const)
@@ -236,7 +238,7 @@ for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'ch
     assert.equal(session.inputQueue?.items.length, 1); assert.equal(session.inputQueue?.paused, true);
     assert.match(session.error!, /输入已保留/);
     if (scenario === 'compact-refused') { assert.match(session.error!, /原生 compact 请求.*未上传/); assert.equal(uploads.length, 0); }
-    if (scenario === 'retry-refused') assert.match(session.error!, /compact 后的请求仍达到 80%/);
+    if (scenario === 'retry-refused') assert.match(session.error!, /compact 后请求仍无法无损压至 1 MB 以下/);
     if (scenario === 'missing-input') assert.match(session.error!, /无法核对保留输入/);
     if (scenario === 'partial-tool') assert.match(session.error!, /already-did-work/);
     if (scenario === 'changed-input') assert.match(session.error!, /无法核对保留输入/);
