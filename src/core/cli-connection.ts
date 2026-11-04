@@ -38,7 +38,12 @@ export class CliConnectionTracker {
     if (!['running', 'starting'].includes(this.session.status)) return;
     this.buffer = (this.buffer + chunk).slice(-8192);
     const lines = this.buffer.split(/[\r\n]+/); this.buffer = lines.pop() || '';
-    for (const line of lines) this.observe(classifyCliError(line), false);
+    for (const line of lines) {
+      // Codex refreshes its model catalog separately from the active turn.
+      // A catalog 404 must not mark a working model stream as failed.
+      if (this.session.provider === 'codex' && /failed to refresh available models/i.test(line)) continue;
+      this.observe(classifyCliError(line), false);
+    }
     const pending = classifyCliError(this.buffer);
     if (pending?.state === 'reconnecting') this.observe(pending, false);
   }

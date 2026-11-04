@@ -1017,7 +1017,8 @@ export class AgentRuntime {
       if (s.cliConnection?.state === 'connecting' && (method === 'item/started' || method.startsWith('item/reasoning/') || method === 'item/agentMessage/delta')) this.timing.wait('network', false);
       this.timing.codex(method, p);
       if (this.timing.active) this.hooks.changed();
-      if (method === 'item/agentMessage/delta' || method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/completed' && p.item?.type === 'agentMessage') this.connection.responded();
+      const modelActivity = method === 'item/started' && p.item?.type && !['userMessage', 'contextCompaction'].includes(p.item.type);
+      if (modelActivity || method === 'item/agentMessage/delta' || method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/completed' && p.item?.type === 'agentMessage') this.connection.responded();
       if (method === 'item/started' && p.item?.type === 'agentMessage') this.message(p.item.id, 'assistant', '', true, { phase: assistantMessagePhase(p.item.phase) });
       if (method === 'item/agentMessage/delta') this.message(p.itemId, 'assistant', p.delta || '', true, { phase: assistantMessagePhase(p.phase) });
       if (method === 'item/plan/delta') {

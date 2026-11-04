@@ -25,6 +25,8 @@ test('CLI diagnostics classify reconnects and HTTP failures without copying payl
   const codex = { status: 'running', provider: 'codex' } as AgentSession;
   const codexTracker = new CliConnectionTracker(codex, () => {});
   codexTracker.begin();
+  codexTracker.diagnostic('failed to refresh available models: unexpected status 404 Not Found\n');
+  assert.equal(codex.cliConnection?.state, 'connecting');
   for (const step of [1, 2, 3, 4, 5]) { codexTracker.diagnostic('error sending request\n'); assert.equal(codex.cliConnection?.state, 'reconnecting'); assert.equal(codex.cliConnection?.attempt, step); assert.equal(codex.cliConnection?.retryLimit, 5); }
   codexTracker.diagnostic('Reconnecting... 5/5\n'); assert.equal(codex.cliConnection?.state, 'reconnecting'); assert.equal(codex.cliConnection?.attempt, 5);
   codexTracker.responded(); assert.equal(codex.cliConnection?.state, 'connected');
@@ -44,6 +46,8 @@ test('native error notifications update the visible session and recover only on 
     runtime.rpc.emit('diagnostic', 'Reconnecting... 1/5\n'); assert.equal(s.cliConnection?.state, 'reconnecting'); assert.equal(s.status, 'running');
     runtime.rpc.emit('message', { method: 'error', params: { threadId: 'different', error: { message: 'HTTP 403 Forbidden' }, willRetry: false } }); assert.equal(s.cliConnection?.state, 'reconnecting');
     runtime.rpc.emit('message', { method: 'error', params: { threadId: s.nativeId, willRetry: true, error: { message: 'HTTP 403 Forbidden' } } }); assert.equal(s.cliConnection?.httpStatus, 403); assert.equal(s.cliConnection?.state, 'reconnecting');
+    runtime.rpc.emit('message', { method: 'item/started', params: { threadId: s.nativeId, item: { id: 'command', type: 'commandExecution', command: 'pwd' } } }); assert.equal(s.cliConnection?.state, 'connected');
+    runtime.rpc.emit('diagnostic', 'Reconnecting... 1/5\n'); assert.equal(s.cliConnection?.state, 'reconnecting');
     runtime.rpc.emit('message', { method: 'item/agentMessage/delta', params: { threadId: s.nativeId, itemId: 'answer', delta: 'recovered' } }); assert.equal(s.cliConnection?.state, 'connected'); assert.equal(s.cliConnection?.httpStatus, undefined);
     runtime.rpc.emit('message', { method: 'error', params: { threadId: s.nativeId, willRetry: false, error: { message: 'HTTP 403 Forbidden' } } }); assert.equal(s.status, 'error'); assert.equal(s.cliConnection?.state, 'failed'); assert.equal(s.cliConnection?.httpStatus, 403);
     assert(reports.some(value => value.state === 'reconnecting')); assert(reports.some(value => value.state === 'connected')); assert(reports.some(value => value.state === 'failed'));
