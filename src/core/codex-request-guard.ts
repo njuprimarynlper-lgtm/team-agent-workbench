@@ -404,24 +404,29 @@ export class CodexRequestGuard {
 }
 
 /** Inspect effective configuration without writing personal config or authentication files. */
-export async function createCodexRequestGuard(rpc: AgentRpc, cwd: string, env: NodeJS.ProcessEnv, certificateFile?: () => string) {
-  const { config } = await rpc.request('config/read', { includeLayers: false, cwd });
+export async function createCodexRequestGuard(rpc: AgentRpc, cwd: string, env: NodeJS.ProcessEnv, certificateFile?: () => string,
+  legacy?: { sourceConfig: any; preserveOpenaiAlias: true }) {
+  const { config } = legacy ? { config: legacy.sourceConfig } : await rpc.request('config/read', { includeLayers: false, cwd });
   const id = config?.model_provider || 'openai', builtin = id === 'openai';
+  if (legacy && !builtin) throw new Error('原会话的请求保护通路需要 OpenAI 连接；请恢复原连接配置后重试');
   // config/read includes null optional fields; app-server's JSON-to-TOML overlay
   // cannot round-trip these (for example auth:null becomes an invalid string).
   const omitNull = (value: any): any => Array.isArray(value) ? value.map(omitNull) : value && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).filter(([, item]) => item !== null && item !== undefined).map(([key, item]) => [key, omitNull(item)])) : value;
-  const original = omitNull(config?.model_providers?.[id] || {}) as Record<string, any>;
-  if (builtin && config?.model_providers?.workbench_guard_openai) throw new Error('请求保护的临时连接名称与已有自定义配置重名，请先重命名该自定义连接');
+  const configuredProvider = config?.model_providers?.[id];
+  const original = omitNull(configuredProvider || {}) as Record<string, any>;
+  if (builtin && legacy && config?.model_providers?.workbench_guard_openai) throw new Error('请求保护的临时连接名称与已有自定义配置重名，请先重命名该自定义连接');
   if (!builtin && !original.base_url || original.wire_api && original.wire_api !== 'responses') throw new Error('请求大小保护需要 Responses 模型连接，当前连接保持未启动');
   const environment = await guardNetworkEnvironment(env);
   const account = builtin ? await rpc.request('account/read', { refreshToken: false }) : undefined;
   const upstream = original.base_url || config?.openai_base_url || (account?.account?.type === 'chatgpt' ? 'https://chatgpt.com/backend-api/codex' : 'https://api.openai.com/v1');
   const guard = new CodexRequestGuard({ upstream, compression: builtin || original.supports_request_compression === true, env: environment, certificateFile });
   try {
-    const base = await guard.start(), providerId = builtin ? 'workbench_guard_openai' : id;
+    const base = await guard.start(), providerId = builtin && legacy ? 'workbench_guard_openai' : id;
     const provider = { ...original, name: original.name || 'OpenAI', wire_api: 'responses', requires_openai_auth: original.requires_openai_auth ?? builtin,
       base_url: base, supports_websockets: false, supports_request_compression: false };
-    return { guard, config: { model_provider: providerId, [`model_providers.${providerId}`]: provider, 'features.responses_websockets': false, 'features.responses_websockets_v2': false } };
+    return { guard, config: { model_provider: providerId, ...(builtin && !legacy ? { openai_base_url: base,
+      ...(configuredProvider ? { 'model_providers.openai': provider } : {}) } : { [`model_providers.${providerId}`]: provider }),
+      'features.responses_websockets': false, 'features.responses_websockets_v2': false } };
   } catch (error) { await guard.close(); throw error; }
 }

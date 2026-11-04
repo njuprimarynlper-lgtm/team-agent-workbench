@@ -159,7 +159,7 @@ node scripts/test-background.mjs tests/cursor-request-guard.test.ts tests/cursor
 
 **设计参考：** Codex 请求大小保护参考了 [Codex Request Optimizer](https://github.com/qzz1008-glitch/codex-request-optimizer) 的 1,000,000 字节正文预算、zstd 无损压缩与超限历史交接摘要设计（参考版本 [`26840b6`](https://github.com/qzz1008-glitch/codex-request-optimizer/commit/26840b6e15d495dbe52e37070fb45fbf8c931f8)，[MIT 许可证](https://github.com/qzz1008-glitch/codex-request-optimizer/blob/26840b6e15d495dbe52e37070fb45fbf8c931f8/LICENSE)）。下文记录本项目的具体处理规则；Cursor CLI 使用上节所述独立适配。
 
-本机中转仅监听回环地址，采用随机入口路径和线程级 provider 覆盖，不修改个人 Codex 配置、认证文件，也不直接重写原始历史文件。每次发送都核对 **最终上传正文 < 1,000,000 字节**（最多 999,999 字节），不含 HTTP 头和 TLS 开销。按当前需求，此限制以压缩后的正文计算。等于 1,000,000 字节也必须先处理；摘要、原生 compact 与最终推理请求执行相同边界。符合预算的原包保持字节不变；超限时，内置 OpenAI 或明确配置 `supports_request_compression = true` 的自定义 Responses 连接可尝试 zstd。其他上游不假定支持请求压缩。
+本机中转仅监听回环地址，采用随机入口路径和线程级连接地址覆盖，不修改个人 Codex 配置、认证文件，也不直接重写原始历史文件。内置 OpenAI 连接保持原生 `openai` provider ID；旧会话若保存了 `workbench_guard_openai`，仅该会话的 CLI 进程在启动时选用原 ID，再为当前连接提供新的本机中转地址，以兼容 Codex 0.166 起的会话 provider 校验。每次发送都核对 **最终上传正文 < 1,000,000 字节**（最多 999,999 字节），不含 HTTP 头和 TLS 开销。按当前需求，此限制以压缩后的正文计算。等于 1,000,000 字节也必须先处理；摘要、原生 compact 与最终推理请求执行相同边界。符合预算的原包保持字节不变；超限时，内置 OpenAI 或明确配置 `supports_request_compression = true` 的自定义 Responses 连接可尝试 zstd。其他上游不假定支持请求压缩。
 
 已有会话在启用保护、重新连接本机后台后，下次发送会自动检查当前完整请求，累计历史已经超限也能进入同一修复流程，无须新建会话。此前已失败的消息不会擅自重发，需用户重试；处理完成的当前请求会自动继续发送。
 

@@ -4,13 +4,14 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import readline from 'node:readline';
 import type { AgentSession } from '../shared/types';
 import type { AgentRpc } from './rpc';
 import { sameNativePath } from './native-transcript';
 import { readCodexDesktopBridge } from './codex-desktop-bridge';
-import { codexRolloutPath, copyCodexRollout, existingCodexRollout } from './codex-rollout';
+import { codexRolloutPath, codexRolloutStream, copyCodexRollout, existingCodexRollout } from './codex-rollout';
 
-export interface CodexStorage { home: string; sourceHome: string; args: string[]; env: NodeJS.ProcessEnv; resumePath?: string; sharedEndpoint?: string; sharedApprovalRouting?: boolean; }
+export interface CodexStorage { home: string; sourceHome: string; args: string[]; env: NodeJS.ProcessEnv; resumePath?: string; sharedEndpoint?: string; sharedApprovalRouting?: boolean; legacyGuardProvider?: boolean; }
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return !!rel && !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep); };
 const jobs = new Map<string, Promise<void>>();
 
@@ -74,6 +75,17 @@ async function locateRollout(root: string, id: string, keep?: string): Promise<s
 export async function findCodexRollout(home: string, id: string) {
   if (!/^[a-f0-9-]{36}$/i.test(id)) return;
   return await locateRollout(path.join(home, 'sessions'), id) || await locateRollout(path.join(home, 'archived_sessions'), id);
+}
+
+async function rolloutProvider(file: string) {
+  const input = codexRolloutStream(file), lines = readline.createInterface({ input, crlfDelay: Infinity });
+  try {
+    for await (const line of lines) {
+      try { const item = JSON.parse(line); return item.type === 'session_meta' ? item.payload?.model_provider : undefined; }
+      catch { return undefined; }
+    }
+  } catch { return undefined; }
+  finally { lines.close(); input.destroy(); }
 }
 
 async function releaseIsolatedNativeCopy(home: string, id: string, resumePath: string) {
@@ -154,5 +166,7 @@ export async function prepareCodexStorage(root: string, session: AgentSession, s
     await copyCodexRollout(source, target); resumePath = target;
   }
   const sqlite = path.join(home, 'sqlite');
-  return { home, sourceHome, resumePath, env: { CODEX_HOME: home, CODEX_SQLITE_HOME: sqlite }, args: ['app-server', '-c', 'sqlite_home=' + JSON.stringify(sqlite), '-c', 'cli_auth_credentials_store="ephemeral"'] };
+  const rollout = session.nativeId && await findCodexRollout(home, session.nativeId);
+  const legacyGuardProvider = !!rollout && await rolloutProvider(rollout) === 'workbench_guard_openai';
+  return { home, sourceHome, resumePath, env: { CODEX_HOME: home, CODEX_SQLITE_HOME: sqlite }, args: ['app-server', '-c', 'sqlite_home=' + JSON.stringify(sqlite), '-c', 'cli_auth_credentials_store="ephemeral"'], legacyGuardProvider };
 }

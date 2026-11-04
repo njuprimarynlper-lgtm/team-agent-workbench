@@ -30,7 +30,8 @@ const service = http.createServer(async (req, res) => {
 });
 await new Promise<void>(resolve => service.listen(0, '127.0.0.1', resolve));
 const upstream = `http://127.0.0.1:${(service.address() as any).port}/v1`;
-const provider = process.argv.includes('--builtin') ? 'openai' : 'guard_fixture';
+const legacy = process.argv.includes('--legacy-builtin');
+const provider = process.argv.includes('--builtin') || legacy ? 'openai' : 'guard_fixture';
 await fs.writeFile(path.join(root, 'config.toml'), `model_provider = "${provider}"\nmodel = "gpt-6.1-sol"\n[model_providers.${provider}]\nname = "Guard fixture"\nbase_url = "${upstream}"\nwire_api = "responses"\nenv_key = "GUARD_TEST_KEY"\nrequires_openai_auth = false\nsupports_websockets = false\nrequest_max_retries = 0\nstream_max_retries = 0\n`);
 if (provider === 'openai') {
   await fs.writeFile(path.join(root, 'config.toml'), 'model_provider = "openai"\nmodel = "gpt-6.1-sol"\nopenai_base_url = "' + upstream + '"\n');
@@ -39,13 +40,19 @@ if (provider === 'openai') {
 const before = await fs.readFile(path.join(root, 'config.toml'));
 const env = { CODEX_HOME: root, GUARD_TEST_KEY: 'LOCAL_FAKE_KEY', OPENAI_BASE_URL: upstream, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost', HTTP_PROXY: '', HTTPS_PROXY: '', http_proxy: '', https_proxy: '', ALL_PROXY: '', all_proxy: '' };
 const executable = await resolveProvider('codex');
-let rpc = new JsonRpc(executable, ['app-server'], root, false, env);
+const legacyArgs = ['app-server', '-c', 'model_provider=workbench_guard_openai',
+  '-c', 'model_providers.workbench_guard_openai.name=OpenAI', '-c', 'model_providers.workbench_guard_openai.base_url=http://127.0.0.1',
+  '-c', 'model_providers.workbench_guard_openai.wire_api=responses', '-c', 'model_providers.workbench_guard_openai.requires_openai_auth=true',
+  '-c', 'model_providers.workbench_guard_openai.supports_websockets=false'];
+const guardOptions = legacy ? { sourceConfig: { model_provider: 'openai', openai_base_url: upstream }, preserveOpenaiAlias: true as const } : undefined;
+let rpc = new JsonRpc(executable, legacy ? legacyArgs : ['app-server'], root, false, env);
 let protectedRoute: Awaited<ReturnType<typeof createCodexRequestGuard>> | undefined;
 const events: any[] = []; rpc.on('message', event => { if (event.id !== undefined) rpc.reject(event.id, 'Synthetic check does not authorize tools'); else events.push(event); });
+rpc.on('diagnostic', message => { if (legacy) console.error('Legacy CLI: ' + String(message).slice(0, 800)); });
 const wait = async (count: number) => { const until = Date.now() + 60000; while (events.filter(e => e.method === 'turn/completed').length < count) { if (Date.now() > until) throw new Error('CLI smoke timeout'); await new Promise(resolve => setTimeout(resolve, 50)); } return events.filter(e => e.method === 'turn/completed').at(-1); };
 try {
   await rpc.request('initialize', { clientInfo: { name: 'workbench_guard_test', version: '1' }, capabilities: { experimentalApi: true } }); rpc.notify('initialized');
-  protectedRoute = await createCodexRequestGuard(rpc, root, env);
+  protectedRoute = await createCodexRequestGuard(rpc, root, env, undefined, guardOptions);
   const started = await rpc.request('thread/start', { cwd: root, model: 'gpt-6.1-sol', approvalPolicy: 'never', sandbox: 'read-only', config: protectedRoute.config });
   assert.equal(started.modelProvider, protectedRoute.config.model_provider); const threadId = started.thread.id;
   await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: 'Only reply GUARD_OK. Do not use tools.' }] });
@@ -62,16 +69,19 @@ try {
   assert.equal(received.length, 1, 'oversized original must never reach model service');
   assert.equal(protectedRoute.guard.stats.forwarded, 1); assert.equal(protectedRoute.guard.stats.rejected, 1);
   await rpc.close(); await protectedRoute.guard.close();
-  rpc = new JsonRpc(executable, ['app-server'], root, false, env); events.length = 0;
+  rpc = new JsonRpc(executable, legacy ? legacyArgs : ['app-server'], root, false, env); events.length = 0;
   rpc.on('message', event => { if (event.id !== undefined) rpc.reject(event.id, 'No tools'); else events.push(event); });
   await rpc.request('initialize', { clientInfo: { name: 'workbench_guard_test', version: '1' } }); rpc.notify('initialized');
-  const previous = await rpc.request('thread/read', { threadId, includeTurns: false }); const restore = previous.thread.modelProvider === 'workbench_guard_openai' ? { modelProvider: provider, config: { model_provider: provider } } : {};
+  if (legacy) protectedRoute = await createCodexRequestGuard(rpc, root, env, undefined, guardOptions);
+  const previous = await rpc.request('thread/read', { threadId, includeTurns: false });
+  const restore = legacy ? { modelProvider: 'workbench_guard_openai', config: protectedRoute!.config }
+    : previous.thread.modelProvider === 'workbench_guard_openai' ? { modelProvider: provider, config: { model_provider: provider } } : {};
   const resumed = await rpc.request('thread/resume', { threadId, cwd: root, approvalPolicy: 'never', sandbox: 'read-only', ...restore });
-  assert.equal(resumed.modelProvider, provider, 'disabled protection must restore the current original provider');
+  assert.equal(resumed.modelProvider, legacy ? 'workbench_guard_openai' : provider);
   await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: 'Continue; only reply GUARD_OK.' }] });
   assert.equal((await wait(1)).params.turn.status, 'completed'); assert.equal(received.length, 2);
   assert.deepEqual(await fs.readFile(path.join(root, 'config.toml')), before);
-  console.log(JSON.stringify({ passed: true, provider, underBudgetBytes: received[0].bytes, oversizedRejectedLocally: true, reconnectWithoutGuard: true, configUnchanged: true }));
+  console.log(JSON.stringify({ passed: true, provider, legacy, underBudgetBytes: received[0].bytes, oversizedRejectedLocally: true, reconnected: true, configUnchanged: true }));
 } catch (error) {
   console.error(JSON.stringify({ received, stats: protectedRoute?.guard.stats, errors: events.filter(e => e.method === 'error' || e.method === 'turn/completed').map(e => e.params) })); throw error;
 } finally { await rpc.close(); await protectedRoute?.guard.close(); service.closeAllConnections(); await new Promise<void>(resolve => service.close(() => resolve())); }

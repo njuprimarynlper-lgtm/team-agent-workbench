@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { zstdCompressSync } from 'node:zlib';
 import { prepareCodexStorage, validateCodexStorage } from '../src/core/codex-storage';
 import { clearStoppedNativeFork, nativeRolloutForkError } from '../src/core/agents';
 import type { JsonRpc } from '../src/core/rpc';
@@ -38,6 +39,24 @@ test('Codex storage separates histories and DBs while preserving personal config
     await prepareCodexStorage(data, session(root), personal);
     await assert.rejects(fs.access(path.join(a.home, 'config.toml'))); await assert.rejects(fs.access(path.join(a.home, 'special.config.toml')));
     assert((await fs.readFile(path.join(personal, 'auth.json'), 'utf8')).includes('KEEP_PRIVATE'));
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('existing guarded rollout keeps its native provider identity for a safe resume', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-guard-history-'));
+  try {
+    const personal = path.join(root, 'personal'), data = path.join(root, 'data'), id = randomUUID();
+    const file = path.join(data, 'codex-home', 'sessions', '2026', '11', '02', `rollout-2026-11-02T09-35-40-${id}.jsonl`);
+    await fs.mkdir(path.dirname(file), { recursive: true }); await fs.mkdir(personal);
+    const history = JSON.stringify({ type: 'session_meta', payload: { id, model_provider: 'workbench_guard_openai' } }) + '\n';
+    await fs.writeFile(file, history);
+    const storage = await prepareCodexStorage(data, { ...session(root), nativeId: id, nativePath: file, codexStorage: 'workbench' }, personal);
+    assert.equal(storage.legacyGuardProvider, true);
+    assert.equal(await fs.readFile(file, 'utf8'), history);
+    const compressedId = randomUUID(), compressed = path.join(path.dirname(file), `rollout-2026-11-02T09-35-41-${compressedId}.jsonl.zst`);
+    await fs.writeFile(compressed, zstdCompressSync(Buffer.from(JSON.stringify({ type: 'session_meta', payload: { id: compressedId, model_provider: 'workbench_guard_openai' } }) + '\n')));
+    const compressedStorage = await prepareCodexStorage(data, { ...session(root), nativeId: compressedId, nativePath: compressed, codexStorage: 'workbench' }, personal);
+    assert.equal(compressedStorage.legacyGuardProvider, true);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 

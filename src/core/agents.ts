@@ -105,7 +105,13 @@ export class AgentRuntime {
     this.cursorGuardExpected = cursorGuard;
     const cliEnv = { ...networkEnv, ...storage?.env, ...(this.guardEnabled ? { NO_PROXY: noProxy, no_proxy: noProxy } : {}),
       ...(cursorGuard ? { TEAM_AGENT_CURSOR_REQUEST_GUARD: '1' } : {}) };
-    this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? storage?.args || ['app-server'] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', session.provider === 'cursor' ? cursorNetworkEnvironment(cliEnv) : cliEnv));
+    // Codex 0.166 checks the process provider before applying per-thread overrides.
+    // Old guarded histories retain this alias, so select it at process launch too.
+    const legacyGuardArgs = this.guardEnabled && storage?.legacyGuardProvider ? ['-c', 'model_provider=workbench_guard_openai',
+      '-c', 'model_providers.workbench_guard_openai.name=OpenAI', '-c', 'model_providers.workbench_guard_openai.base_url=http://127.0.0.1',
+      '-c', 'model_providers.workbench_guard_openai.wire_api=responses', '-c', 'model_providers.workbench_guard_openai.requires_openai_auth=true',
+      '-c', 'model_providers.workbench_guard_openai.supports_websockets=false'] : [];
+    this.rpc = remoteRpc || (session.cursorNative ? new CursorNativeRpc(session) : storage?.sharedEndpoint ? new WebSocketRpc(storage.sharedEndpoint) : new JsonRpc(executable, session.provider === 'codex' ? [...(storage?.args || ['app-server']), ...legacyGuardArgs] : cursorPermissionArgs(session), session.cwd, session.provider === 'cursor', session.provider === 'cursor' ? cursorNetworkEnvironment(cliEnv) : cliEnv));
     if (session.provider === 'codex' && storage && !storage.sharedEndpoint && !borrowedConnection) this.authBridge = new CodexAuthBridge(executable, session.cwd, storage.sourceHome, networkEnv);
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
     if (borrowedConnection) this.codexConnected = true;
@@ -304,7 +310,10 @@ export class AgentRuntime {
       await this.connectCodex();
       if (this.closing) return;
       if (this.guardEnabled && !this.guardConfig) {
-        const prepared = await createCodexRequestGuard(this.rpc, s.cwd, this.networkEnv, this.guardCertificateFile);
+        const legacy = this.storage?.legacyGuardProvider;
+        const sourceConfig = legacy ? (await this.authBridge!.configuration('config/read', { includeLayers: false, cwd: s.cwd })).config : undefined;
+        const prepared = await createCodexRequestGuard(this.rpc, s.cwd, this.networkEnv, this.guardCertificateFile,
+          legacy ? { sourceConfig, preserveOpenaiAlias: true } : undefined);
         if (this.closing) { await prepared.guard.close(); return; }
         this.requestGuard = prepared.guard; this.guardConfig = prepared.config;
         this.monitorGuard(prepared.guard);
@@ -328,6 +337,8 @@ export class AgentRuntime {
       let result;
       try { result = expectedId ? await this.rpc.request('thread/resume', resume) : await this.rpc.request('thread/start', params); }
       catch (error) {
+        if (!this.guardConfig && ['modelProviderMismatch', 'modelProviderNotConfigured'].includes((error as any)?.data?.type) && (error as any).data.modelProvider === 'workbench_guard_openai')
+          throw new Error('此会话使用请求大小保护创建；请在 agent管理中开启请求大小保护，重新连接后继续原会话');
         if (!expectedId || this.guardConfig || s.codexRemote || !/Model provider [`']?workbench_guard_openai[`']? not found/i.test(String(error))) throw error;
         // The temporary alias may appear in native metadata. Restore the current
         // configured provider after protection is disabled, without rewriting history.
