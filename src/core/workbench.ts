@@ -783,7 +783,7 @@ export class Workbench {
     }, false);
   }
   private contentSeenState(item: SharedContent): ContentSeenState {
-    return { files: item.files, missingFiles: missingContentFiles(item), submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
+    return { files: item.files, missingFiles: missingContentFiles(item), submission: item.submission, revision: item.revision, title: item.title, path: item.path, author: item.author, updatedBy: item.updatedBy, updatedAt: item.updatedAt, kind: item.kind, category: item.category, sourceSessionTitle: item.sourceSessionTitle || undefined, sources: [...new Set([...(item.sources || []), ...(item.provenance || []).map(source => source.id)])] };
   }
   async editSharedContent(projectId: string, change: ContentEdit, personalDeletion = false) {
     const binding = this.projectBinding(projectId);
@@ -945,7 +945,7 @@ export class Workbench {
             const sourceIds = new Set((item.replaces || []).map(ref => ref.id));
             const mergedSources = removed.filter(source => sourceIds.has(source.id));
             const change = mergedSources.length ? 'merged' as const : contentChanged;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, files: item.files, missingFiles: missingContentFiles(item), change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle || undefined, files: item.files, missingFiles: missingContentFiles(item), change, sourceTitles: mergedSources.map(source => source.title!).filter(Boolean), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
           for (const source of removed.filter(item => item.kind !== 'trajectory')) {
             // Several revisions can happen between polls. A newer replacement still
@@ -960,7 +960,7 @@ export class Workbench {
           const recent = Date.now() - 24 * 60 * 60 * 1000;
           for (const item of items.filter(item => item.kind !== 'trajectory' && Date.parse(item.updatedAt) >= recent).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))) {
             const change = item.sources?.length || item.provenance?.length ? 'merged' as const : 'new' as const;
-            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle, files: item.files, missingFiles: missingContentFiles(item), change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
+            add({ eventId: `${key}:${change}:${item.id}:${item.revision}`, projectId: project.id, projectName: project.name, id: item.id, path: item.path, title: item.title, author: item.author, updatedBy: item.updatedBy, revision: item.revision, category: item.category, submission: item.submission, sourceSessionTitle: item.sourceSessionTitle || undefined, files: item.files, missingFiles: missingContentFiles(item), change, sourceTitles: item.provenance?.map(source => source.title), occurredAt: item.updatedAt, detectedAt, ...(item.updatedBy === profile.username ? { readAt: detectedAt, archiveReason: 'own_change' as const } : {}) });
           }
         }
         if (JSON.stringify(priorRaw || {}) !== JSON.stringify(current)) { seen[key] = current; changed = true; }
