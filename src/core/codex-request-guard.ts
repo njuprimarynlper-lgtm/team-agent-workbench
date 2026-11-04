@@ -21,6 +21,7 @@ class GuardSizeError extends Error {}
 export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; }
 export interface GuardStats { forwarded: number; summaries: number; summaryInputTokens: number; summaryOutputTokens: number; cacheHits: number; rejected: number; maxUploadBytes: number; }
 export interface GuardRequestSize { threadId: string; inputBytes: number; budget: number; rejected?: string; }
+export type GuardUploadCheck = (request: GuardRequestSize, decodedBody: Buffer) => Promise<void> | undefined;
 
 async function readBody(source: AsyncIterable<Uint8Array>, limit: number) {
   const chunks: Buffer[] = []; let bytes = 0;
@@ -98,7 +99,7 @@ export class CodexRequestGuard {
   private cache: CacheEntry[] = [];
   private queues = new Map<string, Promise<unknown>>();
   private requestObservers = new Set<(request: GuardRequestSize) => void>();
-  private uploadChecks = new Set<(request: GuardRequestSize) => boolean>();
+  private uploadChecks = new Set<GuardUploadCheck>();
   private readonly secret = randomBytes(24).toString('hex');
   private closed = false;
   private closeJob?: Promise<void>;
@@ -133,7 +134,7 @@ export class CodexRequestGuard {
     this.requestObservers.add(listener);
     return () => { this.requestObservers.delete(listener); };
   }
-  beforeUpload(check: (request: GuardRequestSize) => boolean) {
+  beforeUpload(check: GuardUploadCheck) {
     this.uploadChecks.add(check);
     return () => { this.uploadChecks.delete(check); };
   }
@@ -355,15 +356,22 @@ export class CodexRequestGuard {
       let compact = suffix === '/responses/compact';
       try { compact ||= JSON.parse(String(req.headers['x-codex-turn-metadata'] || '{}')).request_kind === 'compaction'; } catch { /* Not native compaction metadata. */ }
       const scope = guardHash([req.headers.authorization, req.headers['chatgpt-account-id'], session || 'unknown']);
-      await this.serial(scope, async () => {
-        const encoding = String(req.headers['content-encoding'] || '') || undefined;
-        const measured = !compact && suffix === '/responses' && typeof session === 'string'
-          ? { threadId: session, inputBytes: (await decoded(body, encoding)).length, budget: this.budget } : undefined;
-        if (measured && [...this.uploadChecks].some(check => check(measured))) {
-          // End only this inference step. The runtime waits for the terminal
-          // native event before starting compact on the same writer.
-          throw new Error('请求压缩前已达到大小阈值，已暂停上传以执行原生 compact');
+      const encoding = String(req.headers['content-encoding'] || '') || undefined;
+      let measured: GuardRequestSize | undefined;
+      if (!compact && suffix === '/responses' && typeof session === 'string') {
+        const raw = await decoded(body, encoding);
+        measured = { threadId: session, inputBytes: raw.length, budget: this.budget };
+        for (const check of this.uploadChecks) {
+          const pause = check(measured, raw);
+          if (!pause) continue;
+          // Native compact supersedes the pending inference and closes its HTTP
+          // stream. Keep the scope lock free for the native maintenance request.
+          await pause;
+          if (controller.signal.aborted || res.destroyed) return;
+          throw new Error('原请求已暂停，不能上传压缩前的上下文');
         }
+      }
+      await this.serial(scope, async () => {
         // Compact is initiated by the native thread so its result is persisted by
         // Codex. Its input needs the same size protection; helper summaries still
         // go to /responses, never to the stateless /responses/compact endpoint.

@@ -9,9 +9,10 @@ import type { AgentSession } from '../src/shared/types';
 
 async function main() {
   const refused = process.argv.includes('--refused');
+  const withTool = process.argv.includes('--tool');
   const root = path.resolve('.test-data', 'guard-recovery-cli-' + Date.now());
   await fs.mkdir(root, { recursive: true });
-  const latest = 'KEEP_LATEST_INPUT_' + 'x'.repeat(260_000);
+  const latest = 'KEEP_LATEST_INPUT_' + 'x'.repeat(withTool ? 12 : 260_000);
   const uploads: { route: string; bytes: number; value: any }[] = [], events: any[] = [], calls: { method: string; params: any }[] = [], observations: any[] = [];
   const service = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(Buffer.from(chunk));
@@ -26,6 +27,21 @@ async function main() {
         usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 } })); return;
     }
     const compact = JSON.parse(String(req.headers['x-codex-turn-metadata'] || '{}')).request_kind === 'compaction';
+    if (withTool && uploads.length === 1) {
+      const name = JSON.stringify(value).includes('exec_command') ? 'exec_command' : 'shell_command';
+      const command = process.platform === 'win32' ? "Add-Content -LiteralPath marker.txt -Value once" : "echo once >> marker.txt";
+      const call = { type: 'function_call', call_id: 'call_build_once', name,
+        arguments: JSON.stringify(name === 'exec_command' ? { cmd: command } : { command }) };
+      const padding = { type: 'reasoning', summary: [], encrypted_content: 'p'.repeat(750_000) };
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      for (const event of [
+        { type: 'response.created', response: { id: 'resp_build', status: 'in_progress', output: [] } },
+        { type: 'response.output_item.done', output_index: 0, item: padding },
+        { type: 'response.output_item.done', output_index: 1, item: call },
+        { type: 'response.completed', response: { id: 'resp_build', status: 'completed', output: [padding, call], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
+      ]) res.write('data: ' + JSON.stringify(event) + '\n\n');
+      res.end(); return;
+    }
     const item = compact ? { type: 'compaction', id: 'cmp_' + uploads.length, encrypted_content: 'FAKE_NATIVE_STATE' }
       : { type: 'message', id: 'msg_' + uploads.length, role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'RECOVERED_OK', annotations: [] }] };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -46,15 +62,16 @@ async function main() {
   await fs.writeFile(path.join(root, 'config.toml'), config);
   const env = { CODEX_HOME: root, GUARD_TEST_KEY: 'LOCAL_FAKE_KEY', OPENAI_BASE_URL: upstream,
     NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost', HTTP_PROXY: '', HTTPS_PROXY: '', http_proxy: '', https_proxy: '', ALL_PROXY: '', all_proxy: '' };
-  const session = { id: 'native-smoke', provider: 'codex', purpose: 'work', cwd: root, status: 'idle', messages: [], approvals: [], sources: [], model: 'gpt-6.1-sol', permissionMode: 'inherit' } as unknown as AgentSession;
+  const session = { id: 'native-smoke', provider: 'codex', purpose: 'work', cwd: root, status: 'idle', messages: [], approvals: [], sources: [], model: 'gpt-6.1-sol', permissionMode: withTool ? 'full' : 'inherit' } as unknown as AgentSession;
   let done = 0;
   const runtime = new AgentRuntime(session, await resolveProvider('codex'), { changed() {}, event(value) { events.push(value); }, done() { done++; } }, undefined, env, undefined, false, true);
   const request = runtime.rpc.request.bind(runtime.rpc);
   runtime.rpc.request = (method, params, timeout, written) => { calls.push({ method, params }); return request(method, params, timeout, written); };
   try {
     await runtime.start();
+    const initialConfig = await fs.readFile(path.join(root, 'config.toml'), 'utf8');
     (runtime as any).requestGuard.observeRequests((value: any) => observations.push(value));
-    await runtime.rpc.request('thread/inject_items', { threadId: session.nativeId, items: [
+    if (!withTool) await runtime.rpc.request('thread/inject_items', { threadId: session.nativeId, items: [
       { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'OLD_USER' }] },
       { type: 'reasoning', summary: [{ type: 'summary_text', text: 'Readable native reasoning must not be silently dropped.' }], encrypted_content: 'r'.repeat(refused ? 700_000 : 600_000) },
       { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'OLD_ANSWER' }] },
@@ -65,7 +82,7 @@ async function main() {
     assert.equal(calls.filter(call => call.method === 'thread/compact/start').length, 1);
     assert.equal(calls.filter(call => call.method === 'turn/start').length, refused ? 1 : 2);
     assert.equal(session.messages.filter(message => message.role === 'user').length, 1);
-    assert.equal(observations.length, refused ? 0 : 1, 'only forwarded normal requests are observed');
+    assert.equal(observations.length, refused ? 0 : withTool ? 2 : 1, 'only forwarded normal requests are observed');
     if (refused) {
       assert.equal(session.status, 'error'); assert.match(session.error!, /原生 compact 请求.*未上传/);
       assert.doesNotMatch(session.error!, /尚未执行/); assert.equal(uploads.length, 0);
@@ -78,13 +95,18 @@ async function main() {
       const current = (await runtime.rpc.request('thread/read', { threadId: session.nativeId, includeTurns: true })).thread;
       const users = current.turns.flatMap((turn: any) => turn.items).filter((item: any) => item.type === 'userMessage');
       assert.equal(users.at(-1).content[0].text, latest);
+      assert.equal(current.turns.find((t: any) => t.items.some((item: any) => item.type === 'userMessage' && item.content[0].text === latest)).status, 'interrupted');
+      if (withTool) {
+        assert.equal((await fs.readFile(path.join(root, 'marker.txt'), 'utf8')).trim(), 'once');
+        assert(uploads.some(u => u.value.input.some((i: any) => i.call_id === 'call_build_once' && i.type === 'function_call_output')));
+      }
       assert.deepEqual(calls.filter(call => call.method === 'turn/start').at(-1)!.params.input, []);
       const resumed = uploads.at(-1)!.value;
       assert(resumed.input.some((item: any) => item.type === 'compaction' && item.encrypted_content === 'FAKE_NATIVE_STATE'));
       assert(uploads.every(upload => upload.bytes < 1_000_000));
     }
-    assert.equal(await fs.readFile(path.join(root, 'config.toml'), 'utf8'), config);
-    console.log(JSON.stringify({ passed: true, scenario: refused ? 'local-refusal-compact-also-refused' : 'proactive-native-compact-and-continuation', uploads: uploads.map(({ route, bytes }) => ({ route, bytes })), configUnchanged: true }));
+    assert.equal(await fs.readFile(path.join(root, 'config.toml'), 'utf8'), withTool ? initialConfig : config);
+    console.log(JSON.stringify({ passed: true, scenario: refused ? 'local-refusal-compact-also-refused' : withTool ? 'tool-once-across-native-compact' : 'proactive-native-compact-and-continuation', uploads: uploads.map(({ route, bytes }) => ({ route, bytes })), configUnchanged: true }));
   } catch (error) {
     // Never print the large synthetic inputs or any real authentication/configuration.
     console.error(JSON.stringify({ status: session.status, error: session.error, calls: calls.map(call => call.method),

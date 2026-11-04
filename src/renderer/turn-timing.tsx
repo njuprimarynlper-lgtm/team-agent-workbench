@@ -31,7 +31,7 @@ export function SessionTurnProgress({ session }: { session: AgentSession }) {
   }, [active, session.id, timing?.id]);
   if (!active) return null;
   const phaseLabels: Record<TurnPhase, string> = { thinking: '思考中', tools: '正在执行工具', reply: '正在生成回复', approval: '等待确认', network: '等待连接', other: '正在处理' };
-  const label = session.status === 'approval' || session.desktopWaitingApproval ? '等待确认' : session.status === 'starting' ? session.codexRemote ? '正在连接远程 Codex' : '正在连接本地 CLI' : session.cliConnection?.state === 'reconnecting' ? '正在重连' : session.cliConnection?.state === 'failed' ? '连接异常' : timing ? phaseLabels[timing.phase] : '正在处理';
+  const label = session.contextCompacting ? '正在压缩上下文' : session.status === 'approval' || session.desktopWaitingApproval ? '等待确认' : session.status === 'starting' ? session.codexRemote ? '正在连接远程 Codex' : '正在连接本地 CLI' : session.cliConnection?.state === 'reconnecting' ? '正在重连' : session.cliConnection?.state === 'failed' ? '连接异常' : timing ? phaseLabels[timing.phase] : '正在处理';
   const durations = timing && timingDurations(timing, Math.max(at, Date.parse(timing.updatedAt)));
   return <div className="turn-progress"><span className="status-pulse"/><span role="status">{label}{session.cursorNative && (session.status === 'approval' || session.desktopWaitingApproval) ? '，请在 Cursor 中处理' : ''}</span>{timing && durations && <span className="turn-progress-clock" aria-label="本轮已用时间">{formatElapsed(Object.values(durations).reduce((sum, value) => sum + value, 0))}{timing.phase === 'thinking' && <> · 思考 {formatElapsed(durations.thinking)}</>}</span>}</div>;
 }

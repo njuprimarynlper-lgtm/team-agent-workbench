@@ -49,6 +49,9 @@ class Native extends EventEmitter implements AgentRpc {
       return { turn: { id } };
     }
     if (method === 'thread/compact/start') {
+      const original = this.records.at(-1);
+      original.status = 'interrupted';
+      this.event('turn/completed', { turn: original });
       void this.compact().catch(error => this.errors.push(error)); return {};
     }
     if (method === 'thread/read') return { thread: { id: 'native-a', status: { type: 'idle' }, turns: this.records } };
@@ -59,6 +62,7 @@ class Native extends EventEmitter implements AgentRpc {
     this.event('turn/started', { turn: { id } });
     try { await post(this.base + '/responses', { model: 'test', instructions: 'KEEP_SYSTEM', tools: [], input: this.history, stream: true }); }
     catch (error) {
+      if (this.records.find(turn => turn.id === id)?.status === 'interrupted') return;
       this.records.at(-1).status = 'failed';
       this.event('turn/completed', { turn: { id, status: 'failed', error: { message: String(error) } } });
       return;
@@ -124,7 +128,7 @@ test('oversized native history is repaired, compacted once between turns, then r
     const summaries = uploads.filter(item => item.value.tool_choice === 'none').length;
     assert(summaries > 0); assert(uploads.filter(item => item.value.tool_choice === 'none').every(item => item.url === '/v1/responses'));
     rpc.releaseComplete.resolve(); await until(() => done === 1);
-    assert.equal(session.status, 'idle'); assert.equal(session.turnTimings?.length, 1);
+    assert.equal(session.status, 'idle', session.error || 'expected automatic continuation'); assert.equal(session.turnTimings?.length, 1);
     await queue.pump(session.id); await until(() => done === 2 || rpc.errors.length > 0);
     assert.deepEqual(rpc.errors, []);
     assert.equal(session.inputQueue?.items.length, 0);

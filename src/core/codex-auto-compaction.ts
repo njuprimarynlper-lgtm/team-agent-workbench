@@ -1,5 +1,5 @@
 import type { AgentRpc } from './rpc';
-import type { CodexRequestGuard, GuardRequestSize } from './codex-request-guard';
+import type { CodexRequestGuard, GuardRequestSize, GuardUploadCheck } from './codex-request-guard';
 
 export type AutoCompactionResult = { status: 'completed' | 'failed' | 'uncertain' | 'closed'; message?: string; turnId?: string };
 type Job = {
@@ -7,8 +7,7 @@ type Job = {
   acknowledged: boolean; error?: string; resolve: (result: AutoCompactionResult) => void; timer: ReturnType<typeof setTimeout>;
 };
 
-/** Per native thread, including borrowed forks. Never start from an HTTP callback:
- * the guard holds the request's scope lock until its response stream has ended. */
+/** Per native thread, including borrowed forks. */
 export class CodexAutoCompaction {
   private detach: () => void;
   private job?: Job;
@@ -23,22 +22,13 @@ export class CodexAutoCompaction {
   private uncertain?: Job;
   private finishedTurns = new Set<string>();
   private rejection?: string;
-  private pressurePause = false;
   private detachCheck?: () => void;
   constructor(readonly guard: CodexRequestGuard, private rpc: AgentRpc, private threadId: () => string | undefined,
-    private timeoutMs = 10 * 60_000, canPause?: () => boolean) {
+    private timeoutMs = 10 * 60_000, beforeUpload?: GuardUploadCheck) {
     this.detach = guard.observeRequests(request => this.observe(request));
-    if (canPause) this.detachCheck = guard.beforeUpload(request => {
-      if (request.threadId !== this.threadId() || !canPause() || this.disabled || this.closed || this.job || this.uncertain) return false;
-      if (this.pressurePause) return true;
-      this.observe(request);
-      if (!this.pendingBytes || request.inputBytes < request.budget * 0.8) return false;
-      this.pressurePause = true;
-      this.rejection = '这轮发给模型的对话上下文接近大小上限（' + request.inputBytes + ' 字节），已暂停发送。';
-      return true;
-    });
+    if (beforeUpload) this.detachCheck = guard.beforeUpload((request, body) =>
+      request.threadId === this.threadId() ? beforeUpload(request, body) : undefined);
   }
-  get pausedForPressure() { return this.pressurePause; }
   get active() { return !!this.job; }
   get activeTurnId() { return this.job?.turnId; }
   get localRejection() { return this.rejection; }
@@ -59,11 +49,14 @@ export class CodexAutoCompaction {
     this.attemptedBytes = Math.max(this.observedBytes, this.pendingBytes);
     this.discardPending(); this.armed = false;
   }
-  discardPending() { this.pendingBytes = 0; this.rejection = undefined; this.pressurePause = false; }
+  discardPending() { this.pendingBytes = 0; this.rejection = undefined; }
+  startAtUpload(turnId: string, bytes: number) {
+    this.pendingBytes = bytes;
+    return this.start(turnId);
+  }
   start(previousTurnId?: string, recovery = false): Promise<AutoCompactionResult> | undefined {
     if (!this.pendingBytes || this.job || this.closed || this.disabled || this.uncertain || Date.now() < this.retryAfter || recovery && !this.rejection) return;
     this.attemptedBytes = this.pendingBytes; this.pendingBytes = 0; this.rejection = undefined; this.armed = false;
-    this.pressurePause = false;
     const threadId = this.threadId(); if (!threadId) return;
     let resolve!: Job['resolve'];
     const result = new Promise<AutoCompactionResult>(done => { resolve = done; });

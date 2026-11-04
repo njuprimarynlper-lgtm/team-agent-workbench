@@ -423,11 +423,12 @@ test('existing proxy is mandatory, including CONNECT refusal; unsupported scheme
 });
 
 test('provider override preserves custom identity and routes builtin OpenAI through its native provider', async () => {
+  const testNetwork = { ...direct, HTTPS_PROXY: 'http://127.0.0.1:9', NO_PROXY: '*' };
   for (const builtin of [false, true]) {
     const config = { model_provider: builtin ? 'openai' : 'custom', model_providers: { custom: { name: 'Private', base_url: 'https://custom.invalid/api', env_key: 'PRIVATE_API_KEY', http_headers: { 'x-user': 'retained' }, query_params: { 'api-version': 'test' }, supports_request_compression: true } } };
     const before = structuredClone(config);
     const rpc = { request: async (method: string) => method === 'config/read' ? { config } : { account: { type: 'chatgpt' } } } as unknown as AgentRpc;
-    const { guard, config: overlay } = await createCodexRequestGuard(rpc, '.', { ...direct, HTTPS_PROXY: 'http://127.0.0.1:9', NO_PROXY: '*' });
+    const { guard, config: overlay } = await createCodexRequestGuard(rpc, '.', testNetwork);
     try { assert.deepEqual(config, before); assert.equal(overlay.model_provider, builtin ? 'openai' : 'custom');
       if (builtin) { assert.match((overlay as any).openai_base_url, /^http:\/\/127\.0\.0\.1:/); assert.equal((overlay as any)['model_providers.workbench_guard_openai'], undefined); }
       else { const provider = (overlay as any)['model_providers.custom']; assert.match(provider.base_url, /^http:\/\/127\.0\.0\.1:/); assert.equal(provider.supports_websockets, false);
@@ -436,13 +437,13 @@ test('provider override preserves custom identity and routes builtin OpenAI thro
   }
   const configuredOpenai = { model_provider: 'openai', model_providers: { openai: { name: 'OpenAI', base_url: 'https://example.invalid/v1', http_headers: { 'x-route': 'retained' } } } };
   const configuredRpc = { request: async (method: string) => method === 'config/read' ? { config: configuredOpenai } : { account: { type: 'chatgpt' } } } as unknown as AgentRpc;
-  const configured = await createCodexRequestGuard(configuredRpc, '.', direct);
+  const configured = await createCodexRequestGuard(configuredRpc, '.', testNetwork);
   try { assert.equal(configured.config.model_provider, 'openai'); assert.equal((configured.config as any)['model_providers.openai'].http_headers['x-route'], 'retained');
     assert.match((configured.config as any)['model_providers.openai'].base_url, /^http:\/\/127\.0\.0\.1:/); }
   finally { await configured.guard.close(); }
   const original = { model_provider: 'openai', openai_base_url: 'https://example.invalid/v1' };
   const rpc = { request: async (method: string) => method === 'account/read' ? { account: { type: 'apiKey' } } : { config: { model_provider: 'workbench_guard_openai' } } } as unknown as AgentRpc;
-  const legacy = await createCodexRequestGuard(rpc, '.', direct, undefined, { sourceConfig: original, preserveOpenaiAlias: true });
+  const legacy = await createCodexRequestGuard(rpc, '.', testNetwork, undefined, { sourceConfig: original, preserveOpenaiAlias: true });
   try { assert.equal(legacy.config.model_provider, 'workbench_guard_openai'); assert.match((legacy.config as any)['model_providers.workbench_guard_openai'].base_url, /^http:\/\/127\.0\.0\.1:/); }
   finally { await legacy.guard.close(); }
   const base = { connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '' };

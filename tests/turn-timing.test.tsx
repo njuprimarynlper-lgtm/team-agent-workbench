@@ -73,6 +73,10 @@ test('Codex runtime ignores another thread/turn, records native thought events a
   const emit = (method: string, params: any) => (runtime as any).onMessage({ method, params });
   emit('turn/started', { threadId: 'other', turn: { id: 'bad' } }); assert.equal(session.turnTimings, undefined);
   emit('turn/started', { threadId: 'native', turn: { id: 'turn1' } });
+  emit('item/started', { threadId: 'native', turnId: 'turn1', item: { id: 'compact', type: 'contextCompaction' } });
+  assert.match(renderToStaticMarkup(<SessionTurnProgress session={session}/>), /正在压缩上下文/);
+  emit('item/completed', { threadId: 'native', turnId: 'turn1', item: { id: 'compact', type: 'contextCompaction' } });
+  assert.doesNotMatch(renderToStaticMarkup(<SessionTurnProgress session={session}/>), /正在压缩上下文/);
   emit('item/started', { threadId: 'native', turnId: 'turn1', item: { id: 'r', type: 'reasoning' } }); advance(5000);
   emit('turn/completed', { threadId: 'native', turn: { id: 'bad' } }); assert.equal(tracker.active, true);
   emit('item/completed', { threadId: 'native', turnId: 'turn1', item: { id: 'r', type: 'reasoning' } });

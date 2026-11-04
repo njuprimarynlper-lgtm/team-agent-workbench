@@ -4,6 +4,7 @@ import http from 'node:http';
 import { zstdCompressSync } from 'node:zlib';
 import { EventEmitter } from 'node:events';
 import { AgentRuntime } from '../src/core/agents';
+import { CodexRequestGuard } from '../src/core/codex-request-guard';
 import { SessionInputQueue } from '../src/core/session-input-queue';
 import type { AgentRpc } from '../src/core/rpc';
 import type { AgentSession } from '../src/shared/types';
@@ -14,19 +15,20 @@ async function until(check: () => boolean) {
   const end = Date.now() + 10_000;
   while (!check()) { if (Date.now() > end) throw Error('fixture timed out'); await new Promise(r => setTimeout(r, 5)); }
 }
-async function post(url: string, value: unknown, zstd = false) {
+async function post(url: string, value: unknown, zstd = false, signal?: AbortSignal) {
   return new Promise<any>((resolve, reject) => {
-    const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json', session_id: 'native-guard', ...(zstd ? { 'content-encoding': 'zstd' } : {}) } }, res => {
+    const req = http.request(url, { method: 'POST', signal, headers: { 'content-type': 'application/json', session_id: 'native-guard', ...(zstd ? { 'content-encoding': 'zstd' } : {}) } }, res => {
       let body = ''; res.on('data', data => { body += data; }); res.on('error', reject);
       res.on('end', () => res.statusCode === 200 ? resolve(JSON.parse(body)) : reject(Error(JSON.parse(body).error.message)));
     }); req.on('error', reject); req.end(zstd ? zstdCompressSync(Buffer.from(JSON.stringify(value))) : JSON.stringify(value));
   });
 }
 
-type Scenario = 'recover' | 'mid-turn-zstd' | 'near-budget' | 'compact-refused' | 'retry-refused' | 'missing-input' | 'changed-input' | 'partial-tool' | 'unsupported' | 'ambiguous';
+type Scenario = 'recover' | 'mid-turn-zstd' | 'near-budget' | 'shrinking' | 'compact-refused' | 'retry-refused' | 'missing-input' | 'changed-input' | 'partial-tool' | 'unsupported' | 'ambiguous';
 class Native extends EventEmitter implements AgentRpc {
   calls: { method: string; params: any }[] = []; errors: unknown[] = []; records: any[] = [];
   base = ''; turns = 0; compactCount = 0; failureSeen = false; compactItemDone = false; closed = false;
+  inference?: AbortController;
   terminal = deferred(); compactStart = deferred(); compactEnd = deferred(); firstAck = deferred(); holdAck = false;
   // Unknown native state must stay protected; dropping it would conceal the bug.
   history: any[] = [message('developer', 'KEEP_DEVELOPER'), message('user', 'OLD_USER'),
@@ -63,6 +65,12 @@ class Native extends EventEmitter implements AgentRpc {
       this.compactCount++;
       if (this.scenario === 'unsupported') throw Object.assign(Error('Method not found'), { code: -32601 });
       if (this.scenario === 'ambiguous') throw Error('RPC transport lost');
+      const previous = this.records.at(-1);
+      if (previous?.status === 'inProgress') {
+        this.inference?.abort();
+        previous.status = 'interrupted';
+        this.event('turn/completed', { turn: previous });
+      }
       void this.compact().catch(error => this.errors.push(error)); return {};
     }
     if (method === 'turn/interrupt') {
@@ -74,6 +82,7 @@ class Native extends EventEmitter implements AgentRpc {
   }
   private async answer(turn: any) {
     this.event('turn/started', { turn });
+    const inference = this.inference = new AbortController();
     if (this.scenario === 'partial-tool' && this.turns === 1) {
       const item = { id: 'cmd', type: 'commandExecution', command: 'already-did-work' };
       turn.items.push(item); this.event('item/started', { turnId: turn.id, item });
@@ -81,18 +90,24 @@ class Native extends EventEmitter implements AgentRpc {
     try {
       const toolStep = this.scenario === 'mid-turn-zstd' && this.turns === 1;
       if (toolStep) {
-        await post(this.base + '/responses', { model: 'fixture', input: this.history });
-        const item = { id: 'cmd', type: 'commandExecution', command: 'once', status: 'completed' };
-        turn.items.push(item); this.event('item/completed', { turnId: turn.id, item });
-        this.history.push({ type: 'function_call_output', call_id: 'cmd', output: 'Z'.repeat(810_000) });
+        const under = { model: 'fixture', input: this.history, instructions: '' };
+        under.instructions = 'A'.repeat(799_999 - Buffer.byteLength(JSON.stringify(under)));
+        await post(this.base + '/responses', under);
+        const item = { id: 'cmd', type: 'commandExecution', command: 'once', status: 'inProgress' };
+        turn.items.push(item); this.event('item/started', { turnId: turn.id, item });
+        this.history.push({ type: 'function_call', call_id: 'cmd', name: 'exec_command', arguments: '{"cmd":"once"}' },
+          { type: 'function_call_output', call_id: 'cmd', output: 'done' });
       }
-      await post(this.base + '/responses', { model: 'fixture', instructions: 'KEEP_SYSTEM',
-        tools: [{ type: 'function', name: 'inspect', description: 'tool'.repeat(10_000), parameters: {} }], input: this.history }, toolStep);
+      const payload = { model: 'fixture', instructions: 'KEEP_SYSTEM',
+        tools: [{ type: 'function', name: 'inspect', description: 'tool'.repeat(10_000), parameters: {} }], input: this.history };
+      if (toolStep) this.history.at(-1).output += 'Z'.repeat(802_134 - Buffer.byteLength(JSON.stringify(payload)));
+      await post(this.base + '/responses', payload, toolStep, inference.signal);
       if (this.closed || turn.status === 'interrupted') return;
       const item = { id: 'answer-' + turn.id, type: 'agentMessage', phase: 'final_answer', text: 'final answer' };
       turn.items.push(item); this.history.push(message('assistant', item.text));
       this.event('item/completed', { turnId: turn.id, item }); turn.status = 'completed';
     } catch (error: any) {
+      if (this.closed || turn.status === 'interrupted') return;
       turn.error = { message: error.message }; this.failureSeen = true;
       this.event('error', { turnId: turn.id, error: turn.error, willRetry: false });
       await this.terminal.promise;
@@ -113,6 +128,8 @@ class Native extends EventEmitter implements AgentRpc {
         instructions: this.scenario === 'compact-refused' ? 'KEEP_COMPACT_' + 'i'.repeat(40_000) : 'KEEP_COMPACT', input: this.history });
       if (this.closed || turn.status === 'interrupted') return;
       if (this.scenario !== 'retry-refused') this.history = response.output;
+      if (this.scenario === 'shrinking' && this.compactCount === 1)
+        this.history.push({ type: 'reasoning', encrypted_content: 'p'.repeat(540_000) });
       turn.items.push(item); this.event('item/completed', { turnId: turn.id, item }); this.compactItemDone = true;
       await this.compactEnd.promise;
       if (this.closed || turn.status === 'interrupted') return;
@@ -150,19 +167,21 @@ async function fixture(scenario: Scenario, run: (value: {
 }
 
 test('zstd tool output crosses the raw threshold inside a single turn; resume never replays the tool or user input', () => fixture('mid-turn-zstd', async ({ rpc, runtime, session, uploads, latest, done }) => {
-  await runtime.prompt(latest); await until(() => rpc.failureSeen);
-  assert.equal(uploads.length, 1); assert(uploads[0].bytes < 800_000); assert.equal(rpc.compactCount, 0);
-  rpc.terminal.resolve(); rpc.compactStart.resolve(); rpc.compactEnd.resolve(); await until(() => done() === 1);
+  await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
+  assert.equal(uploads.length, 1); assert.equal(uploads[0].bytes, 799_999);
+  assert.equal(session.contextCompacting, true); assert.equal(session.error, undefined);
+  assert.equal(rpc.records[0].status, 'interrupted'); assert.equal(rpc.failureSeen, false);
+  rpc.compactStart.resolve(); rpc.compactEnd.resolve(); await until(() => done() === 1);
   assert.equal(session.status, 'idle', session.error || 'paused turn should resume'); assert.equal(rpc.compactCount, 1);
   assert.equal(session.messages.filter(m => m.role === 'user').length, 1);
   assert.deepEqual(rpc.calls.filter(c => c.method === 'turn/start').at(-1)?.params.input, []);
   assert.equal(rpc.records.flatMap(t => t.items).filter(i => i.id === 'cmd').length, 1);
+  assert.equal(session.contextCompacting, undefined); assert.equal(session.messages.some(m => m.role === 'system'), false);
 }));
 
 test('a near-budget request is paused before upload and compacted while the FIFO waits', () => fixture('near-budget', async ({ rpc, runtime, session, queue, uploads, latest, done }) => {
-  await runtime.prompt(latest); await until(() => rpc.failureSeen);
-  assert.equal(rpc.compactCount, 0); assert.equal(uploads.length, 0);
-  rpc.terminal.resolve(); await until(() => rpc.compactCount === 1);
+  await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
+  assert.equal(uploads.length, 0);
   await queue.enqueue(session.id, { text: 'NEXT', sourceIds: [], answers: {} }); await queue.pump(session.id);
   assert.equal(rpc.turns, 1); assert.equal(done(), 0);
   rpc.compactStart.resolve(); await until(() => rpc.compactItemDone); await queue.pump(session.id); assert.equal(rpc.turns, 1);
@@ -170,10 +189,19 @@ test('a near-budget request is paused before upload and compacted while the FIFO
   assert.equal(rpc.turns, 3); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
 }));
 
-test('first local refusal waits for terminal failure, compacts, and resumes the retained input exactly once before the queued turn', () => fixture('recover', async ({ rpc, runtime, session, queue, uploads, latest, done, events }) => {
+test('a smaller continuation still over 80% compacts again on the same thread before uploading', () => fixture('shrinking', async ({ rpc, runtime, session, latest, uploads, done }) => {
+  rpc.compactStart.resolve(); rpc.compactEnd.resolve();
+  await runtime.prompt(latest); await until(() => done() === 1);
+  assert.equal(session.status, 'idle', session.error || 'expected automatic continuation');
+  assert.equal(rpc.compactCount, 2); assert.equal(rpc.turns, 3);
+  assert.equal(uploads.filter(upload => !upload.url.endsWith('/compact')).length, 1);
+  assert.equal(session.messages.filter(m => m.role === 'user').length, 1);
+}));
+
+test('native compact supersedes the held upload even before turn/start acknowledgement; queued turn stays last', () => fixture('recover', async ({ rpc, runtime, session, queue, uploads, latest, done, events }) => {
   rpc.holdAck = true;
-  const sending = runtime.prompt(latest); await until(() => rpc.failureSeen);
-  assert.equal(rpc.compactCount, 0); assert.equal(uploads.length, 0); assert.equal(done(), 0);
+  const sending = runtime.prompt(latest); await until(() => rpc.compactCount === 1);
+  assert.equal(rpc.failureSeen, false); assert.equal(uploads.length, 0); assert.equal(done(), 0);
   await queue.enqueue(session.id, { text: 'NEXT', sourceIds: [], answers: {} }); await queue.pump(session.id); assert.equal(rpc.turns, 1);
   rpc.terminal.resolve(); await until(() => rpc.compactCount === 1);
   await assert.rejects(runtime.prompt('DO_NOT_INTERLEAVE'), /仍在运行/);
@@ -199,8 +227,8 @@ test('first local refusal waits for terminal failure, compacts, and resumes the 
 
 for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'changed-input', 'partial-tool', 'unsupported', 'ambiguous'] as const)
   test(`local refusal recovery remains bounded and preserves the pending FIFO: ${scenario}`, () => fixture(scenario, async ({ rpc, runtime, session, queue, uploads, latest, done }) => {
-    await runtime.prompt(latest); await until(() => rpc.failureSeen);
     await queue.enqueue(session.id, { text: 'NEXT_MUST_WAIT', sourceIds: [], answers: {} });
+    await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
     rpc.terminal.resolve(); rpc.compactStart.resolve(); rpc.compactEnd.resolve();
     await until(() => session.status === 'error'); await queue.pump(session.id);
     assert.equal(rpc.turns, scenario === 'retry-refused' ? 2 : 1); assert(rpc.compactCount <= 1); assert.equal(done(), 1);
@@ -208,23 +236,26 @@ for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'ch
     assert.equal(session.inputQueue?.items.length, 1); assert.equal(session.inputQueue?.paused, true);
     assert.match(session.error!, /输入已保留/);
     if (scenario === 'compact-refused') { assert.match(session.error!, /原生 compact 请求.*未上传/); assert.equal(uploads.length, 0); }
-    if (scenario === 'retry-refused') assert.match(session.error!, /重试仍被大小保护拒发/);
-    if (scenario === 'missing-input') assert.equal(rpc.compactCount, 0);
-    if (scenario === 'partial-tool') { assert.equal(rpc.compactCount, 1); assert.match(session.error!, /上一轮有命令尚未确认结束.*没有自动重试/); }
+    if (scenario === 'retry-refused') assert.match(session.error!, /compact 后的请求仍达到 80%/);
+    if (scenario === 'missing-input') assert.match(session.error!, /无法核对保留输入/);
+    if (scenario === 'partial-tool') assert.match(session.error!, /already-did-work/);
     if (scenario === 'changed-input') assert.match(session.error!, /无法核对保留输入/);
     if (scenario === 'ambiguous') await assert.rejects(runtime.prompt('NO_RETRY'), /尚未确认/);
   }));
 
 for (const stop of ['cancel', 'close'] as const) test(`${stop} during recovery never resumes the input`, () => fixture('recover', async ({ rpc, runtime, session, latest }) => {
-  await runtime.prompt(latest); await until(() => rpc.failureSeen); rpc.terminal.resolve(); await until(() => rpc.compactCount === 1);
+  await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
   await runtime[stop](); rpc.compactStart.resolve(); rpc.compactEnd.resolve(); await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(rpc.turns, 1); assert.notEqual(session.status, 'running');
 }));
 
-test('a refusal without a terminal event never starts compact or allows another turn', () => fixture('recover', async ({ rpc, runtime, session, latest }) => {
+test('a hard size refusal without a terminal event never starts compact or allows another turn', t => {
+  t.mock.method(CodexRequestGuard.prototype, 'beforeUpload', () => () => {});
+  return fixture('recover', async ({ rpc, runtime, session, latest }) => {
   await runtime.prompt(latest); await until(() => rpc.failureSeen);
   await until(() => session.status === 'error');
   assert.equal(rpc.compactCount, 0); assert.match(session.error!, /尚未确认本轮结束.*原生 compact 未启动/);
   await assert.rejects(runtime.prompt('DO_NOT_DUPLICATE'), /上一轮已结束/);
   assert.equal(rpc.turns, 1);
-}));
+  });
+});

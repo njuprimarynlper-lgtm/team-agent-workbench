@@ -32,4 +32,6 @@ export interface CodexSubmission {
   progressed: boolean; rerouted: boolean; recovering: boolean; cancelled?: boolean;
   pendingError?: unknown; errorTimer?: ReturnType<typeof setTimeout>;
   guardRecoveries?: number;
+  lastSteerText?: string;
+  pressureAttempt?: { bytes: number; count: number };
 }

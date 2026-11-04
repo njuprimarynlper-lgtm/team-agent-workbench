@@ -169,7 +169,7 @@ node scripts/test-background.mjs tests/cursor-request-guard.test.ts tests/cursor
 
 摘要缓存仅在内存中存在，按账号、会话、模型、指令、工具、上游与精确前缀核对；最多 128 项、32 MiB，闲置 1 小时失效，原请求回到预算内时清除。程序结束不保存摘要映射。用户原始会话仍由原有存储管理。
 
-工作会话中，每次普通 Codex 模型请求上传前，保护器按解开 zstd 等传输编码后的正文计量。达到 **800,000 字节**时，保护器在本地暂停该请求。工作台确认原生轮次结束后调用 `thread/compact/start`，并等待同一压缩轮次的 `contextCompaction` 和 `turn/completed`。核对已保存的输入和工具状态后，以空输入接续当前任务，排队消息在任务结束后发送。遇到未确认的工具操作时保留现场，提示用户检查后继续。维护请求本身也受上传限制，并排除自身的阈值触发。
+工作会话中，每次 Codex 向模型发请求前，包括收到工具结果后继续推理时，保护器按解开 zstd 等传输编码后的正文计量。达到 **800,000 字节**即在本地挂起请求，立即调用同一线程的 `thread/compact/start`。Codex 自行中断待发请求，界面显示“正在压缩上下文”。工作台等待压缩项和压缩轮次都完成，核对原生历史、工具调用 ID 对应的结果和已保存的输入，再以空输入续写。排队消息在原任务结束后依次发送。压缩后的首次请求也接受同一检查；若仍超线且连续压缩未再缩小、或连续三次仍然超线，保留输入并说明原因。无法确认执行结果时，指出具体工具。压缩请求也受 1 MB 上传限制，但不会触发嵌套压缩。
 
 分层历史处理后仍超限而在本地拒发时，HTTP 保护层只标记拒发，不在请求回调里启动 compact。工作台等待原轮次的失败完成事件，再读取原生历史核对空闲状态、失败轮次和已保留的完整用户文本；仅有错误通知而没有完成事件时，不启动恢复，也不放行新轮次。确认本轮尚未输出、执行工具、切换模型或接受引导后，最多尝试一次原生 compact。完整完成后再核对历史和状态，以空 `input` 续跑原生历史中已接受的输入，不追加第二条用户消息，不改变本轮模型、权限和指令，也不让后续排队消息抢先发送。无法核对、已执行工具、停止/关闭或重试仍超限时，保留输入并明确提示，不循环重放。
 
@@ -200,6 +200,7 @@ npx tsx scripts/codex-request-guard-smoke.ts
 npx tsx scripts/codex-request-guard-smoke.ts --builtin
 npx tsx scripts/codex-guard-recovery-smoke.ts
 npx tsx scripts/codex-guard-recovery-smoke.ts --refused
+npx tsx scripts/codex-guard-recovery-smoke.ts --tool
 npx tsx scripts/codex-writer-reopen-smoke.ts
 ```
 
