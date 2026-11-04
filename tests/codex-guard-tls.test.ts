@@ -32,7 +32,7 @@ before(async () => {
 });
 after(async () => { assert(root.startsWith(path.join(os.tmpdir(), 'guard-tls-test-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); });
 
-async function fixture(run: (v: { target: URL; proxy: string; env: NodeJS.ProcessEnv; counts: { connects: number; requests: number }; upstreamPort: number }) => Promise<void>, options: { secureProxy?: boolean; certificate?: () => string; reject?: number; stall?: boolean; respond?: http.RequestListener } = {}) {
+async function fixture(run: (v: { target: URL; proxy: string; env: NodeJS.ProcessEnv; counts: { connects: number; requests: number }; upstreamPort: number }) => Promise<void>, options: { secureProxy?: boolean; certificate?: () => string; reject?: number | ((attempt: number) => number | undefined); stall?: boolean; respond?: http.RequestListener } = {}) {
   const sockets = new Set<net.Socket>(), counts = { connects: 0, requests: 0 };
   const server = https.createServer({ key, cert: options.certificate?.() || cert }, (req, res) => { counts.requests++; req.resume(); if (options.respond) options.respond(req, res); else res.end('GUARD_TLS_OK'); });
   const proxy = options.secureProxy ? https.createServer({ key, cert }) : http.createServer();
@@ -42,7 +42,8 @@ async function fixture(run: (v: { target: URL; proxy: string; env: NodeJS.Proces
   proxy.on('connect', (_req, socket, head) => {
     counts.connects++;
     if (options.stall) return;
-    if (options.reject) { socket.end(`HTTP/1.1 ${options.reject} Rejected\r\n\r\n`); return; }
+    const rejection = typeof options.reject === 'function' ? options.reject(counts.connects) : options.reject;
+    if (rejection) { socket.end(`HTTP/1.1 ${rejection} Rejected\r\n\r\n`); return; }
     const connection = net.connect(upstreamPort, '127.0.0.1', () => { socket.write('HTTP/1.1 200 Connection Established\r\n\r\n'); if (head.length) connection.write(head); socket.pipe(connection).pipe(socket); });
     sockets.add(connection); connection.on('error', () => socket.destroy()); connection.once('close', () => { sockets.delete(connection); socket.destroy(); }); socket.once('close', () => connection.destroy());
   });
@@ -121,6 +122,28 @@ for (const status of [403, 407]) test(`proxy ${status} is preserved without leak
     assert.equal(error.problem.code, `PROXY_${status}`); assert.equal(error.problem.stage, 'proxy_connect'); assert(!error.message.includes('private-')); return true;
   });
   assert.equal(counts.connects, 1); assert.equal(counts.requests, 0);
+}, { reject: status }));
+
+test('guard retries rejected HTTPS tunnels and uploads the model request only once after recovery', () => fixture(async ({ target, env, counts }) => {
+  const guard = new CodexRequestGuard({ upstream: target.origin + '/v1', compression: false, env, certificateFile: () => path.join(root, 'ca.pem'), proxyRetryDelayMs: 1 });
+  const retries: number[] = [];
+  guard.observeNetworkRetries(retry => { assert.equal(retry.problem.code, 'PROXY_REJECTED'); retries.push(retry.attempt); });
+  try {
+    const response = await fetch((await guard.start()) + '/responses', { method: 'POST', headers: { 'thread-id': 'test-thread' }, body: '{}' });
+    assert.equal(response.status, 200); assert.equal(await response.text(), 'GUARD_TLS_OK');
+    assert.deepEqual(retries, [1, 2]); assert.equal(counts.connects, 3); assert.equal(counts.requests, 1); assert.equal(guard.stats.forwarded, 1);
+  } finally { await guard.close(); }
+}, { reject: attempt => attempt < 3 ? 502 : undefined }));
+
+for (const status of [502, 403]) test(`guard reports exhausted proxy ${status} retries without uploading or switching route`, () => fixture(async ({ target, env, counts }) => {
+  const guard = new CodexRequestGuard({ upstream: target.origin + '/v1', compression: false, env, proxyRetryDelayMs: 1 });
+  try {
+    const response = await fetch((await guard.start()) + '/responses', { method: 'POST', body: '{}' });
+    const message = await response.text();
+    assert.equal(response.status, 400); assert.match(message, /代理隧道已自动重试 10 次/);
+    assert.equal(parseGuardNetworkProblem(message)?.code, status === 403 ? 'PROXY_403' : 'PROXY_REJECTED');
+    assert.equal(counts.connects, 11); assert.equal(counts.requests, 0);
+  } finally { await guard.close(); }
 }, { reject: status }));
 
 test('proxy timeout and cancellation release the connection without fallback', () => fixture(async ({ target, env, counts }) => {

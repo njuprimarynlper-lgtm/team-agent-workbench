@@ -14,7 +14,8 @@ export function guardNetworkMessage(problem: GuardNetworkProblem) {
   if (problem.code === 'ERR_TLS_CERT_ALTNAME_INVALID') return '连接使用的证书与目标地址不匹配，请联系网络管理员。';
   if (guardCertificateProblem(problem)) return problem.viaProxy ? '无法验证代理连接提供的证书，请检查企业证书设置。' : '无法验证模型服务的证书，请检查企业证书设置。';
   if (problem.code === 'PROXY_407') return '代理要求身份验证，请检查本机代理的账号配置。';
-  if (problem.code === 'PROXY_403' || problem.code === 'PROXY_REJECTED') return '代理拒绝访问模型服务，请联系网络管理员确认访问权限。';
+  if (problem.code === 'PROXY_403') return '代理拒绝访问模型服务，请联系网络管理员确认访问权限。';
+  if (problem.code === 'PROXY_REJECTED') return '代理暂时无法建立模型服务连接，请检查代理状态。';
   if (problem.code === 'ETIMEDOUT') return problem.stage === 'proxy_connect' ? '连接代理超时，请检查本机代理是否可用。' : '连接模型服务超时，请检查当前网络出口。';
   if (problem.code === 'ABORT_ERR') return '连接检测或请求已取消。';
   if (problem.code === 'ENOTFOUND' || problem.code === 'EAI_AGAIN') return '无法解析连接地址，请检查网络或代理地址。';

@@ -7,20 +7,24 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentRpc } from './rpc';
 import { guardHeaders, guardRequest, guardNetworkEnvironment, guardProbe } from './codex-guard-transport';
 import { GuardNetworkError } from './codex-guard-trust';
+import type { GuardNetworkProblem } from '../shared/guard-network';
 import { guardHash, guardHistory, redactedMediaSummaryItem, replaceGuardHistory, summaryRequest, type ResponseBody } from './codex-guard-history';
 
 /** Exclusive limit for every outgoing HTTP body, including summary requests. */
 export const codexRequestBudget = 1_000_000;
 const memoryLimit = 32 * 1024 * 1024, readLimit = 64 * 1024 * 1024, ttl = 3600000;
 const summaryRawTarget = 200_000, summaryTimeout = 240_000, maxSummaries = 16;
+const proxyConnectRetries = 10, proxyConnectRetryDelayMs = 10_000;
+const retryableProxyConnectCodes = new Set(['PROXY_403', 'PROXY_REJECTED', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH']);
 const compress = promisify(zlib.zstdCompress);
 type Encoded = { bytes: Buffer; encoding?: string };
 type CacheEntry = { scope: string; key: string; prefixHash: string; end: number; summary: string; bytes: number; used: number };
 class RetryableSummaryError extends Error {}
 class GuardSizeError extends Error {}
-export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; }
+export interface GuardOptions { upstream: string; compression: boolean; env?: NodeJS.ProcessEnv; budget?: number; certificateFile?: () => string; proxyRetryDelayMs?: number; }
 export interface GuardStats { forwarded: number; summaries: number; summaryInputTokens: number; summaryOutputTokens: number; cacheHits: number; rejected: number; maxUploadBytes: number; }
 export interface GuardRequestSize { threadId: string; inputBytes: number; budget: number; rejected?: string; }
+export interface GuardNetworkRetry { threadId: string; attempt: number; retryLimit: number; problem: GuardNetworkProblem; }
 export type GuardUploadCheck = (request: GuardRequestSize, decodedBody: Buffer) => Promise<void> | undefined;
 
 async function readBody(source: AsyncIterable<Uint8Array>, limit: number) {
@@ -99,6 +103,7 @@ export class CodexRequestGuard {
   private cache: CacheEntry[] = [];
   private queues = new Map<string, Promise<unknown>>();
   private requestObservers = new Set<(request: GuardRequestSize) => void>();
+  private retryObservers = new Set<(retry: GuardNetworkRetry) => void>();
   private uploadChecks = new Set<GuardUploadCheck>();
   private readonly secret = randomBytes(24).toString('hex');
   private closed = false;
@@ -127,12 +132,16 @@ export class CodexRequestGuard {
     if (this.closeJob) return this.closeJob;
     this.closed = true; for (const controller of this.controllers) controller.abort();
     for (const socket of this.sockets) socket.destroy();
-    this.cache = []; this.requestObservers.clear(); this.uploadChecks.clear();
+    this.cache = []; this.requestObservers.clear(); this.retryObservers.clear(); this.uploadChecks.clear();
     return this.closeJob = new Promise<void>(resolve => this.server.close(() => resolve()));
   }
   observeRequests(listener: (request: GuardRequestSize) => void) {
     this.requestObservers.add(listener);
     return () => { this.requestObservers.delete(listener); };
+  }
+  observeNetworkRetries(listener: (retry: GuardNetworkRetry) => void) {
+    this.retryObservers.add(listener);
+    return () => { this.retryObservers.delete(listener); };
   }
   beforeUpload(check: GuardUploadCheck) {
     this.uploadChecks.add(check);
@@ -162,13 +171,29 @@ export class CodexRequestGuard {
     const params = new URLSearchParams(query); for (const [key, value] of params) target.searchParams.set(key, value);
     return target;
   }
-  private async send(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal, method = 'POST', responseTimeout = 120000) {
+  private async send(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal, method = 'POST', responseTimeout = 120000, threadId?: string) {
     if (encoded.bytes.length >= this.budget) throw new Error('请求大小保护阻止了超限上传');
     if (signal.aborted || this.closed) throw new Error('请求已取消');
     this.stats.maxUploadBytes = Math.max(this.stats.maxUploadBytes, encoded.bytes.length);
     const next = { ...headers }; delete next['content-encoding'];
     if (encoded.encoding) next['content-encoding'] = encoded.encoding;
-    return guardRequest(target, next, encoded.bytes, this.env, signal, method, this.options.certificateFile?.(), 15000, responseTimeout);
+    for (let attempt = 0; ; attempt++) {
+      try { return await guardRequest(target, next, encoded.bytes, this.env, signal, method, this.options.certificateFile?.(), 15000, responseTimeout); }
+      catch (error) {
+        // A failed HTTPS CONNECT happens before the model request is uploaded,
+        // so retrying the same bytes cannot repeat model output or tool work.
+        const networkError = error instanceof GuardNetworkError ? error : undefined;
+        const problem = networkError?.problem;
+        if (!networkError || target.protocol !== 'https:' || !problem?.viaProxy || problem.stage !== 'proxy_connect'
+          || !retryableProxyConnectCodes.has(problem.code) || signal.aborted || this.closed) throw error;
+        if (attempt >= proxyConnectRetries) {
+          networkError.message += `（代理隧道已自动重试 ${proxyConnectRetries} 次）`;
+          throw networkError;
+        }
+        if (threadId) for (const observe of this.retryObservers) observe({ threadId, attempt: attempt + 1, retryLimit: proxyConnectRetries, problem });
+        await delay(this.options.proxyRetryDelayMs ?? proxyConnectRetryDelayMs, undefined, { signal });
+      }
+    }
   }
   private async summarize(target: URL, headers: http.OutgoingHttpHeaders, encoded: Encoded, signal: AbortSignal) {
     for (let attempt = 0; ; attempt++) {
@@ -394,7 +419,7 @@ export class CodexRequestGuard {
           throw error;
         }
         if (!prepared) throw new Error('此类请求无法缩至 1 MB 以下且不能安全摘要，原请求未上传');
-        const upstream = await this.send(target, headers, prepared, controller.signal, req.method);
+        const upstream = await this.send(target, headers, prepared, controller.signal, req.method, 120000, typeof session === 'string' ? session : undefined);
         this.stats.forwarded++;
         if (measured && upstream.statusCode === 200)
           for (const observe of this.requestObservers) observe(measured);

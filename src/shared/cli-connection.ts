@@ -16,8 +16,7 @@ export type CliConnectionReport = z.infer<typeof cliReportSchema> & { username: 
 
 export function cliConnectionLabel(value: Pick<CliConnection, 'state' | 'kind' | 'httpStatus' | 'attempt' | 'retryLimit'>) {
   const reason = value.httpStatus ? `HTTP ${value.httpStatus}` : value.kind === 'authentication' ? '登录失效' : value.kind === 'network' ? '网络异常' : value.kind === 'rate_limit' ? '请求受限' : value.kind === 'service' ? '服务异常' : '';
-  const attempt = value.attempt ? `（${value.attempt}${value.retryLimit ? '/' + value.retryLimit : ''}）` : '';
-  if (value.state === 'reconnecting') return `CLI 正在重连${attempt}${reason ? ' · ' + reason : ''}`;
+  if (value.state === 'reconnecting') return `CLI 正在重连${reason ? ' · ' + reason : ''}`;
   if (value.state === 'failed') return reason ? `${reason} · CLI 请求失败` : 'CLI 请求失败';
   return value.state === 'connecting' ? '等待 CLI 服务响应' : value.state === 'stopped' ? '已停止' : 'CLI 服务已响应';
 }

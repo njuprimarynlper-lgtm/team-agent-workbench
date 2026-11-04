@@ -80,6 +80,7 @@ export class AgentRuntime {
   private closeJob?: Promise<void>;
   private writerCloseJob?: Promise<void>;
   private requestGuard?: CodexRequestGuard;
+  private detachGuardRetries?: () => void;
   private autoCompaction?: CodexAutoCompaction;
   private cursorCompactionUncertain = false;
   private cursorGuardExpected = false;
@@ -126,7 +127,12 @@ export class AgentRuntime {
     this.rpc.on('closed', (e: Error) => { this.initialized = false; this.codexConnected = false; this.capabilityCache.invalidate(); this.fileChanges.clear(); if (!this.codexWriterOwner) void this.authBridge?.close(); if (!this.closing) { void this.forkOwner?.releaseForkBorrower(this); if (session.cursorNative || storage?.sharedEndpoint || session.codexRemote) { session.desktopSyncState = 'disconnected'; session.desktopSyncError = e.message; } this.finish(e.message); } });
   }
   private monitorGuard(guard?: CodexRequestGuard) {
+    this.detachGuardRetries?.(); this.detachGuardRetries = undefined;
     if (guard && this.session.purpose === 'work') {
+      this.detachGuardRetries = guard.observeNetworkRetries(retry => {
+        if (this.closing || retry.threadId !== this.session.nativeId) return;
+        this.connection.set({ state: 'reconnecting', kind: 'network' });
+      });
       this.autoCompaction?.close();
       this.autoCompaction = new CodexAutoCompaction(guard, this.rpc, () => this.session.nativeId, undefined,
         (request, body) => this.checkCodexUpload(request, body));
@@ -1235,6 +1241,7 @@ export class AgentRuntime {
     this.discardEmptyCursorSession();
     const compactTurnId = this.autoCompaction?.activeTurnId;
     this.autoCompaction?.close();
+    this.detachGuardRetries?.(); this.detachGuardRetries = undefined;
     await Promise.all([...this.sideConnections.values()].map(connection => connection.close()));
     const turnId = compactTurnId || (this.turnActive ? this.turnId : undefined);
     this.turnActive = false; clearTimeout(this.sharedRefresh); this.sharedRefresh = undefined;
