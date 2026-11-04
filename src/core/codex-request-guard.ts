@@ -98,6 +98,7 @@ export class CodexRequestGuard {
   private cache: CacheEntry[] = [];
   private queues = new Map<string, Promise<unknown>>();
   private requestObservers = new Set<(request: GuardRequestSize) => void>();
+  private uploadChecks = new Set<(request: GuardRequestSize) => boolean>();
   private readonly secret = randomBytes(24).toString('hex');
   private closed = false;
   private closeJob?: Promise<void>;
@@ -125,12 +126,16 @@ export class CodexRequestGuard {
     if (this.closeJob) return this.closeJob;
     this.closed = true; for (const controller of this.controllers) controller.abort();
     for (const socket of this.sockets) socket.destroy();
-    this.cache = []; this.requestObservers.clear();
+    this.cache = []; this.requestObservers.clear(); this.uploadChecks.clear();
     return this.closeJob = new Promise<void>(resolve => this.server.close(() => resolve()));
   }
   observeRequests(listener: (request: GuardRequestSize) => void) {
     this.requestObservers.add(listener);
     return () => { this.requestObservers.delete(listener); };
+  }
+  beforeUpload(check: (request: GuardRequestSize) => boolean) {
+    this.uploadChecks.add(check);
+    return () => { this.uploadChecks.delete(check); };
   }
   async probe() {
     if (this.closed) throw new Error('连接检测已关闭');
@@ -352,6 +357,13 @@ export class CodexRequestGuard {
       const scope = guardHash([req.headers.authorization, req.headers['chatgpt-account-id'], session || 'unknown']);
       await this.serial(scope, async () => {
         const encoding = String(req.headers['content-encoding'] || '') || undefined;
+        const measured = !compact && suffix === '/responses' && typeof session === 'string'
+          ? { threadId: session, inputBytes: (await decoded(body, encoding)).length, budget: this.budget } : undefined;
+        if (measured && [...this.uploadChecks].some(check => check(measured))) {
+          // End only this inference step. The runtime waits for the terminal
+          // native event before starting compact on the same writer.
+          throw new Error('请求压缩前已达到大小阈值，已暂停上传以执行原生 compact');
+        }
         // Compact is initiated by the native thread so its result is persisted by
         // Codex. Its input needs the same size protection; helper summaries still
         // go to /responses, never to the stateless /responses/compact endpoint.
@@ -364,16 +376,15 @@ export class CodexRequestGuard {
           // authentication and network failures must not masquerade as one.
           if (error instanceof GuardSizeError && !controller.signal.aborted) {
             if (compact) throw new GuardSizeError(`原生 compact 请求经分层历史处理后仍超限，未上传；${error.message.replace(/原生 compact 尚未执行.*$/, '')}`);
-            if (suffix === '/responses' && typeof session === 'string')
-              for (const observe of this.requestObservers) observe({ threadId: session, inputBytes: body.length, budget: this.budget, rejected: error.message });
+            if (measured) for (const observe of this.requestObservers) observe({ ...measured, rejected: error.message });
           }
           throw error;
         }
         if (!prepared) throw new Error('此类请求无法缩至 1 MB 以下且不能安全摘要，原请求未上传');
         const upstream = await this.send(target, headers, prepared, controller.signal, req.method);
         this.stats.forwarded++;
-        if (!compact && suffix === '/responses' && typeof session === 'string' && upstream.statusCode === 200)
-          for (const observe of this.requestObservers) observe({ threadId: session, inputBytes: body.length, budget: this.budget });
+        if (measured && upstream.statusCode === 200)
+          for (const observe of this.requestObservers) observe(measured);
         const outgoing = guardHeaders(upstream.headers);
         if (upstream.headers['content-length']) outgoing['content-length'] = upstream.headers['content-length'];
         res.writeHead(upstream.statusCode || 502, outgoing);

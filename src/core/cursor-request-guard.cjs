@@ -73,17 +73,17 @@ function installHttpGuard() {
 
 // A fresh snapshot of the model-visible prompt only. Archived history and UI
 // turns are deliberately excluded, otherwise every turn would recompact forever.
-async function promptBytes(ctx, state, blobs) {
+async function promptBytes(ctx, state, blobs, sizes = new Map()) {
   let bytes = 0;
-  const seen = new Set();
   for (const id of state.rootPromptMessagesJson || []) {
     if (ctx.canceled) throw Error('Cursor 上下文检查已取消');
     const key = Buffer.from(id).toString('hex');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const blob = await blobs.getBlob(ctx, id);
-    if (!(blob instanceof Uint8Array)) throw Error('Cursor 上下文记录不完整，未执行自动压缩');
-    bytes += blob.byteLength;
+    if (!sizes.has(key)) {
+      const blob = await blobs.getBlob(ctx, id);
+      if (!(blob instanceof Uint8Array)) throw Error('Cursor 上下文记录不完整，未执行自动压缩');
+      sizes.set(key, blob.byteLength);
+    }
+    bytes += sizes.get(key);
   }
   return bytes;
 }
@@ -99,8 +99,8 @@ class CursorCompaction {
     this.armed = true; this.attemptedBytes = 0; this.retryAfter = 0; this.failures = 0; this.busy = false; this.uncertain = false;
   }
   eligible(bytes) {
-    if (bytes < BUDGET * .8) this.armed = true;
-    return bytes >= BUDGET && this.now() >= this.retryAfter && (this.armed || bytes >= this.attemptedBytes * 1.2);
+    if (bytes < BUDGET * .6) this.armed = true;
+    return bytes >= BUDGET * .8 && this.now() >= this.retryAfter && (this.armed || bytes >= this.attemptedBytes * 1.2);
   }
   async compact(args, bytes, phase) {
     const [ctx, state, , , , , blobs, , checkpoint, , options] = args;
@@ -135,6 +135,7 @@ class CursorCompaction {
       await blobs.flush?.(compactCtx);
       this.failures = 0; this.retryAfter = 0;
       this.notify({ status: 'completed', phase });
+      return true;
     } catch (error) {
       this.armed = true;
       this.retryAfter = this.now() + Math.min(30 * 60_000, 60_000 * 2 ** Math.min(this.failures++, 5));
@@ -142,6 +143,76 @@ class CursorCompaction {
       if (timedOut || ctx.canceled) throw error;
       // Native gzip + the wire guard remain in force even when compaction fails.
     } finally { clearTimeout(timer); cancel(); }
+  }
+  async monitoredRun(args) {
+    const [ctx, initial, , , , , blobs, , checkpoint] = args;
+    const [runCtx, stop] = ctx.withCancel();
+    const initialIds = new Set((initial.rootPromptMessagesJson || []).map(id => Buffer.from(id).toString('hex')));
+    const sizes = new Map();
+    let finished = false, pausedRef, timer, lastSummary = summaryStamp(initial);
+    let stopTimer, rejectStop;
+    const stopTimeout = new Promise((_, reject) => { rejectStop = reject; });
+    const pauseRef = async () => {
+      const state = checkpoint.getLatestCheckpoint();
+      if (!state || state.pendingToolCalls?.length || ctx.canceled) return;
+      const bytes = await promptBytes(runCtx, state, blobs, sizes);
+      if (finished || runCtx.canceled) return;
+      const stamp = summaryStamp(state);
+      if (stamp !== lastSummary) {
+        lastSummary = stamp; this.armed = false; this.attemptedBytes = bytes; return;
+      }
+      if (!this.eligible(bytes)) return;
+      // A submitted action can be resumed only once its user input is durable.
+      for (const id of state.rootPromptMessagesJson || []) {
+        const key = Buffer.from(id).toString('hex');
+        if (initialIds.has(key)) continue;
+        if (args[2].action.case !== 'resumeAction') {
+          const blob = await blobs.getBlob(runCtx, id);
+          if (JSON.parse(Buffer.from(blob).toString()).role !== 'user') continue;
+        }
+        const latest = checkpoint.getLatestCheckpoint();
+        if (!ctx.canceled && !latest.pendingToolCalls?.length && summaryStamp(latest) === stamp
+          && latest.rootPromptMessagesJson?.some(ref => Buffer.from(ref).equals(id))) return key;
+      }
+    };
+    const check = async () => {
+      try {
+        const key = await pauseRef();
+        if (!finished && key) {
+          pausedRef = key;
+          stopTimer = setTimeout(() => {
+            this.uncertain = true;
+            const message = 'Cursor 尚未确认当前运行已停止，请重新连接会话后继续';
+            this.notify({ status: 'uncertain', phase: 'during', message }); rejectStop(Error(message));
+          }, Math.min(10_000, this.timeoutMs));
+          stop();
+        }
+      } catch { /* A partially persisted checkpoint can be sampled again. */ }
+      finally {
+        if (!finished && !ctx.canceled && !pausedRef) timer = setTimeout(check, 200);
+      }
+    };
+    timer = setTimeout(check, 200);
+    let result;
+    try { result = await Promise.race([runGuarded(this.run, [runCtx, ...args.slice(1)]), stopTimeout]); }
+    catch (error) {
+      // A single large tool response can hit the wire guard between samples.
+      if (!pausedRef && error?.code === 'WB_CURSOR_REQUEST_TOO_LARGE' && !ctx.canceled)
+        pausedRef = await pauseRef().catch(() => undefined);
+      if (!pausedRef || ctx.canceled || this.uncertain) throw error;
+    }
+    finally { finished = true; clearTimeout(timer); clearTimeout(stopTimer); stop(); }
+    if (!pausedRef) return result;
+    if (ctx.canceled) throw Error('Cursor 会话已停止');
+    const saved = checkpoint.getLatestCheckpoint();
+    if (saved.pendingToolCalls?.length || !saved.rootPromptMessagesJson?.some(id => Buffer.from(id).toString('hex') === pausedRef))
+      throw Error('Cursor 已暂停，未能核对本轮输入或工具状态，请检查后继续');
+    const bytes = await promptBytes(ctx, saved, blobs, sizes);
+    if (!await this.compact([ctx, saved, ...args.slice(2)], bytes, 'during') || ctx.canceled)
+      throw Error('Cursor 本轮已暂停，未确认原生压缩成功，请核对后继续');
+    const resume = new this.types.ConversationAction({ action: { case: 'resumeAction', value: new this.types.ResumeAction() } });
+    // Resume the same checkpoint without replaying the original user action.
+    return this.monitoredRun([ctx, checkpoint.getLatestCheckpoint(), resume, ...args.slice(3)]);
   }
   async execute(...args) {
     if (this.busy || this.uncertain) throw Error('Cursor 正在压缩上下文，请等待或重新连接会话');
@@ -156,7 +227,7 @@ class CursorCompaction {
       state = checkpoint.getLatestCheckpoint();
       args[1] = state; // Never reuse the pre-compaction snapshot.
       const userStamp = summaryStamp(state);
-      const result = await runGuarded(this.run, args);
+      const result = await this.monitoredRun(args);
       if (ctx.canceled) return result;
       state = checkpoint.getLatestCheckpoint();
       const bytes = await promptBytes(ctx, state, blobs);
@@ -190,7 +261,8 @@ function patchSession(exports, webpack) {
   const proto = webpack('../proto/dist/generated/agent/v1/agent_pb.js');
   const controlled = webpack('../agent-core/dist/conversation-actions/controlled.js');
   if (!Session?.prototype?.processPrompt || proto.ConversationAction?.typeName !== 'agent.v1.ConversationAction'
-    || proto.SummarizeAction?.typeName !== 'agent.v1.SummarizeAction' || typeof controlled.h !== 'function')
+    || proto.SummarizeAction?.typeName !== 'agent.v1.SummarizeAction' || proto.ResumeAction?.typeName !== 'agent.v1.ResumeAction'
+    || typeof controlled.h !== 'function')
     throw Error('当前 Cursor CLI 的自动压缩接口不兼容，请使用工作台配套版本');
   const original = Session.prototype.processPrompt;
   Session.prototype.processPrompt = async function(...args) {

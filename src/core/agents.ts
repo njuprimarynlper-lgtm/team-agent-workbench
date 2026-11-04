@@ -121,7 +121,11 @@ export class AgentRuntime {
   private monitorGuard(guard?: CodexRequestGuard) {
     if (guard && this.session.purpose === 'work') {
       this.autoCompaction?.close();
-      this.autoCompaction = new CodexAutoCompaction(guard, this.rpc, () => this.session.nativeId);
+      this.autoCompaction = new CodexAutoCompaction(guard, this.rpc, () => this.session.nativeId, undefined, () => {
+        const submission = this.codexSubmission;
+        return !!submission && this.turnActive && !this.closing && !submission.recovering && !submission.cancelled
+          && !this.session.stoppedAt && !this.session.approvals.length && !this.steering;
+      });
     }
   }
   private discardEmptyCursorSession() {
@@ -685,6 +689,8 @@ export class AgentRuntime {
   private recoverCodexGuard(): boolean {
     const job = this.codexSubmission, rejection = this.autoCompaction?.localRejection;
     if (!job || !rejection || !this.turnActive || this.closing) return false;
+    const pressure = this.autoCompaction!.pausedForPressure;
+    const reason = pressure ? 'pre-compression-threshold' : 'local-rejection';
     if (job.recovering) return true;
     clearTimeout(job.errorTimer); job.pendingError = undefined;
     const failedTurn = this.turnId;
@@ -692,8 +698,8 @@ export class AgentRuntime {
     const refusal = rejection.replace(/原生 compact 尚未执行.*$/, '').trim();
     const fail = (detail: string) => this.finish(`${refusal}\n${detail}已有对话和本次输入已保留。`);
     if (job.cancelled || this.session.stoppedAt) { fail('已停止，原生 compact 未启动。'); return true; }
-    if (job.guardRecoveries) { fail('原生 compact 已执行一次，但重试仍被大小保护拒发；已停止自动重试，请减少附件或拆分本轮输入。'); return true; }
-    if (job.progressed || job.rerouted || this.steering || this.session.approvals.length) {
+    if (job.guardRecoveries && !pressure) { fail('原生 compact 已执行一次，但重试仍被大小保护拒发；已停止自动重试，请减少附件或拆分本轮输入。'); return true; }
+    if (!pressure && (job.progressed || job.rerouted || this.steering || this.session.approvals.length)) {
       fail('本轮已有输出、工具操作或状态变化，原生 compact 未启动，未自动重放；请核对后继续。'); return true;
     }
     job.recovering = true; ++job.revision; this.turnId = undefined;
@@ -709,20 +715,24 @@ export class AgentRuntime {
         if (!live()) return;
         const last = before?.turns?.at(-1);
         if (!failedTurn || !['idle', 'notLoaded', 'systemError'].includes(before?.status?.type) || last?.id !== failedTurn || last.status !== 'failed'
-          || !sameInput(before) || !Array.isArray(last.items) || last.items.some((item: any) => !['userMessage', 'reasoning'].includes(item.type))) {
+          || !sameInput(before) || !Array.isArray(last.items) || !pressure && last.items.some((item: any) => !['userMessage', 'reasoning'].includes(item.type))) {
           fail('无法确认原轮次和保留输入，原生 compact 未启动，未自动重试。'); return;
         }
         const compact = this.autoCompaction?.start(failedTurn, true);
         if (!compact) { fail('原生 compact 暂不可用或处于失败退避期，未自动重试。'); return; }
         job.guardRecoveries = 1; this.compacting = true;
-        this.message(randomUUID(), 'system', '分层历史处理后请求仍超限，原轮次已结束；正在尝试原生 compact，完成并核对后恢复本次输入（最多一次）。');
-        this.hooks.event({ method: 'workbench/autoCompact', reason: 'local-rejection', status: 'started' });
+        if (!pressure) this.message(randomUUID(), 'system', '分层历史处理后请求仍超限，原轮次已结束；正在尝试原生 compact，完成并核对后恢复本次输入（最多一次）。');
+        this.hooks.event({ method: 'workbench/autoCompact', reason, status: 'started' });
         const result = await compact;
         this.compacting = false;
         if (this.closing || this.codexSubmission !== job) return;
-        this.hooks.event({ method: 'workbench/autoCompact', reason: 'local-rejection', ...result });
+        this.hooks.event({ method: 'workbench/autoCompact', reason, ...result });
         if (!live()) { fail('恢复已停止，未重试输入。'); return; }
         if (result.status !== 'completed') { fail(`原生 compact ${result.status === 'uncertain' ? '尚未确认结束' : '失败'}，本次输入未重试。${result.message || ''}`); return; }
+        if (pressure && (job.rerouted || this.session.approvals.length || this.steering || last.items.some((item: any) =>
+          !['userMessage', 'reasoning', 'agentMessage'].includes(item.type) && item.status !== 'completed'))) {
+          fail('原生 compact 已完成，本轮有未确认的操作，请核对后继续。'); return;
+        }
         const after = (await read()).thread;
         if (!live()) return;
         if (!['idle', 'notLoaded'].includes(after?.status?.type) || !sameInput(after) || ![failedTurn, result.turnId].includes(after?.turns?.at(-1)?.id)) {
@@ -800,7 +810,8 @@ export class AgentRuntime {
     return true;
   }
   get activeTurnId(): string | undefined {
-    return this.session.provider === 'codex' && this.turnActive && !this.closing && ['running', 'approval'].includes(this.session.status) ? this.turnId : undefined;
+    return this.session.provider === 'codex' && this.turnActive && !this.closing && !this.autoCompaction?.pausedForPressure
+      && ['running', 'approval'].includes(this.session.status) ? this.turnId : undefined;
   }
   get sharedDesktop() { return !!this.sharedCodex || !!this.session.cursorNative; }
   private refreshSharedHistory() {

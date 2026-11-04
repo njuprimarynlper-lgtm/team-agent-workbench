@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { zstdCompressSync } from 'node:zlib';
 import { EventEmitter } from 'node:events';
 import { AgentRuntime } from '../src/core/agents';
 import { SessionInputQueue } from '../src/core/session-input-queue';
@@ -13,16 +14,16 @@ async function until(check: () => boolean) {
   const end = Date.now() + 10_000;
   while (!check()) { if (Date.now() > end) throw Error('fixture timed out'); await new Promise(r => setTimeout(r, 5)); }
 }
-async function post(url: string, value: unknown) {
+async function post(url: string, value: unknown, zstd = false) {
   return new Promise<any>((resolve, reject) => {
-    const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json', session_id: 'native-guard' } }, res => {
+    const req = http.request(url, { method: 'POST', headers: { 'content-type': 'application/json', session_id: 'native-guard', ...(zstd ? { 'content-encoding': 'zstd' } : {}) } }, res => {
       let body = ''; res.on('data', data => { body += data; }); res.on('error', reject);
       res.on('end', () => res.statusCode === 200 ? resolve(JSON.parse(body)) : reject(Error(JSON.parse(body).error.message)));
-    }); req.on('error', reject); req.end(JSON.stringify(value));
+    }); req.on('error', reject); req.end(zstd ? zstdCompressSync(Buffer.from(JSON.stringify(value))) : JSON.stringify(value));
   });
 }
 
-type Scenario = 'recover' | 'near-budget' | 'compact-refused' | 'retry-refused' | 'missing-input' | 'changed-input' | 'partial-tool' | 'unsupported' | 'ambiguous';
+type Scenario = 'recover' | 'mid-turn-zstd' | 'near-budget' | 'compact-refused' | 'retry-refused' | 'missing-input' | 'changed-input' | 'partial-tool' | 'unsupported' | 'ambiguous';
 class Native extends EventEmitter implements AgentRpc {
   calls: { method: string; params: any }[] = []; errors: unknown[] = []; records: any[] = [];
   base = ''; turns = 0; compactCount = 0; failureSeen = false; compactItemDone = false; closed = false;
@@ -30,7 +31,10 @@ class Native extends EventEmitter implements AgentRpc {
   // Unknown native state must stay protected; dropping it would conceal the bug.
   history: any[] = [message('developer', 'KEEP_DEVELOPER'), message('user', 'OLD_USER'),
     { type: 'reasoning', encrypted_content: 'r'.repeat(700_000), vendor_state: 'DO_NOT_DROP_UNKNOWN_STATE' }, message('assistant', 'old result')];
-  constructor(private upstream: string, readonly scenario: Scenario) { super(); }
+  constructor(private upstream: string, readonly scenario: Scenario) {
+    super();
+    if (scenario === 'mid-turn-zstd') this.history = [];
+  }
   event(method: string, params: any) { if (!this.closed) this.emit('message', { method, params: { threadId: 'native-guard', ...params } }); }
   async request(method: string, params: any = {}, _timeout?: number, written?: () => void): Promise<any> {
     this.calls.push({ method, params: structuredClone(params) }); written?.();
@@ -75,8 +79,15 @@ class Native extends EventEmitter implements AgentRpc {
       turn.items.push(item); this.event('item/started', { turnId: turn.id, item });
     }
     try {
+      const toolStep = this.scenario === 'mid-turn-zstd' && this.turns === 1;
+      if (toolStep) {
+        await post(this.base + '/responses', { model: 'fixture', input: this.history });
+        const item = { id: 'cmd', type: 'commandExecution', command: 'once', status: 'completed' };
+        turn.items.push(item); this.event('item/completed', { turnId: turn.id, item });
+        this.history.push({ type: 'function_call_output', call_id: 'cmd', output: 'Z'.repeat(810_000) });
+      }
       await post(this.base + '/responses', { model: 'fixture', instructions: 'KEEP_SYSTEM',
-        tools: [{ type: 'function', name: 'inspect', description: 'tool'.repeat(10_000), parameters: {} }], input: this.history });
+        tools: [{ type: 'function', name: 'inspect', description: 'tool'.repeat(10_000), parameters: {} }], input: this.history }, toolStep);
       if (this.closed || turn.status === 'interrupted') return;
       const item = { id: 'answer-' + turn.id, type: 'agentMessage', phase: 'final_answer', text: 'final answer' };
       turn.items.push(item); this.history.push(message('assistant', item.text));
@@ -133,19 +144,30 @@ async function fixture(scenario: Scenario, run: (value: {
   const runtime = new AgentRuntime(session, 'unused', { changed() {}, event: e => events.push(e), done() { done++; if (session.error && session.inputQueue) session.inputQueue.paused = true; } }, undefined,
     { HTTP_PROXY: 'http://127.0.0.1:9', HTTPS_PROXY: 'http://127.0.0.1:9', NO_PROXY: '*', no_proxy: '*' }, rpc, false, true);
   const queue = new SessionInputQueue({ session: () => session, save: async () => {}, changed() {}, blocked: s => ['starting', 'running', 'approval', 'error'].includes(s.status), send: async (_id, input, submitted) => runtime.prompt(input.text, { userText: input.text, context: { sourceIds: [] } as any, submitted }), steer: async () => false });
-  const latest = 'LATEST_KEEP_' + 'u'.repeat(scenario === 'near-budget' ? 100_000 : 280_000);
+  const latest = 'LATEST_KEEP_' + 'u'.repeat(scenario === 'mid-turn-zstd' ? 5 : scenario === 'near-budget' ? 100_000 : 280_000);
   try { await run({ rpc, runtime, session, queue, uploads, events, latest, done: () => done }); assert.deepEqual(rpc.errors, []); assert(uploads.every(item => item.bytes < 1_000_000)); }
   finally { await runtime.close(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 }
 
-test('a near-budget successful turn compacts proactively while the FIFO waits for both completion events', () => fixture('near-budget', async ({ rpc, runtime, session, queue, uploads, latest, done }) => {
-  await runtime.prompt(latest); await until(() => rpc.compactCount === 1);
-  assert.equal(rpc.failureSeen, false); assert(uploads[0].bytes >= 800_000 && uploads[0].bytes < 1_000_000);
+test('zstd tool output crosses the raw threshold inside a single turn; resume never replays the tool or user input', () => fixture('mid-turn-zstd', async ({ rpc, runtime, session, uploads, latest, done }) => {
+  await runtime.prompt(latest); await until(() => rpc.failureSeen);
+  assert.equal(uploads.length, 1); assert(uploads[0].bytes < 800_000); assert.equal(rpc.compactCount, 0);
+  rpc.terminal.resolve(); rpc.compactStart.resolve(); rpc.compactEnd.resolve(); await until(() => done() === 1);
+  assert.equal(session.status, 'idle', session.error || 'paused turn should resume'); assert.equal(rpc.compactCount, 1);
+  assert.equal(session.messages.filter(m => m.role === 'user').length, 1);
+  assert.deepEqual(rpc.calls.filter(c => c.method === 'turn/start').at(-1)?.params.input, []);
+  assert.equal(rpc.records.flatMap(t => t.items).filter(i => i.id === 'cmd').length, 1);
+}));
+
+test('a near-budget request is paused before upload and compacted while the FIFO waits', () => fixture('near-budget', async ({ rpc, runtime, session, queue, uploads, latest, done }) => {
+  await runtime.prompt(latest); await until(() => rpc.failureSeen);
+  assert.equal(rpc.compactCount, 0); assert.equal(uploads.length, 0);
+  rpc.terminal.resolve(); await until(() => rpc.compactCount === 1);
   await queue.enqueue(session.id, { text: 'NEXT', sourceIds: [], answers: {} }); await queue.pump(session.id);
   assert.equal(rpc.turns, 1); assert.equal(done(), 0);
   rpc.compactStart.resolve(); await until(() => rpc.compactItemDone); await queue.pump(session.id); assert.equal(rpc.turns, 1);
   rpc.compactEnd.resolve(); await until(() => done() === 1); await queue.pump(session.id); await until(() => done() === 2);
-  assert.equal(rpc.turns, 2); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
+  assert.equal(rpc.turns, 3); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
 }));
 
 test('first local refusal waits for terminal failure, compacts, and resumes the retained input exactly once before the queued turn', () => fixture('recover', async ({ rpc, runtime, session, queue, uploads, latest, done, events }) => {
@@ -172,7 +194,7 @@ test('first local refusal waits for terminal failure, compacts, and resumes the 
   assert.equal(session.messages.filter(item => item.role === 'user').length, 1); assert.equal(session.turnTimings?.length, 1);
   await queue.pump(session.id); await until(() => done() === 2);
   assert.equal(rpc.turns, 3); assert.equal(session.inputQueue?.items.length, 0); assert.equal(rpc.compactCount, 1);
-  assert.equal(events.filter(e => e.reason === 'local-rejection' && e.status === 'completed').length, 1);
+  assert.equal(events.filter(e => e.reason === 'pre-compression-threshold' && e.status === 'completed').length, 1);
 }));
 
 for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'changed-input', 'partial-tool', 'unsupported', 'ambiguous'] as const)
@@ -187,7 +209,8 @@ for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'ch
     assert.match(session.error!, /输入已保留/);
     if (scenario === 'compact-refused') { assert.match(session.error!, /原生 compact 请求.*未上传/); assert.equal(uploads.length, 0); }
     if (scenario === 'retry-refused') assert.match(session.error!, /重试仍被大小保护拒发/);
-    if (scenario === 'missing-input' || scenario === 'partial-tool') assert.equal(rpc.compactCount, 0);
+    if (scenario === 'missing-input') assert.equal(rpc.compactCount, 0);
+    if (scenario === 'partial-tool') { assert.equal(rpc.compactCount, 1); assert.match(session.error!, /未确认的操作/); }
     if (scenario === 'changed-input') assert.match(session.error!, /无法核对保留输入/);
     if (scenario === 'ambiguous') await assert.rejects(runtime.prompt('NO_RETRY'), /尚未确认/);
   }));

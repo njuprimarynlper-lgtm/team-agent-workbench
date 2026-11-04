@@ -29,6 +29,7 @@ async function post(url: string, value: unknown) {
 class Native extends EventEmitter implements AgentRpc {
   calls: string[] = []; errors: unknown[] = []; turns = 0; base = ''; compactItemDone = false;
   releaseCompact = deferred(); releaseComplete = deferred(); compacted = false;
+  records: any[] = [];
   history = [message('developer', 'KEEP_DEVELOPER'), ...Array.from({ length: 8 }, (_, i) => message(i % 2 ? 'assistant' : 'user', randomBytes(140_000).toString('base64')))];
   constructor(private upstream: string) { super(); }
   event(method: string, params: any) { this.emit('message', { method, params: { threadId: 'native-a', ...params } }); }
@@ -42,19 +43,26 @@ class Native extends EventEmitter implements AgentRpc {
     }
     if (method === 'turn/start') {
       const id = 'user-' + ++this.turns;
-      this.history.push(message('user', params.input[0].text));
+      if (params.input.length) this.history.push(message('user', params.input[0].text));
+      this.records.push({ id, items: params.input.length ? [{ type: 'userMessage', content: params.input }] : [], status: 'inProgress' });
       void this.answer(id).catch(error => this.errors.push(error));
       return { turn: { id } };
     }
     if (method === 'thread/compact/start') {
       void this.compact().catch(error => this.errors.push(error)); return {};
     }
+    if (method === 'thread/read') return { thread: { id: 'native-a', status: { type: 'idle' }, turns: this.records } };
     if (method === 'turn/interrupt') { this.event('turn/completed', { turn: { id: params.turnId, status: 'interrupted' } }); return {}; }
     throw Error('Unexpected fixture method ' + method);
   }
   private async answer(id: string) {
     this.event('turn/started', { turn: { id } });
-    await post(this.base + '/responses', { model: 'test', instructions: 'KEEP_SYSTEM', tools: [], input: this.history, stream: true });
+    try { await post(this.base + '/responses', { model: 'test', instructions: 'KEEP_SYSTEM', tools: [], input: this.history, stream: true }); }
+    catch (error) {
+      this.records.at(-1).status = 'failed';
+      this.event('turn/completed', { turn: { id, status: 'failed', error: { message: String(error) } } });
+      return;
+    }
     this.history.push(message('assistant', 'final answer'));
     this.event('item/completed', { turnId: id, item: { id: 'answer-' + id, type: 'agentMessage', phase: 'final_answer', text: 'final answer' } });
     this.event('turn/completed', { turn: { id, status: 'completed' } });
@@ -102,7 +110,7 @@ test('oversized native history is repaired, compacted once between turns, then r
     assert.deepEqual(rpc.errors, []); assert.equal(session.status, 'running'); assert.equal(done, 0);
     await queue.enqueue(session.id, { text: 'NEXT_TURN', sourceIds: [], capabilities: [], answers: {} });
     await queue.pump(session.id); assert.equal(rpc.turns, 1, 'RPC acknowledgement does not release the queue');
-    assert.equal(session.messages.filter(item => item.role === 'assistant').length, 1);
+    assert.equal(session.messages.filter(item => item.role === 'assistant').length, 0);
     assert.equal(session.messages.filter(item => item.role === 'tool').length, 0);
     rpc.releaseCompact.resolve();
     await until(() => rpc.compactItemDone || rpc.errors.length > 0);

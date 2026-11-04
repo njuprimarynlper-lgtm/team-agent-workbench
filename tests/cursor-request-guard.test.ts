@@ -105,11 +105,65 @@ test('post-turn native compaction holds queue until completion and emits no inte
   assert.deepEqual(f.calls.map(c => c.kind), ['userMessageAction', 'summarizeAction']);
   assert.notEqual(f.calls[1].args[4], f.args[4]); assert.equal(f.updates.at(-1).status, 'completed');
 });
+
+test('live checkpoint reaches 800,000 bytes mid-prompt; wait for the tool, compact and use native resume exactly once', async () => {
+  const f = fixture(100), state = f.state(), phases: string[] = [];
+  const accepted = deferred(), userId = Buffer.from('new-user');
+  const raw = Buffer.alloc(799_900, ' ');
+  raw.write('{"role":"user","content":"original"}'); f.data.set(userId.toString('hex'), raw);
+  const native = f.controller.run;
+  f.controller.types.ResumeAction = class {};
+  f.controller.run = async (...args: any[]) => {
+    phases.push(args[2].action.case);
+    if (args[2].action.case === 'userMessageAction') {
+      state.rootPromptMessagesJson.push(userId); state.pendingToolCalls = ['active'];
+      accepted.resolve();
+      const end = Date.now() + 4000;
+      while (!args[0].canceled && Date.now() < end) await new Promise(r => setTimeout(r, 10));
+      assert(args[0].canceled, 'the active native run should be paused at the threshold'); throw Error('cancelled');
+    }
+    if (args[2].action.case === 'resumeAction') {
+      assert.equal(args[1], f.state()); assert(args[1].summary); return 'continued';
+    }
+    return native(...args);
+  };
+  const result = f.controller.execute(...f.args);
+  await accepted.promise; await new Promise(r => setTimeout(r, 250));
+  assert.deepEqual(phases, ['userMessageAction']); state.pendingToolCalls = [];
+  assert.equal(await result, 'continued'); assert.deepEqual(phases, ['userMessageAction', 'summarizeAction', 'resumeAction']);
+  assert.equal(f.updates[0].phase, 'during'); assert.equal(f.updates[0].inputBytes, 800_000);
+});
 test('failed compact backs off, an acknowledgement without a native checkpoint is not success', async () => {
   const f = fixture(); f.noCheckpoint(); await f.controller.execute(...f.args);
   assert.equal(f.updates.at(-1).status, 'failed');
   await f.controller.execute(...f.args); assert.equal(f.calls.filter(c => c.kind === 'summarizeAction').length, 1);
   f.time(60_001); await f.controller.execute(...f.args); assert.equal(f.calls.filter(c => c.kind === 'summarizeAction').length, 2);
+});
+
+for (const ignoresStop of [false, true]) test('Cursor checkpoint pause handles ' + (ignoresStop ? 'an unsettled writer' : 'a wire limit reached before the next sample'), async () => {
+  const f = fixture(100), gate = deferred(), native = f.controller.run, phases: string[] = [];
+  f.controller.types.ResumeAction = class {}; f.controller.timeoutMs = 50;
+  f.controller.run = async (...args: any[]) => {
+    const phase = args[2].action.case; phases.push(phase);
+    if (phase === 'summarizeAction') return native(...args);
+    if (phase === 'resumeAction') return 'continued';
+    const id = Buffer.from('persisted');
+    const raw = Buffer.alloc(800_000, ' '); raw.write('{"role":"user"}');
+    f.data.set(id.toString('hex'), raw); f.state().rootPromptMessagesJson.push(id);
+    if (ignoresStop) return gate.promise;
+    guardRequest({ write() {}, end() {}, destroy() {} }).end(Buffer.alloc(1_000_000));
+  };
+  try {
+    const run = f.controller.execute(...f.args);
+    if (ignoresStop) {
+      await assert.rejects(run, /尚未确认当前运行已停止/);
+      await assert.rejects(f.controller.execute(...f.args), /重新连接/);
+      assert.deepEqual(phases, ['userMessageAction']);
+    } else {
+      assert.equal(await run, 'continued');
+      assert.deepEqual(phases, ['userMessageAction', 'summarizeAction', 'resumeAction']);
+    }
+  } finally { gate.resolve(); }
 });
 test('native automatic summary prevents a duplicate maintenance compact; pending tool calls are protected', async () => {
   const f = fixture(100); f.growth(1_100_000); f.auto(); await f.controller.execute(...f.args);

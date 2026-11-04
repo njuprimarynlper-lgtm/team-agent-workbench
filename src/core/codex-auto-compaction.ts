@@ -23,10 +23,22 @@ export class CodexAutoCompaction {
   private uncertain?: Job;
   private finishedTurns = new Set<string>();
   private rejection?: string;
+  private pressurePause = false;
+  private detachCheck?: () => void;
   constructor(readonly guard: CodexRequestGuard, private rpc: AgentRpc, private threadId: () => string | undefined,
-    private timeoutMs = 10 * 60_000) {
+    private timeoutMs = 10 * 60_000, canPause?: () => boolean) {
     this.detach = guard.observeRequests(request => this.observe(request));
+    if (canPause) this.detachCheck = guard.beforeUpload(request => {
+      if (request.threadId !== this.threadId() || !canPause() || this.disabled || this.closed || this.job || this.uncertain) return false;
+      if (this.pressurePause) return true;
+      this.observe(request);
+      if (!this.pendingBytes || request.inputBytes < request.budget * 0.8) return false;
+      this.pressurePause = true;
+      this.rejection = '请求压缩前已达到大小阈值（' + request.inputBytes + ' 字节），已暂停上传。';
+      return true;
+    });
   }
+  get pausedForPressure() { return this.pressurePause; }
   get active() { return !!this.job; }
   get activeTurnId() { return this.job?.turnId; }
   get localRejection() { return this.rejection; }
@@ -45,12 +57,13 @@ export class CodexAutoCompaction {
   }
   nativeCompacted() {
     this.attemptedBytes = Math.max(this.observedBytes, this.pendingBytes);
-    this.pendingBytes = 0; this.rejection = undefined; this.armed = false;
+    this.discardPending(); this.armed = false;
   }
-  discardPending() { this.pendingBytes = 0; this.rejection = undefined; }
+  discardPending() { this.pendingBytes = 0; this.rejection = undefined; this.pressurePause = false; }
   start(previousTurnId?: string, recovery = false): Promise<AutoCompactionResult> | undefined {
     if (!this.pendingBytes || this.job || this.closed || this.disabled || this.uncertain || Date.now() < this.retryAfter || recovery && !this.rejection) return;
     this.attemptedBytes = this.pendingBytes; this.pendingBytes = 0; this.rejection = undefined; this.armed = false;
+    this.pressurePause = false;
     const threadId = this.threadId(); if (!threadId) return;
     let resolve!: Job['resolve'];
     const result = new Promise<AutoCompactionResult>(done => { resolve = done; });
@@ -154,7 +167,7 @@ export class CodexAutoCompaction {
     return !!job?.turnId;
   }
   close() {
-    this.closed = true; this.detach(); this.pendingBytes = 0;
+    this.closed = true; this.detach(); this.detachCheck?.(); this.pendingBytes = 0;
     this.complete({ status: 'closed' });
   }
 }

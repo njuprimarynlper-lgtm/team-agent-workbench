@@ -63,13 +63,13 @@ async function main() {
     const deadline = Date.now() + 60_000;
     while (!done) { if (Date.now() > deadline) throw Error('Native recovery timed out'); await new Promise(resolve => setTimeout(resolve, 20)); }
     assert.equal(calls.filter(call => call.method === 'thread/compact/start').length, 1);
-    assert.equal(calls.filter(call => call.method === 'turn/start').length, 1);
+    assert.equal(calls.filter(call => call.method === 'turn/start').length, refused ? 1 : 2);
     assert.equal(session.messages.filter(message => message.role === 'user').length, 1);
-    assert.equal(observations.length, 1, 'native compact never schedules itself, including /responses streaming');
+    assert.equal(observations.length, refused ? 0 : 1, 'only forwarded normal requests are observed');
     if (refused) {
       assert.equal(session.status, 'error'); assert.match(session.error!, /原生 compact 请求.*未上传/);
       assert.doesNotMatch(session.error!, /尚未执行/); assert.equal(uploads.length, 0);
-      assert(events.some(event => event.reason === 'local-rejection' && event.status === 'failed'));
+      assert(events.some(event => event.reason === 'pre-compression-threshold' && event.status === 'failed'));
     } else {
       assert.equal(session.status, 'idle', session.error);
       assert(events.some(event => event.method === 'workbench/autoCompact' && event.status === 'completed'));
@@ -78,11 +78,7 @@ async function main() {
       const current = (await runtime.rpc.request('thread/read', { threadId: session.nativeId, includeTurns: true })).thread;
       const users = current.turns.flatMap((turn: any) => turn.items).filter((item: any) => item.type === 'userMessage');
       assert.equal(users.at(-1).content[0].text, latest);
-      const completed = events.filter(event => event.method === 'turn/completed').length;
-      await runtime.rpc.request('turn/start', { threadId: session.nativeId, input: [] });
-      while (events.filter(event => event.method === 'turn/completed').length === completed) {
-        if (Date.now() > deadline) throw Error('Continuation timed out'); await new Promise(resolve => setTimeout(resolve, 20));
-      }
+      assert.deepEqual(calls.filter(call => call.method === 'turn/start').at(-1)!.params.input, []);
       const resumed = uploads.at(-1)!.value;
       assert(resumed.input.some((item: any) => item.type === 'compaction' && item.encrypted_content === 'FAKE_NATIVE_STATE'));
       assert(uploads.every(upload => upload.bytes < 1_000_000));
