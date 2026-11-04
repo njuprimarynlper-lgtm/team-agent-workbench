@@ -742,7 +742,7 @@ export class AgentRuntime {
         if (result.status !== 'completed') { fail(`原生 compact ${result.status === 'uncertain' ? '尚未确认结束' : '失败'}，本次输入未重试。${result.message || ''}`); return; }
         if (pressure && (job.rerouted || this.session.approvals.length || this.steering || last.items.some((item: any) =>
           !['userMessage', 'reasoning', 'agentMessage'].includes(item.type) && item.status !== 'completed'))) {
-          fail('原生 compact 已完成，本轮有未确认的操作，请核对后继续。'); return;
+          fail('对话历史已自动压缩，但上一轮有命令尚未确认结束。为避免重复执行，工作台没有自动重试。请先核对最近的工具结果和文件改动，再在本会话发送“继续，先检查刚才操作的结果，再接着做”。'); return;
         }
         const after = (await read()).thread;
         if (!live()) return;

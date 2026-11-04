@@ -210,7 +210,7 @@ for (const scenario of ['compact-refused', 'retry-refused', 'missing-input', 'ch
     if (scenario === 'compact-refused') { assert.match(session.error!, /原生 compact 请求.*未上传/); assert.equal(uploads.length, 0); }
     if (scenario === 'retry-refused') assert.match(session.error!, /重试仍被大小保护拒发/);
     if (scenario === 'missing-input') assert.equal(rpc.compactCount, 0);
-    if (scenario === 'partial-tool') { assert.equal(rpc.compactCount, 1); assert.match(session.error!, /未确认的操作/); }
+    if (scenario === 'partial-tool') { assert.equal(rpc.compactCount, 1); assert.match(session.error!, /上一轮有命令尚未确认结束.*没有自动重试/); }
     if (scenario === 'changed-input') assert.match(session.error!, /无法核对保留输入/);
     if (scenario === 'ambiguous') await assert.rejects(runtime.prompt('NO_RETRY'), /尚未确认/);
   }));

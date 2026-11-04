@@ -34,7 +34,7 @@ export class CodexAutoCompaction {
       this.observe(request);
       if (!this.pendingBytes || request.inputBytes < request.budget * 0.8) return false;
       this.pressurePause = true;
-      this.rejection = '请求压缩前已达到大小阈值（' + request.inputBytes + ' 字节），已暂停上传。';
+      this.rejection = '这轮发给模型的对话上下文接近大小上限（' + request.inputBytes + ' 字节），已暂停发送。';
       return true;
     });
   }
