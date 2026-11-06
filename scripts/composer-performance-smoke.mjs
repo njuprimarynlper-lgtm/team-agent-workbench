@@ -71,12 +71,21 @@ try {
     }, { source: installFixture.toString(), data });
     await page.goto(origin);
     await page.getByLabel('任务输入', { exact: true }).waitFor({ timeout: 30000 });
-    async function sample(label, input) {
+    async function sample(label, input, streaming = false) {
       await input.fill('');
       await page.waitForTimeout(100);
       await page.evaluate(() => { window.__renderCounts = { workspace: 0, transcript: 0, markdown: 0, parsed: 0 }; window.__handbook.calls.length = 0; });
+      if (streaming) await page.evaluate(() => {
+        window.__streamingEvents = 0;
+        window.__streamingTimer = setInterval(() => {
+          window.__streamingEvents++;
+          window.__handbook.data.snapshot.sessions[0].messages.at(-1).text += '.';
+          window.__emitSnapshot();
+        }, 80);
+      });
       const times = [];
-      for (let i = 0; i < 12; i++) {
+      const edits = streaming ? 40 : 12;
+      for (let i = 0; i < edits; i++) {
         const elapsed = await input.evaluate(async (el, i) => {
           const start = performance.now();
           const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
@@ -86,17 +95,30 @@ try {
           return performance.now() - start;
         }, i);
         times.push(elapsed);
+        if (streaming) await page.waitForTimeout(20);
       }
+      if (streaming) await page.evaluate(() => clearInterval(window.__streamingTimer));
       times.sort((a, b) => a - b);
-      const counts = await page.evaluate(() => ({ renders: window.__renderCounts, inputSaves: window.__handbook.calls.filter(value => value === 'session.input').length }));
-      assert.equal(counts.renders.workspace, 0, 'keystrokes must not update the workspace');
-      assert.equal(counts.renders.transcript, 0, 'keystrokes must not redraw history');
-      assert.equal(counts.renders.markdown, 0, 'keystrokes must not parse historical Markdown');
-      assert.equal(counts.renders.parsed, 0);
-      assert.equal(counts.inputSaves, 12, 'each character must reach the memory draft');
-      console.log(JSON.stringify({ rounds, label, medianEditToFrameMs: +times[6].toFixed(1), maxEditToFrameMs: +times[11].toFixed(1), ...counts }));
+      const counts = await page.evaluate(() => ({ renders: window.__renderCounts, inputSaves: window.__handbook.calls.filter(value => value === 'session.input').length, snapshotReads: window.__handbook.calls.filter(value => value === 'snapshot').length, stateEvents: window.__streamingEvents || 0 }));
+      if (!streaming) {
+        assert.equal(counts.renders.workspace, 0, 'keystrokes must not update the workspace');
+        assert.equal(counts.renders.transcript, 0, 'keystrokes must not redraw history');
+        assert.equal(counts.renders.markdown, 0, 'keystrokes must not parse historical Markdown');
+        assert.equal(counts.renders.parsed, 0);
+      } else {
+        assert(counts.snapshotReads >= 1, 'streaming must still refresh the conversation');
+        assert(counts.snapshotReads < counts.stateEvents / 2, 'streaming must not clone a large snapshot on every state event');
+      }
+      assert.equal(counts.inputSaves, edits, 'each character must reach the memory draft');
+      console.log(JSON.stringify({ rounds, label, medianEditToFrameMs: +times[Math.floor(times.length / 2)].toFixed(1), maxEditToFrameMs: +times.at(-1).toFixed(1), ...counts }));
     }
     await sample('main-before-child-open', page.getByLabel('任务输入', { exact: true }));
+    if (rounds === 100) {
+      // A real long session can exceed 25 MB while the agent streams updates.
+      await page.evaluate(() => { window.__handbook.data.snapshot.sessions[0].diagnosticPadding = 'x'.repeat(24 * 1024 * 1024); });
+      await sample('main-with-large-streaming-snapshot', page.getByLabel('任务输入', { exact: true }), true);
+      await page.evaluate(() => { delete window.__handbook.data.snapshot.sessions[0].diagnosticPadding; window.__emitSnapshot(); });
+    }
     await page.getByRole('button', { name: '展开会话菜单：' + data.session.title, exact: true }).click();
     await page.locator('.session-row[data-session-id="child-session"]').click();
     await page.getByLabel('子会话输入', { exact: true }).waitFor();

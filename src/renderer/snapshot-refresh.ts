@@ -24,3 +24,18 @@ export function createSnapshotRefresh<T>(read: () => Promise<T>, apply: (value: 
     return done;
   };
 }
+
+/** Limit background state reads when a running agent emits frequent updates. */
+export function createStateEventRefresh(refresh: () => Promise<void>, intervalMs = 250) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let nextAt = 0;
+  const request = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = undefined;
+      nextAt = Date.now() + intervalMs;
+      void refresh();
+    }, Math.max(0, nextAt - Date.now()));
+  };
+  return { request, cancel: () => { if (timer) clearTimeout(timer); timer = undefined; } };
+}

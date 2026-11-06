@@ -24,7 +24,7 @@ import { PersonalSection, SessionOrganization, PersonalMoveDialog, type MoveSele
 import './personal-workspace.css';
 import { newAccountPasswordSchema } from '../shared/accounts';
 import { SessionTranscript } from './session-transcript';
-import { createSnapshotRefresh } from './snapshot-refresh';
+import { createSnapshotRefresh, createStateEventRefresh } from './snapshot-refresh';
 import { SessionTurnProgress } from './turn-timing';
 import './session-transcript.css';
 import { clientVersion, clientWindowTitle } from '../shared/client-version';
@@ -196,10 +196,15 @@ function App() {
   const viewAccount = useRef('');
   refreshRef.current ||= createSnapshotRefresh<Snapshot>(
     () => api.call<Snapshot>('snapshot'),
-    next => { setState(next); setError(''); },
+    next => { React.startTransition(() => setState(next)); setError(''); },
     error => setError(error instanceof Error ? error.message : String(error)));
   const refresh = refreshRef.current;
-  useEffect(() => { void refresh(); return api.subscribe(event => { if (event.type === 'state') void refresh(); }); }, []);
+  useEffect(() => {
+    void refresh();
+    const events = createStateEventRefresh(refresh);
+    const unsubscribe = api.subscribe(event => { if (event.type === 'state') events.request(); });
+    return () => { events.cancel(); unsubscribe(); };
+  }, []);
   if (!state) return <div className="boot"><Layers size={34}/><p>{error || '正在启动团队工作台…'}</p></div>;
   // A saved profile can change before login finishes writing its local snapshot.
   // Keep the login dialog mounted until that transition has committed.
