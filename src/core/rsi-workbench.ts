@@ -11,7 +11,8 @@ import { ownsBinding } from '../shared/account-scope';
 import type { RsiObservation } from '../shared/rsi';
 import type { AgentSession, RemoteBinding } from '../shared/types';
 
-export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: () => void) {
+export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: () => void, notice?: (message: string) => void) {
+  const eventCache = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; versions: Map<string, string> }>();
   const profile = () => workbench.remote.connected ? workbench.remote.profile : workbench.store.settings.workspaceSnapshot?.profile;
   const binding = (projectId: string): RemoteBinding => {
     workbench.assertAccountReady();
@@ -44,15 +45,15 @@ export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: (
       }
       return session;
     },
-    changed,
-    collect: async projectId => {
+    changed, notice,
+    collect: async (projectId, known) => {
       const bound = binding(projectId), items: RsiObservation[] = [], at = new Date().toISOString();
       // One native history may be imported through several UI aliases. Collect it once.
       const unique = new Map<string, AgentSession>();
       for (const session of sessions(projectId)) {
         const key = session.nativeId ? `${session.provider}:${session.nativeId}:${session.nativePath || session.cwd}` : session.id;
         const prior = unique.get(key);
-        if (!prior || session.createdAt < prior.createdAt) unique.set(key, structuredClone(session));
+        if (!prior || session.createdAt < prior.createdAt) unique.set(key, session);
       }
       for (const session of unique.values()) {
         let messages = session.messages;
@@ -63,22 +64,34 @@ export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: (
           sequence++; if (message.role === 'user') turnId = message.nativeItemId || message.id;
           const messageId = message.nativeItemId || message.id;
           const text = `${message.role}: ${message.userText ?? message.text}` + (message.nativeDetails ? '\n原生执行详情：' + JSON.stringify(message.nativeDetails) : '');
-          items.push({ source: message.role === 'tool' ? 'execution' : 'session', sourceId: `${session.id}/${messageId}`, factKey: `${session.id}/${messageId}`, version: createHash('sha256').update(text).digest('hex'), actor: message.role === 'user' ? bound.username : session.provider, eventAt: message.createdAt, assertion: message.role === 'user' ? 'explicit' : message.role === 'tool' ? 'observed' : 'inferred', sessionId: session.id, sessionTitle: session.title, nativeSessionId: session.nativeId, messageId, turnId, sequence, contentType: message.role, taskId: session.assignment?.id, text });
+          const source = message.role === 'tool' ? 'execution' : 'session', sourceId = `${session.id}/${messageId}`;
+          const version = createHash('sha256').update(text).digest('hex');
+          if (known?.get(`${source}:${sourceId}`) === version) continue;
+          items.push({ source, sourceId, factKey: sourceId, version, actor: message.role === 'user' ? bound.username : session.provider, eventAt: message.createdAt, assertion: message.role === 'user' ? 'explicit' : message.role === 'tool' ? 'observed' : 'inferred', sessionId: session.id, sessionTitle: session.title, nativeSessionId: session.nativeId, messageId, turnId, sequence, contentType: message.role, taskId: session.assignment?.id, text });
         }
         // Execution logs are streamed completely; no last-N/last-byte truncation. Busy turns wait for completion.
         if (!running) {
           const file = path.join(workbench.store.sessionDir(session.id), 'events.jsonl');
-          if (await fs.stat(file).catch(() => undefined)) {
+          const stat = await fs.stat(file).catch(() => undefined);
+          if (stat) {
+            const cached = eventCache.get(file);
+            if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && cached.ctimeMs === stat.ctimeMs
+              && [...cached.versions].every(([key, version]) => known?.get(key) === version)) continue;
             let lineNumber = 0;
+            const versions = new Map<string, string>();
             const stream = createReadStream(file, { encoding: 'utf8' });
             const lines = createInterface({ input: stream, crlfDelay: Infinity });
             try { for await (const line of lines) {
               lineNumber++;
               if (!/command_execution|function_call_output|tool_result|toolCall|command\/exec|item\/completed/.test(line)) continue;
-              let parsed: any; try { parsed = JSON.parse(line); } catch { continue; }
               const version = createHash('sha256').update(line).digest('hex');
+              const key = `execution:${session.id}/event/${lineNumber}`;
+              if (known?.get(key) === version) { versions.set(key, version); continue; }
+              let parsed: any; try { parsed = JSON.parse(line); } catch { continue; }
+              versions.set(key, version);
               items.push({ source: 'execution', sourceId: `${session.id}/event/${lineNumber}`, factKey: `${session.id}/event/${lineNumber}`, eventAt: parsed.at || session.createdAt, version, actor: session.provider, assertion: 'observed', sessionId: session.id, sessionTitle: session.title, nativeSessionId: session.nativeId, turnId: parsed.event?.params?.turnId, sequence: lineNumber, contentType: 'tool-result', artifact: file, text: line });
             } } finally { lines.close(); stream.destroy(); }
+            eventCache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, versions });
           }
         }
       }

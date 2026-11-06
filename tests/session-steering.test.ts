@@ -11,6 +11,7 @@ import { freezeFile } from '../src/core/artifacts';
 import { acceptedSessionContext } from '../src/shared/session-context';
 import type { AgentSession, SessionInput } from '../src/shared/types';
 import { ComposerActions, composerMode } from '../src/renderer/composer-actions';
+import { SessionInputQueue } from '../src/renderer/session-input-queue';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 // @ts-expect-error Shared fixture.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
@@ -64,6 +65,7 @@ test('stale/rejected/unsupported steering never fails the running task, accepts 
     const { wb, s } = t; await wb.send(s.id, '原始任务');
     const input = { text: '保留我的引导', sourceIds: [], answers: {} }; await wb.saveInput(s.id, input);
     await assert.rejects(wb.steer(s.id, 'old-turn', input.text), /轮次已结束或发生变化/);
+    await assert.rejects(wb.steerOrQueue(s.id, 'old-turn', input.text), /轮次已结束或发生变化/);
     await assert.rejects(wb.steer(s.id, 'fake-turn', input.text, ['foreign-source']), /不属于当前会话/);
     const file = path.join(t.root, 'context.md'); await fs.writeFile(file, 'reference');
     const source = await freezeFile(file, path.join(t.root, 'sources')); s.sources.push(source);
@@ -79,6 +81,28 @@ test('stale/rejected/unsupported steering never fails the running task, accepts 
     await t.set({ steer: 'finish-reject' }); await assert.rejects(wb.steer(s.id, 'fake-turn', input.text), /No matching active turn/);
     assert.equal(s.status, 'idle'); assert.equal(s.error, undefined); assert.equal(wb.snapshot().activeTurns?.[s.id], undefined);
     await assert.rejects(wb.steer(s.id, 'fake-turn', input.text), /轮次已结束或发生变化/);
+  } finally { await t.cleanup(); }
+});
+
+test('guidance submitted during compaction is persisted in the FIFO without steering or starting a turn', async () => {
+  const t = await setup();
+  try {
+    const { wb, s } = t;
+    await wb.send(s.id, '原始任务');
+    s.contextCompacting = true;
+    await wb.steerOrQueue(s.id, undefined, '压缩时补充的要求');
+    assert.equal(wb.shouldQueueInput(s.id), true);
+    assert.equal(s.inputQueue?.items[0].input.text, '压缩时补充的要求');
+    await wb.inputQueue.steer(s.id, s.inputQueue!.items[0].id, 'fake-turn');
+    s.status = 'idle';
+    await wb.inputQueue.pump(s.id);
+    s.status = 'running';
+    assert.equal(s.inputQueue?.items.length, 1);
+    assert.equal(s.inputQueue?.paused, false);
+    assert.equal((await t.calls()).filter(m => m.method === 'turn/steer' || m.method === 'turn/start').length, 1);
+    await wb.close();
+    const restored = new Store(wb.store.root); await restored.init();
+    assert.equal(restored.sessions.find(item => item.id === s.id)?.inputQueue?.items[0].input.text, '压缩时补充的要求');
   } finally { await t.cleanup(); }
 });
 
@@ -182,6 +206,14 @@ test('composer queues while busy for every CLI and leaves steering on queued row
   for (const [session, id, busy, text] of [[s, 'turn', true, '要求'], [s, 'turn', false, '  ']] as const) assert.match(render(session as AgentSession, id, busy, text), /disabled=""/);
   assert.equal(composerMode({ ...s, status: 'approval' }, 'turn'), 'queue');
   assert.equal(composerMode({ ...s, status: 'idle' }, 'old-turn'), 'send');
+  const compacting = { ...s, status: 'idle', contextCompacting: true, inputQueue: { paused: false, items: [{ id: 'queued', state: 'queued', input: { text: '补充要求', sourceIds: [], answers: {} } }] } } as AgentSession;
+  assert.equal(composerMode(compacting), 'queue');
+  assert.match(render(compacting), /aria-label="压缩后发送"/);
+  assert.doesNotMatch(render(compacting), /disabled=""/);
+  const queue = renderToStaticMarkup(createElement(SessionInputQueue, { session: compacting, api: {} as any, changed: async () => {} }));
+  assert.match(queue, /压缩完成后依次发送/);
+  assert.match(queue, /已排队/);
+  assert.doesNotMatch(queue, /引导<\/button>/);
   assert.equal(composerMode({ ...s, provider: 'cursor' }, 'turn'), 'queue');
   assert.doesNotMatch(render({ ...s, provider: 'cursor' }, 'turn'), /引导当前任务|发送任务/);
   assert.equal(render({ ...s, closedAt: 'closed' }, 'turn'), '');

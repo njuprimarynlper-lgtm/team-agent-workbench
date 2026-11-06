@@ -39,17 +39,14 @@ test('hidden question draft turns do not leak through tool groups', () => {
   assert.equal((markup.match(/class="tool-execution-group"/g) || []).length, 2);
 });
 
-test('one collapsed summary contains the tools, full outputs and original Cursor records', () => {
+test('collapsed tool summary defers large outputs and native records until opened', () => {
   const text = '$ run\n<script>literal output</script>\n' + 'large output\n'.repeat(1000) + '退出码：1';
   const markup = render([message('t1', 'tool', text), message('t2', 'tool', 'Read file', { nativeDetails: { toolCall: { name: 'read_file' }, toolResults: { content: 'original native result' } } })]);
   assert.equal((markup.match(/class="tool-execution-group"/g) || []).length, 1);
   assert.match(markup, /工具执行 · 2 项/);
   assert.doesNotMatch(markup, /<details[^>]*\sopen(?:[ =>])/);
-  assert.equal((markup.match(/class="tool-execution-output"/g) || []).length, 2);
-  assert.match(markup, /&lt;script&gt;literal output&lt;\/script&gt;/);
-  assert.match(markup, /退出码：1/);
-  assert.match(markup, /original native result/);
-  assert.equal((markup.match(/large output/g) || []).length, 1000);
+  assert.equal((markup.match(/class="tool-execution-output"/g) || []).length, 0);
+  assert.doesNotMatch(markup, /literal output|退出码：1|original native result|large output/);
 });
 
 test('activity belongs only to the trailing tools of an active session, never implying tool success', () => {
@@ -81,7 +78,8 @@ test('completion folds commentary, plans and tools together, leaving the user an
   assert.equal((html.match(/class="turn-activity-group"/g) || []).length, 1);
   assert.match(html, /工作过程 · 4 项/);
   assert.doesNotMatch(html, /<details[^>]*\sopen(?:[ =>])/);
-  assert.match(html, /<div class="turn-activity-content">[\s\S]*正在检查[\s\S]*执行计划[\s\S]*passed[\s\S]*已完成检查[\s\S]*<\/details><article data-message-id="final">最终结果<\/article>$/);
+  assert.doesNotMatch(html, /turn-activity-content|正在检查|执行计划|passed|已完成检查/);
+  assert.match(html, /<\/details><article data-message-id="final">最终结果<\/article>$/);
 });
 
 test('streaming and pending confirmations stay visible until the turn actually finishes', () => {

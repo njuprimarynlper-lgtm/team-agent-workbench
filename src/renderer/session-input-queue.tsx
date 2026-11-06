@@ -44,9 +44,9 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked 
     } catch (reason: any) { setError(reason.message); }
     finally { setBusy(false); }
   };
-  const canSteer = session.provider === 'codex' && !!activeTurnId && ['running', 'approval'].includes(session.status) && !session.stoppedAt;
+  const canSteer = session.provider === 'codex' && !session.contextCompacting && !!activeTurnId && ['running', 'approval'].includes(session.status) && !session.stoppedAt;
   return <section className="session-input-queue" aria-label="待发送消息">
-    <header><span>{queue.paused ? '已暂停' : '待发送'} · {items.length}</span><span className="queue-hint">{queue.paused ? '继续后按顺序发送' : '本轮结束后依次发送'}</span>
+    <header><span>{queue.paused ? '已暂停' : '待发送'} · {items.length}</span><span className="queue-hint">{queue.paused ? '继续后按顺序发送' : session.contextCompacting ? '压缩完成后依次发送' : '本轮结束后依次发送'}</span>
       <button className="queue-control" disabled={disabled || !!editing} title={queue.paused ? '继续队列' : '暂停队列'} aria-label={queue.paused ? '继续队列' : '暂停队列'} onClick={() => void action(queue.paused ? 'resume' : 'pause')}>{queue.paused ? <Play size={12}/> : <Pause size={12}/>}</button></header>
     <div className="queue-rows">{items.map((item, index) => <div className={"queue-row" + (editing === item.id ? " is-editing" : "")} key={item.id} data-queue-id={item.id} draggable={!disabled && item.state === 'queued' && !editing} onDragStart={event => { setDragging(item.id); event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDragging('')} onDragOver={event => { if (dragging && !disabled && item.state === 'queued') event.preventDefault(); }} onDrop={event => { event.preventDefault(); if (dragging && !disabled && item.state === 'queued') void action('move', { itemId: dragging, beforeId: item.id }); setDragging(''); }} onContextMenu={event => { if ((event.target as HTMLElement).closest('input,textarea,.markdown-editor')) return; setMenu({ anchor: contextAnchor(event), id: item.id }); }}>
       <span className="queue-number">{item.state === 'sending' ? <LoaderCircle className="spin" size={12}/> : index + 1}</span>
@@ -56,7 +56,7 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked 
         <button disabled={disabled || !text.trim()} aria-label="保存待发送消息" title="保存" onClick={() => void action('edit', { itemId: item.id, text })}><Check size={13}/></button>
         <button disabled={busy} aria-label="取消编辑" title="取消编辑" onClick={() => setEditing('')}><X size={13}/></button>
       </> : <>
-        {session.provider === 'codex' && <button className="queue-steer" disabled={disabled || !canSteer || item.state !== 'queued'} title={canSteer ? '用于当前轮，并从队列中移除' : '当前轮就绪后可引导'} onClick={() => void action('steer', { itemId: item.id, expectedTurnId: activeTurnId })}><CornerUpLeft size={12}/>引导</button>}
+        {session.provider === 'codex' && (session.contextCompacting ? <span className="queue-hint">已排队</span> : <button className="queue-steer" disabled={disabled || !canSteer || item.state !== 'queued'} title={canSteer ? '用于当前轮，并从队列中移除' : '当前轮就绪后可引导'} onClick={() => void action('steer', { itemId: item.id, expectedTurnId: activeTurnId })}><CornerUpLeft size={12}/>引导</button>)}
         <button disabled={disabled || item.state !== 'queued'} aria-label={`编辑第 ${index + 1} 条待发送消息`} title="编辑（暂时暂停队列）" onClick={() => void beginEdit(item.id, item.input.text)}><Pencil size={12}/></button>
         <button disabled={disabled || item.state !== 'queued'} aria-label={`移除第 ${index + 1} 条待发送消息`} title="移除" onClick={() => void action('remove', { itemId: item.id })}><X size={13}/></button>
       </>}</div>
@@ -68,7 +68,7 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked 
         { label: '编辑消息', disabled: unavailable, run: () => beginEdit(item.id, item.input.text) },
         { label: '提前一条', disabled: unavailable || index === 0 || items[index - 1]?.state !== 'queued', run: () => action('move', { itemId: item.id, beforeId: items[index - 1].id }) },
         { label: '推后一条', disabled: unavailable || index === items.length - 1, run: () => action('move', { itemId: item.id, beforeId: items[index + 2]?.id }) },
-        ...(session.provider === 'codex' ? [{ label: '引导当前任务', disabled: unavailable || !canSteer, run: () => action('steer', { itemId: item.id, expectedTurnId: activeTurnId }) }] : []),
+        ...(session.provider === 'codex' && !session.contextCompacting ? [{ label: '引导当前任务', disabled: unavailable || !canSteer, run: () => action('steer', { itemId: item.id, expectedTurnId: activeTurnId }) }] : []),
         { label: '删除待发送消息', disabled: unavailable, separator: true, run: () => action('remove', { itemId: item.id }) },
       ];
     })()}/>}

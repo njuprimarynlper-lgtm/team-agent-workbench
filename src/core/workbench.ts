@@ -204,7 +204,7 @@ export class Workbench {
         || this.movingIds.has(s.id) || !!s.directoryMove || !!(s.binding && this.linkingProjects.has(s.binding.project.id))
         || this.sending.has(s.id) || this.steering.has(s.id) || this.stoppingSessions.has(s.id)
         || this.changingSettings.has(s.id) || this.attachingCodex.has(s.id) || !!this.questions.lockedPeer(s.id)
-        || ['starting', 'running', 'approval', 'error'].includes(s.status),
+        || !!s.contextCompacting || ['starting', 'running', 'approval', 'error'].includes(s.status),
       send: (id, input, submitted) => this.runAccountOperation('session.send', async () => {
         const s = this.session(id);
         if (s.title === '新会话') s.title = input.text.trim().slice(0, 40);
@@ -223,7 +223,7 @@ export class Workbench {
       content: s => { this.assertCanWork(s.binding); return this.projectConnected(s.binding!.project.id) ? this.remote.contentList(s.binding!) : Promise.resolve([]); },
       commitSummary: (s, hash, count, summary, entry) => this.commitHandoff(s, hash, count, summary, entry), changed: () => this.broadcast(),
     }, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || ''));
-    this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || ''), this.broadcast);
+    this.rsi = workbenchRsi(this, backgroundTextTask(root, s => this.store.settings.providerPaths[s.provider], s => this.providerEnvironment(s.networkRoute, s), () => !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || ''), this.broadcast, text => this.notice(text));
     this.accountSync = new AccountSync(this.store, this.remote, this.broadcast, () => {
       for (const draft of this.store.drafts) {
         const explicitlySaved = new Set(draft.personalSavedIds || []);
@@ -976,7 +976,7 @@ export class Workbench {
     if (input.sourceIds.some(sourceId => !this.session(id).sources.some(s => s.id === sourceId))) throw new Error('引用不属于当前会话');
     if ((input.capabilities?.length || 0) > 20 || input.capabilities?.some(item => !item.id || !item.name || item.id.length > 500 || item.name.length > 200)) throw new Error('能力选择无效');
     const available = new Set(sessionWithAvailableReferences(this.session(id), this.store.conclusions).sources.map(source => source.id));
-    this.store.inputs[id] = { ...structuredClone(input), sourceIds: input.sourceIds.filter(sourceId => available.has(sourceId)) }; return this.store.save();
+    this.store.inputs[id] = { ...structuredClone(input), sourceIds: input.sourceIds.filter(sourceId => available.has(sourceId)) }; return this.store.saveInputs();
   }
   enqueueInput(id: string, input: SessionInput) {
     this.assertWorkspace(); const session = this.session(id); this.assertCanWork(session.binding);
@@ -986,7 +986,7 @@ export class Workbench {
   }
   shouldQueueInput(id: string) {
     const s = this.session(id);
-    return !s.cursorNative && (!!s.inputQueue?.items.length || this.sending.has(id) || this.steering.has(id) || ['starting', 'running', 'approval'].includes(s.status));
+    return !s.cursorNative && (!!s.contextCompacting || !!s.inputQueue?.items.length || this.sending.has(id) || this.steering.has(id) || ['starting', 'running', 'approval'].includes(s.status));
   }
   async renameSession(id: string, title: string) {
     const session = this.session(id), next = title.trim();
@@ -2112,6 +2112,10 @@ export class Workbench {
     const preview: Message = { id: randomUUID(), role: 'user', text: userText, userText, createdAt: new Date().toISOString(), context: { questionRunId, nativeId: session.nativeId || '', accepted: false, workRecord: false, sourceHashes: {} } };
     session.messages.push(preview);
     return preview;
+  }
+  steerOrQueue(id: string, expectedTurnId: string | undefined, userText: string, sourceIds: string[] = [], capabilitySelections: AgentCapabilitySelection[] = []) {
+    if (this.session(id).contextCompacting) return this.enqueueInput(id, { text: userText, sourceIds, capabilities: capabilitySelections, answers: {} });
+    return this.steer(id, expectedTurnId || '', userText, sourceIds, capabilitySelections);
   }
   async steer(id: string, expectedTurnId: string, userText: string, sourceIds: string[] = [], capabilitySelections: AgentCapabilitySelection[] = []) {
     this.assertWorkspace();

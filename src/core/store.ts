@@ -154,6 +154,12 @@ export class Store {
     const settings = JSON.parse(JSON.stringify(this.settings));
     return this.enqueue(() => atomicJson(path.join(this.root, 'settings.json'), settings)).then(() => { this.saved?.(); });
   }
+  saveInputs() {
+    // Composer edits are local only. Keep the durable write on the same queue as
+    // full saves, without copying and rewriting the entire conversation ledger.
+    const inputs = structuredClone(this.inputs);
+    return this.enqueue(() => atomicJson(path.join(this.root, 'inputs.json'), inputs));
+  }
   save(options: StoreSaveOptions = {}) {
     const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts, conclusions: this.conclusions, 'activity-assistant': this.activity }));
     const allowed = new Set(options.removedSessionIds || []);

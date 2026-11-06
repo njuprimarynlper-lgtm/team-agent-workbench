@@ -84,9 +84,12 @@ export class SessionInputQueue {
       const session = this.host.session(id), queue = session.inputQueue;
       const item = queue?.items.find(value => value.id === itemId);
       if (!item || item.state !== 'queued') throw new Error('消息已开始发送');
+      // The queued row is already accepted. Compaction has no steerable turn.
+      if (session.contextCompacting) return true;
       item.state = 'sending'; this.host.changed();
       try {
         await this.host.save();
+        if (session.contextCompacting) { item.state = 'queued'; await this.host.save(); return true; }
         if (!await this.host.steer(id, turnId, item.input)) throw new Error('引导未送达，消息已保留');
         queue!.items = queue!.items.filter(value => value !== item);
         // Once accepted, never put it back and accidentally execute it twice.

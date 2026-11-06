@@ -90,7 +90,7 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
   const scrolling = useConversationScroll(session?.id, `${session?.messages.length}:${session?.messages.at(-1)?.text}:${pending?.text}`, active), messages = scrolling.ref;
   if (!session) return <div className="subsession-empty">在左侧会话菜单中创建或打开子会话。</div>;
   const current = input || { text: '', sourceIds: [], answers: {} };
-  const running = ['starting', 'running', 'approval'].includes(session.status);
+  const running = !!session.contextCompacting || ['starting', 'running', 'approval'].includes(session.status);
   const parent = sessions.find(value => value.id === subsessionParentId(session));
   const children = sessions.filter(value => subsessionParentId(value) === session.id && !value.closedAt);
   const action = async (job: () => Promise<unknown>) => { try { setError(''); await job(); await changed(); } catch (reason: any) { setError(reason.message); } };

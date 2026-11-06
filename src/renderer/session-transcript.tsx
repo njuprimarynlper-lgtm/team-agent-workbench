@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ChevronRight, LoaderCircle, Terminal } from 'lucide-react';
 import type { AgentSession, Message } from '../shared/types';
 import { withoutQuestionFillTurns } from '../shared/session-context-text';
@@ -72,10 +72,11 @@ export function toolExecutionTitle(message: Message): string {
 }
 
 function ToolExecutionGroup({ messages, activity }: { messages: Message[]; activity?: string }) {
+  const [open, setOpen] = useState(false);
   const latest = toolExecutionTitle(messages[messages.length - 1]);
   // Native details owns its open state. A key based on the first tool preserves
   // the user's choice as output streams and more tools join this group.
-  return <details className="tool-execution-group">
+  return <details className="tool-execution-group" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary className="tool-execution-summary">
       <ChevronRight className="tool-execution-chevron" size={14} aria-hidden="true"/>
       {activity ? <LoaderCircle className="spin" size={14} aria-hidden="true"/> : <Terminal size={14} aria-hidden="true"/>}
@@ -83,7 +84,7 @@ function ToolExecutionGroup({ messages, activity }: { messages: Message[]; activ
       {activity && <span className="tool-execution-activity">{activity}</span>}
       <span className="tool-execution-preview" title={latest}>{latest}</span>
     </summary>
-    <div className="tool-execution-list">
+    {open && <div className="tool-execution-list">
       {messages.map(message => <div className="tool-execution-item" key={message.id}>
         <details className="tool-execution-output">
           <summary><ChevronRight size={12} aria-hidden="true"/><span>{toolExecutionTitle(message)}</span><MessageTime at={message.createdAt}/></summary>
@@ -91,11 +92,19 @@ function ToolExecutionGroup({ messages, activity }: { messages: Message[]; activ
         </details>
         <CursorNativeRecord message={message}/>
       </div>)}
-    </div>
+    </div>}
   </details>;
 }
 
-export function SessionTranscript({ session, renderMessage }: { session: AgentSession; renderMessage: (message: Message) => React.ReactNode }) {
+function TurnActivityGroup({ messages, renderRow }: { messages: Message[]; renderRow: (row: TranscriptRow) => React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <details className="turn-activity-group" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary className="tool-execution-summary"><ChevronRight className="tool-execution-chevron" size={14} aria-hidden="true"/><span>工作过程 · {messages.length} 项</span></summary>
+    {open && <div className="turn-activity-content">{sessionTranscriptRows(messages).map(item => renderRow(item))}</div>}
+  </details>;
+}
+
+export const SessionTranscript = React.memo(function SessionTranscript({ session, renderMessage }: { session: AgentSession; renderMessage: (message: Message) => React.ReactNode }) {
   const rows = sessionDisplayRows(session);
   const timings = messageTimingMap(session);
   const attached = new Set([...timings.values()].map(timing => timing.id));
@@ -103,9 +112,6 @@ export function SessionTranscript({ session, renderMessage }: { session: AgentSe
     ? <React.Fragment key={`${session.id}:tools:${row.id}`}><ToolExecutionGroup messages={row.messages} activity={activity}/>{row.messages.filter(message => timings.has(message.id)).map(message => <TurnTimingSummary key={message.id} timing={timings.get(message.id)!}/>)}</React.Fragment>
     : <React.Fragment key={`${session.id}:message:${row.id}`}>{renderMessage(row.message)}{timings.has(row.message.id) && <TurnTimingSummary timing={timings.get(row.message.id)!}/>}</React.Fragment>;
   return <>{rows.map((row, index) => row.kind === 'activity'
-    ? <details className="turn-activity-group" key={`${session.id}:activity:${row.id}`}>
-        <summary className="tool-execution-summary"><ChevronRight className="tool-execution-chevron" size={14} aria-hidden="true"/><span>工作过程 · {row.messages.length} 项</span></summary>
-        <div className="turn-activity-content">{sessionTranscriptRows(row.messages).map(item => renderRow(item))}</div>
-      </details>
+    ? <TurnActivityGroup key={`${session.id}:activity:${row.id}`} messages={row.messages} renderRow={renderRow}/>
     : renderRow(row, index === rows.length - 1 && !session.closedAt ? session.status === 'approval' ? '等待确认' : ['running', 'starting'].includes(session.status) ? '本轮进行中' : undefined : undefined))}{session.turnTimings?.slice(-1).filter(timing => timing.finishedAt && !timing.userMessageId && !timing.assistantMessageIds.length && !attached.has(timing.id)).map(timing => <TurnTimingSummary key={timing.id} timing={timing}/>)}</>;
-}
+});

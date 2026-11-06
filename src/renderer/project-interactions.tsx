@@ -65,6 +65,7 @@ export function RsiRecommendations({ inbox, error, call, reload }: { inbox?: Rsi
     {notice && <div className="rsi-notice" role="status" aria-live="polite">{notice}</div>}
     {(error || failure) && <div className="inline-error" role="alert">{failure || error}{error && <button className="text-button" onClick={() => void reload()}>重试</button>}</div>}
     {!inbox ? <p className="muted rsi-empty">{error ? '推荐暂时无法读取。' : '正在读取推荐…'}</p> : <>
+      {inbox.recovery && <div className="inline-error" role="status">AI推荐数据已从 {new Date(inbox.recovery.snapshotAt).toLocaleString('zh-CN')} 的每日快照自动恢复。此后至恢复前的推荐记录可能丢失；{inbox.recovery.archivePath ? '损坏原件已保留。' : '原数据文件缺失。'}</div>}
       {(!inbox.enabled || inbox.busy || inbox.queued || inbox.lastError) && <div className="rsi-background-status" role="status">{!inbox.enabled ? 'AI推荐已关闭，已有记录保留。' : inbox.busy ? '正在分析项目进展…' : inbox.queued ? '已记录项目变化，稍后在后台分析。' : '本次分析未完成：' + inbox.lastError}</div>}
       {!item ? <p className="muted rsi-empty">暂无待处理的推荐。</p> : <div className="rsi-layout">
         <nav className="rsi-list" aria-label="推荐列表">{items.map(value => <button key={value.id} type="button" className="rsi-list-item" aria-pressed={value.id === item.id} onClick={() => { setSelected(value.id); setFailure(''); setNotice(''); }}><span>{value.title}</span><small>{decisionLabels[value.review.decision]} · {new Date(value.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></button>)}</nav>

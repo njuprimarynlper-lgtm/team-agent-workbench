@@ -57,6 +57,17 @@ test('workbench collects explicit requirements, model inferences, tool evidence 
   assert(view.evidence.some(item => item.source === 'execution' && item.text.includes('0.71')));
   assert(view.evidence.some(item => item.source === 'project' && item.text.includes('独立检查')));
 }));
+test('repeated collection skips known log versions and picks up appended events', async () => fixture(async (workbench, root) => {
+  const session = await workbench.createSession('codex', root, offlineProjectId, 'work', undefined, 'fixture-model');
+  await workbench.store.event(session.id, { method: 'item/completed', params: { item: { type: 'commandExecution', command: 'first', aggregatedOutput: 'FIRST_RESULT' } } });
+  const first = await workbench.rsi.collect(offlineProjectId);
+  assert(first.length > 0);
+  assert.deepEqual(await workbench.rsi.collect(offlineProjectId), []);
+  await workbench.store.event(session.id, { method: 'item/completed', params: { item: { type: 'commandExecution', command: 'second', aggregatedOutput: 'SECOND_RESULT' } } });
+  const appended = await workbench.rsi.collect(offlineProjectId);
+  assert(appended.length > 0);
+  assert((await workbench.rsi.view(offlineProjectId)).evidence.some(item => item.text.includes('SECOND_RESULT')));
+}));
 test('other project/session histories and unknown accounts do not enter the current assistant', async () => fixture(async (workbench, root) => {
   const profile = workbench.store.settings.workspaceSnapshot!.profile;
   profile.projects.push({ ...profile.projects[0], id: 'other-project', name: '其他项目' });

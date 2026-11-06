@@ -57,6 +57,29 @@ test('restart marks unfinished uploads retryable and does not auto resume', asyn
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
+test('composer draft writes only inputs and stays ordered after a full save', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-input-'));
+  try {
+    const store = new Store(root); await store.init(); await store.save();
+    let scheduled = 0; store.saved = () => { scheduled++; };
+    const renamed: string[] = [], rename = fs.rename.bind(fs);
+    const mock = t.mock.method(fs, 'rename', async (from: string, to: string) => { renamed.push(path.basename(to)); return rename(from, to); });
+    store.inputs.session = { text: '中文草稿', sourceIds: [], answers: {} };
+    await store.saveInputs();
+    assert.deepEqual(renamed, ['inputs.json']);
+    assert.equal(scheduled, 0, 'local input must not schedule account or project sync');
+    store.inputs.session.text = '旧稿';
+    const full = store.save();
+    store.inputs.session.text = '最新草稿';
+    const latest = store.saveInputs();
+    await Promise.all([full, latest]);
+    assert.equal(JSON.parse(await fs.readFile(path.join(root, 'inputs.json'), 'utf8')).session.text, '最新草稿');
+    mock.mock.restore();
+    const reopened = new Store(root); await reopened.init();
+    assert.equal(reopened.inputs.session.text, '最新草稿');
+  } finally { t.mock.restoreAll(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
 test('a settings file written by an older build keeps its verified workspace after the lease is dropped', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-migrate-'));
   try {

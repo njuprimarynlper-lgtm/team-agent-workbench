@@ -484,8 +484,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       return workbench.inputQueue.steer(p.id, p.itemId, p.expectedTurnId);
     }
     case 'session.steer': {
-      const p = z.object({ id, expectedTurnId: z.string().min(1).max(200), text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw);
-      return workbench.steer(p.id, p.expectedTurnId, p.text, p.sourceIds, p.capabilities);
+      const p = z.object({ id, expectedTurnId: z.string().min(1).max(200).optional(), text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw);
+      return workbench.steerOrQueue(p.id, p.expectedTurnId, p.text, p.sourceIds, p.capabilities);
     }
     case 'session.input': { const p = z.object({ id, input: z.object({ nextTurnOnly: z.boolean().optional(), text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);

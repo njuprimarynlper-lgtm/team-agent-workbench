@@ -171,6 +171,7 @@ export interface RsiMemory {
 }
 export interface RsiView extends RsiProject {
   busy: boolean; stage?: string; queued: boolean; personalPreference: string;
+  recovery?: { snapshotAt: string; archivePath?: string };
   sourceSession?: { id: string; title: string; provider: string; model?: string; reasoningEffort?: string };
   reusablePolicies: { projectId: string; policyId: string; guidance: string; validatedProjects: number }[];
 }
@@ -202,6 +203,7 @@ export function rsiReview(suggestionId: string, events: RsiEvent[]) {
 }
 export interface RsiInbox {
   projectId: string; enabled: boolean; busy: boolean; queued: boolean; lastError?: string;
+  recovery?: { snapshotAt: string; archivePath?: string };
   sessions: { id: string; title: string }[];
   items: (RsiSuggestion & { review: ReturnType<typeof rsiReview>; evidence: Pick<RsiEvidence, 'id' | 'source' | 'text' | 'eventAt'>[] })[];
 }

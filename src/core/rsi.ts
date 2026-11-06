@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { atomicJson } from './store';
+import { RsiDailySnapshot } from './rsi-snapshot';
 import type { TextTask } from './background-text';
 import type { AgentSession } from '../shared/types';
 import { applyMemory, emptyMemory, evidenceKey, latestProjectEvidence, pendingEvidence, projectContext } from './rsi-context';
@@ -17,6 +18,7 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 const iso = () => new Date().toISOString();
 const parse = (value: string) => JSON.parse(value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
 const busy = (session: AgentSession) => ['starting', 'running', 'approval'].includes(session.status);
+class RsiVersionError extends Error {}
 const modelKey = (session: AgentSession) => `${session.provider}/${session.model || 'default'}/${session.reasoningEffort || 'default'}`;
 const atOrBefore = (value: string, cutoff: string) => Number.isFinite(Date.parse(value)) && Date.parse(value) <= Date.parse(cutoff);
 function contextSettings(config: RsiConfig) {
@@ -27,8 +29,9 @@ export interface RsiHost {
   scope(projectId: string): RsiScope;
   session(projectId: string): AgentSession | undefined;
   sessions?(projectId: string): AgentSession[];
-  collect(projectId: string): Promise<RsiObservation[]>;
+  collect(projectId: string, known?: ReadonlyMap<string, string>): Promise<RsiObservation[]>;
   changed(): void;
+  notice?(message: string): void;
   execution?(projectId: string, config: RsiConfig): AgentSession;
   resolveExecution?(session: AgentSession): Promise<AgentSession>;
 }
@@ -83,48 +86,94 @@ export class RsiEngine {
   private jobs = new Map<string, { stage: string; promise: Promise<void>; controller: AbortController }>();
   private pending = new Map<string, string>();
   private timer?: NodeJS.Timeout;
+  private snapshotTimer?: NodeJS.Timeout;
+  private snapshot: RsiDailySnapshot;
+  private recovery?: { snapshotAt: string; archivePath?: string };
   private draining = false;
   private closed = false;
-  constructor(private root: string, private host: RsiHost, public runText: TextTask, private timing = { debounceMs: 25000, retryMs: 60000 }) {}
+  constructor(private root: string, private host: RsiHost, public runText: TextTask, private timing = { debounceMs: 25000, retryMs: 60000 }) {
+    this.snapshot = new RsiDailySnapshot(root, value => this.prepareSaved(value));
+  }
   get busy() { return this.jobs.size > 0; }
+  private async captureSnapshot() {
+    try { await this.snapshot.captureIfDue(); return true; }
+    catch (error) { console.error('AI推荐每日快照失败：', error instanceof Error ? error.message : error); return false; }
+  }
+  private scheduleSnapshot(retry = false) {
+    if (this.closed) return;
+    if (this.snapshotTimer) {
+      if (!retry) return;
+      clearTimeout(this.snapshotTimer);
+      this.snapshotTimer = undefined;
+    }
+    const now = new Date(), next = new Date(now);
+    next.setHours(24, 0, 0, 0);
+    this.snapshotTimer = setTimeout(async () => {
+      this.snapshotTimer = undefined;
+      this.scheduleSnapshot(!await this.captureSnapshot());
+    }, retry ? 60 * 60 * 1000 : Math.max(1000, next.getTime() - now.getTime()));
+    this.snapshotTimer.unref();
+  }
+  private prepareSaved(saved: any) {
+    if (saved && typeof saved === 'object' && 'version' in saved && ![2, 3].includes(saved.version)) throw new RsiVersionError('项目助手数据版本不兼容');
+    if (![2, 3].includes(saved?.version) || !saved.projects || typeof saved.projects !== 'object' || Array.isArray(saved.projects)) throw new Error('项目助手数据格式不兼容');
+    const projects = saved.projects as Record<string, RsiProject>;
+    for (const project of Object.values(projects)) {
+      // Older releases also persisted untouched defaults while collecting evidence.
+      // Upgrade those defaults, but preserve explicit settings and quiet mode.
+      if (project.config.enabled === false && !project.settingsConfigured && !project.config.quiet && !project.evidence.some(item => item.source === 'configuration' && item.sourceId === 'explicit-project-settings' && item.assertion === 'explicit')) project.config.enabled = true;
+      project.config = rsiConfigSchema.parse(project.config);
+      project.memory ||= emptyMemory();
+      for (const policy of project.policies) {
+        rsiPolicySchema.parse(policy.rules); policy.bundle ||= policyBundle();
+        if (policy.bundle.contract !== 1) throw new Error('AI推荐策略协议不兼容，原策略已保留');
+      }
+      // Preserve history and user decisions; pending cards from an older quality
+      // contract must not continue to masquerade as newly approved recommendations.
+      for (const suggestion of project.suggestions) {
+        const review = rsiReview(suggestion.id, project.events);
+        const run = project.runs.find(item => item.id === suggestion.runId);
+        if (!suggestion.supersededByQuality && review.decision === 'pending' && !review.closed && run?.valueReview?.contract !== valueReviewContract) {
+          suggestion.supersededByQuality = valueReviewContract;
+          project.qualityRefreshPending = true;
+        }
+      }
+      if (project.qualityRefreshPending && project.config.enabled && !project.config.quiet) {
+        project.pending ||= {};
+        project.pending.recommendation ||= { trigger: 'quality-upgrade', dueAt: Date.now() + this.timing.debounceMs };
+      }
+      for (const run of project.runs) if (run.status === 'running') { run.status = 'interrupted'; run.error = '上次运行已中断，可重新分析；不会自动重复调用。'; }
+    }
+    return { version: saved.version as number, projects, preferences: saved.preferences || {} };
+  }
   private async ready() {
     if (!this.readyTask) this.readyTask = (async () => {
       const file = path.join(this.root, 'rsi-v2.json');
+      let prepared: ReturnType<RsiEngine['prepareSaved']>, recovered = false;
       try {
-        const saved = JSON.parse(await fs.readFile(file, 'utf8'));
-        if (![2, 3].includes(saved.version) || !saved.projects || typeof saved.projects !== 'object') throw new Error('项目助手数据格式不兼容');
-        if (saved.version === 2) await fs.copyFile(file, file + '.v2-backup', 1).catch((error: any) => { if (error.code !== 'EEXIST') throw error; });
-        this.projects = saved.projects;
-        this.preferences = saved.preferences || {};
-        for (const project of Object.values(this.projects)) {
-          // Older releases also persisted untouched defaults while collecting evidence.
-          // Upgrade those defaults, but preserve explicit settings and quiet mode.
-          if (project.config.enabled === false && !project.settingsConfigured && !project.config.quiet && !project.evidence.some(item => item.source === 'configuration' && item.sourceId === 'explicit-project-settings' && item.assertion === 'explicit')) project.config.enabled = true;
-          project.config = rsiConfigSchema.parse(project.config);
-          project.memory ||= emptyMemory();
-          for (const policy of project.policies) {
-            rsiPolicySchema.parse(policy.rules); policy.bundle ||= policyBundle();
-            if (policy.bundle.contract !== 1) throw new Error('AI推荐策略协议不兼容，原策略已保留');
-          }
-          // Preserve history and user decisions; pending cards from an older quality
-          // contract must not continue to masquerade as newly approved recommendations.
-          for (const suggestion of project.suggestions) {
-            const review = rsiReview(suggestion.id, project.events);
-            const run = project.runs.find(item => item.id === suggestion.runId);
-            if (!suggestion.supersededByQuality && review.decision === 'pending' && !review.closed && run?.valueReview?.contract !== valueReviewContract) {
-              suggestion.supersededByQuality = valueReviewContract;
-              project.qualityRefreshPending = true;
-            }
-          }
-          if (project.qualityRefreshPending && project.config.enabled && !project.config.quiet) {
-            project.pending ||= {};
-            project.pending.recommendation ||= { trigger: 'quality-upgrade', dueAt: Date.now() + this.timing.debounceMs };
-          }
-          for (const run of project.runs) if (run.status === 'running') { run.status = 'interrupted'; run.error = '上次运行已中断，可重新分析；不会自动重复调用。'; }
+        prepared = this.prepareSaved(JSON.parse(await fs.readFile(file, 'utf8')));
+      } catch (error: any) {
+        if (error instanceof RsiVersionError || error.code && error.code !== 'ENOENT') throw error;
+        try {
+          const restored = await this.snapshot.restoreFromSnapshot(value => this.prepareSaved(value));
+          prepared = restored.value;
+          this.recovery = { snapshotAt: restored.snapshotAt, archivePath: restored.archivePath };
+          recovered = true;
+        } catch (snapshotError: any) {
+          if (error.code === 'ENOENT' && snapshotError.code === 'ENOENT') return;
+          throw new Error('AI推荐数据异常，且每日快照未能自动恢复；原文件已保留：' + (snapshotError instanceof Error ? snapshotError.message : String(snapshotError)), { cause: snapshotError });
         }
-      } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+      }
+      if (prepared.version === 2) await fs.copyFile(file, file + '.v2-backup', 1).catch((error: any) => { if (error.code !== 'EEXIST') throw error; });
+      this.projects = prepared.projects;
+      this.preferences = prepared.preferences;
+      if (recovered) this.host.notice?.(`AI推荐数据已从 ${new Date(this.recovery!.snapshotAt).toLocaleString('zh-CN')} 的每日快照自动恢复；快照之后的记录可能丢失。${this.recovery!.archivePath ? '损坏原件已保留。' : '原数据文件缺失。'}`);
+      else this.scheduleSnapshot(!await this.captureSnapshot());
+      if (recovered) this.scheduleSnapshot();
     })();
-    await this.readyTask;
+    const task = this.readyTask;
+    try { await task; }
+    catch (error) { if (this.readyTask === task) this.readyTask = undefined; throw error; }
   }
   private project(projectId: string) {
     const scope = this.host.scope(projectId);
@@ -149,14 +198,24 @@ export class RsiEngine {
     await this.ready();
     const work = this.writes.catch(() => {}).then(async () => {
       const project = this.project(projectId), before = structuredClone(this.projects), preferences = structuredClone(this.preferences);
-      try { const result = apply(project); await atomicJson(path.join(this.root, 'rsi-v2.json'), { version: 3, projects: this.projects, preferences: this.preferences }); this.host.changed(); return structuredClone(result); }
+      try { const result = apply(project); await atomicJson(path.join(this.root, 'rsi-v2.json'), { version: 3, projects: this.projects, preferences: this.preferences }); this.host.changed(); this.scheduleSnapshot(!await this.captureSnapshot()); return structuredClone(result); }
       catch (error) { this.projects = before; this.preferences = preferences; throw error; }
     });
     this.writes = work.then(() => {}, () => {}); return work;
   }
-  async view(projectId: string): Promise<RsiView> {
+  private async current(projectId: string): Promise<RsiProject> {
     await this.ready(); await this.writes;
-    const project = this.project(projectId);
+    return this.project(projectId);
+  }
+  private async analysisProject(projectId: string, latestRun = false): Promise<RsiProject> {
+    const source = await this.current(projectId);
+    const last = latestRun ? source.runs.findLast(item => item.status === 'completed' && item.output !== undefined && item.state) : undefined;
+    // Historical run snapshots are an audit ledger. Recommendation and evaluation
+    // need the current evidence, but cloning the entire ledger on each call is costly.
+    return structuredClone({ ...source, runs: last ? [{ ...last, snapshot: undefined }] : [] });
+  }
+  async view(projectId: string): Promise<RsiView> {
+    const project = await this.current(projectId);
     const reusablePolicies: RsiView['reusablePolicies'] = [];
     for (const source of Object.values(this.projects)) {
       if (source.scope.key === project.scope.key || source.scope.account !== project.scope.account) continue;
@@ -166,7 +225,7 @@ export class RsiEngine {
       reusablePolicies.push({ projectId: source.scope.projectId, policyId: policy.id, guidance: policy.rules.guidance, validatedProjects: this.proofs(policy).size });
     }
     const source = this.execution(projectId), sourceSession = source ? { id: source.id, title: source.title, provider: source.provider, model: source.model, reasoningEffort: source.reasoningEffort } : undefined;
-    return structuredClone({ ...project, sourceSession, personalPreference: this.preferences[project.scope.account]?.text || '', reusablePolicies, busy: this.jobs.has(project.scope.key), stage: this.jobs.get(project.scope.key)?.stage, queued: !!(project.pending?.recommendation || project.pending?.learning) });
+    return structuredClone({ ...project, sourceSession, personalPreference: this.preferences[project.scope.account]?.text || '', reusablePolicies, busy: this.jobs.has(project.scope.key), stage: this.jobs.get(project.scope.key)?.stage, queued: !!(project.pending?.recommendation || project.pending?.learning), recovery: this.recovery });
   }
   private proofs(policy: RsiPolicy) {
     const family = policy.familyId || policy.id, projects = new Set<string>();
@@ -178,11 +237,11 @@ export class RsiEngine {
     return sessions.filter(item => item.purpose === 'work' && !item.closedAt);
   }
   async inbox(projectId: string): Promise<RsiInbox> {
-    const view = await this.view(projectId), sessions = this.linkableSessions(projectId);
-    return { projectId, enabled: view.config.enabled && !view.config.quiet, busy: view.busy, queued: view.queued, lastError: view.lastError,
+    const project = await this.current(projectId), sessions = this.linkableSessions(projectId);
+    return { projectId, enabled: project.config.enabled && !project.config.quiet, busy: this.jobs.has(project.scope.key), queued: !!(project.pending?.recommendation || project.pending?.learning), lastError: project.lastError, recovery: this.recovery,
       sessions: sessions.map(({ id, title }) => ({ id, title })),
-      items: [...view.suggestions].reverse().filter(suggestion => !suggestion.supersededByQuality).map(suggestion => ({ ...suggestion, review: rsiReview(suggestion.id, view.events),
-        evidence: suggestion.evidenceIds.map(id => view.evidence.find(item => item.id === id)).filter((item): item is RsiEvidence => !!item).map(({ id, source, text, eventAt }) => ({ id, source, text: text.slice(0, 3500), eventAt })) })).filter(item => !item.review.closed) };
+      items: [...project.suggestions].reverse().filter(suggestion => !suggestion.supersededByQuality).map(suggestion => ({ ...suggestion, review: rsiReview(suggestion.id, project.events),
+        evidence: suggestion.evidenceIds.map(id => project.evidence.find(item => item.id === id)).filter((item): item is RsiEvidence => !!item).map(({ id, source, text, eventAt }) => ({ id, source, text: text.slice(0, 3500), eventAt })) })).filter(item => !item.review.closed) };
   }
   private effectiveConfig(project: RsiProject): RsiConfig {
     const preference = this.preferences[project.scope.account]?.text;
@@ -246,7 +305,9 @@ export class RsiEngine {
   }
   async collect(projectId: string) {
     if (this.closed) return [];
-    this.host.scope(projectId); const inputs = await this.host.collect(projectId);
+    const project = await this.current(projectId);
+    const known = new Map(project.evidence.map(item => [evidenceKey(item), item.version]));
+    const inputs = await this.host.collect(projectId, known);
     return this.closed ? [] : this.observe(projectId, inputs);
   }
   async forgetSession(projectId: string, sessionId: string) {
@@ -311,20 +372,20 @@ export class RsiEngine {
       project.revision++;
       return event;
     });
-    const current = await this.view(projectId);
+    const current = await this.current(projectId);
     if (current.config.enabled && current.config.autoLearn && reaction.text && ['accepted', 'rejected', 'feedback', 'supplement', 'outcome'].includes(reaction.kind)) this.enqueue(projectId, 'learn');
     return result;
   }
   async completed(projectId: string) {
     if (this.closed) return;
-    const current = await this.view(projectId);
+    const current = await this.current(projectId);
     if (!current.config.enabled) return;
     const added = await this.collect(projectId);
-    if (added.length || pendingEvidence(await this.view(projectId)).length) this.enqueue(projectId, 'turn');
+    if (added.length || pendingEvidence(await this.current(projectId)).length) this.enqueue(projectId, 'turn');
   }
   async activate(projectId: string) {
     if (this.closed) return;
-    const view = await this.view(projectId);
+    const view = await this.current(projectId);
     if (!view.config.enabled || view.config.quiet) return;
     await this.completed(projectId);
     if (view.pending?.recommendation || view.pending?.learning) this.wake(projectId);
@@ -348,7 +409,7 @@ export class RsiEngine {
     this.draining = true;
     try { for (const [projectId] of this.pending) {
       try {
-        const view = await this.view(projectId);
+        const view = await this.current(projectId);
         if (!view.config.enabled || view.config.quiet || this.jobs.has(view.scope.key)) continue;
         const task = view.pending?.recommendation, learning = view.pending?.learning;
         if (!task && !learning) { this.pending.delete(projectId); continue; }
@@ -363,7 +424,7 @@ export class RsiEngine {
     } } finally { this.draining = false; }
   }
   async start(projectId: string, operation: 'recommend' | 'learn' | 'evaluate', trigger = 'manual', candidateId?: string) {
-    const project = await this.view(projectId);
+    const project = await this.current(projectId);
     if (!project.config.enabled) throw new Error('请先开启项目助手');
     if (this.jobs.has(project.scope.key)) throw new Error('项目助手正在处理上一项任务，请完成后再试');
     const session = this.execution(projectId);
@@ -410,7 +471,7 @@ export class RsiEngine {
   }
   private async recommend(projectId: string, session: AgentSession, trigger: string, signal: AbortSignal) {
     await this.collect(projectId);
-    const project = await this.view(projectId), policy = project.policies.find(item => item.id === project.activePolicyId)!;
+    const project = await this.analysisProject(projectId, true), policy = project.policies.find(item => item.id === project.activePolicyId)!;
     const config = this.effectiveConfig(project), configHash = hash(config);
     const last = project.runs.filter(item => item.status === 'completed' && item.output !== undefined && item.state).at(-1);
     if (project.config.quiet) return;
@@ -521,7 +582,7 @@ export class RsiEngine {
     });
   }
   private async evaluate(projectId: string, session: AgentSession, candidateId: string, signal: AbortSignal) {
-    const project = await this.view(projectId), candidate = project.policies.find(item => item.id === candidateId && item.status === 'candidate');
+    const project = await this.analysisProject(projectId), candidate = project.policies.find(item => item.id === candidateId && item.status === 'candidate');
     if (!candidate || candidate.baseId !== project.activePolicyId) throw new Error('候选策略的基线已变化，请重新提炼');
     assertLearningCurrent(project, candidate);
     const base = project.policies.find(item => item.id === candidate.baseId)!;
@@ -606,5 +667,5 @@ export class RsiEngine {
     });
   }
   async pause() { clearInterval(this.timer); this.timer = undefined; this.pending.clear(); for (const job of this.jobs.values()) job.controller.abort(); await this.settled(); }
-  async close() { this.closed = true; await this.pause(); }
+  async close() { this.closed = true; clearTimeout(this.snapshotTimer); this.snapshotTimer = undefined; await this.pause(); await this.snapshot.settled(); }
 }
