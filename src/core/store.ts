@@ -57,6 +57,9 @@ export async function atomicJson(file: string, data: unknown, ascii = false) {
   } finally { await fs.rm(temp, { force: true }).catch(() => {}); }
 }
 export class Store {
+  private inputWrite: Promise<void> = Promise.resolve();
+  private retryInputWrite = false;
+  private inputSave?: { timer: ReturnType<typeof setTimeout>; promise: Promise<void>; resolve: () => void; reject: (error: unknown) => void };
   activity: import('../shared/activity-assistant').ActivityAssistantState = { baselines: {}, jobs: [] };
   saved?: () => void;
   settings: Settings = { codexRequestGuard: true, connections: [], providerPaths: { codex: '', cursor: '', claude: '' }, lastWorkspace: '', trustedServerIdentities: {} };
@@ -155,12 +158,28 @@ export class Store {
     return this.enqueue(() => atomicJson(path.join(this.root, 'settings.json'), settings)).then(() => { this.saved?.(); });
   }
   saveInputs() {
-    // Composer edits are local only. Keep the durable write on the same queue as
-    // full saves, without copying and rewriting the entire conversation ledger.
+    // Edits are already in memory. Coalesce disk writes, not the input itself.
+    if (this.inputSave) { clearTimeout(this.inputSave.timer); this.inputSave.timer = setTimeout(() => { void this.flushInputs().catch(() => {}); }, 300); return this.inputSave.promise; }
+    let resolve!: () => void, reject!: (error: unknown) => void;
+    const promise = new Promise<void>((ok, failed) => { resolve = ok; reject = failed; });
+    this.inputSave = { promise, resolve, reject, timer: setTimeout(() => { void this.flushInputs().catch(() => {}); }, 300) };
+    return promise;
+  }
+  flushInputs(): Promise<void> {
+    if (!this.inputSave && this.retryInputWrite) void this.saveInputs().catch(() => {});
+    const pending = this.inputSave;
+    if (!pending) return this.inputWrite;
+    clearTimeout(pending.timer); this.inputSave = undefined;
     const inputs = structuredClone(this.inputs);
-    return this.enqueue(() => atomicJson(path.join(this.root, 'inputs.json'), inputs));
+    const write = this.enqueue(() => atomicJson(path.join(this.root, 'inputs.json'), inputs));
+    this.inputWrite = write; this.retryInputWrite = false;
+    void write.then(() => { if (this.inputWrite === write) this.retryInputWrite = false; pending.resolve(); }, error => { if (this.inputWrite === write) this.retryInputWrite = true; pending.reject(error); });
+    return write;
   }
   save(options: StoreSaveOptions = {}) {
+    // Full saves (including send, account changes and shutdown) are barriers.
+    // Enqueue the pending input before the ledger snapshot, never after it.
+    void this.flushInputs().catch(() => {});
     const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts, conclusions: this.conclusions, 'activity-assistant': this.activity }));
     const allowed = new Set(options.removedSessionIds || []);
     const source = options.source || new Error('Store.save 调用来源').stack || 'Store.save';

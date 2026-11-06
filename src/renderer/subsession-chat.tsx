@@ -3,7 +3,8 @@ import { guardNetworkMessage, parseGuardNetworkProblem } from '../shared/guard-n
 import { MarkdownEditor } from './markdown-editor';
 import { SessionDirectoryStatus } from './project-directory';
 import { DirectoryMoveNotice } from './directory-move-notice';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { SessionInputDrafts, useSessionInputDraft } from './session-input-drafts';
 import { X } from 'lucide-react';
 import { editableTurnMessage } from '../shared/editable-turn';
 import { ConversationMessage } from './conversation-message';
@@ -74,10 +75,11 @@ export function SessionTree({ sessions, selectedId, childId, open, create, promo
   ]}/>}</>;
 }
 
-export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId, configureAgent, followUpMode, queueSideChat, composerTools }: {
+export function SubsessionChat({ session, sessions, input, inputDrafts, flush, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId, configureAgent, followUpMode, queueSideChat, composerTools }: {
   session?: AgentSession; sessions: AgentSession[]; input?: SessionInput; edit: (id: string, patch: Partial<SessionInput>) => void;
   composerTools?: (session: AgentSession, input: SessionInput) => React.ReactNode;
   followUpMode?: FollowUpMode; queueSideChat?: (session: AgentSession, itemId: string) => Promise<void>;
+  inputDrafts?: SessionInputDrafts; flush?: (id: string) => Promise<unknown>;
   api: WorkbenchAPI; active: boolean; activeTurnId?: string; open: (session: AgentSession) => void; sideChat?: (session: AgentSession, text?: string) => void;
   promote: (session: AgentSession) => void; remove: (session: AgentSession) => void; closed: (id: string) => void; locked?: boolean; changed: () => Promise<void>; configureAgent?: () => void;
 }) {
@@ -86,13 +88,18 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
   const lock = useRef(false), swappingDraft = useRef(false), availabilityLock = useRef(false), referenceLock = useRef(false);
   const [detaching, setDetaching] = useState(false);
   const [changingAvailability, setChangingAvailability] = useState(false);
-  const latestInput = useRef(input); latestInput.current = input;
+  const [fallbackDrafts] = useState(() => new SessionInputDrafts());
+  const { input: current, error: inputError } = useSessionInputDraft(inputDrafts || fallbackDrafts, session?.id || '', input);
+  const latestInput = useRef(current); latestInput.current = current;
+  const actions = useRef({ edit, sideChat }); actions.current = { edit, sideChat };
+  const editableMessageId = session && !locked ? editableTurnMessage(session)?.id : undefined;
+  const render = useMemo(() => session ? (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} editLast={editableMessageId === message.id ? async text => { if (!await api.call('session.editLast', { id: session.id, messageId: message.id, text })) throw Error('未能确认发送，请核对会话记录'); await changed(); } : undefined} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => { const current = latestInput.current; actions.current.edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }); } : undefined} sideChat={!session.closedAt && sideChat ? text => actions.current.sideChat?.(session, text) : undefined}/> : (_message: Message) => null, [session, !!sideChat, editableMessageId]);
+  const inherited = useMemo(() => session && history ? { ...session, messages: history, status: 'idle' as const, turnTimings: undefined } : undefined, [session, history]);
   const latestSessionId = useRef(session?.id); latestSessionId.current = session?.id;
   useEffect(() => { setError(''); setHistory(undefined); }, [session?.id]);
   useSessionCompletionRead(active ? session : undefined, (id, completionId) => api.call('session.completion.read', { id, completionId }), reason => setError(reason.message));
   const scrolling = useConversationScroll(session?.id, `${session?.messages.length}:${session?.messages.at(-1)?.text}:${pending?.text}`, active), messages = scrolling.ref;
   if (!session) return <div className="subsession-empty">在左侧会话菜单中创建或打开子会话。</div>;
-  const current = input || { text: '', sourceIds: [], answers: {} };
   const running = !!session.contextCompacting || ['starting', 'running', 'approval'].includes(session.status);
   const parent = sessions.find(value => value.id === subsessionParentId(session));
   const children = sessions.filter(value => subsessionParentId(value) === session.id && !value.closedAt);
@@ -116,6 +123,7 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
   const finishQueueEdit = async (cancel: boolean) => {
     if (!current.editingQueueItemId || !lockDraft(true)) return;
     try {
+      await flush?.(session.id);
       await queueDraftAction(api, session.id, current.editingQueueItemId, current, cancel ? 'cancelEdit' : 'saveEdit', replaceDraft);
       await changed();
     } catch (reason: any) { setError(reason.message); }
@@ -131,7 +139,7 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
     const enqueue = mode === 'queue' || mode === 'steer';
     setPending({ text: current.text, beforeMessageCount: session.messages.length, phase: mode === 'steer' ? 'steering' : enqueue ? 'queueing' : 'submitting' });
     scrolling.latest();
-    try { setError(''); const accepted = await submitOptimisticInput(api, session.id, current, () => latestInput.current || current, replaceDraft, enqueue, mode === 'steer' ? activeTurnId : undefined); if (!accepted) throw new Error('消息未能送达，请检查后重试'); setFailed(undefined); await changed().catch(reason => setError('消息已发送，刷新失败：' + reason.message)); }
+    try { setError(''); await flush?.(session.id); const accepted = await submitOptimisticInput(api, session.id, current, () => latestInput.current || current, replaceDraft, enqueue, mode === 'steer' ? activeTurnId : undefined); if (!accepted) throw new Error('消息未能送达，请检查后重试'); setFailed(undefined); await changed().catch(reason => setError('消息已发送，刷新失败：' + reason.message)); }
     catch (reason: any) { setError(reason.message); setFailed(structuredClone(current)); }
     finally { lock.current = false; setSending(false); setPending(undefined); }
   };
@@ -147,8 +155,6 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       await changed();
     } finally { referenceLock.current = false; setDetaching(false); }
   };
-  const editableMessageId = !locked ? editableTurnMessage(session)?.id : undefined;
-  const render = (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} editLast={editableMessageId === message.id ? async text => { if (!await api.call('session.editLast', { id: session.id, messageId: message.id, text })) throw Error('未能确认发送，请核对会话记录'); await changed(); } : undefined} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}/>;
   return <section className="subsession-chat" aria-label={'子会话：' + session.title}>
     <header>
       <div className="subsession-heading"><SessionName key={session.id} title={session.title} variant="subsession" save={async title => { await api.call('session.rename', { id: session.id, title }); await changed(); }}/>{session.closedAt ? <span className="muted small" role="status">已关闭</span> : <SessionStatusIndicator session={session}/>}
@@ -166,8 +172,8 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
     {children.length > 0 && <details className="subsession-child-list"><summary>下级子会话 · {children.length}</summary><nav className="subsession-child-links" aria-label="下级子会话">{children.map(child => <button key={child.id} title={child.title} onClick={() => open(child)}><span>{child.title}</span><SessionStatusIndicator session={child}/></button>)}</nav></details>}
     <div className="subsession-messages" ref={messages} onScroll={scrolling.onScroll}>
       <SelectionActions sessionId={session.id} add={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text) }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}>
-        {session.fork && <details className="inherited-conversation" onToggle={event => { if (event.currentTarget.open && !history) void api.call<Message[]>('subsession.history', { id: session.id }).then(setHistory, reason => setError(reason.message)); }}><summary>创建时的上下文 · {new Date(session.fork.capturedAt).toLocaleTimeString('zh-CN')}{session.fork.parentWasRunning ? ' · 包含当时未完成的回复' : ''}</summary>{history ? <SessionTranscript session={{ ...session, messages: history, status: 'idle', turnTimings: undefined }} renderMessage={render}/> : <p>正在读取固定快照…</p>}</details>}
-        <SessionTranscript session={session} renderMessage={render}/>
+        {session.fork && <details className="inherited-conversation" onToggle={event => { if (event.currentTarget.open && !history) void api.call<Message[]>('subsession.history', { id: session.id }).then(setHistory, reason => setError(reason.message)); }}><summary>创建时的上下文 · {new Date(session.fork.capturedAt).toLocaleTimeString('zh-CN')}{session.fork.parentWasRunning ? ' · 包含当时未完成的回复' : ''}</summary>{inherited ? <SessionTranscript session={inherited} renderMessage={render} active={active}/> : <p>正在读取固定快照…</p>}</details>}
+        <SessionTranscript session={session} renderMessage={render} active={active}/>
       </SelectionActions>
       {pending && <PendingSessionMessage pending={pending} messages={session.messages} session={session}/>}
       <SessionTurnProgress session={session}/>
@@ -175,6 +181,6 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       {scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}
       {failed && <button className="text-button" onClick={() => { if ((current.text.trim() || current.sourceIds.length || current.capabilities?.length) && JSON.stringify(current) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } edit(session.id, failed); setFailed(undefined); setError(''); }}>恢复未发送消息到输入框</button>}{(error || session.error) && <GuardConnectionError message={error || session.error!} configure={configureAgent} testConnection={() => api.call("guard.connection.test", { sessionId: session.id })}><p role="alert" className="inline-error">{error || session.error}</p></GuardConnectionError>}
     </div>
-    {!session.closedAt && <div className="subsession-composer"><DirectoryMoveNotice key={'directory-' + session.id} session={session} api={api} changed={changed}/><PendingQueueMessage pending={pending}/><SessionInputQueue key={'queue-' + session.id} session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={locked || sending} lockDraft={lockDraft} draft={current} replace={replaceDraft} followUpMode={followUpMode} sideChat={queueSideChat ? itemId => queueSideChat(session, itemId) : undefined}/><SessionSyncFrame key={'sync-' + session.id} session={session} api={api} changed={changed} locked={!!locked || sending || changingAvailability} references={{ sourceIds: current.sourceIds, select: sourceIds => edit(session.id, { sourceIds }), detach: detachSource, detaching }}><div className="composer"><MarkdownEditor aria-label="子会话输入" readOnly={swappingDraft.current} disabled={locked} value={current.text} placeholder={locked ? '关联求助正在自动对话' : current.editingQueueItemId ? '编辑排队消息…' : follow === 'steer' ? '补充本轮要求…' : follow === 'queue' ? '输入下一条消息，回车加入队列…' : '在这个分支继续提问…'} onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'Escape' && current.editingQueueItemId && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); void finishQueueEdit(true); return; } if (event.key === 'ArrowUp' && !current.text && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) { const previous = session.messages.findLast(message => message.role === 'user'); if (previous) { event.preventDefault(); edit(session.id, { text: sessionMessageText(session, previous) }); } return; } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (!event.repeat) void send(event.ctrlKey || event.metaKey); } }}/><div className="composer-bottom">{composerTools?.(session, current)}<ComposerSettings key={session.id} session={session}/>{session.provider !== 'claude' && !session.cursorNative && <ComposerMode key={'mode-' + session.id} session={session}/>}<div className="subsession-composer-actions"><ComposerActions session={session} activeTurnId={activeTurnId} text={current.text} locked={locked} followUpMode={followUpMode} nextTurnOnly={current.nextTurnOnly} busy={sending || changingAvailability} send={() => void send()} stop={() => void action(() => api.call('session.stop', { id: session.id }))}/></div></div></div></SessionSyncFrame></div>}
+    {!session.closedAt && <div className="subsession-composer"><DirectoryMoveNotice key={'directory-' + session.id} session={session} api={api} changed={changed}/><PendingQueueMessage pending={pending}/><SessionInputQueue key={'queue-' + session.id} session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={locked || sending} lockDraft={lockDraft} draft={current} replace={replaceDraft} followUpMode={followUpMode} sideChat={queueSideChat ? itemId => queueSideChat(session, itemId) : undefined}/><SessionSyncFrame key={'sync-' + session.id} session={session} api={api} changed={changed} locked={!!locked || sending || changingAvailability} references={{ sourceIds: current.sourceIds, select: sourceIds => edit(session.id, { sourceIds }), detach: detachSource, detaching }}><div className="composer"><MarkdownEditor aria-label="子会话输入" readOnly={swappingDraft.current} disabled={locked} value={current.text} onBlur={() => { void flush?.(session.id).catch(() => {}); }} placeholder={locked ? '关联求助正在自动对话' : current.editingQueueItemId ? '编辑排队消息…' : follow === 'steer' ? '补充本轮要求…' : follow === 'queue' ? '输入下一条消息，回车加入队列…' : '在这个分支继续提问…'} onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'Escape' && current.editingQueueItemId && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); void finishQueueEdit(true); return; } if (event.key === 'ArrowUp' && !current.text && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) { const previous = session.messages.findLast(message => message.role === 'user'); if (previous) { event.preventDefault(); edit(session.id, { text: sessionMessageText(session, previous) }); } return; } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (!event.repeat) void send(event.ctrlKey || event.metaKey); } }}/><div className="composer-bottom">{composerTools?.(session, current)}<ComposerSettings key={session.id} session={session}/>{session.provider !== 'claude' && !session.cursorNative && <ComposerMode key={'mode-' + session.id} session={session}/>}<div className="subsession-composer-actions"><ComposerActions session={session} activeTurnId={activeTurnId} text={current.text} locked={locked} followUpMode={followUpMode} nextTurnOnly={current.nextTurnOnly} busy={sending || changingAvailability} send={() => void send()} stop={() => void action(() => api.call('session.stop', { id: session.id }))}/></div></div></div></SessionSyncFrame>{inputError && <p className="inline-error" role="alert">{inputError}</p>}</div>}
   </section>;
 }

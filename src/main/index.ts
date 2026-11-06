@@ -510,6 +510,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       return workbench.steerOrQueue(p.id, p.expectedTurnId, p.text, p.sourceIds, p.capabilities);
     }
     case 'session.input': { const p = z.object({ id, input: z.object({ editingQueueItemId: id.optional(), nextTurnOnly: z.boolean().optional(), text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
+    case 'session.input.flush': { workbench.session(sessionInput.parse(raw).id); await workbench.store.flushInputs(); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
     case 'session.close': return workbench.closeSession(sessionInput.parse(raw).id);
     case 'session.delete': return workbench.deleteSession(sessionInput.parse(raw).id);

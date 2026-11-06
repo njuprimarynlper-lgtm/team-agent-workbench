@@ -78,14 +78,19 @@ function MarkdownTable({ children }: React.ComponentPropsWithoutRef<'table'>) {
 
 // Stable component identities keep already-loaded images and diagrams mounted as a reply streams.
 const components: Components = { a: MarkdownLink, img: MarkdownImage, pre: MarkdownPre, table: MarkdownTable };
-export function Markdown({ text, openFile, sessionId, conversation }: { text: string } & MarkdownContext) {
-  const [file, setFile] = useState<{ sessionId: string; path: string }>();
-  const preview = openFile ?? (sessionId ? (path: string) => setFile({ sessionId, path }) : undefined);
-  return <context.Provider value={{ sessionId, openFile: preview, conversation }}><div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url, key) => {
+// Snapshots and action callbacks change while a reply streams. Parse only the
+// messages whose text changed; links/images still receive the latest context.
+const MarkdownContent = React.memo(function MarkdownContent({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url, key) => {
     if (key === 'src') return markdownImageSource(url).kind === 'unsupported' ? '' : url;
     const target = markdownLinkTarget(url);
     return target.kind === 'unsupported' ? '' : target.value;
-  }} components={components}>{prepareDiagramMarkdown(text)}</ReactMarkdown></div>
+  }} components={components}>{prepareDiagramMarkdown(text)}</ReactMarkdown>;
+});
+export function Markdown({ text, openFile, sessionId, conversation }: { text: string } & MarkdownContext) {
+  const [file, setFile] = useState<{ sessionId: string; path: string }>();
+  const preview = openFile ?? (sessionId ? (path: string) => setFile({ sessionId, path }) : undefined);
+  return <context.Provider value={{ sessionId, openFile: preview, conversation }}><div className="markdown"><MarkdownContent text={text}/></div>
     {file && file.sessionId === sessionId && createPortal(<SessionFilesDialog key={JSON.stringify(file)} sessionId={file.sessionId} initialPath={file.path} close={() => setFile(undefined)}/>, document.body)}
   </context.Provider>;
 }

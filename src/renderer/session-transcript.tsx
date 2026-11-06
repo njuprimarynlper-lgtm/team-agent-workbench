@@ -104,7 +104,7 @@ function TurnActivityGroup({ messages, renderRow }: { messages: Message[]; rende
   </details>;
 }
 
-export const SessionTranscript = React.memo(function SessionTranscript({ session, renderMessage }: { session: AgentSession; renderMessage: (message: Message) => React.ReactNode }) {
+export const SessionTranscript = React.memo(function SessionTranscript({ session, renderMessage }: { session: AgentSession; renderMessage: (message: Message) => React.ReactNode; active?: boolean }) {
   const rows = sessionDisplayRows(session);
   const timings = messageTimingMap(session);
   const attached = new Set([...timings.values()].map(timing => timing.id));
@@ -114,4 +114,4 @@ export const SessionTranscript = React.memo(function SessionTranscript({ session
   return <>{rows.map((row, index) => row.kind === 'activity'
     ? <TurnActivityGroup key={`${session.id}:activity:${row.id}`} messages={row.messages} renderRow={renderRow}/>
     : renderRow(row, index === rows.length - 1 && !session.closedAt ? session.status === 'approval' ? '等待确认' : ['running', 'starting'].includes(session.status) ? '本轮进行中' : undefined : undefined))}{session.turnTimings?.slice(-1).filter(timing => timing.finishedAt && !timing.userMessageId && !timing.assistantMessageIds.length && !attached.has(timing.id)).map(timing => <TurnTimingSummary key={timing.id} timing={timing}/>)}</>;
-});
+}, (before, after) => after.active === false || before.active === after.active && before.session === after.session && before.renderMessage === after.renderMessage);
