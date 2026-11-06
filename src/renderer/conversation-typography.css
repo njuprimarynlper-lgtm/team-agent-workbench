@@ -24,6 +24,9 @@
 .conversation-message.system, .conversation-message.tool { max-width: var(--conversation-prose, 700px); }
 .conversation-message .pending-message-text { font-size: 14px; line-height: 1.65; color: #262825; }
 
+.sent-message-edit { display: grid; gap: 8px; min-width: min(360px, 100%); }
+.sent-message-edit textarea { box-sizing: border-box; width: 100%; min-height: 6em; resize: vertical; padding: 8px; font: inherit; }
+.sent-message-edit > div { display: flex; justify-content: flex-end; gap: 10px; }
 .conversation-message-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; max-width: var(--conversation-prose, 700px); margin: 14px auto 0; color: var(--conversation-muted, #70756e); font-size: 11px; }
 .conversation-copy { display: inline-flex; align-items: center; gap: 7px; }
 .conversation-copy-button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; color: #70756e; background: transparent; border: 0; font-size: 11px; }

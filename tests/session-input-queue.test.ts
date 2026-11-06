@@ -3,6 +3,66 @@ import assert from 'node:assert/strict';
 import { SessionInputQueue, recoverInputQueue } from '../src/core/session-input-queue';
 import type { AgentSession, SessionInput } from '../src/shared/types';
 
+test('editing holds only its own row, restores the original draft and preserves selected references', async () => {
+  const f = fixture(); f.session.sources.push({ id: 'src' } as any);
+  const original = { ...input('A'), nextTurnOnly: true, sourceIds: ['src'] }, draft = input('之前的草稿');
+  await f.queue.enqueue('s', original); await f.queue.enqueue('s', input('B'));
+  const id = f.session.inputQueue!.items[0].id;
+  const editing = await f.queue.beginEdit('s', id, draft);
+  f.session.status = 'idle'; await f.queue.pump('s');
+  assert.deepEqual(f.sent.map(x => x.text), ['B']);
+  assert.equal((await f.queue.finishEdit('s', id, { ...editing, text: '放弃' }, true)).text, draft.text);
+  assert.deepEqual(f.session.inputQueue!.items[0].input, original);
+  const next = await f.queue.beginEdit('s', id, draft);
+  await f.queue.finishEdit('s', id, { ...next, text: 'A2' }, false);
+  f.session.status = 'idle'; await f.queue.pump('s');
+  assert.deepEqual(f.sent[1], { ...original, text: 'A2' });
+});
+
+test('undo restores a removed message before its surviving neighbor, only once', async () => {
+  const f = fixture(); for (const t of ['A','B','C']) await f.queue.enqueue('s', input(t));
+  const [, b] = f.session.inputQueue!.items;
+  await f.queue.update('s', b.id); f.session.status = 'idle'; await f.queue.pump('s');
+  await f.queue.undoRemove('s', b.id);
+  assert.deepEqual(f.session.inputQueue!.items.map(i => i.input.text), ['B','C']);
+  await assert.rejects(f.queue.undoRemove('s', b.id));
+});
+
+test('a direct steer and its retry never send an earlier queued item', async () => {
+  const f = fixture(); await f.queue.enqueue('s', input('A'));
+  const steer = f.host.steer; f.host.steer = async () => { throw Error('拒绝'); };
+  assert.equal(await f.queue.enqueue('s', input('B'), 'current'), true);
+  const b = f.session.inputQueue!.items[1]; assert.ok(b.failure); f.host.steer = steer;
+  await f.queue.steer('s', b.id, 'current');
+  assert.deepEqual(f.steered.map(i => i.text), ['B']); assert.equal(f.sent.length, 0);
+  assert.equal(f.session.inputQueue!.items[0].input.text, 'A');
+});
+
+test('a possibly delivered steer cannot be requeued, undone or delivered again', async () => {
+  const f = fixture(); f.host.steer = async () => { throw Error('未能确认引导是否送达'); };
+  await f.queue.enqueue('s', input('B'), 'current'); const b = f.session.inputQueue!.items[0];
+  assert.ok(b.failure?.uncertain); await assert.rejects(f.queue.steer('s', b.id, 'current'));
+  await assert.rejects(f.queue.requeue('s', b.id)); await assert.rejects(f.queue.beginEdit('s', b.id, input('')));
+  f.session.status = 'idle'; await f.queue.pump('s'); assert.equal(f.sent.length, 0);
+  await f.queue.update('s', b.id); await assert.rejects(f.queue.undoRemove('s', b.id));
+});
+
+test('retrying a failed send targets a single row even after reordering', async () => {
+  const f = fixture(); await f.queue.enqueue('s', input('A')); await f.queue.enqueue('s', input('B'));
+  f.session.status = 'idle'; f.setFail(true); await f.queue.pump('s'); f.setFail(false);
+  const a = f.session.inputQueue!.items[0]; await f.queue.move('s', a.id);
+  await f.queue.pump('s', a.id); assert.deepEqual(f.sent.map(i => i.text), ['A']);
+  assert.ok(f.session.inputQueue?.paused); assert.equal(f.session.inputQueue.items[0].input.text, 'B');
+});
+
+test('moving to a side chat is exclusive and failure keeps the complete queued draft', async () => {
+  const f = fixture(); await f.queue.enqueue('s', input('A')); const a = f.session.inputQueue!.items[0];
+  await assert.rejects(f.queue.transfer('s', a.id, async () => { throw Error('fork failed'); }, async () => {}));
+  assert.equal(a.state, 'queued'); f.session.status = 'idle';
+  const draft = await f.queue.transfer('s', a.id, async value => { await f.queue.pump('s'); return value; }, async () => {});
+  assert.deepEqual(draft, a.input); assert.equal(f.sent.length, 0); assert.equal(f.session.inputQueue!.items.length, 0);
+});
+
 const input = (text: string): SessionInput => ({ text, sourceIds: [], answers: {}, capabilities: [] });
 function fixture() {
   const session = { id: 's', purpose: 'work', provider: 'codex', status: 'running', sources: [] } as unknown as AgentSession;

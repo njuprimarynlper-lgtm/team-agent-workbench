@@ -106,7 +106,7 @@ async function alignPersonalRelay(team: DataContext, action: string, raw: any) {
   const draft = local.store.drafts.find(item => item.id === raw?.id);
   const session = action === 'rsi.run' ? local.store.sessions.filter(item => item.purpose === 'work' && !item.closedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : local.store.sessions.find(item => item.id === (draft?.sessionId || (action.startsWith('sidechat.') ? raw?.parentId : raw?.id || raw?.parentId || raw?.sessionId)));
   const route = raw?.networkRoute || session?.networkRoute || (local.store.settings.egress?.enabled ? 'management' : 'direct');
-  const executing = /^(session\.(create|send|retry|mode|model|network|permission|native|codexDesktop|desktopSync)|draft\.(prepare|retry|reorganize)|conclusion\.merge\.prepare|subsession\.create|sidechat\.(create|send)|provider\.(auth|catalog|login$)|rsi\.run|egress\.test)/.test(action);
+  const executing = /^(session\.(create|send|enqueue|editLast|queue\.(?:sideChat|steer|retry)|retry|mode|model|network|permission|native|codexDesktop|desktopSync)|draft\.(prepare|retry|reorganize)|conclusion\.merge\.prepare|subsession\.create|sidechat\.(create|send)|provider\.(auth|catalog|login$)|rsi\.run|egress\.test)/.test(action);
   if (central && executing && route === 'management') {
     const identity = team.workbench.remote.connected && team.workbench.remote.profile ? accountIdentity(team.workbench.remote.profile) : undefined;
     assertPersonalRelay(route, central, identity, session);
@@ -453,6 +453,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'draft.revise': return workbench.reviseDraft(sessionInput.parse(raw).id);
     case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }
     case 'cache.clean': return workbench.cleanUploadCache();
+    case 'session.editLast': {
+      const p = z.object({ id, messageId: z.string().min(1).max(500), text: text.min(1) }).parse(raw);
+      return workbench.editLastTurn(p.id, p.messageId, p.text);
+    }
+    case 'session.editRecovery': {
+      const p = z.object({ id, restore: z.boolean() }).parse(raw);
+      return workbench.resolveHistoryEdit(p.id, p.restore);
+    }
     case 'session.send': {
       const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw); const s = workbench.session(p.id); workbench.assertCanWork(s.binding);
       if (workbench.shouldQueueInput(p.id)) return workbench.enqueueInput(p.id, { text: p.text, sourceIds: p.sourceIds, capabilities: p.capabilities, answers: {} });
@@ -464,8 +472,22 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       });
     }
     case 'session.enqueue': {
-      const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw);
-      return workbench.enqueueInput(p.id, { text: p.text, sourceIds: p.sourceIds, capabilities: p.capabilities, answers: {} });
+      const p = z.object({ id, text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]), expectedTurnId: z.string().min(1).max(200).optional(), nextTurnOnly: z.boolean().optional() }).parse(raw);
+      return workbench.enqueueInput(p.id, { text: p.text, sourceIds: p.sourceIds, capabilities: p.capabilities, nextTurnOnly: p.nextTurnOnly, answers: {} }, p.expectedTurnId);
+    }
+    case 'session.queue.beginEdit':
+    case 'session.queue.saveEdit':
+    case 'session.queue.cancelEdit': {
+      const p = z.object({ id, itemId: id, draft: z.object({ text, sourceIds: z.array(z.string()), capabilities: z.array(capability).max(20).optional(), answers: z.record(z.string(), z.string()), nextTurnOnly: z.boolean().optional(), editingQueueItemId: id.optional() }) }).parse(raw);
+      if (action === 'session.queue.beginEdit') return workbench.inputQueue.beginEdit(p.id, p.itemId, p.draft);
+      return workbench.inputQueue.finishEdit(p.id, p.itemId, p.draft, action === 'session.queue.cancelEdit');
+    }
+    case 'session.queue.retry': { const p = z.object({ id, itemId: id }).parse(raw); return workbench.inputQueue.pump(p.id, p.itemId); }
+    case 'session.queue.sideChat': { const p = z.object({ id, itemId: id }).parse(raw); return workbench.moveQueueToSideChat(p.id, p.itemId); }
+    case 'session.queue.undo':
+    case 'session.queue.requeue': {
+      const p = z.object({ id, itemId: id }).parse(raw);
+      return action === 'session.queue.undo' ? workbench.inputQueue.undoRemove(p.id, p.itemId) : workbench.inputQueue.requeue(p.id, p.itemId);
     }
     case 'session.queue.edit': {
       const p = z.object({ id, itemId: id, text: text.min(1) }).parse(raw);
@@ -487,7 +509,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       const p = z.object({ id, expectedTurnId: z.string().min(1).max(200).optional(), text: text.min(1), sourceIds: z.array(z.string()).default([]), capabilities: z.array(capability).max(20).default([]) }).parse(raw);
       return workbench.steerOrQueue(p.id, p.expectedTurnId, p.text, p.sourceIds, p.capabilities);
     }
-    case 'session.input': { const p = z.object({ id, input: z.object({ nextTurnOnly: z.boolean().optional(), text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
+    case 'session.input': { const p = z.object({ id, input: z.object({ editingQueueItemId: id.optional(), nextTurnOnly: z.boolean().optional(), text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
     case 'session.close': return workbench.closeSession(sessionInput.parse(raw).id);
     case 'session.delete': return workbench.deleteSession(sessionInput.parse(raw).id);

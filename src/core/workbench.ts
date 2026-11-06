@@ -95,6 +95,9 @@ import { isCursorFileSession } from '../shared/cursor-session-consistency';
 import { ProjectJournal } from './project-journal';
 import type { JournalEntry } from '../shared/project-journal';
 import type { ActivityChoice, ActivityActionResult } from '../shared/activity-assistant';
+import { editableTurnMessage } from '../shared/editable-turn';
+import { revertLastCodexTurn } from './codex-edit-turn';
+import { sourceHeader, sourceText } from '../shared/session-context-text';
 import { SessionInputQueue } from './session-input-queue';
 export class Workbench {
   readonly inputQueue: SessionInputQueue;
@@ -199,6 +202,7 @@ export class Workbench {
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.inputQueue = new SessionInputQueue({
+      setDraft: (id, draft) => { this.store.inputs[id] = draft; },
       session: id => this.session(id), save: () => this.store.save(), changed: () => this.broadcast(),
       blocked: s => this.closing || this.configuring || !!s.closedAt || s.purpose !== 'work' || !this.ownsLocal(s.binding)
         || this.movingIds.has(s.id) || !!s.directoryMove || !!(s.binding && this.linkingProjects.has(s.binding.project.id))
@@ -972,17 +976,19 @@ export class Workbench {
     return this.contentUpdates();
   }
   saveInput(id: string, input: SessionInput) {
-    this.session(id);
+    const editing = this.session(id).inputQueue?.editing;
+    if (input.editingQueueItemId !== editing?.itemId) throw Error('消息编辑状态已变化，请刷新会话');
     if (input.sourceIds.some(sourceId => !this.session(id).sources.some(s => s.id === sourceId))) throw new Error('引用不属于当前会话');
     if ((input.capabilities?.length || 0) > 20 || input.capabilities?.some(item => !item.id || !item.name || item.id.length > 500 || item.name.length > 200)) throw new Error('能力选择无效');
     const available = new Set(sessionWithAvailableReferences(this.session(id), this.store.conclusions).sources.map(source => source.id));
     this.store.inputs[id] = { ...structuredClone(input), sourceIds: input.sourceIds.filter(sourceId => available.has(sourceId)) }; return this.store.saveInputs();
   }
-  enqueueInput(id: string, input: SessionInput) {
+  enqueueInput(id: string, input: SessionInput, steerTurnId?: string) {
     this.assertWorkspace(); const session = this.session(id); this.assertCanWork(session.binding);
     if (this.closing || this.stoppingSessions.has(id)) throw new Error('正在停止会话，请稍候');
     if (this.questions.lockedPeer(id)) throw new Error('自动对话进行中，暂不能手动排队');
-    return this.inputQueue.enqueue(id, input);
+    if (input.editingQueueItemId) throw Error('请先保存或取消正在编辑的排队消息');
+    return this.inputQueue.enqueue(id, input, session.contextCompacting || input.nextTurnOnly ? undefined : steerTurnId);
   }
   shouldQueueInput(id: string) {
     const s = this.session(id);
@@ -2006,12 +2012,12 @@ export class Workbench {
     const write = previous.then(() => this.store.event(id, value)).catch(e => this.notice('会话事件保存失败：' + e.message));
     this.eventWrites.set(id, write);
   }
-  private async availableSessionContext(session: AgentSession, userText: string, sourceIds: string[]) {
+  private async availableSessionContext(session: AgentSession, userText: string, sourceIds: string[], history = session.messages) {
     if (sourceIds.some(id => !session.sources.some(source => source.id === id))) throw new Error('引用不属于当前会话');
-    const available = sessionWithAvailableReferences(session, this.store.conclusions);
+    const available = sessionWithAvailableReferences({ ...session, messages: history }, this.store.conclusions);
     sourceIds = [...new Set([...sourceIds, ...available.sources.filter(source => source.sourcePath.startsWith('question:')).map(source => source.id)])];
     const ids = new Set(available.sources.map(source => source.id));
-    const journal = session.cursorNative || session.codexRemote ? undefined : await this.journal.context(session);
+    const journal = session.cursorNative || session.codexRemote ? undefined : await this.journal.context(available);
     // Keep the existing privacy rule for personal cross-session references.
     if (journal && Object.keys(journal.receipt.sessions).some(id => id !== session.id) && session.autoUpload) {
       session.autoUpload = false; clearTimeout(this.trajectoryTimers.get(session.id)); this.trajectoryTimers.delete(session.id);
@@ -2025,7 +2031,27 @@ export class Workbench {
     const ids = new Set(sessionWithAvailableReferences(session, this.store.conclusions).sources.map(source => source.id));
     if (sources.some(source => !ids.has(source.id))) throw new Error('参考成果已删除，请核对后重新发送');
   }
-  async send(id: string, userText: string, sourceIds: string[] = [], capabilitySelections: AgentCapabilitySelection[] = [], submitted?: () => void, questionRunId?: string, agentNotice?: string, draft = false) {
+  editLastTurn(id: string, messageId: string, text: string) {
+    const session = this.session(id), target = editableTurnMessage(session);
+    if (!target || target.id !== messageId) throw Error('只能编辑空闲会话中可核对的最后一轮');
+    return this.send(id, text, Object.keys(target.context?.sourceHashes || {}), target.context?.capabilities || [], undefined, undefined, undefined, false, { messageId, nativeId: session.nativeId! });
+  }
+  resolveHistoryEdit(id: string, restore: boolean) {
+    return this.edit('history-edit:' + id, async () => {
+      const session = this.session(id), saved = session.historyEditRecovery, previous = this.store.inputs[id];
+      if (!saved || this.sending.has(id)) throw Error('编辑操作正在处理或已结束');
+      if (restore && (previous?.text.trim() || previous?.sourceIds.length || previous?.capabilities?.length || previous?.editingQueueItemId)) throw Error('请先处理输入框中已有的草稿');
+      if (restore) this.store.inputs[id] = saved;
+      delete session.historyEditRecovery;
+      try { await this.store.save(); } catch (error) {
+        session.historyEditRecovery = saved;
+        if (restore) { if (previous) this.store.inputs[id] = previous; else delete this.store.inputs[id]; }
+        throw error;
+      }
+      this.broadcast(); return saved;
+    });
+  }
+  async send(id: string, userText: string, sourceIds: string[] = [], capabilitySelections: AgentCapabilitySelection[] = [], submitted?: () => void, questionRunId?: string, agentNotice?: string, draft = false, edit?: { messageId: string; nativeId: string }) {
     this.assertWorkspace();
     if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请完成后再发送');
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后发送');
@@ -2056,6 +2082,8 @@ export class Workbench {
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
     if (this.sending.has(id) || this.steering.has(id) || ['running', 'approval', 'starting'].includes(s.status)) throw new Error('当前会话正在运行，可以切换到其他会话继续工作');
     if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
+    const original = edit && editableTurnMessage(s);
+    if (edit && (!original || original.id !== edit.messageId || s.nativeId !== edit.nativeId)) throw Error('编辑目标已变化');
     this.sending.add(id); s.stoppedAt = undefined; s.error = undefined;
     const preview = questionRunId && !draft ? this.questionPreview(s, questionRunId, userText) : undefined;
     this.changed();
@@ -2084,7 +2112,9 @@ export class Workbench {
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
       s.status = 'starting';
-      const input = await this.availableSessionContext(s, userText, sourceIds);
+      const beforeEdit = original ? s.messages.findIndex(message => message.id === original.id) : -1;
+      if (original && beforeEdit < 0) throw Error('编辑目标已变化');
+      const input = await this.availableSessionContext(s, userText, sourceIds, original ? s.messages.slice(0, beforeEdit) : s.messages);
       if (questionRunId) {
         input.context.questionRunId = questionRunId;
         if (draft) input.context.questionFill = true;
@@ -2096,8 +2126,30 @@ export class Workbench {
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
       this.assertReferencesAvailable(s, input.sources);
+      if (original && edit) {
+        if (!(runtime instanceof AgentRuntime)) throw Error('当前运行器不支持编辑历史消息');
+        const check = () => {
+          if (canceled() || s.closedAt || s.nativeId !== edit.nativeId || s.contextCompacting || runtime.activeTurnId
+            || s.inputQueue?.items.length || s.messages.findLast(m => m.role === 'user')?.id !== original.id) throw Error('会话状态已改变，已停止编辑');
+        };
+        check();
+        await revertLastCodexTurn(runtime.rpc, s, original, async () => {
+          check();
+          s.historyEditRecovery = { text: userText, sourceIds, capabilities: capabilitySelections, answers: {} };
+          await this.store.save();
+        }, check);
+        const index = s.messages.findIndex(m => m.id === original.id);
+        if (index < 0) throw Error('原生会话已回退，请核对本地记录后恢复编辑稿');
+        const removed = new Set(s.messages.splice(index).map(m => m.id));
+        s.turnTimings = s.turnTimings?.filter(timing => !removed.has(timing.userMessageId || ''));
+        if (s.proposedPlan && removed.has(s.proposedPlan.messageId)) delete s.proposedPlan;
+        delete s.completion;
+        await this.store.save();
+        if (canceled() || s.closedAt) return false;
+      }
       s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted, messageId: preview?.id });
       handedOff = true;
+      if (started && edit) delete s.historyEditRecovery;
       await this.store.save();
       return started;
     } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; if (s.inputQueue?.items.length) { s.inputQueue.paused = true; s.inputQueue.error = e.message; } this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
@@ -3468,7 +3520,10 @@ export class Workbench {
     this.remote.channel(binding);
     for (const file of files) { const frozen = await freezeFile(file, path.join(this.store.root, 'uploads', randomUUID())); await this.queue.enqueueMany([{ name: frozen.name, local: frozen.localPath, binding, folder, kind: 'upload', metadata: { kind: 'file', title: frozen.name.slice(0, 200), description: '', submission: submissionRecord(binding, [{ kind: 'file', title: frozen.name }]) } }]); }
   }
-  async createSideChat(parentId: string, selectedText = '') {
+  moveQueueToSideChat(id: string, itemId: string) {
+    return this.inputQueue.transfer(id, itemId, input => this.createSideChat(id, input.text, input), chat => this.closeSideChat(chat.id));
+  }
+  async createSideChat(parentId: string, selectedText = '', queuedInput?: SessionInput) {
     const parent = this.session(parentId), epoch = this.accountRevision;
     this.assertCanWork(parent.binding);
     if (parent.provider !== 'codex' || parent.closedAt || parent.purpose !== 'work') throw new Error('请选择打开的 Codex 工作会话');
@@ -3476,6 +3531,7 @@ export class Workbench {
     const view: import('../shared/types').SideChat = {
       id: randomUUID(), parentId, projectId: parent.binding!.project.id, parentTitle: parent.title,
       capturedAt: new Date().toISOString(), draft: selectedText,
+      pendingReferences: queuedInput && { sourceIds: queuedInput.sourceIds, capabilities: queuedInput.capabilities || [] },
       session: { id: randomUUID(), title: '侧边提问', provider: 'codex', cwd: parent.codexRemote?.cwd || parent.cwd,
         model: parent.model, reasoningEffort: parent.reasoningEffort, purpose: 'work', permissionMode: 'inherit',
         createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: '' },
@@ -3516,8 +3572,21 @@ export class Workbench {
     if (!text.trim() || text.length > 128 * 1024) throw new Error('请输入有效的问题');
     entry.busy = true;
     try {
-      const accepted = await entry.runtime.prompt(text);
+      const pending = entry.view.pendingReferences;
+      const parent = this.session(entry.view.parentId);
+      const sources = (pending?.sourceIds || []).map(sourceId => {
+        const file = parent.sources.find(source => source.id === sourceId);
+        if (!file) throw Error('侧聊所选的参考文件已移除');
+        return file;
+      });
+      this.assertReferencesAvailable(parent, sources);
+      if (parent.codexRemote && sources.length) throw Error('远程侧聊暂不支持本机参考文件');
+      for (const file of sources) if (await hashFile(file.localPath) !== file.sha256) throw Error('参考快照已改变：' + file.name);
+      const capabilities = await entry.runtime.resolveCapabilities(pending?.capabilities || []);
+      const prompt = text + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '');
+      const accepted = await entry.runtime.prompt(prompt, pending ? { userText: text, capabilities, context: { workRecord: false, sourceHashes: Object.fromEntries(sources.map(file => [file.id, file.sha256])) } } : undefined);
       if (!accepted) throw new Error(entry.view.session.error || '消息未确认送达，请核对侧聊记录');
+      delete entry.view.pendingReferences;
       if (entry.view.draft === text) entry.view.draft = '';
       this.broadcast(); return true;
     } finally { entry.busy = false; }

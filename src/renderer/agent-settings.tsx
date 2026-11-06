@@ -43,6 +43,7 @@ export function AgentSettings({ settings, providers, auth, toolSessions, openToo
   };
   const unsavedPaths = providerIds.some(provider => paths[provider] !== settings.providerPaths[provider]);
   return <><div className="modal-body">
+    <label className="field">Codex 跟进处理方式<select aria-label="Codex 跟进处理方式" value={settings.followUpMode || 'queue'} onChange={e => void api.call('settings.agent.save', { followUpMode: e.target.value }).catch(reason => setError(reason.message))}><option value="queue">排队到下一轮</option><option value="steer">引导当前任务</option></select><span className="muted small">运行时按 Ctrl+Enter（Mac 为 ⌘+Enter）临时切换一次。</span></label>
     <CodexRequestGuardSetting enabled={guardEnabled} disabled={guardSaving} changed={enabled => void toggleGuard(enabled)} certificateFile={certificateFile} certificateChanged={value => { setCertificateFile(value); setMessage(''); }} chooseCertificate={() => api.call<string>('choose.certificate')} testConnection={networkRoute => api.call('guard.connection.test', { certificateFile, cwd: settings.localWorkspace, networkRoute, providerPath: paths.codex })}/>
     {guardSaving && <p className="muted small" role="status">正在保存开关…</p>}
     {guardMessage && <p className="muted small" role="status">{guardMessage}</p>}

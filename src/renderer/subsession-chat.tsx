@@ -5,8 +5,9 @@ import { SessionDirectoryStatus } from './project-directory';
 import { DirectoryMoveNotice } from './directory-move-notice';
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import { editableTurnMessage } from '../shared/editable-turn';
 import { ConversationMessage } from './conversation-message';
-import type { AgentSession, Message, SessionInput, SourceFile, WorkbenchAPI } from '../shared/types';
+import type { AgentSession, FollowUpMode, Message, SessionInput, SourceFile, WorkbenchAPI } from '../shared/types';
 import { quoteSessionText, subsessionParentId } from '../shared/subsessions';
 import { sessionMessageText } from '../shared/session-context-text';
 import { submitOptimisticInput } from './composer-input';
@@ -18,8 +19,8 @@ import { SessionStatusIndicator, useSessionCompletionRead } from './session-stat
 import { SessionMoreMenu } from './session-more-menu';
 import { SessionName } from './session-name';
 import { SessionSyncFrame } from './session-sync-frame';
-import { SessionInputQueue } from './session-input-queue';
-import { ComposerActions } from './composer-actions';
+import { SessionInputQueue, queueDraftAction } from './session-input-queue';
+import { ComposerActions, followUpAction } from './composer-actions';
 import { ComposerSettings } from './composer-settings';
 import { ComposerMode } from './composer-mode';
 import { PendingSessionMessage, PendingQueueMessage, type PendingMessage } from './pending-session-message';
@@ -73,14 +74,16 @@ export function SessionTree({ sessions, selectedId, childId, open, create, promo
   ]}/>}</>;
 }
 
-export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId, configureAgent }: {
+export function SubsessionChat({ session, sessions, input, edit, api, active, open, sideChat, promote, remove, closed, locked, changed, activeTurnId, configureAgent, followUpMode, queueSideChat, composerTools }: {
   session?: AgentSession; sessions: AgentSession[]; input?: SessionInput; edit: (id: string, patch: Partial<SessionInput>) => void;
+  composerTools?: (session: AgentSession, input: SessionInput) => React.ReactNode;
+  followUpMode?: FollowUpMode; queueSideChat?: (session: AgentSession, itemId: string) => Promise<void>;
   api: WorkbenchAPI; active: boolean; activeTurnId?: string; open: (session: AgentSession) => void; sideChat?: (session: AgentSession, text?: string) => void;
   promote: (session: AgentSession) => void; remove: (session: AgentSession) => void; closed: (id: string) => void; locked?: boolean; changed: () => Promise<void>; configureAgent?: () => void;
 }) {
   const [error, setError] = useState(''), [sending, setSending] = useState(false), [history, setHistory] = useState<Message[]>();
   const [pending, setPending] = useState<PendingMessage>(), [failed, setFailed] = useState<SessionInput>();
-  const lock = useRef(false), availabilityLock = useRef(false), referenceLock = useRef(false);
+  const lock = useRef(false), swappingDraft = useRef(false), availabilityLock = useRef(false), referenceLock = useRef(false);
   const [detaching, setDetaching] = useState(false);
   const [changingAvailability, setChangingAvailability] = useState(false);
   const latestInput = useRef(input); latestInput.current = input;
@@ -105,13 +108,30 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
     } catch (reason: any) { setError(reason.message); }
     finally { availabilityLock.current = false; setChangingAvailability(false); }
   };
-  const send = async () => {
+  const replaceDraft = (value: SessionInput) => { latestInput.current = value; edit(session.id, value); };
+  const lockDraft = (value: boolean) => {
+    if (value && lock.current) return false;
+    swappingDraft.current = value; lock.current = value; setSending(value); return true;
+  };
+  const finishQueueEdit = async (cancel: boolean) => {
+    if (!current.editingQueueItemId || !lockDraft(true)) return;
+    try {
+      await queueDraftAction(api, session.id, current.editingQueueItemId, current, cancel ? 'cancelEdit' : 'saveEdit', replaceDraft);
+      await changed();
+    } catch (reason: any) { setError(reason.message); }
+    finally { lockDraft(false); }
+  };
+  const follow = followUpAction(session, activeTurnId, current, followUpMode);
+  const send = async (invert = false) => {
     if (lock.current || availabilityLock.current || referenceLock.current || session.closedAt || locked || !current.text.trim()) return;
+    if (current.editingQueueItemId) return finishQueueEdit(false);
+    const mode = followUpAction(session, activeTurnId, current, followUpMode, invert);
+    if (mode === 'wait') return;
     lock.current = true; setSending(true);
-    const enqueue = running || !!session.inputQueue?.items.length;
-    setPending({ text: current.text, beforeMessageCount: session.messages.length, phase: enqueue ? 'queueing' : 'submitting' });
+    const enqueue = mode === 'queue' || mode === 'steer';
+    setPending({ text: current.text, beforeMessageCount: session.messages.length, phase: mode === 'steer' ? 'steering' : enqueue ? 'queueing' : 'submitting' });
     scrolling.latest();
-    try { setError(''); const accepted = await submitOptimisticInput(api, session.id, current, () => latestInput.current || current, input => { latestInput.current = input; edit(session.id, input); }, enqueue); if (!accepted) throw new Error('消息未能送达，请检查后重试'); setFailed(undefined); await changed().catch(reason => setError('消息已发送，刷新失败：' + reason.message)); }
+    try { setError(''); const accepted = await submitOptimisticInput(api, session.id, current, () => latestInput.current || current, replaceDraft, enqueue, mode === 'steer' ? activeTurnId : undefined); if (!accepted) throw new Error('消息未能送达，请检查后重试'); setFailed(undefined); await changed().catch(reason => setError('消息已发送，刷新失败：' + reason.message)); }
     catch (reason: any) { setError(reason.message); setFailed(structuredClone(current)); }
     finally { lock.current = false; setSending(false); setPending(undefined); }
   };
@@ -127,7 +147,8 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       await changed();
     } finally { referenceLock.current = false; setDetaching(false); }
   };
-  const render = (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}/>;
+  const editableMessageId = !locked ? editableTurnMessage(session)?.id : undefined;
+  const render = (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} editLast={editableMessageId === message.id ? async text => { if (!await api.call('session.editLast', { id: session.id, messageId: message.id, text })) throw Error('未能确认发送，请核对会话记录'); await changed(); } : undefined} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}/>;
   return <section className="subsession-chat" aria-label={'子会话：' + session.title}>
     <header>
       <div className="subsession-heading"><SessionName key={session.id} title={session.title} variant="subsession" save={async title => { await api.call('session.rename', { id: session.id, title }); await changed(); }}/>{session.closedAt ? <span className="muted small" role="status">已关闭</span> : <SessionStatusIndicator session={session}/>}
@@ -154,6 +175,6 @@ export function SubsessionChat({ session, sessions, input, edit, api, active, op
       {scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}
       {failed && <button className="text-button" onClick={() => { if ((current.text.trim() || current.sourceIds.length || current.capabilities?.length) && JSON.stringify(current) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } edit(session.id, failed); setFailed(undefined); setError(''); }}>恢复未发送消息到输入框</button>}{(error || session.error) && <GuardConnectionError message={error || session.error!} configure={configureAgent} testConnection={() => api.call("guard.connection.test", { sessionId: session.id })}><p role="alert" className="inline-error">{error || session.error}</p></GuardConnectionError>}
     </div>
-    {!session.closedAt && <div className="subsession-composer"><DirectoryMoveNotice key={'directory-' + session.id} session={session} api={api} changed={changed}/><PendingQueueMessage pending={pending}/><SessionInputQueue key={'queue-' + session.id} session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={locked}/><SessionSyncFrame key={'sync-' + session.id} session={session} api={api} changed={changed} locked={!!locked || sending || changingAvailability} references={{ sourceIds: current.sourceIds, select: sourceIds => edit(session.id, { sourceIds }), detach: detachSource, detaching }}><div className="composer"><MarkdownEditor aria-label="子会话输入" disabled={locked} value={current.text} placeholder={locked ? '关联求助正在自动对话' : running ? '输入下一条消息，回车加入队列…' : '在这个分支继续提问…'} onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'ArrowUp' && !current.text && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) { const previous = session.messages.findLast(message => message.role === 'user'); if (previous) { event.preventDefault(); edit(session.id, { text: sessionMessageText(session, previous) }); } return; } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (!event.repeat) void send(); } }}/><div className="composer-bottom"><ComposerSettings key={session.id} session={session}/>{session.provider !== 'claude' && !session.cursorNative && <ComposerMode key={'mode-' + session.id} session={session}/>}<div className="subsession-composer-actions"><ComposerActions session={session} activeTurnId={activeTurnId} text={current.text} locked={locked} busy={sending || changingAvailability} send={() => void send()} stop={() => void action(() => api.call('session.stop', { id: session.id }))}/></div></div></div></SessionSyncFrame></div>}
+    {!session.closedAt && <div className="subsession-composer"><DirectoryMoveNotice key={'directory-' + session.id} session={session} api={api} changed={changed}/><PendingQueueMessage pending={pending}/><SessionInputQueue key={'queue-' + session.id} session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={locked || sending} lockDraft={lockDraft} draft={current} replace={replaceDraft} followUpMode={followUpMode} sideChat={queueSideChat ? itemId => queueSideChat(session, itemId) : undefined}/><SessionSyncFrame key={'sync-' + session.id} session={session} api={api} changed={changed} locked={!!locked || sending || changingAvailability} references={{ sourceIds: current.sourceIds, select: sourceIds => edit(session.id, { sourceIds }), detach: detachSource, detaching }}><div className="composer"><MarkdownEditor aria-label="子会话输入" readOnly={swappingDraft.current} disabled={locked} value={current.text} placeholder={locked ? '关联求助正在自动对话' : current.editingQueueItemId ? '编辑排队消息…' : follow === 'steer' ? '补充本轮要求…' : follow === 'queue' ? '输入下一条消息，回车加入队列…' : '在这个分支继续提问…'} onChange={event => edit(session.id, { text: event.target.value })} onKeyDown={event => { if (event.key === 'Escape' && current.editingQueueItemId && !event.nativeEvent.isComposing) { event.preventDefault(); event.stopPropagation(); void finishQueueEdit(true); return; } if (event.key === 'ArrowUp' && !current.text && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && !event.nativeEvent.isComposing) { const previous = session.messages.findLast(message => message.role === 'user'); if (previous) { event.preventDefault(); edit(session.id, { text: sessionMessageText(session, previous) }); } return; } if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (!event.repeat) void send(event.ctrlKey || event.metaKey); } }}/><div className="composer-bottom">{composerTools?.(session, current)}<ComposerSettings key={session.id} session={session}/>{session.provider !== 'claude' && !session.cursorNative && <ComposerMode key={'mode-' + session.id} session={session}/>}<div className="subsession-composer-actions"><ComposerActions session={session} activeTurnId={activeTurnId} text={current.text} locked={locked} followUpMode={followUpMode} nextTurnOnly={current.nextTurnOnly} busy={sending || changingAvailability} send={() => void send()} stop={() => void action(() => api.call('session.stop', { id: session.id }))}/></div></div></div></SessionSyncFrame></div>}
   </section>;
 }

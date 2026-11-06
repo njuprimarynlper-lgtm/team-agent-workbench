@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Puzzle } from 'lucide-react';
+import { MarkdownEditor } from './markdown-editor';
+import { Pencil, Puzzle } from 'lucide-react';
 import type { Message, Provider } from '../shared/types';
 import { Markdown } from './markdown';
 import { CursorNativeRecord } from './cursor-native-record';
@@ -7,12 +8,20 @@ import { CopyTextButton } from './copy-text-button';
 import { MessageTime } from './turn-timing';
 import { ContextMenu, contextAnchor, type ContextAnchor, type ContextAction } from './context-menu';
 
-export function ConversationMessage({ message, provider, text = message.text, sessionId, openFile, pendingLabel, children, quote, sideChat }: {
+export function ConversationMessage({ message, provider, text = message.text, sessionId, openFile, pendingLabel, children, quote, sideChat, editLast }: {
   message: Message; provider: Provider; text?: string; sessionId?: string;
   openFile?: (path: string) => void; pendingLabel?: string; children?: React.ReactNode;
+  editLast?: (value: string) => Promise<void>;
   quote?: (text: string) => void; sideChat?: (text: string) => void;
 }) {
   const [menu, setMenu] = useState<{ anchor: ContextAnchor; selected: string }>();
+  const [edit, setEdit] = useState<string>(), [saving, setSaving] = useState(false), [editError, setEditError] = useState('');
+  const save = async () => {
+    if (!editLast || !edit?.trim() || saving) return;
+    setSaving(true); setEditError('');
+    try { await editLast(edit); setEdit(undefined); } catch (reason: any) { setEditError(reason.message); }
+    finally { setSaving(false); }
+  };
   const user = message.role === 'user', assistant = message.role === 'assistant';
   const name = user ? '你' : assistant ? provider === 'codex' ? 'Codex' : provider === 'cursor' ? 'Cursor' : 'Claude Code' : message.role === 'tool' ? '工具执行' : '运行信息';
   const member = user && !!message.context?.questionRunId;
@@ -33,10 +42,17 @@ export function ConversationMessage({ message, provider, text = message.text, se
     {user && <div className="conversation-user-time">{time}</div>}
     <div className="message-surface">
       {showMetadata && <div className="message-author"><b>{name}</b>{message.steering && <span className="badge">引导</span>}{member && <span className="badge">成员消息</span>}{pendingLabel && <span className="pending-message-state question" role="status"><span className="status-pulse"/>{pendingLabel}</span>}{!user && time}</div>}
-      {children ?? (message.role === 'tool' ? <details><summary>{text.split('\n')[0]?.slice(0, 130) || '查看工具事件'}</summary><pre>{text}</pre></details> : <Markdown text={text} sessionId={sessionId} openFile={openFile} conversation/>)}
+      {edit !== undefined ? <div className="sent-message-edit"><MarkdownEditor autoFocus aria-label="编辑上一条消息" value={edit} disabled={saving} onChange={e => setEdit(e.target.value)} onKeyDown={e => {
+        if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEdit(undefined); }
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!e.repeat) void save(); }
+      }}/><small>发送后将重新生成这一轮，已执行的文件修改会保留。</small>
+        {editError && <p role="alert" className="inline-error">{editError}</p>}
+        <div><button type="button" className="text-button" disabled={saving} onClick={() => setEdit(undefined)}>取消</button><button type="button" className="primary compact" disabled={saving || !edit.trim() || !editLast} onClick={() => void save()}>重新发送</button></div>
+      </div> : children ?? (message.role === 'tool' ? <details><summary>{text.split('\n')[0]?.slice(0, 130) || '查看工具事件'}</summary><pre>{text}</pre></details> : <Markdown text={text} sessionId={sessionId} openFile={openFile} conversation/>)}
       {user && !!message.context?.capabilities?.length && <div className="message-capabilities">{message.context.capabilities.map(item => <span key={item.id}><Puzzle size={11}/>{item.name}</span>)}</div>}
       <CursorNativeRecord message={message}/>
-      {(assistant || user) && !!text.trim() && <footer className="conversation-message-footer"><CopyTextButton text={text} label={user ? '复制这条消息' : '复制这条回复'}/></footer>}
+      {(assistant || user) && !!text.trim() && <footer className="conversation-message-footer">{editLast && edit === undefined && <button type="button" className="icon" aria-label="编辑上一条消息" title="编辑上一条消息" onClick={() => { setEditError(''); setEdit(text); }}><Pencil size={13}/></button>}<CopyTextButton text={text} label={user ? '复制这条消息' : '复制这条回复'}/></footer>}
     </div>
     {menu && <ContextMenu anchor={menu.anchor} label="消息操作" actions={actions} close={() => setMenu(undefined)}/>}
   </article>;

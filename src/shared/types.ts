@@ -13,13 +13,14 @@ export interface ProjectBriefState { brief?: ProjectBrief; revision: number; upd
 export interface ContentSeenState { files?: import('./content-files-state').ContentFilesState; missingFiles?: string[]; submission?: SubmissionRecord; revision: number; title?: string; path?: string; author?: string; updatedBy?: string; updatedAt?: string; kind?: 'contribution' | 'file' | 'trajectory'; category?: ContributionCategory; sourceSessionTitle?: string; sources?: string[] }
 export type BetaFeature = 'sessionHandoff' | 'subsessions' | 'cursorDesktopSync';
 export interface BetaFeatureSettings { sessionHandoff?: boolean; subsessions?: boolean; cursorDesktopSync?: boolean }
-export interface Settings { resultDirectories?: import('./result-directories').PersonalResultDirectory[]; codexRequestGuard?: boolean; codexCaCertificate?: string; personalGroups?: import('./personal-workspace').PersonalGroup[]; betaFeatures?: Record<string, BetaFeatureSettings>; egress?: UserEgressSettings; workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; sidebarProjectHeight?: number; sidebarPanes?: { workgroups?: number; files?: number; sessions?: number }; defaultServer?: { host: string; port: number }; trustedServerIdentities?: Record<string, string>; contentSeen?: Record<string, Record<string, number | ContentSeenState>>; contentUpdates?: ContentUpdate[]; dismissedContentUpdateIds?: string[]; contentAliases?: Record<string, string>; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
+export type FollowUpMode = 'queue' | 'steer';
+export interface Settings { followUpMode?: FollowUpMode; resultDirectories?: import('./result-directories').PersonalResultDirectory[]; codexRequestGuard?: boolean; codexCaCertificate?: string; personalGroups?: import('./personal-workspace').PersonalGroup[]; betaFeatures?: Record<string, BetaFeatureSettings>; egress?: UserEgressSettings; workspaceSnapshot?: WorkspaceSnapshot; projectDirectories?: Record<string, string>; autoUploadMinutes?: number; sidebarProjectHeight?: number; sidebarPanes?: { workgroups?: number; files?: number; sessions?: number }; defaultServer?: { host: string; port: number }; trustedServerIdentities?: Record<string, string>; contentSeen?: Record<string, Record<string, number | ContentSeenState>>; contentUpdates?: ContentUpdate[]; dismissedContentUpdateIds?: string[]; contentAliases?: Record<string, string>; connections: ConnectionProfile[]; providerPaths: Record<Provider, string>; lastWorkspace: string; localWorkspace?: string; verifiedLocalWorkspace?: string }
 export type AgentCapabilityKind = 'skill' | 'plugin';
 export interface AgentCapabilitySelection { id: string; kind: AgentCapabilityKind; name: string }
 export interface AgentCapabilityOption extends AgentCapabilitySelection { description: string; invocation: string; path?: string; source?: string; enabled: boolean; unavailableReason?: string }
 export interface AgentCapabilityCatalog { provider: Provider; skills: AgentCapabilityOption[]; plugins: AgentCapabilityOption[]; checkedAt: string; skillError?: string; pluginError?: string }
-export interface SessionInput { nextTurnOnly?: boolean; text: string; sourceIds: string[]; answers: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
-export interface QueuedSessionInput { id: string; input: SessionInput; state: 'queued' | 'sending'; submitted?: boolean }
+export interface SessionInput { editingQueueItemId?: string; nextTurnOnly?: boolean; text: string; sourceIds: string[]; answers: Record<string, string>; capabilities?: AgentCapabilitySelection[] }
+export interface QueuedSessionInput { id: string; input: SessionInput; state: 'queued' | 'sending'; submitted?: boolean; steerTurnId?: string; failure?: { message: string; uncertain?: boolean } }
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; role?: import('./team-groups').GroupRole; creator?: string; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
@@ -34,12 +35,16 @@ export interface RemoteBinding { connectionId: string; host: string; port: numbe
 export interface SubsessionFork { parentId: string; capturedAt: string; parentMessageId?: string; parentMessageCount: number; snapshotHash: string; sourceId: string; inheritedSourceIds: string[]; workspaceKind: 'git-worktree' | 'directory-copy' | 'shared-directory'; workspaceRoot: string; baseRevision?: string; nativeFork?: boolean; remoteContext?: string; parentWasRunning?: boolean; promotedAt?: string; visibleSnapshotPath?: string }
 export interface SubsessionReport { id: string; version: number; createdAt: string; reviewedAt?: string; title: string; body: string; sourceHash: string; messageCount: number; latestReply: string; changedFiles: string[] }
 export interface SubsessionReportPreview { childId: string; parentId: string; title: string; body: string; latestReply: string; changedFiles: string[]; messageCount: number; sourceHash: string; nextVersion: number }
-export interface SideChat { id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
+export interface SideChat { pendingReferences?: Pick<SessionInput, 'sourceIds' | 'capabilities'>; id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
 export type SessionNetworkRoute = 'direct' | 'management';
 export interface AgentSession {
+  historyEditRecovery?: SessionInput;
   contextCompacting?: boolean;
   turnTimings?: import('./turn-timing').TurnTiming[];
-  inputQueue?: { items: QueuedSessionInput[]; paused: boolean; error?: string };
+  inputQueue?: { items: QueuedSessionInput[]; paused: boolean; error?: string;
+    editing?: { itemId: string; previousDraft: SessionInput };
+    removed?: { item: QueuedSessionInput; removedAt?: number; before?: string; after?: string; index: number }[];
+  };
   codexRemote?: { hostId: string; hostName: string; cwd: string; nativePath: string; home: string };
   codexDesktop?: boolean;
   codexSyncRequest?: { requestedAt: string; error?: string };

@@ -96,7 +96,7 @@ export class Store {
     }
     try { this.inputs = JSON.parse(await fs.readFile(path.join(this.root, 'inputs.json'), 'utf8')); } catch (e: any) { if (e.code !== 'ENOENT') throw new Error('本地 inputs.json 无法读取'); }
     this.sessions.forEach(s => { delete s.cliConnection; delete s.desktopSyncPending; delete s.desktopWaitingApproval; delete s.desktopSyncState; delete s.desktopSyncError; if (['starting', 'running', 'approval'].includes(s.status)) { s.status = s.closedAt || s.stoppedAt || s.codexDesktop || s.cursorNative || s.codexRemote ? 'idle' : 'error'; if(s.codexDesktop || s.cursorNative || s.codexRemote)s.error=undefined; if (s.status === 'error') s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } s.approvals = []; migrateSessionContext(s); });
-    this.sessions.forEach(recoverInputQueue);
+    this.sessions.forEach(session => recoverInputQueue(session, this.inputs));
     this.sessions.forEach(interruptStoredTimings);
     for (const session of this.sessions) {
       session.directoryMode ??= 'fixed';

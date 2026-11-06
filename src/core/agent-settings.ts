@@ -3,6 +3,7 @@ import type { Provider } from '../shared/types';
 import type { Store } from './store';
 
 const patchSchema = z.object({
+  followUpMode: z.enum(['queue', 'steer']).optional(),
   codexRequestGuard: z.boolean().optional(),
   codexCaCertificate: z.string().trim().max(32768).optional(),
   providerPaths: z.object({ codex: z.string().optional(), cursor: z.string().optional(), claude: z.string().optional() }).strict().optional(),
@@ -16,6 +17,7 @@ export async function saveAgentSettings(store: Store, raw: unknown, invalidate: 
   const task = (pending.get(store) || Promise.resolve()).catch(() => {}).then(async () => {
     const previous = store.settings;
     const next = { ...previous, providerPaths: { ...previous.providerPaths } };
+    if (patch.followUpMode) next.followUpMode = patch.followUpMode;
     if (patch.codexRequestGuard !== undefined) next.codexRequestGuard = patch.codexRequestGuard;
     if (patch.codexCaCertificate !== undefined) next.codexCaCertificate = patch.codexCaCertificate;
     for (const provider of ['codex', 'cursor', 'claude'] as const) if (patch.providerPaths?.[provider] !== undefined) next.providerPaths[provider] = patch.providerPaths[provider];
@@ -24,6 +26,7 @@ export async function saveAgentSettings(store: Store, raw: unknown, invalidate: 
     catch (error) {
       // Preserve unrelated settings changed while the write was in flight.
       if (store.settings === next) {
+        if (patch.followUpMode && next.followUpMode === patch.followUpMode) next.followUpMode = previous.followUpMode;
         if (patch.codexRequestGuard !== undefined && next.codexRequestGuard === patch.codexRequestGuard) next.codexRequestGuard = previous.codexRequestGuard;
         if (patch.codexCaCertificate !== undefined && next.codexCaCertificate === patch.codexCaCertificate) next.codexCaCertificate = previous.codexCaCertificate;
         for (const provider of ['codex', 'cursor', 'claude'] as const) if (patch.providerPaths?.[provider] !== undefined && next.providerPaths[provider] === patch.providerPaths[provider]) next.providerPaths[provider] = previous.providerPaths[provider];

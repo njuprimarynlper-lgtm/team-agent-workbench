@@ -10,7 +10,7 @@ import { Store } from '../src/core/store';
 import { freezeFile } from '../src/core/artifacts';
 import { acceptedSessionContext } from '../src/shared/session-context';
 import type { AgentSession, SessionInput } from '../src/shared/types';
-import { ComposerActions, composerMode } from '../src/renderer/composer-actions';
+import { ComposerActions, composerMode, followUpAction } from '../src/renderer/composer-actions';
 import { SessionInputQueue } from '../src/renderer/session-input-queue';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 // @ts-expect-error Shared fixture.
@@ -21,13 +21,50 @@ async function setup(state: Record<string, unknown> = {}, provider: 'codex' | 'c
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-steering-'));
   const config = { status: 'ready', turn: 'hang', ...state };
   const fixture = await authLauncher(path.join(root, 'cli'), config);
-  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
+  // Keep the simulated transport independent of the host's proxy registry.
+  const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, undefined, () => ({ HTTPS_PROXY: 'http://127.0.0.1:1', NO_PROXY: '127.0.0.1,localhost' }));
   await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = fixture.launcher;
   const s = await wb.createSession(provider, root, offlineProjectId); s.autoUpload = false;
   const calls = async () => (await fs.readFile(path.join(root, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   return { root, wb, s, calls, set: (next: Record<string, unknown>) => fixture.write({ ...config, ...next }),
     cleanup: async () => { await wb.close(); assert(root.startsWith(path.join(os.tmpdir(), 'wb-steering-'))); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } };
 }
+
+test('follow-up preference is inverted only for a steerable turn; compaction and next-turn quotes always queue', () => {
+  const s = { provider: 'codex', status: 'running' } as AgentSession;
+  const input: SessionInput = { text: '补充', sourceIds: [], answers: {} };
+  assert.equal(followUpAction(s, 'turn', input), 'queue');
+  assert.equal(followUpAction(s, 'turn', input, 'queue', true), 'steer');
+  assert.equal(followUpAction(s, 'turn', input, 'steer'), 'steer');
+  assert.equal(followUpAction(s, 'turn', input, 'steer', true), 'queue');
+  assert.equal(followUpAction(s, undefined, input, 'steer'), 'queue');
+  assert.equal(followUpAction({ ...s, contextCompacting: true }, 'turn', input, 'steer'), 'queue');
+  assert.equal(followUpAction(s, 'turn', { ...input, nextTurnOnly: true }, 'queue', true), 'queue');
+});
+test('editing a completed workbench turn rebuilds its references and preserves the separate composer draft', async () => {
+  const t = await setup({ turn: 'success', turnDelay: 60 });
+  try {
+    const { wb, s } = t;
+    const file = path.join(t.root, 'ref.md'); await fs.writeFile(file, 'reference');
+    const source = await freezeFile(file, path.join(t.root, 'sources')); s.sources.push(source);
+    assert.ok(await wb.send(s.id, '第一版', [source.id])); await until(() => s.status === 'idle');
+    const original = s.messages.find(m => m.role === 'user')!;
+    const draft = { text: '留到后面', sourceIds: [], answers: {} }; await wb.saveInput(s.id, draft);
+    const runtime = (wb as any).runtimes.get(s.id), request = runtime.rpc.request.bind(runtime.rpc);
+    let reverted = false;
+    runtime.rpc.request = async (method: string, params: any, ...args: any[]) => {
+      if (method === 'thread/read') return { thread: { id: s.nativeId, status: { type: 'idle' } } };
+      if (method === 'thread/turns/list') return { data: [{ id: 'fake-turn', status: 'completed', items: [{ id: 'original', type: 'userMessage', content: [{ type: 'text', text: original.text }] }] }] };
+      if (method === 'thread/revert') { assert.equal(params.beforeTurnId, 'fake-turn'); assert.equal(s.historyEditRecovery?.text, '修订版'); reverted = true; return { thread: { id: s.nativeId } }; }
+      return request(method, params, ...args);
+    };
+    assert.ok(await wb.editLastTurn(s.id, original.id, '修订版')); await until(() => s.status === 'idle');
+    assert.ok(reverted); assert.equal(s.historyEditRecovery, undefined);
+    assert.deepEqual(s.messages.filter(m => m.role === 'user').map(m => m.userText), ['修订版']);
+    assert.ok(s.messages.find(m => m.role === 'user')!.text.includes(source.sha256));
+    assert.deepEqual(wb.store.inputs[s.id], draft);
+  } finally { await t.cleanup(); }
+});
 
 test('Codex steer uses the same active turn, includes newly selected context/capabilities, and persists accepted history', async () => {
   const t = await setup();
