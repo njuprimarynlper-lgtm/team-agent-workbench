@@ -30,7 +30,7 @@ try {
     const row = page.locator(`.session-row[data-session-id="${session.id}"]`); await row.click(); await expect(row).toHaveClass(/selected/);
     await call('provider.auth', { provider, cwd: data });
     const current = async () => (await call('snapshot')).sessions.find(s => s.id === session.id);
-    await expect(page.locator('.composer-bottom')).toContainText('Enter 发送 · Shift+Enter 换行');
+    await expect(page.locator('.composer-bottom .composer-shortcut')).toHaveCount(0);
     await expect(page.locator('.composer').getByLabel('选择模型')).toBeVisible();
     await expect(page.locator('.composer').getByLabel('当前执行权限')).toBeVisible();
     await expect(page.locator('.composer').getByLabel('添加内容或工具')).toBeVisible();

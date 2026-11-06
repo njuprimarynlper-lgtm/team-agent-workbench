@@ -18,15 +18,6 @@ export function followUpAction(session: AgentSession, turnId: string | undefined
   return mode === 'send' && session.inputQueue?.items.length ? 'queue' : mode;
 }
 
-export function followUpShortcut(session: AgentSession, turnId: string | undefined, input: SessionInput, preference?: FollowUpMode) {
-  if (input.editingQueueItemId) return 'Enter 保存 · Esc 取消';
-  const normal = followUpAction(session, turnId, input, preference);
-  const alternate = followUpAction(session, turnId, input, preference, true);
-  const labels = { queue: '排队', steer: '引导', send: '发送', wait: '等待' };
-  const modifier = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘' : 'Ctrl';
-  return 'Enter ' + labels[normal] + (normal !== alternate ? ' · ' + modifier + '+Enter ' + labels[alternate] : '');
-}
-
 export function ComposerActions({ session, activeTurnId, text, busy, locked, send, stop, resume, followUpMode, nextTurnOnly }: {
   session: AgentSession; activeTurnId?: string; text: string; busy: boolean; locked?: boolean; send: () => void; stop: () => void; resume?: () => void; followUpMode?: FollowUpMode; nextTurnOnly?: boolean;
 }) {

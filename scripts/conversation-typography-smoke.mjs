@@ -111,7 +111,7 @@ window.renderFixture=(mode='main',extra='')=>{
         <div className="messages"><div className="selection-content"><SessionTranscript session={mainSession} renderMessage={message=><ConversationMessage message={message} provider='codex'/>}/></div>
           {mode==='states' && <><PendingSessionMessage pending={{text:'消息已发送，等待处理。',beforeMessageCount:0,phase:'submitting'}} messages={[]}/><ConversationMessage provider='codex' message={{...user,id:'member',context:{questionRunId:'q'}}} pendingLabel='已放入对话，正在连接本地 CLI…'/><ConversationMessage provider='codex' message={{...user,id:'steer',steering:true}}/><RequestCard request={{id:'approval',title:'允许执行验证命令？',details:'运行本地测试',options:[{id:'allow',label:'允许',kind:'allow'},{id:'deny',label:'拒绝',kind:'deny'}]}} onAnswer={()=>{}}/></>}
         </div>
-        <div className="composer-wrap"><div className="composer"><textarea aria-label="会话输入" placeholder="继续对话…"/><div className="composer-bottom"><button className="text-button">＋</button><button className="text-button">Codex ▾</button><button className="text-button">请求批准 ▾</button><span className="composer-shortcut">Enter 发送</span><button className="send" aria-label="发送">↑</button></div></div></div>
+        <div className="composer-wrap"><div className="composer"><textarea aria-label="会话输入" placeholder="继续对话…"/><div className="composer-bottom"><button className="text-button">＋</button><button className="text-button">Codex ▾</button><button className="text-button">请求批准 ▾</button><div className="spacer"/><button className="send" aria-label="发送">↑</button></div></div></div>
       </>}
     </main>
     {mode==='split' && <aside className="fixture-panel">{child}</aside>}
@@ -169,8 +169,8 @@ window.renderFixture();
   assert.equal(await main.locator('.user .markdown a').innerText(), 'https://example.com/report');
   assert.equal(await main.locator('.assistant .markdown a').innerText(), 'https://example.com/report');
   assert.equal(await main.locator('.assistant .markdown strong').filter({hasText:'目前还不能判断为“已能部署完整 ADI 平台”。'}).count(), 1);
-  assert.equal(await main.locator('.assistant > .message-surface > .message-author').count(), 0);
-  assert.equal(await main.locator('.conversation-message-footer time').count(), 1);
+  assert.equal(await main.locator('.assistant > .message-surface > .message-author').count(), 1);
+  assert.equal(await main.locator('.assistant .message-author time').count(), 1);
   assert.equal(await page.locator('#document-preview .markdown').evaluate(el=>getComputedStyle(el).lineHeight), '24.7px');
   await page.screenshot({ path: path.join(out, 'desktop.png'), timeout: 10000 });
   // Reply/code copy remain distinct and recover from failures.
