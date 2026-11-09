@@ -4,10 +4,17 @@ import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { publishRuntimeAssets } from './build-assets.mjs';
+import { adjustableFontSizes } from './font-size-css.mjs';
 const require = createRequire(import.meta.url);
 const version = JSON.parse(await readFile('package.json', 'utf8')).version;
 const checkOnly = process.argv.includes('--check');
 const outputRoot = checkOnly ? await mkdtemp(path.join(os.tmpdir(), 'workbench-build-check-')) : 'dist';
+const fontSizePlugin = { name: 'workbench-font-size', setup(build) {
+  build.onLoad({ filter: /\.css$/ }, async args => {
+    if (!args.path.startsWith(path.resolve('src') + path.sep)) return;
+    return { contents: adjustableFontSizes(await readFile(args.path, 'utf8')), loader: 'css' };
+  });
+} };
 async function copyDependency(name, dest, sourceRequire = require, seen = new Set()) {
   if (seen.has(name)) return; seen.add(name);
   const jsonPath = sourceRequire.resolve(name + '/package.json'), dir = path.dirname(jsonPath), pkg = JSON.parse(await readFile(jsonPath, 'utf8'));
@@ -17,7 +24,7 @@ async function copyDependency(name, dest, sourceRequire = require, seen = new Se
 for (const edition of ['user', 'admin']) {
   const out = path.join(outputRoot, edition); await mkdir(out, { recursive: true });
   const preload = await build({ entryPoints: [edition === 'user' ? 'src/main/preload.ts' : 'src/admin/preload.ts'], outfile: out + '/preload.cjs', write: false, bundle: true, platform: 'node', format: 'cjs', external: ['electron'], target: 'node22' });
-  const renderer = await build({ entryPoints: [edition === 'user' ? 'src/renderer/main.tsx' : 'src/admin/renderer.tsx'], outdir: out, entryNames: 'renderer', chunkNames: 'chunk-[hash]', splitting: true, write: false, bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'chrome130', loader: { '.css': 'css', '.woff2': 'file', '.woff': 'file', '.ttf': 'file' } });
+  const renderer = await build({ entryPoints: [edition === 'user' ? 'src/renderer/main.tsx' : 'src/admin/renderer.tsx'], outdir: out, entryNames: 'renderer', chunkNames: 'chunk-[hash]', splitting: true, write: false, bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'chrome130', loader: { '.css': 'css', '.woff2': 'file', '.woff': 'file', '.ttf': 'file' }, plugins: [fontSizePlugin] });
   const files = Object.fromEntries([...preload.outputFiles, ...renderer.outputFiles].map(file => [path.basename(file.path), file.contents]));
   files['index.html'] = await readFile('src/renderer/index.html');
   if (edition === 'user') files['project-journal-worker.cjs'] = await readFile('src/core/project-journal-worker.cjs');

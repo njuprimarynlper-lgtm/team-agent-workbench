@@ -70,6 +70,7 @@ import { TeamGroupDialog } from './team-groups';
 import { ProjectBriefEditor } from './project-brief-editor';
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { installFontSizeShortcuts } from './font-size-shortcuts';
 import { Markdown } from './markdown';
 import { editableTurnMessage } from '../shared/editable-turn';
 import { ConversationMessage } from './conversation-message';
@@ -852,6 +853,7 @@ function AgentNotesPanel({ handoff, close }: { handoff: { id: string; text: stri
   const finish = async () => { try { await editor.flush(); close(); } catch (e: any) { setError('文件尚未保存，窗口已保留：' + e.message); } };
   return <Modal title="阶段摘要" wide close={() => void finish()}><div className="modal-body"><p className="agent-notes-explanation">这里汇总本次会话的目标、进展、决定、验证和下一步。可手工更正；整理成果时会参考，也可由你选择带入同项目的其他会话。摘要仅保存在本机。</p>{error && <div role="alert" className="inline-error">{error}</div>}{editing ? <><label className="field">更正阶段摘要<MarkdownEditor className="editor handoff-editor" aria-label="阶段摘要正文" value={editor.value} onChange={e => editor.change(e.target.value)}/></label><p className="muted small">更正后需重新整理，已有结果不会自动变化。</p><p role="status">{editor.status}</p>{editor.status.startsWith('保存失败') && <button className="secondary" onClick={editor.retry}>重试保存</button>}</> : <div className="agent-notes-preview" aria-label="阶段摘要预览"><Markdown text={previewText || '目前还没有阶段摘要。'}/></div>}</div><footer>{!editing && <button className="secondary" onClick={() => setEditing(true)}>更正摘要</button>}<button className="primary" onClick={() => void finish()}>{editing ? '保存并返回' : '返回会话'}</button></footer></Modal>;
 }
+installFontSizeShortcuts();
 createRoot(document.getElementById('root')!).render(<App/>);
 
 interface SessionHandoffOption { id: string; title: string; createdAt: string; closedAt?: string; updatedAt: string; sha256: string; text: string; error?: string }
