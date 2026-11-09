@@ -4,8 +4,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { LocalAdminConnection } from '../src/admin/local-connection';
 import { Workbench } from '../src/core/workbench';
+import { TransferRecords } from '../src/renderer/transfer-records';
 import { memberProfile } from './fixtures/member-profile';
 import { applyPreparation } from '../src/core/preparation';
 import { diskPath } from '../src/core/local-space';
@@ -102,6 +105,41 @@ test('sharing a personal result creates an independent team ID and discloses onl
     assert.equal(teammate.conclusions(projectId).length, 0);
     assert(!JSON.stringify(await teammate.remote.contentList(teammate.remote.binding(projectId))).includes('仅自己可见的原文'));
   } finally { await env.close(); }
+});
+
+test('personal result attachments appear in transfer progress and retry with their result', async () => {
+  const env = await setup(); let release = () => {};
+  try {
+    const wb = env.first, local = path.join(env.root, 'evidence.csv');
+    await fs.writeFile(local, Buffer.alloc(128, 65));
+    const result = await wb.createConclusion(env.project.id, '附件进度', '附带证据文件', 'exploration');
+    await wb.addConclusionFiles(result.id, [local]);
+    const uploaded = wb.remote.uploadAttachment.bind(wb.remote);
+    let attempt = 0, entered = () => {};
+    const reached = new Promise<void>(resolve => { entered = resolve; });
+    const held = new Promise<void>(resolve => { release = resolve; });
+    wb.remote.uploadAttachment = async (...args) => {
+      if (++attempt > 1) return uploaded(...args);
+      await args[5]?.('streaming'); args[3](32, 128); entered(); await held;
+      throw new Error('模拟附件上传中断');
+    };
+    const transfer = await wb.publishConclusion(result.id); await reached;
+    const attachment = wb.store.transfers.find(item => item.attachment && item.conclusionSourceId === result.id)!;
+    assert.equal(attachment.status, 'running'); assert.equal(attachment.bytes, 32);
+    assert.deepEqual(transfer.dependsOn, [attachment.id]); assert.equal(transfer.status, 'queued');
+    const html = renderToStaticMarkup(createElement(TransferRecords, { transfers: wb.store.transfers, retry: () => {} }));
+    assert.match(html, /附件上传中/); assert.match(html, /成果及附件传输进度/);
+    assert.match(html, /附件上传 · evidence\.csv/); assert.match(html, /32 B \/ 128 B/);
+    release(); await settled(wb);
+    assert.equal(attachment.status, 'error'); assert.equal(transfer.status, 'error');
+    assert.equal((await wb.remote.contentList(wb.remote.binding(env.project.id))).length, 0);
+    const retried = await wb.publishConclusion(result.id); assert.equal(retried, transfer); await settled(wb);
+    assert.equal(attachment.status, 'done'); assert.equal(transfer.status, 'done');
+    assert.equal(wb.store.transfers.filter(item => item.conclusionSourceId === result.id || item.id === transfer.id).length, 2);
+    const shared = (await wb.remote.contentList(wb.remote.binding(env.project.id)))[0];
+    assert.equal(shared.attachments?.[0].name, 'evidence.csv');
+    assert.equal(shared.attachments?.[0].sha256, attachment.sha256);
+  } finally { release(); await env.close(); }
 });
 
 test('a later team revision does not rewrite a personal copy or an already attached session snapshot', async () => {

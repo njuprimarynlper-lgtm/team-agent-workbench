@@ -42,7 +42,7 @@ import { preparationCategories, preparationRuleSnapshot, type ResultRuleSnapshot
 import { isProjectOrganizationDraft, projectOrganizationBody, sameProjectOrganization, type ProjectOrganization } from '../shared/project-organization';
 import { selectedPreparationDirections, type PreparationDirections } from '../shared/preparation-directions';
 import { SharedFiles } from './shared-files';
-import { TransferQueue } from './transfers';
+import { TransferQueue, type TransferInput } from './transfers';
 import { AgentRuntime, clearStoppedNativeFork } from './agents';
 import { ClaudeRuntime } from './claude-runtime';
 import { findCodexRollout, prepareCodexStorage } from './codex-storage';
@@ -65,6 +65,7 @@ import { resolveProvider, inspectProvider } from './providers';
 import { freezeFile, packageDraftArtifact, packageHistory, hashFile, contributionBody, artifactContributionBody } from './artifacts';
 import { listSessionFiles } from './session-files';
 import { attachmentList, freezeDraftAttachments } from './draft-attachments';
+import { attachmentPath } from '../shared/attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
 import { ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
@@ -509,12 +510,21 @@ export class Workbench {
       await fs.mkdir(path.dirname(local), { recursive: true });
       await fs.writeFile(local, `# ${conclusion.title}\n\n${conclusion.content}`, 'utf8');
       const attachments = [];
+      const attachmentTransfers: TransferInput[] = [];
+      const attachmentIds = new Map<string, string>();
       for (const file of conclusion.localFiles || []) {
         if (await hashFile(file.localPath) !== file.sha256) throw new Error('附件已变化，请移除后重新添加：' + file.name);
-        const stored = await this.remote.uploadAttachment(binding, file.localPath, file.sha256, () => {});
-        attachments.push({ name: file.name, path: stored.path, sha256: stored.sha256, size: stored.size });
+        if (!attachmentIds.has(file.sha256)) {
+          const id = randomUUID(); attachmentIds.set(file.sha256, id);
+          attachmentTransfers.push({ id, binding, folder: binding.project.uploadPath, kind: 'upload', attachment: true, name: file.name, local: file.localPath, conclusionSourceId: conclusion.id });
+        }
+        attachments.push({ name: file.name, path: attachmentPath(binding, file.sha256), sha256: file.sha256, size: file.size });
       }
-      return await this.queue.enqueue(local, binding, contributionCategoryDirectory(binding, category), 'upload', undefined, { ...(publicationTarget ? { publicationTarget } : {}), ...(folderId ? { folderId } : {}), kind: 'contribution', category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result', id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) });
+      const metadata = { ...(publicationTarget ? { publicationTarget } : {}), ...(folderId ? { folderId } : {}), kind: 'contribution' as const, category, resultStatus: conclusion.resultStatus, resultOwner: conclusion.resultOwner, title: conclusion.title, description: conclusion.content, submission: submissionRecord(binding, [{ kind: 'personal_result' as const, id: conclusion.id, title: conclusion.title, version: conclusion.version, projectId: conclusion.projectId }]), ...(disclose.length ? { disclosedSources: disclose } : {}), ...(attachments.length ? { attachments } : {}) };
+      const folder = contributionCategoryDirectory(binding, category);
+      return attachmentTransfers.length
+        ? (await this.queue.enqueueMany([...attachmentTransfers, { local, binding, folder, kind: 'upload', dependsOn: [...attachmentIds.values()], metadata }])).at(-1)!
+        : await this.queue.enqueue(local, binding, folder, 'upload', undefined, metadata);
     } finally { this.publishingConclusions.delete(id); this.broadcast(); }
   }
   async archiveConclusion(id: string, archived: boolean) {
