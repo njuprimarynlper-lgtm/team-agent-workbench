@@ -37,16 +37,20 @@ function App(){
    else if(action==='sidechat.send'){
      chat.session={...chat.session,status:'running',messages:[...chat.session.messages,{id:'u'+Date.now(),role:'user',text:data.text,createdAt:''}]};chat.draft='';refresh();
      setTimeout(()=>{chat.session={...chat.session,status:'idle',messages:[...chat.session.messages,{id:'process'+Date.now(),role:'assistant',text:'我先检查一下上下文。',phase:'commentary',createdAt:''},{id:'answer'+Date.now(),role:'assistant',text:'这是侧聊的最终回答。',phase:'final_answer',createdAt:''}]};refresh();},120);
-   }else if(action==='sidechat.close')chats=chats.filter(c=>c.id!==data.id);
+   }else if(action==='sidechat.close'){
+     if(window.fixture.failCloseOnce){window.fixture.failCloseOnce=false;throw Error('结束侧聊失败，请重试');}
+     chats=chats.filter(c=>c.id!==data.id);
+   }
    else if(action!=='session.completion.read')throw Error('Unexpected API: '+action);
    await refresh();return true;
  }};
  const create=(_parent,text='')=>{const id='chat'+(++seq);chats.push({id,parentId:'parent',projectId:'project',parentTitle:parent.title,capturedAt:'',draft:text,session:{...parent,id,nativeId:id,title:'侧边提问',status:'idle',messages:[]}});setSelected(id);select('sidechats');refresh();};
+ window.fixture.createEmpty=()=>create(parent);
  window.fixture.expire=()=>{chats[0].expired=true;refresh();};
  return <div style={{display:'flex',height:'100vh',width:'100vw'}}>
  <div aria-label="会话入口" style={{width:270,padding:16,borderRight:'1px solid #ddd'}}><SessionTree sessions={[parent]} selectedId="parent" open={()=>{}} create={()=>{window.fixture.subsessions++;}} promote={()=>{}} rename={async()=>{}}/></div>
  <main style={{flex:1,minWidth:0,padding:24}}><h2>主会话持续生成中</h2><SelectionActions sessionId="parent" add={text=>{window.fixture.quote=text;}} sideChat={text=>create(parent,text)}><p id="selection-source">需要进一步解释的原文</p></SelectionActions></main>
- <ProjectInteractionPanel projectName="测试项目" active={active} select={select} close={()=>select('')} team={false} call={api.call} reload={refresh} questionCount={0} questions={null} subsessions={<p>持久子会话</p>} sideChats={<SideChatPanel chats={chats} selectedId={selectedId} select={setSelected} api={api} changed={refresh}/>}/>
+ <ProjectInteractionPanel projectName="测试项目" active={active} select={select} close={()=>select('')} team={false} call={api.call} reload={refresh} questionCount={0} questions={null} subsessions={<p>持久子会话</p>} sideChatCount={chats.length} sideChats={<SideChatPanel chats={chats} selectedId={selectedId} select={setSelected} onEmpty={()=>select('')} api={api} changed={refresh}/>}/>
  </div>;
 }
 window.workbench={call:async()=>{throw Error('No native calls allowed');},subscribe:()=>()=>{}};
@@ -90,12 +94,21 @@ createRoot(document.getElementById('root')).render(<App/>);
   assert.equal(await input.inputValue(), '需要进一步解释的原文');
   assert.equal(await page.getByLabel('临时侧聊列表').getByRole('button').count(), 2);
   await page.getByRole('button', { name: '侧聊 1', exact: true }).click();
-  await page.getByRole('button', { name: '关闭侧聊', exact: true }).click();
-  await page.getByRole('button', { name: '保留', exact: true }).click();
+  const messagesTop = await page.locator('.side-chat-conversation .subsession-messages').evaluate(element => element.getBoundingClientRect().top);
+  await page.getByRole('button', { name: '结束侧聊', exact: true }).click();
+  const dialog = page.getByRole('alertdialog', { name: '结束这条侧聊？' });
+  await dialog.waitFor();
+  assert.equal(await page.locator('.side-chat-conversation .subsession-messages').evaluate(element => element.getBoundingClientRect().top), messagesTop);
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
   assert.equal(await page.getByLabel('临时侧聊列表').getByRole('button').count(), 2);
-  await page.getByRole('button', { name: '关闭侧聊', exact: true }).click();
-  await page.getByRole('button', { name: '关闭并清除', exact: true }).click();
+  await page.evaluate(() => { window.fixture.failCloseOnce = true; });
+  await page.getByRole('button', { name: '结束侧聊', exact: true }).click();
+  await dialog.getByRole('button', { name: '结束并清除', exact: true }).click();
+  await dialog.getByRole('alert').getByText('结束侧聊失败，请重试').waitFor();
+  assert.equal(await page.getByLabel('临时侧聊列表').getByRole('button').count(), 2);
+  await dialog.getByRole('button', { name: '结束并清除', exact: true }).click();
   assert.equal(await page.getByLabel('临时侧聊列表').getByRole('button').count(), 1);
+  assert.equal(await page.getByRole('button', { name: '侧聊 1', exact: true }).getAttribute('aria-pressed'), 'true');
   assert.equal(await input.inputValue(), '需要进一步解释的原文');
   assert.equal(await page.evaluate(() => window.fixture.parent.status), 'running');
   assert.equal(await page.evaluate(() => window.fixture.subsessions), 1);
@@ -103,7 +116,17 @@ createRoot(document.getElementById('root')).render(<App/>);
   await page.evaluate(() => window.fixture.expire());
   assert(await page.getByRole('button', { name: '发送侧聊', exact: true }).isDisabled());
   assert(await input.isDisabled());
+  await page.getByRole('button', { name: '结束侧聊', exact: true }).click();
+  await dialog.getByRole('button', { name: '结束并清除', exact: true }).click();
+  assert.equal(await page.getByRole('button', { name: '展开侧栏', exact: true }).count(), 1);
+  assert.equal(await page.getByLabel('临时侧聊列表').getByRole('button').count(), 0);
+  await page.getByRole('button', { name: '展开侧栏', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: '子会话', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.evaluate(() => window.fixture.createEmpty());
+  await page.getByRole('button', { name: '结束侧聊', exact: true }).click();
+  assert.equal(await dialog.count(), 0);
+  assert.equal(await page.getByRole('button', { name: '展开侧栏', exact: true }).count(), 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: separate subsession/selection entries, text selection, draft retention, multiple chats, final folding, close isolation, expiration');
+  console.log('PASS: separate subsession/selection entries, text selection, draft retention, multiple chats, close confirmation and selection, empty close, expiration');
   console.log('Screenshot: ' + path.join(out, 'side-chat.png'));
 } finally { await app?.close(); }

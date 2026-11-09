@@ -92,10 +92,10 @@ function RecommendationCount({ count, compact = false }: { count: number; compac
 }
 
 export type InteractionTab = 'recommendations' | 'questions' | 'subsessions' | 'sidechats';
-export function ProjectInteractionPanel({ projectName, active, select, close, inbox, error, call, reload, questionCount, questions, subsessions, sideChats, team = true }: {
+export function ProjectInteractionPanel({ projectName, active, select, close, inbox, error, call, reload, questionCount, questions, subsessions, sideChats, sideChatCount, team = true }: {
   projectName: string; active: InteractionTab | ''; select: (tab: InteractionTab) => void; close: () => void;
   inbox?: RsiInbox; error?: string; call: WorkbenchAPI['call']; reload: () => Promise<void>; questionCount: number; questions: React.ReactNode;
-  subsessions?: React.ReactNode; sideChats?: React.ReactNode; team?: boolean;
+  subsessions?: React.ReactNode; sideChats?: React.ReactNode; sideChatCount?: number; team?: boolean;
 }) {
   const [visitedQuestions, setVisitedQuestions] = useState(active === 'questions');
   const resize = useInteractionPanelResize(!!active);
@@ -105,7 +105,7 @@ export function ProjectInteractionPanel({ projectName, active, select, close, in
   const recommendationCount = pendingRecommendations(inbox);
   const recommendationHint = recommendationCount > 0 ? `${recommendationCount} 条推荐待处理，点击查看` : '查看 AI推荐';
   const toggleLabel = active ? '收起侧栏' : '展开侧栏';
-  const reopenTab = lastTab.current === 'sidechats' && sideChats ? 'sidechats' : lastTab.current === 'subsessions' ? (subsessions ? 'subsessions' : 'recommendations') : (team ? lastTab.current : 'subsessions');
+  const reopenTab = lastTab.current === 'sidechats' ? (sideChats && sideChatCount !== 0 ? 'sidechats' : subsessions ? 'subsessions' : 'recommendations') : lastTab.current === 'subsessions' ? (subsessions ? 'subsessions' : 'recommendations') : (team ? lastTab.current : 'subsessions');
   return <div ref={resize.shell} className={'project-interaction-shell' + (!active ? ' is-collapsed' : '') + (resize.dragging ? ' is-resizing' : '')} style={{ width: active ? resize.width : 60 }}>
     <button type="button" className="icon interaction-toggle" aria-label={toggleLabel} title={toggleLabel} aria-expanded={!!active} aria-controls="project-interaction-panel" onClick={() => active ? close() : select(reopenTab)}>{active ? <PanelRightClose size={17}/> : <PanelRightOpen size={17}/>}</button>
     {active && <button type="button" className="interaction-resize" role="separator" aria-label="调整侧栏宽度" aria-orientation="vertical" aria-controls="project-interaction-panel" aria-valuemin={resize.limits.min} aria-valuemax={resize.limits.max} aria-valuenow={resize.width} aria-valuetext={`${resize.width} 像素`}
