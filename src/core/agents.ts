@@ -282,7 +282,9 @@ export class AgentRuntime {
     });
     const threadId = result.thread?.id;
     if (!threadId || threadId === this.session.nativeId) throw new Error('Codex 未返回独立的临时侧聊');
-    const borrowed = new CodexSideRpc(this.rpc, threadId);
+    // A retained parent already uses a branch-bound RPC. The new side branch
+    // must subscribe to the owning transport, not through the parent's guard.
+    const borrowed = new CodexSideRpc(this.forkOwner?.rpc || this.rpc, threadId);
     this.sideConnections.set(threadId, borrowed);
     borrowed.once('closed', () => this.sideConnections.delete(threadId));
     try {

@@ -35,9 +35,8 @@ function App(){
    const chat=chats.find(c=>c.id===data?.id);
    if(action==='sidechat.draft')chat.draft=data.text;
    else if(action==='sidechat.send'){
-     chat.session.messages.push({id:'u'+Date.now(),role:'user',text:data.text,createdAt:''});chat.draft='';
-     chat.session.status='running';refresh();
-     setTimeout(()=>{chat.session.messages.push({id:'process'+Date.now(),role:'assistant',text:'我先检查一下上下文。',phase:'commentary',createdAt:''},{id:'answer'+Date.now(),role:'assistant',text:'这是侧聊的最终回答。',phase:'final_answer',createdAt:''});chat.session.status='idle';refresh();},120);
+     chat.session={...chat.session,status:'running',messages:[...chat.session.messages,{id:'u'+Date.now(),role:'user',text:data.text,createdAt:''}]};chat.draft='';refresh();
+     setTimeout(()=>{chat.session={...chat.session,status:'idle',messages:[...chat.session.messages,{id:'process'+Date.now(),role:'assistant',text:'我先检查一下上下文。',phase:'commentary',createdAt:''},{id:'answer'+Date.now(),role:'assistant',text:'这是侧聊的最终回答。',phase:'final_answer',createdAt:''}]};refresh();},120);
    }else if(action==='sidechat.close')chats=chats.filter(c=>c.id!==data.id);
    else if(action!=='session.completion.read')throw Error('Unexpected API: '+action);
    await refresh();return true;
@@ -85,7 +84,7 @@ createRoot(document.getElementById('root')).render(<App/>);
   assert.equal(await input.inputValue(), '');
   assert.equal(await page.locator('.turn-activity-group').getAttribute('open'), null);
   await page.locator('.turn-activity-group summary').click();
-  assert(await page.getByText('我先检查一下上下文。', { exact: true }).isVisible());
+  await page.getByText('我先检查一下上下文。', { exact: true }).waitFor({ state: 'visible' });
   await page.evaluate(() => { const range = document.createRange(); range.selectNodeContents(document.getElementById('selection-source')); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange')); });
   await page.getByRole('toolbar', { name: '选中文字操作' }).getByRole('button', { name: '侧边提问', exact: true }).click();
   assert.equal(await input.inputValue(), '需要进一步解释的原文');

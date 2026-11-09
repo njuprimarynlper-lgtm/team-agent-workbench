@@ -68,6 +68,26 @@ test('side chats fork a running parent once, inject a boundary, and never initia
   await source.close();
 });
 
+test('a retained main session can create an isolated side chat after changing models', async () => {
+  const rpc = new Rpc(), owner = runtime(session('writer'), rpc), parent = session();
+  const source = (owner as any).borrowWriterRuntime(parent, '', hooks,
+    { home: 'C:/fixture', sourceHome: 'C:/fixture', args: [], env: {} }, {}) as AgentRuntime;
+  Object.assign(source, { initialized: true, codexConnected: true });
+  parent.model = 'changed-model';
+  const child = session('child'); child.model = parent.model;
+  try {
+    const side = await source.createSideChat(child, hooks, () => '模型切换后的上下文');
+    try {
+      assert.equal(rpc.calls.find(call => call.method === 'thread/fork')?.params.threadId, parent.nativeId);
+      assert.equal(rpc.calls.find(call => call.method === 'thread/inject_items')?.params.threadId, child.nativeId);
+      await side.prompt('继续提问');
+      assert.equal(rpc.calls.find(call => call.method === 'turn/start')?.params.threadId, child.nativeId);
+      assert.equal(rpc.calls.find(call => call.method === 'turn/start')?.params.model, 'changed-model');
+      await assert.rejects(side.rpc.request('turn/start', { threadId: parent.nativeId }), /侧聊请求不属于当前分支/);
+    } finally { await side.close(); }
+  } finally { await source.close(); await owner.close(); }
+});
+
 test('two side chats route approvals and stop only their own turns; connection loss expires both', async () => {
   const rpc = new Rpc(), source = runtime(session(), rpc);
   const a = await source.createSideChat(session('a'), hooks, () => ''), b = await source.createSideChat(session('b'), hooks, () => '');

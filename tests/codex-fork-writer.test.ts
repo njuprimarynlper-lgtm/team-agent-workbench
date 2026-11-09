@@ -61,7 +61,7 @@ test('a native child resumes and sends through the fork writer, without starting
   let guardClosed = false;
   let authClosed = false, refreshes = 0;
   (parentRuntime as any).guardConfig = { model_provider: 'guard-fixture' };
-  (parentRuntime as any).requestGuard = { beforeUpload: () => () => {}, observeRequests: () => () => {}, close: async () => { guardClosed = true; } };
+  (parentRuntime as any).requestGuard = { beforeUpload: () => () => {}, observeRequests: () => () => {}, observeNetworkRetries: () => () => {}, close: async () => { guardClosed = true; } };
   (parentRuntime as any).authBridge = { close: async () => { authClosed = true; }, refresh: async () => { refreshes++; } };
   let childRuntime: AgentRuntime | undefined;
   let grandchildRuntime: AgentRuntime | undefined;
@@ -206,7 +206,7 @@ for (const closeFirst of ['root', 'child'] as const) test(`stopped root resumes 
 test('repeated root stops reuse one writer and keep guard/auth alive until the last lease closes', () => retainedWriter(async ({ wb, parent, child, owner, rpc }) => {
   let guardCloses = 0, authCloses = 0, refreshes = 0;
   (owner as any).guardConfig = { model_provider: 'guard-fixture' };
-  (owner as any).requestGuard = { beforeUpload: () => () => {}, observeRequests: () => () => {}, close: async () => { guardCloses++; } };
+  (owner as any).requestGuard = { beforeUpload: () => () => {}, observeRequests: () => () => {}, observeNetworkRetries: () => () => {}, close: async () => { guardCloses++; } };
   (owner as any).authBridge = { close: async () => { authCloses++; }, refresh: async () => { refreshes++; } };
   for (let i = 0; i < 3; i++) {
     assert.equal(await wb.send(parent.id, '根任务 ' + i), true);
