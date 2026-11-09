@@ -269,6 +269,7 @@ test('disabling an existing desktop session freezes complete history and ignores
     s.inputQueue={items:[],paused:true,error:'保留排队状态'};
     await f.wb.disableCodexDesktop(s.id);
     assert.equal(s.codexDesktop,undefined);assert.equal(s.nativeLive,false);assert.equal(s.codexPrivateFork,true);
+    assert.match(path.basename(s.nativePath!),new RegExp('^rollout-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-'+s.nativeId+'\\.jsonl$'));
     assert.equal(s.id,f.original.id);assert.equal(s.nativeId,f.original.nativeId);
     assert.deepEqual(s.messages,f.original.messages);assert.equal(s.inputQueue.error,'保留排队状态');
     assert.deepEqual(await fs.readFile(s.nativePath!),content);assert.deepEqual(await fs.readFile(nativePath),content);
@@ -282,6 +283,21 @@ test('disabling an existing desktop session freezes complete history and ignores
   }finally{if(bridge===undefined)delete process.env.WORKBENCH_CODEX_DESKTOP_BRIDGE;else process.env.WORKBENCH_CODEX_DESKTOP_BRIDGE=bridge;await f.close();}
 });
 
+test('a detached rollout made by v2.3.27 is copied to a canonical filename before private resume',async()=>{
+  const f=await fixture();try{
+    await f.wb.syncCodexDesktop(f.session.id);
+    await f.wb.disableCodexDesktop(f.session.id);
+    const s=f.session,canonical=s.nativePath!,legacy=path.join(path.dirname(canonical),'rollout-'+s.nativeId+'.jsonl');
+    await fs.rename(canonical,legacy);s.nativePath=legacy;
+    const content=await fs.readFile(legacy);
+    const storage=await prepareCodexStorage(f.wb.store.root,s,f.desktop);
+    assert.equal(storage.resumePath,canonical);
+    assert.equal(s.nativePath,canonical);
+    assert.deepEqual(await fs.readFile(canonical),content);
+    assert.deepEqual(await fs.readFile(legacy),content,'the old copy remains available during recovery');
+  }finally{await f.close();}
+});
+
 test('turning sync back on publishes the frozen branch without overwriting later desktop work or opening a window',async()=>{
   const f=await fixture();try{
     await f.wb.syncCodexDesktop(f.session.id);const desktopPath=f.session.nativePath;
@@ -289,6 +305,7 @@ test('turning sync back on publishes the frozen branch without overwriting later
     await fs.appendFile(desktopPath!,JSON.stringify({type:'event_msg',payload:{type:'agent_message',message:'desktop only'}})+'\n');
     await f.wb.syncCodexDesktop(f.session.id);
     assert.equal(f.session.codexDesktop,true);assert.equal(f.session.codexPrivateFork,undefined);
+    assert.match(path.basename(f.session.nativePath!),new RegExp('^rollout-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-'+f.session.nativeId+'\\.jsonl$'));
     assert.notEqual(f.session.nativePath,desktopPath);assert.notEqual(f.session.nativeId,f.original.nativeId);assert.equal(f.opened(),0);
     assert.match(await fs.readFile(desktopPath!,'utf8'),/desktop only/);assert.doesNotMatch(await fs.readFile(f.session.nativePath!,'utf8'),/desktop only/);
     assert.equal(await fs.readFile(f.session.nativePath!,'utf8'),history(f.session.nativeId!));

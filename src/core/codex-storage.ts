@@ -9,7 +9,7 @@ import type { AgentSession } from '../shared/types';
 import type { AgentRpc } from './rpc';
 import { sameNativePath } from './native-transcript';
 import { readCodexDesktopBridge } from './codex-desktop-bridge';
-import { codexRolloutPath, codexRolloutStream, copyCodexRollout, existingCodexRollout } from './codex-rollout';
+import { canonicalCodexRolloutName, codexRolloutPath, codexRolloutStream, copyCodexRollout, existingCodexRollout, readCodexRollout } from './codex-rollout';
 
 export interface CodexStorage { home: string; sourceHome: string; args: string[]; env: NodeJS.ProcessEnv; resumePath?: string; sharedEndpoint?: string; sharedApprovalRouting?: boolean; legacyGuardProvider?: boolean; }
 const inside = (root: string, file: string) => { const rel = path.relative(root, file); return !!rel && !path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep); };
@@ -153,6 +153,21 @@ export async function prepareCodexStorage(root: string, session: AgentSession, s
     resumePath = session.codexPrivateFork && session.nativePath && inside(home, session.nativePath)
       ? await existingCodexRollout(session.nativePath) : await findCodexRollout(home, session.nativeId);
     if (!resumePath || !(await fs.stat(resumePath).catch(() => undefined))?.isFile()) throw new Error('工作台中的原会话记录未找到；请从保留的旧目录恢复对应 Codex 历史后重试');
+    if (session.codexPrivateFork && /^detached-[a-f0-9-]{36}$/i.test(path.basename(path.dirname(resumePath)))) {
+      // v2.3.27 froze detached histories as rollout-<id>.jsonl. Codex can read
+      // their contents but rejects that filename when the private fork resumes.
+      const canonical = path.join(path.dirname(resumePath), canonicalCodexRolloutName(resumePath, session.nativeId, session.createdAt));
+      if (!sameNativePath(canonical, resumePath)) {
+        const content = await readCodexRollout(resumePath);
+        try { await fs.writeFile(canonical, content, { flag: 'wx', mode: 0o600 }); }
+        catch (error: any) {
+          if (error.code !== 'EEXIST') throw error;
+          if (!(await fs.readFile(canonical)).equals(content)) throw new Error('工作台中已有同名但内容不同的会话记录，未覆盖；请先核对两份记录');
+        }
+        resumePath = canonical;
+        session.nativePath = canonical;
+      }
+    }
   }
   // Existing workbench sessions keep the full native history; only copy their own rollout.
   // Leave the original intact: removing entries from the desktop is a separate user action.

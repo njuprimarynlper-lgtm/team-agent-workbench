@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentSession } from '../shared/types';
 import { findCodexRollout } from './codex-storage';
 import { sameNativePath } from './native-transcript';
-import { codexRolloutPath, existingCodexRollout, readCodexRollout } from './codex-rollout';
+import { canonicalCodexRolloutName, existingCodexRollout, readCodexRollout } from './codex-rollout';
 
 const inside = (root: string, file: string) => {
   const relative = path.relative(path.resolve(root), path.resolve(file));
@@ -40,7 +40,7 @@ export async function prepareDesktopRollout(session: AgentSession, privateHome: 
   const directory = path.join(desktopHome, 'sessions');
   await fs.mkdir(directory, { recursive: true });
   if (!inside(await fs.realpath(desktopHome), await fs.realpath(directory))) throw new Error('Codex 会话目录指向其他位置，未同步');
-  const destination = path.join(directory, path.basename(codexRolloutPath(source)));
+  const destination = path.join(directory, canonicalCodexRolloutName(source, session.nativeId, session.createdAt));
   // Exclusive creation preserves the exact validated snapshot and prevents
   // simultaneous windows from replacing another record.
   try { await fs.writeFile(destination, content, { flag: 'wx', mode: 0o600 }); }
@@ -76,7 +76,7 @@ export async function snapshotDesktopRollout(session: AgentSession, privateHome:
   const directory = path.join(privateHome, 'sessions', 'detached-' + randomUUID());
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
   if (sameNativePath(privateHome, desktopHome) || !inside(await fs.realpath(privateHome), await fs.realpath(directory))) throw new Error('工作台独立会话目录无效，未关闭同步');
-  const destination = path.join(directory, 'rollout-' + session.nativeId + '.jsonl');
+  const destination = path.join(directory, canonicalCodexRolloutName(source, session.nativeId, session.createdAt));
   await fs.writeFile(destination, content, { flag: 'wx', mode: 0o600 });
   return destination;
 }
