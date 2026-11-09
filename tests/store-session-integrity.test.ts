@@ -83,6 +83,58 @@ test('account stores remain independent when another account has a blocked save'
   assert.deepEqual(await bytes(a), before);
 });
 
+test('streamed changes write a small overlay and recover without rewriting the full history', async t => {
+  const store = await fixture(t), active = session();
+  active.messages = Array.from({ length: 1200 }, (_, index) => ({ id: randomUUID(), role: 'tool', text: `history-${index}:` + 'x'.repeat(1000), createdAt: active.createdAt }));
+  store.sessions = [active]; await store.save();
+  const indexFile = path.join(store.root, 'sessions.json'), before = await fs.readFile(indexFile, 'utf8');
+  active.messages.push({ id: randomUUID(), role: 'assistant', text: '输出第一段', createdAt: active.createdAt });
+  const latest = active.messages.at(-1)!;
+  store.recordSessionDelta(active.id, latest.id); await store.saveSessionDeltas();
+  latest.text += '，第二段'; store.recordSessionDelta(active.id, latest.id); await store.saveSessionDeltas();
+  assert.equal(await fs.readFile(indexFile, 'utf8'), before);
+  const deltaFile = path.join(store.sessionDir(active.id), 'delta.json');
+  assert((await fs.stat(deltaFile)).size < Buffer.byteLength(before) / 10);
+  const recovered = new Store(store.root); await recovered.init();
+  assert.equal(recovered.sessions[0].messages.at(-1)?.text, '输出第一段，第二段');
+  assert.equal(recovered.sessions[0].messages.length, 1201);
+  await store.save();
+  await assert.rejects(fs.stat(deltaFile), { code: 'ENOENT' });
+  const checkpoint = new Store(store.root); await checkpoint.init();
+  assert.equal(checkpoint.sessions[0].messages.at(-1)?.text, latest.text);
+});
+
+test('a delta queued after a checkpoint preserves later output', async t => {
+  const store = await fixture(t), active = session();
+  active.messages.push({ id: randomUUID(), role: 'assistant', text: '原文', createdAt: active.createdAt });
+  store.sessions = [active]; await store.save();
+  const checkpoint = store.save();
+  active.messages[0].text = '后续输出'; store.recordSessionDelta(active.id, active.messages[0].id);
+  await Promise.all([checkpoint, store.saveSessionDeltas()]);
+  const reopened = new Store(store.root); await reopened.init();
+  assert.equal(reopened.sessions[0].messages[0].text, '后续输出');
+});
+
+test('a stale Store cannot erase another instance’s newer message overlay', async t => {
+  const store = await fixture(t), active = session();
+  active.messages.push({ id: randomUUID(), role: 'assistant', text: '原文', createdAt: active.createdAt });
+  store.sessions = [active]; await store.save();
+  const stale = new Store(store.root); await stale.init();
+  active.messages[0].text = '新输出'; store.recordSessionDelta(active.id, active.messages[0].id);
+  await store.saveSessionDeltas();
+  await assert.rejects(stale.save(), /过期会话覆盖/);
+  const reopened = new Store(store.root); await reopened.init();
+  assert.equal(reopened.sessions[0].messages[0].text, '新输出');
+});
+
+test('legacy session identifiers remain compatible with full checkpoints', async t => {
+  const store = await fixture(t), legacy = { ...session(), id: 'legacy-helper' };
+  store.sessions = [legacy]; await store.save();
+  assert.equal(store.recordSessionDelta(legacy.id), false);
+  const reopened = new Store(store.root); await reopened.init();
+  assert.equal(reopened.sessions[0].id, legacy.id);
+});
+
 test('a migrated account missing its index refuses both initialization and ordinary save', async t => {
   const store = await fixture(t); store.sessions = [session()]; await store.save();
   await atomicJson(path.join(store.root, 'migration.json'), { version: 2, owner: 'account' });

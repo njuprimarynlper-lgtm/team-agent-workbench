@@ -66,7 +66,7 @@ export class ClaudeRuntime {
     }
     else this.session.messages.push({ id, role, text: value, createdAt: now(), ...metadata });
     this.timing.message(item || this.session.messages.at(-1)!);
-    this.hooks.changed();
+    (this.hooks.messageChanged || this.hooks.changed)(id);
   }
   private send(value: unknown) { if (!this.child || this.child.stdin.destroyed) throw new Error('CLI 连接已关闭'); this.child.stdin.write(JSON.stringify(value) + '\n'); }
   async prompt(text: string, options?: { userText: string; context: Omit<MessageContext, 'nativeId' | 'accepted'>; capabilities?: AgentCapabilityOption[]; submitted?: () => void; messageId?: string }): Promise<boolean> {
@@ -116,7 +116,7 @@ export class ClaudeRuntime {
   private onEvent(event: any, plannedId: string) {
     if (this.closed || !event || typeof event !== 'object') return;
     if (this.session.cliConnection?.state === 'connecting' && event.type === 'stream_event' && event.event?.type === 'content_block_start') this.timing.wait('network', false);
-    if (event.type !== 'result') { this.timing.claude(event); if (this.timing.active) this.hooks.changed(); }
+    if (event.type !== 'result') { this.timing.claude(event); if (this.timing.active) (this.hooks.messageChanged || this.hooks.changed)(); }
     if (event.type === 'error' || event.type === 'result' && event.is_error) this.connection.error(event.error || { message: (event.errors || []).join('\n') }, false);
     if (event.type === 'system' && event.subtype === 'api_retry') this.connection.error({ message: `Retrying ${event.attempt || 1}`, statusCode: event.error_status }, true);
     if (event.type === 'assistant' && !event.error || event.type === 'stream_event' && event.event?.type === 'content_block_delta') this.connection.responded();

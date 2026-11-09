@@ -29,7 +29,7 @@ import { TurnTimingTracker } from './turn-timing';
 import { createCodexRequestGuard, type CodexRequestGuard, type GuardRequestSize } from './codex-request-guard';
 import { CodexAutoCompaction } from './codex-auto-compaction';
 import { capacityFallbackModel, isCodexCapacityError, type CodexSubmission } from './codex-capacity';
-export interface AgentHooks { changed: () => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
+export interface AgentHooks { changed: () => void; messageChanged?: (id?: string) => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
 const now = () => new Date().toISOString();
 export const nativeRolloutForkError = 'Codex 没有继续写原来的会话文件，已停止，避免变成两份。';
 export function clearStoppedNativeFork(session: AgentSession) {
@@ -154,7 +154,7 @@ export class AgentRuntime {
     }
     else this.session.messages.push({ id, role, text, createdAt: now(), ...metadata });
     const message = existing || this.session.messages.at(-1)!;
-    this.timing.message(message); this.hooks.changed();
+    this.timing.message(message); if (this.hooks.messageChanged) this.hooks.messageChanged(message.id); else this.hooks.changed();
     return message;
   }
   private async connectCodex() {
@@ -1068,14 +1068,14 @@ export class AgentRuntime {
       if (!this.timing.active && this.turnActive && method.startsWith('item/')) this.timing.begin(s.messages.findLast(message => message.role === 'user')?.id, p.turnId, true);
       if (s.cliConnection?.state === 'connecting' && (method === 'item/started' || method.startsWith('item/reasoning/') || method === 'item/agentMessage/delta')) this.timing.wait('network', false);
       this.timing.codex(method, p);
-      if (this.timing.active) this.hooks.changed();
+      if (this.timing.active) (this.hooks.messageChanged || this.hooks.changed)();
       const modelActivity = method === 'item/started' && p.item?.type && !['userMessage', 'contextCompaction'].includes(p.item.type);
       if (modelActivity || method === 'item/agentMessage/delta' || method === 'item/reasoning/textDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/completed' && p.item?.type === 'agentMessage') this.connection.responded();
       if (method === 'item/started' && p.item?.type === 'agentMessage') this.message(p.item.id, 'assistant', '', true, { phase: assistantMessagePhase(p.item.phase) });
       if (method === 'item/agentMessage/delta') this.message(p.itemId, 'assistant', p.delta || '', true, { phase: assistantMessagePhase(p.phase) });
       if (method === 'item/plan/delta') {
         const message = this.message(p.itemId, 'assistant', p.delta || '', true); message.kind = 'plan';
-        s.proposedPlan = { messageId: message.id, text: message.text, ready: false }; this.hooks.changed();
+        s.proposedPlan = { messageId: message.id, text: message.text, ready: false }; (this.hooks.messageChanged || this.hooks.changed)(message.id);
       }
       if (method === 'turn/plan/updated') this.updatePlanSteps('steps-' + p.turnId, p.plan);
       if (method === 'item/commandExecution/outputDelta') this.message(p.itemId, 'tool', p.delta || '', true);
@@ -1091,7 +1091,7 @@ export class AgentRuntime {
         this.fileChanges.delete(i.id);
         if (i.type === 'plan') {
           const message = this.message(i.id, 'assistant', i.text || ''); message.kind = 'plan';
-          s.proposedPlan = { messageId: message.id, text: i.text || '', ready: !!i.text?.trim() }; this.hooks.changed();
+          s.proposedPlan = { messageId: message.id, text: i.text || '', ready: !!i.text?.trim() }; (this.hooks.messageChanged || this.hooks.changed)(message.id);
         }
         else if (i.type === 'agentMessage') this.message(i.id, 'assistant', i.text || '', false, { phase: assistantMessagePhase(i.phase) });
         else if (i.type === 'commandExecution') { if (i.exitCode !== 0 || i.status === 'failed') { const issue = permissionIssue(i.aggregatedOutput); if (issue) { s.permissionIssue = issue; this.hooks.changed(); } } this.message(i.id, 'tool', '$ ' + i.command + '\n' + (i.aggregatedOutput || '') + '\n退出码：' + i.exitCode); }
@@ -1104,7 +1104,7 @@ export class AgentRuntime {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
       const u = p.update || {};
       this.timing.cursor(u);
-      if (this.timing.active) this.hooks.changed();
+      if (this.timing.active) (this.hooks.messageChanged || this.hooks.changed)();
       if (u.sessionUpdate === 'agent_thought_chunk') this.connection.responded();
       if (s.cliConnection?.state === 'connecting' && u.sessionUpdate === 'tool_call') this.timing.wait('network', false);
       if (u.sessionUpdate === 'available_commands_update') { this.cursorCommandsKnown = true; this.cursorCommands = Array.isArray(u.availableCommands) ? u.availableCommands : []; this.capabilityCache.invalidate('skill'); for (const done of this.cursorCommandWaiters) done(); this.cursorCommandWaiters.clear(); }
@@ -1122,7 +1122,7 @@ export class AgentRuntime {
   private updatePlanSteps(id: string, raw: unknown) {
     const steps = planSteps(raw); if (!steps.length) return;
     this.message(id, 'assistant', '执行计划'); const message = this.session.messages.find(value => value.id === id)!;
-    message.kind = 'planSteps'; message.steps = steps; this.hooks.changed();
+    message.kind = 'planSteps'; message.steps = steps; (this.hooks.messageChanged || this.hooks.changed)(message.id);
   }
   private onRequest(m: RpcMessage) {
     const p = m.params || {}, method = m.method!, id = randomUUID();

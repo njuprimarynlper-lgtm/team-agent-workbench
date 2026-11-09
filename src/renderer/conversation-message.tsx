@@ -8,7 +8,7 @@ import { CopyTextButton } from './copy-text-button';
 import { MessageTime } from './turn-timing';
 import { ContextMenu, contextAnchor, type ContextAnchor, type ContextAction } from './context-menu';
 
-export function ConversationMessage({ message, provider, text = message.text, sessionId, openFile, pendingLabel, children, quote, sideChat, editLast }: {
+export const ConversationMessage = React.memo(function ConversationMessage({ message, provider, text = message.text, sessionId, openFile, pendingLabel, children, quote, sideChat, editLast }: {
   message: Message; provider: Provider; text?: string; sessionId?: string;
   openFile?: (path: string) => void; pendingLabel?: string; children?: React.ReactNode;
   editLast?: (value: string) => Promise<void>;
@@ -56,4 +56,4 @@ export function ConversationMessage({ message, provider, text = message.text, se
     </div>
     {menu && <ContextMenu anchor={menu.anchor} label="消息操作" actions={actions} close={() => setMenu(undefined)}/>}
   </article>;
-}
+}, (before, after) => before.message === after.message && before.text === after.text && before.provider === after.provider && before.sessionId === after.sessionId && before.pendingLabel === after.pendingLabel && !!before.quote === !!after.quote && !!before.sideChat === !!after.sideChat && !!before.editLast === !!after.editLast && !before.children && !after.children);

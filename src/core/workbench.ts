@@ -128,7 +128,7 @@ export class Workbench {
   private stoppingSessions = new Set<string>();
   private deletingDrafts = new Set<string>();
   private deletingSharedContent = new Set<string>();
-  private timer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
+  private timer?: NodeJS.Timeout; private deltaTimer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
   private nativeSyncTimer?: NodeJS.Timeout;
   private nativeSyncFlush?: NodeJS.Timeout;
   private nativeSyncQueued = false;
@@ -199,7 +199,7 @@ export class Workbench {
   accountSync: AccountSync;
   readonly projectSync: ProjectSync;
   // Keep the legacy argument slot so runtime environment and desktop integrations retain their positions.
-  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, _legacyPreparationTimeoutMs?: number, private providerEnvironment: (route?: SessionNetworkRoute, session?: AgentSession) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void, readonly codexDesktop: CodexDesktopIntegration = new CodexDesktopService(), readonly cursorDesktop: CursorDesktopIntegration = new CursorFileService(), readonly personal = false) {
+  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, _legacyPreparationTimeoutMs?: number, private providerEnvironment: (route?: SessionNetworkRoute, session?: AgentSession) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void, readonly codexDesktop: CodexDesktopIntegration = new CodexDesktopService(), readonly cursorDesktop: CursorDesktopIntegration = new CursorFileService(), readonly personal = false, private emitSessionDelta?: (session: AgentSession, messageId?: string, sideChatId?: string) => void) {
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.inputQueue = new SessionInputQueue({
@@ -1107,7 +1107,7 @@ export class Workbench {
     if (this.closing || s.closedAt || epoch !== this.accountRevision) { await remoteRpc?.close(); throw new Error('会话或账号已改变，未启动 CLI'); }
     if (s.codexPrivateFork) await this.store.save();
     const runtimeRoute = s.networkRoute;
-    const hooks = { changed: this.changed, event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    const hooks = { changed: this.changed, messageChanged: (messageId?: string) => this.changedMessage(s.id, messageId), event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => {
       if (!this.configuring && this.ownsLocal(s.binding)) {
         this.connectionReport?.({ ...s, networkRoute: runtimeRoute }, value);
@@ -1504,6 +1504,14 @@ export class Workbench {
     this.broadcast(); return project;
   }
   changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
+  private changedMessage(id: string, messageId?: string) {
+    if (this.closing) return;
+    const session = this.store.sessions.find(item => item.id === id);
+    if (!session) return;
+    if (!this.store.recordSessionDelta(id, messageId)) { this.changed(); return; }
+    if (this.emitSessionDelta) this.emitSessionDelta(session, messageId); else this.broadcast();
+    if (!this.deltaTimer) this.deltaTimer = setTimeout(() => { this.deltaTimer = undefined; void this.store.saveSessionDeltas().catch(error => this.notice(error.message)); }, 200);
+  }
   session(id: string) { this.assertAccountReady(); if (this.movingIds.has(id)) throw new Error('会话正在迁移，请稍候'); const s = this.store.sessions.find(x => x.id === id); if (s?.binding && this.linkingProjects.has(s.binding.project.id)) throw new Error('项目正在迁移，请稍候'); if (!s || !this.ownsLocal(s.binding)) throw new Error('会话不存在或不属于当前账号，请切回原账号'); return s; }
   draft(id: string) { this.assertAccountReady(); if (this.deletingDrafts.has(id)) throw new Error('整理任务正在删除，请等待完成'); const d = this.store.drafts.find(x => x.id === id); if (!d || !this.ownsLocal(d.binding || this.store.sessions.find(session => session.id === d.sessionId)?.binding)) throw new Error('草稿不存在或不属于当前账号，请切回原账号'); return d; }
   async inspectPermissions(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
@@ -2253,6 +2261,8 @@ export class Workbench {
       }
     }
     await this.questions.completed(s);
+    clearTimeout(this.timer); this.timer = undefined;
+    await this.store.save(); this.broadcast();
     if (s.purpose === 'work' && !s.closedAt) { this.activity.completed(s.id); if (s.binding) void this.rsi.completed(s.binding.project.id).catch(() => {}); }
     if (!this.configuring && this.ownsLocal(s.binding) && s.autoUpload && s.binding && this.projectConnected(s.binding.project.id) && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.sessionNotice(s, '会话自动上传未完成：' + e.message); } }
   }
@@ -3548,7 +3558,7 @@ export class Workbench {
     };
     const parentRuntime = await this.runtime(parent);
     if (!(parentRuntime instanceof AgentRuntime)) throw new Error('Codex 运行环境不可用');
-    const runtime = await parentRuntime.createSideChat(view.session, { changed: () => this.broadcast(), event: () => {}, done: () => this.broadcast() }, () => {
+    const runtime = await parentRuntime.createSideChat(view.session, { changed: () => this.broadcast(), messageChanged: messageId => { view.session.storageRevision = (view.session.storageRevision || 0) + 1; if (this.emitSessionDelta) this.emitSessionDelta(view.session, messageId, view.id); else this.broadcast(); }, event: () => {}, done: () => this.broadcast() }, () => {
       view.capturedAt = new Date().toISOString();
       const unfinished = ['starting', 'running', 'approval'].includes(parent.status);
       const lastUser = parent.messages.findLastIndex(message => message.role === 'user' && !message.steering);
@@ -3886,5 +3896,5 @@ export class Workbench {
   async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await this.store.save(); }
   listDirections() { return this.remote.memberDirections(); }
   saveDirections(directions: unknown) { return this.remote.memberDirections(directions); }
-  async close() { this.closing = true; clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  async close() { this.closing = true; clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

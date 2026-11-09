@@ -782,6 +782,25 @@ function syncTaskbar(window: BrowserWindow, workbench: Workbench) {
 async function createDataContext(root: string, personal = false): Promise<DataContext> {
   let workbench: Workbench;
   const emit = (event: WorkbenchEvent) => { for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) window.webContents.send('workbench:event', event); };
+  const pendingMessages = new Map<string, { session: import('../shared/types').AgentSession; ids: Set<string>; sideChatId?: string }>();
+  let deltaTimer: NodeJS.Timeout | undefined;
+  const emitSessionDelta = (session: import('../shared/types').AgentSession, messageId?: string, sideChatId?: string) => {
+    const key = sideChatId || session.id;
+    let pending = pendingMessages.get(key);
+    if (!pending) { pending = { session, ids: new Set(), sideChatId }; pendingMessages.set(key, pending); }
+    pending.session = session;
+    if (messageId) pending.ids.add(messageId);
+    if (!deltaTimer) deltaTimer = setTimeout(() => {
+      deltaTimer = undefined;
+      const batch = [...pendingMessages]; pendingMessages.clear();
+      for (const [id, pending] of batch) {
+        if (!pending.sideChatId && !workbench.store.sessions.some(item => item.id === id)) continue;
+        const { messages, sources: _sources, ...metadata } = pending.session;
+        const changed = messages.filter(message => pending.ids.has(message.id));
+        emit(pending.sideChatId ? { type: 'sidechat-delta', chatId: pending.sideChatId, session: metadata, messages: changed } : { type: 'session-delta', session: metadata, messages: changed });
+      }
+    }, 80);
+  };
   let emitTimer: NodeJS.Timeout | undefined;
   const broadcast = () => { egress?.sharedServerConnectionChanged(personal ? !!personalRelay?.workbench.remote.connected : !!workbench?.remote.connected); if (!personal) personalContext?.egress.sharedServerConnectionChanged(!!personalRelay?.workbench.remote.connected); if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) syncTaskbar(window, context.workbench); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message });
@@ -798,7 +817,7 @@ async function createDataContext(root: string, personal = false): Promise<DataCo
     if (route === 'management' && !environment.HTTPS_PROXY) throw new Error('该会话的管理端出口未启动，请先恢复管理端连接');
     return environment;
   },
-    (session, value) => { if (session.networkRoute === 'management') egress?.reportCliStatus(session.provider, session.id, value, session.binding?.username || ''); },new CodexDesktopService({workerFile:path.join(__dirname,runtimeAssets,'codex-desktop-worker.cjs')}), undefined, personal);
+    (session, value) => { if (session.networkRoute === 'management') egress?.reportCliStatus(session.provider, session.id, value, session.binding?.username || ''); },new CodexDesktopService({workerFile:path.join(__dirname,runtimeAssets,'codex-desktop-worker.cjs')}), undefined, personal, emitSessionDelta);
   try {
     await workbench.init();
     workbench.store.settings.trustedServerIdentities = serverIdentities.snapshot();

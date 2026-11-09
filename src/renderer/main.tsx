@@ -25,6 +25,7 @@ import './personal-workspace.css';
 import { newAccountPasswordSchema } from '../shared/accounts';
 import { SessionTranscript } from './session-transcript';
 import { createSnapshotRefresh, createStateEventRefresh } from './snapshot-refresh';
+import { applySessionDelta, applySideChatDelta, mergeNewerSessions } from './session-delta';
 import { SessionTurnProgress } from './turn-timing';
 import './session-transcript.css';
 import { clientVersion, clientWindowTitle } from '../shared/client-version';
@@ -197,13 +198,17 @@ function App() {
   const viewAccount = useRef('');
   refreshRef.current ||= createSnapshotRefresh<Snapshot>(
     () => api.call<Snapshot>('snapshot'),
-    next => { React.startTransition(() => setState(next)); setError(''); },
+    next => { React.startTransition(() => setState(current => mergeNewerSessions(next, current))); setError(''); },
     error => setError(error instanceof Error ? error.message : String(error)));
   const refresh = refreshRef.current;
   useEffect(() => {
     void refresh();
     const events = createStateEventRefresh(refresh);
-    const unsubscribe = api.subscribe(event => { if (event.type === 'state') events.request(); });
+    const unsubscribe = api.subscribe(event => {
+      if (event.type === 'state') events.request();
+      if (event.type === 'session-delta') React.startTransition(() => setState(current => applySessionDelta(current, event)));
+      if (event.type === 'sidechat-delta') React.startTransition(() => setState(current => applySideChatDelta(current, event)));
+    });
     return () => { events.cancel(); unsubscribe(); };
   }, []);
   if (!state) return <div className="boot"><Layers size={34}/><p>{error || '正在启动团队工作台…'}</p></div>;

@@ -22,6 +22,7 @@ export interface StoreSaveOptions {
 // Account windows normally share a Store. Also serialize recovery/temporary Stores
 // for the same directory so the disk check and replacement cannot interleave.
 const storeWrites = new Map<string, Promise<void>>();
+const validSessionId = (id: string) => /^[a-f0-9-]{36}$/.test(id);
 function sessionIds(value: unknown): string[] {
   if (!Array.isArray(value) || value.some(item => !item || typeof item.id !== 'string' || !item.id)) throw new Error('本地 sessions.json 格式无效，原文件已保留');
   const ids = value.map(item => item.id as string);
@@ -57,6 +58,7 @@ export async function atomicJson(file: string, data: unknown, ascii = false) {
   } finally { await fs.rm(temp, { force: true }).catch(() => {}); }
 }
 export class Store {
+  private dirtySessionMessages = new Map<string, Map<string, number>>();
   private inputWrite: Promise<void> = Promise.resolve();
   private retryInputWrite = false;
   private inputSave?: { timer: ReturnType<typeof setTimeout>; promise: Promise<void>; resolve: () => void; reject: (error: unknown) => void };
@@ -80,6 +82,26 @@ export class Store {
     const sessions = await readSessionIndex(this.root, this.sessionIndexExpected);
     this.sessionIndexExpected = sessions !== undefined;
     this.sessions = sessions || [];
+    // The checkpoint wins after a crash between writing sessions.json and deleting an older overlay.
+    for (const session of this.sessions) {
+      if (!validSessionId(session.id)) continue; // Legacy and synthetic IDs use full checkpoints only.
+      const file = path.join(this.sessionDir(session.id), 'delta.json');
+      let delta: { version: number; revision: number; session: Omit<AgentSession, 'messages'>; messages: AgentSession['messages'] };
+      try { delta = JSON.parse(await fs.readFile(file, 'utf8')); }
+      catch (error: any) {
+        if (error.code === 'ENOENT') continue;
+        throw new Error('本地会话增量无法读取，原文件已保留：' + file, { cause: error });
+      }
+      if (delta?.version !== 1 || !Number.isSafeInteger(delta.revision) || delta.revision < 1 || delta.session?.id !== session.id || delta.session.storageRevision !== delta.revision || !Array.isArray(delta.messages) || delta.messages.some(message => !message || typeof message.id !== 'string' || !message.id)) throw new Error('本地会话增量格式无效，原文件已保留：' + file);
+      if (delta.revision <= (session.storageRevision || 0)) continue;
+      const messages = [...session.messages], indexes = new Map(messages.map((message, index) => [message.id, index]));
+      for (const message of delta.messages) {
+        const index = indexes.get(message.id);
+        if (index === undefined) { indexes.set(message.id, messages.length); messages.push(message); }
+        else messages[index] = message;
+      }
+      Object.assign(session, delta.session, { messages });
+    }
     try {
       const state = JSON.parse(await fs.readFile(path.join(this.root, 'activity-assistant.json'), 'utf8'));
       this.activity = activityStateSchema.parse(state);
@@ -176,11 +198,35 @@ export class Store {
     void write.then(() => { if (this.inputWrite === write) this.retryInputWrite = false; pending.resolve(); }, error => { if (this.inputWrite === write) this.retryInputWrite = true; pending.reject(error); });
     return write;
   }
+  recordSessionDelta(sessionId: string, messageId?: string) {
+    if (!validSessionId(sessionId)) return false;
+    const session = this.sessions.find(item => item.id === sessionId);
+    if (!session) return false;
+    const revision = (session.storageRevision || 0) + 1;
+    session.storageRevision = revision;
+    let messages = this.dirtySessionMessages.get(sessionId);
+    if (!messages) { messages = new Map(); this.dirtySessionMessages.set(sessionId, messages); }
+    if (messageId) messages.set(messageId, revision);
+    return true;
+  }
+  saveSessionDeltas() {
+    // Include every changed message since the checkpoint so each atomic overlay stands alone.
+    const deltas = [...this.dirtySessionMessages].flatMap(([id, dirty]) => {
+      const session = this.sessions.find(item => item.id === id);
+      if (!session) return [];
+      const { messages, ...metadata } = session;
+      const changed = messages.filter(message => dirty.has(message.id));
+      return [{ id, value: JSON.parse(JSON.stringify({ version: 1, revision: session.storageRevision, session: metadata, messages: changed })) }];
+    });
+    if (!deltas.length) return Promise.resolve();
+    return this.enqueue(async () => { for (const delta of deltas) await atomicJson(path.join(this.sessionDir(delta.id), 'delta.json'), delta.value); });
+  }
   save(options: StoreSaveOptions = {}) {
     // Full saves (including send, account changes and shutdown) are barriers.
     // Enqueue the pending input before the ledger snapshot, never after it.
     void this.flushInputs().catch(() => {});
     const data = JSON.parse(JSON.stringify({ settings: this.settings, sessions: this.sessions, inputs: this.inputs, transfers: this.transfers, drafts: this.drafts, conclusions: this.conclusions, 'activity-assistant': this.activity }));
+    const revisions = new Map((data.sessions as AgentSession[]).map(session => [session.id, session.storageRevision || 0]));
     const allowed = new Set(options.removedSessionIds || []);
     const source = options.source || new Error('Store.save 调用来源').stack || 'Store.save';
     return this.enqueue(async () => {
@@ -194,11 +240,31 @@ export class Store {
         await atomicJson(recovery, { version: 1, at: new Date().toISOString(), pid: process.pid, source, previousSessions: previous, incomingIds, removedIds, unexpectedIds, allowedRemovedIds: [...allowed] });
         throw new Error(`已拦截未声明的会话移除（${unexpectedIds.length} 条），原账号资料未覆盖。恢复快照：${recovery}`);
       }
+      for (const old of previous || []) {
+        if (!incoming.has(old.id)) continue;
+        const revision = revisions.get(old.id) || 0;
+        if ((old.storageRevision || 0) > revision) throw new Error(`已拦截过期会话覆盖，原账号资料未改动：${old.id}`);
+        if (!validSessionId(old.id)) continue;
+        const file = path.join(this.sessionDir(old.id), 'delta.json');
+        let delta: { revision?: number };
+        try { delta = JSON.parse(await fs.readFile(file, 'utf8')); }
+        catch (error: any) { if (error.code === 'ENOENT') continue; throw new Error('本地会话增量无法读取，原文件已保留：' + file, { cause: error }); }
+        if (typeof delta.revision !== 'number' || !Number.isSafeInteger(delta.revision)) throw new Error('本地会话增量格式无效，原文件已保留：' + file);
+        if (delta.revision > revision) throw new Error(`已拦截过期会话覆盖，较新的增量记录仍在：${file}`);
+      }
       for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value);
       this.sessionIndexExpected = true;
+      for (const id of new Set([...incomingIds, ...removedIds])) {
+        if (!validSessionId(id)) continue;
+        await fs.rm(path.join(this.sessionDir(id), 'delta.json'), { force: true }).catch(() => {});
+        const dirty = this.dirtySessionMessages.get(id);
+        if (!dirty) continue;
+        for (const [messageId, revision] of dirty) if (revision <= (revisions.get(id) || 0)) dirty.delete(messageId);
+        if (!dirty.size && (this.sessions.find(session => session.id === id)?.storageRevision || 0) <= (revisions.get(id) || 0)) this.dirtySessionMessages.delete(id);
+      }
     }).then(() => { this.saved?.(); });
   }
-  sessionDir(id: string) { if (!/^[a-f0-9-]{36}$/.test(id)) throw new Error('无效会话 ID'); return path.join(this.root, 'sessions', id); }
+  sessionDir(id: string) { if (!validSessionId(id)) throw new Error('无效会话 ID'); return path.join(this.root, 'sessions', id); }
   async event(id: string, event: unknown) {
     const dir = this.sessionDir(id); await fs.mkdir(dir, { recursive: true });
     await fs.appendFile(path.join(dir, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), event }) + '\n', { mode: 0o600 });
