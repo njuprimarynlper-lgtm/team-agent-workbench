@@ -19,6 +19,14 @@ import { prepareDesktopRollout } from './native-publish';
 const run = promisify(execFile), pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export interface CodexDesktopTarget { app: string; executable: string; archive?: string }
 export interface CodexDesktopOpenOptions { ifClosed?: boolean }
+export function supportsCodexDesktopBridge(archive: string) {
+  const scripts = asar.listPackage(archive, { isPack: false })
+    .filter(file => /\.[cm]?js$/i.test(file));
+  // The desktop build may rename or move the startup bundle between releases.
+  // Check the bundled JavaScript for the actual entry point, not one filename.
+  scripts.sort((a, b) => Number(/application-network-startup/i.test(b)) - Number(/application-network-startup/i.test(a)));
+  return scripts.some(file => asar.extractFile(archive, file.replace(/^[/\\]/, '')).includes('CODEX_APP_SERVER_WS_URL'));
+}
 export class CodexDesktopRestartRequired extends Error {
   constructor() { super('Codex 当前以普通方式运行。首次联动请保存工作并退出 Codex，再重试；不会自动关闭你的聊天'); }
 }
@@ -210,7 +218,7 @@ export class CodexDesktopService implements CodexDesktopIntegration {
     // Keep a just-launched window even before OS discovery sees it; background sends never refocus it.
     if(options.ifClosed&&attachedPid)return;
     const target=await(this.options.discover||codexDesktopTarget)();
-    if(target.archive){const file=asar.listPackage(target.archive,{isPack:false}).find(file=>/application-network-startup-.*\.js$/.test(file));if(!file||!asar.extractFile(target.archive,file.replace(/^[/\\]/,'')).toString().includes('CODEX_APP_SERVER_WS_URL'))throw new Error('当前 Codex 桌面版不支持此联动入口，请更新后再试');}
+    if(target.archive&&!supportsCodexDesktopBridge(target.archive))throw new Error('当前 Codex 桌面版未检测到联动入口。请更新桌面版后重试；也可在输入框同步标签关闭“与 Codex 桌面版同步”，继续使用本机 Codex CLI');
     const environment={...process.env,...env,CODEX_APP_SERVER_WS_URL:bridge.endpoint,CODEX_APP_SERVER_FORCE_CLI:undefined,ELECTRON_RUN_AS_NODE:undefined};
     const args=session.nativeId?['codex://threads/'+session.nativeId]:[];
     let launchedPid:number|void;

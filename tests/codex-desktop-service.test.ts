@@ -5,12 +5,30 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { CodexDesktopService, validateManagedBridge } from '../src/core/codex-desktop-service';
+import * as asar from '@electron/asar';
+import { CodexDesktopService, supportsCodexDesktopBridge, validateManagedBridge } from '../src/core/codex-desktop-service';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import type { AgentSession } from '../src/shared/types';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
 import { hasNoLoadedThreads, hasNoActiveThreads } from '../src/core/codex-desktop-worker';
+
+test('desktop bridge detection follows the entry point across renamed bundles', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-codex-archive-'));
+  try {
+    const source = path.join(root, 'source');
+    await fs.mkdir(path.join(source, 'dist'), { recursive: true });
+    await fs.writeFile(path.join(source, 'README.txt'), 'CODEX_APP_SERVER_WS_URL');
+    await fs.writeFile(path.join(source, 'dist', 'desktop-main.js'), 'const ordinaryStartup = true;');
+    const archive = path.join(root, 'app.asar');
+    await asar.createPackage(source, archive);
+    assert.equal(supportsCodexDesktopBridge(archive), false);
+    await fs.writeFile(path.join(source, 'dist', 'desktop-main.js'), 'const endpoint = process.env.CODEX_APP_SERVER_WS_URL;');
+    const updatedArchive = path.join(root, 'app-updated.asar');
+    await asar.createPackage(source, updatedArchive);
+    assert.equal(supportsCodexDesktopBridge(updatedArchive), true);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
 
 async function fixture() {
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'wb-codex-service-')),sourceHome=path.join(root,'personal'),parent=path.join(root,'managers');
