@@ -278,6 +278,7 @@ export class Store {
         if (!validSessionId(id)) continue;
         await fs.rm(path.join(this.sessionDir(id), 'delta.json'), { force: true }).catch(() => {});
         this.savedOverlayRevisions.delete(id);
+        if (removedIds.includes(id) && !this.sessions.some(session => session.id === id)) { this.dirtySessionMessages.delete(id); continue; }
         const dirty = this.dirtySessionMessages.get(id);
         if (!dirty) continue;
         for (const [messageId, revision] of dirty) if (revision <= (revisions.get(id) || 0)) dirty.delete(messageId);

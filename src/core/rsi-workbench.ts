@@ -21,7 +21,7 @@ export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: (
     const value = { connectionId: account.id, host: account.host, port: account.port, username: account.username, fingerprint: account.fingerprint, project };
     workbench.assertCanWork(value); return value;
   };
-  const sessions = (projectId: string) => workbench.store.sessions.filter(session => session.binding?.project.id === projectId && ownsBinding(profile(), session.binding) && session.purpose === 'work');
+  const sessions = (projectId: string) => workbench.store.sessions.filter(session => session.binding?.project.id === projectId && ownsBinding(profile(), session.binding) && session.purpose === 'work' && !session.scheduledRun?.managed);
   return new RsiEngine(workbench.store.root, {
     scope: projectId => { const value = binding(projectId), account = accountIdentity(value); return { key: JSON.stringify([account, projectId]), account, projectId, user: value.username }; },
     sessions: projectId => { binding(projectId); return sessions(projectId); },

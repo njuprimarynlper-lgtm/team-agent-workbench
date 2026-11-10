@@ -6,8 +6,8 @@ import { ProviderAuthPanel } from './provider-auth';
 import { EgressRouteChoice } from './egress-route';
 import { applySessionConnection, checkProviderConnection, type ProviderConnectionCheck } from './provider-connection-check';
 
-export function ProviderConnectionSettings({ provider, cwd, auth, egress, activeTaskCount, busyChanged, pendingChanged, checked, showCatalog = true, routeEditable = true, sessionRoute, savedRoute, sessionId, routeChanged, scopeLabel }: {
-  scopeLabel?: string; provider: Provider; cwd: string; auth: ProviderAuth; egress?: UserEgressStatus; activeTaskCount: number; busyChanged?: (busy: boolean) => void;
+export function ProviderConnectionSettings({ provider, cwd, auth, egress, activeTaskCount, busyChanged, pendingChanged, checked, showCatalog = true, routeEditable = true, sessionRoute, savedRoute, sessionId, routeChanged, scopeLabel, api = window.workbench }: {
+  api?: import('../shared/types').WorkbenchAPI; scopeLabel?: string; provider: Provider; cwd: string; auth: ProviderAuth; egress?: UserEgressStatus; activeTaskCount: number; busyChanged?: (busy: boolean) => void;
   checked?: (result: ProviderConnectionCheck) => void; pendingChanged?: (pending: boolean) => void; showCatalog?: boolean; routeEditable?: boolean; sessionRoute?: SessionNetworkRoute; savedRoute?: SessionNetworkRoute; sessionId?: string; routeChanged?: (route: SessionNetworkRoute) => void;
 }) {
   const [accountEnabled, setAccountEnabled] = useState(!!egress?.enabled), [invite, setInvite] = useState('');
@@ -35,17 +35,17 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
     try {
       if (apply && sessionId && sessionRoute && (routePending || dirty)) {
         setSavingRoute(true);
-        await applySessionConnection(window.workbench.call, sessionId, sessionRoute, dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current);
+        await applySessionConnection(api.call, sessionId, sessionRoute, dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current);
         setInvite(''); setChangingCode(false);
         setSaved(`已保存：${sessionRoute === 'management' ? '管理端出口' : '本机网络'}，从下一轮生效。`);
         // Refresh the account display without locking the route controls or the
         // return button behind a potentially slow account/model lookup.
-        void window.workbench.call<ProviderAuth>('provider.auth', { provider, cwd, networkRoute: sessionRoute })
+        void api.call<ProviderAuth>('provider.auth', { provider, cwd, networkRoute: sessionRoute })
           .then(auth => { if (n === sequence.current) { const value = { auth, issues: [] }; setResult(value); callbacks.current.checked?.(value); } })
           .catch((reason: Error) => { if (n === sequence.current) setError(reason.message); });
         return;
       }
-      const result = await checkProviderConnection(window.workbench.call, provider, cwd, apply && dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current, sessionRoute);
+      const result = await checkProviderConnection(api.call, provider, cwd, apply && dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current, sessionRoute);
       if (n !== sequence.current) return;
       if (apply) { setInvite(''); setChangingCode(false); } setResult(result); setError(result.issues.join('；')); callbacks.current.checked?.(result);
     } catch (reason: any) { if (n === sequence.current) setError(reason.message); }
@@ -55,7 +55,7 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
     const n = ++sequence.current;
     setSaved('');
     // Opening the panel should not lock network controls behind a slow model request.
-    if (cwd) void window.workbench.call<ProviderAuth>('provider.auth', { provider, cwd, ...(sessionRoute ? { networkRoute: sessionRoute } : {}) })
+    if (cwd) void api.call<ProviderAuth>('provider.auth', { provider, cwd, ...(sessionRoute ? { networkRoute: sessionRoute } : {}) })
       .then(auth => { if (n === sequence.current) { const value = { auth, issues: [] }; setResult(value); callbacks.current.checked?.(value); } })
       .catch((reason: Error) => { if (n === sequence.current) setError(reason.message); });
     return () => { sequence.current++; callbacks.current.busyChanged?.(false); };
@@ -76,7 +76,7 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
     {error && <p className="inline-error" role="alert">{error}</p>}
     {saved && <p className="green small" role="status">{saved}</p>}
     <button className="secondary" disabled={busy || !cwd || dirty && !!activeTaskCount || needsAccessCode && (dirty || routePending || changingCode)} onClick={() => void check(true)}><RefreshCw size={14} className={busy ? 'spin' : ''}/>{busy ? savingRoute ? '正在保存连接方式…' : '正在检测网络、登录和模型…' : dirty || routePending ? sessionId ? '应用连接方式' : '应用并重新检测' : '重新检测连接与登录'}</button>
-    <ProviderAuthPanel provider={provider} cwd={cwd} auth={visibleAuth} networkRoute={sessionRoute} autoCheck={false} stale={dirty || busy || !!sessionRoute && !result && !routeAuth} disabled={dirty || busy}/>
+    <ProviderAuthPanel api={api} provider={provider} cwd={cwd} auth={visibleAuth} networkRoute={sessionRoute} autoCheck={false} stale={dirty || busy || !!sessionRoute && !result && !routeAuth} disabled={dirty || busy}/>
     {showCatalog && result?.catalog && <div className="provider-connection-catalog"><b>可用模型（{result.catalog.models.length}）</b><p>{result.catalog.models.map(model => model.name).join('、') || 'CLI 暂未返回可用模型。'}</p><p className="muted small">{result.catalog.quota.windows.length ? result.catalog.quota.windows.map(window => `${window.name}：剩余 ${Number((100 - window.usedPercent).toFixed(1))}%`).join('；') : result.catalog.quota.detail}</p></div>}
   </section>;
 }

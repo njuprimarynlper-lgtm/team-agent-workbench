@@ -11,7 +11,7 @@ export function inProjectWorkgroup(saved: Project | undefined, selected: Project
 }
 
 export function projectWorkSessions(sessions: AgentSession[], project: Project | undefined, projects: Project[], personal: boolean, personalGroup = '*') {
-  return sessions.filter(session => session.purpose === 'work' && (personal
+  return sessions.filter(session => session.purpose === 'work' && !session.scheduledRun?.managed && (personal
     ? isPersonalBinding(session.binding) && session.binding?.project.id === project?.id && (project?.id !== PERSONAL_PROJECT_ID || personalGroup === '*' || (session.personalGroupId || '') === personalGroup)
     : !isPersonalBinding(session.binding) && inProjectWorkgroup(session.binding?.project, project, projects)));
 }

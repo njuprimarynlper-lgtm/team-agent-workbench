@@ -103,7 +103,11 @@ import { editableTurnMessage } from '../shared/editable-turn';
 import { revertLastCodexTurn } from './codex-edit-turn';
 import { sessionMessageText, sourceHeader, sourceText, withoutQuestionFillTurns } from '../shared/session-context-text';
 import { SessionInputQueue } from './session-input-queue';
+import { ScheduledTasks } from './scheduled-tasks';
+import type { ScheduledTask, ScheduledRun } from '../shared/scheduled-task';
+
 export class Workbench {
+  readonly scheduled: ScheduledTasks;
   readonly inputQueue: SessionInputQueue;
   private inputQueueTimer?: NodeJS.Timeout;
   private directoryTimer?: NodeJS.Timeout;
@@ -222,6 +226,15 @@ export class Workbench {
       }),
       steer: (id, turnId, input) => this.steer(id, turnId, input.text, input.sourceIds, input.capabilities || []),
     });
+    this.scheduled = new ScheduledTasks(root, {
+      resolve: (projectId, taskId) => this.scheduledLocation(projectId, taskId),
+      prepare: (task, run) => this.prepareScheduledRun(task, run),
+      execute: async (task, _run, session) => { if (!await this.send(session.id, task.prompt, session.sources.map(source => source.id))) throw Error('本次定时任务未启动'); },
+      session: id => this.store.sessions.find(session => session.id === id),
+      unload: session => this.unloadScheduledRun(session),
+      restore: async session => { this.assertCanWork(this.projectBinding(session.binding!.project.id)); session.closedAt = undefined; session.stoppedAt = undefined; session.status = 'idle'; session.error = undefined; session.followProjectBrief = true; if (!this.store.sessions.some(value => value.id === session.id)) this.store.sessions.unshift(session); await this.store.save(); this.broadcast(); return session; },
+      stop: id => this.stop(id), changed: this.broadcast, notice: this.notice,
+    });
     this.journal = new ProjectJournal(this.store);
     this.questions = new Questions(this.store, this.remote, {
       profile: () => this.configuring ? undefined : this.localProfile(), session: id => this.session(id),
@@ -314,6 +327,45 @@ export class Workbench {
     await this.detect();
     this.ensureNativeTranscriptSync();
     await this.startCursorNativeSessions();
+    await this.scheduled.init();
+  }
+  async scheduledLocation(projectId: string, taskId?: string) {
+    const binding = this.projectBinding(projectId); this.assertCanWork(binding);
+    const profile = this.localProfile()!;
+    const configured = projectDirectory(this.store.settings, profile, projectId);
+    const cwd = configured || path.join(this.store.root, 'scheduled-workspaces', taskId || createHash('sha256').update(projectId).digest('hex').slice(0, 24));
+    if (!configured) await fs.mkdir(cwd, { recursive: true });
+    if (!path.isAbsolute(cwd) || !(await fs.stat(cwd)).isDirectory()) throw Error('定时任务的工作目录不可用');
+    return { cwd, projectName: binding.project.name, followsDirectory: !!configured };
+  }
+  private async prepareScheduledRun(task: ScheduledTask, run: ScheduledRun) {
+    const location = task.followsDirectory ? await this.scheduledLocation(task.projectId, task.id) : task;
+    const session = await this.createSession('codex', location.cwd, task.projectId, 'work', undefined, task.model || undefined, task.permissionMode, false, task.networkRoute, false, undefined, false, { sessionId: run.sessionId, taskId: task.id, runId: run.id });
+    session.title = task.name + ' · ' + new Date(run.scheduledAt).toLocaleString('zh-CN');
+    session.reasoningEffort = task.reasoningEffort; session.directoryMode = 'fixed'; session.followProjectBrief = false;
+    if (task.includeBrief) await this.refreshProjectContext(session.id);
+    for (const source of task.sources) { const copy = await freezeFile(source.localPath, path.join(this.store.sessionDir(session.id), 'sources')); if (copy.sha256 !== source.sha256) throw Error('任务附件已变化：' + source.name); copy.name = source.name; session.sources.push(copy); }
+    if (task.supplement.trim()) {
+      const file = path.join(this.store.sessionDir(session.id), 'task-supplement.md');
+      await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, task.supplement, { mode: 0o600 });
+      const source = await freezeFile(file, path.join(this.store.sessionDir(session.id), 'sources')); source.name = '本任务补充资料.md'; session.sources.push(source);
+    }
+    await this.store.save(); return session;
+  }
+  private async unloadScheduledRun(session: AgentSession) {
+    const runtime = this.runtimes.get(session.id); this.runtimes.delete(session.id);
+    if (runtime) await runtime.close();
+    await this.eventWrites.get(session.id); this.eventWrites.delete(session.id);
+    this.store.sessions = this.store.sessions.filter(value => value.id !== session.id); delete this.store.inputs[session.id];
+    try { await this.store.save({ removedSessionIds: [session.id], source: 'scheduled-run-archive' }); }
+    catch (error) { if (!this.store.sessions.includes(session)) this.store.sessions.unshift(session); throw error; }
+    this.broadcast();
+  }
+  async sessionForFiles(id: string) {
+    this.assertAccountReady();
+    const session = this.store.sessions.find(session => session.id === id) || await this.scheduled.sessionForFiles(id);
+    if (!this.ownsLocal(session.binding)) throw Error('会话不属于当前账号');
+    return session;
   }
   async restoreLocalWorkspace() {
     await this.projectSync.init();
@@ -1115,7 +1167,7 @@ export class Workbench {
     const hooks = { changed: () => this.changedSession(s.id), messageChanged: (messageId?: string) => this.changedMessage(s.id, messageId), event: (value: unknown) => this.event(s.id, value), done: () => {
       const job = (this.completionJobs.get(s.id) || Promise.resolve()).then(() => this.onDone(s.id)).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)).finally(() => { if (this.completionJobs.get(s.id) === job) this.completionJobs.delete(s.id); });
       this.completionJobs.set(s.id, job);
-    }, authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    }, authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, s.scheduledRun?.managed ? `定时任务待处理：${s.title}` : kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => {
       if (!this.configuring && this.ownsLocal(s.binding)) {
         this.connectionReport?.({ ...s, networkRoute: runtimeRoute }, value);
@@ -1660,7 +1712,7 @@ export class Workbench {
     if ((s.reasoningEffort || undefined) === next) return s;
     return this.updateSessionSettings(s, () => { if (next) s.reasoningEffort = next; else delete s.reasoningEffort; }, s.provider !== 'codex');
   }
-  async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true, networkRoute?: SessionNetworkRoute, desktopSync = false, personalGroupId?: string, deferRegistration = false) {
+  async createSession(provider: Provider, cwd: string, projectId?: string, purpose: 'work' | 'prepare' = 'work', parentId?: string, model?: string, permissionMode: PermissionMode = 'inherit', includeBrief = true, networkRoute?: SessionNetworkRoute, desktopSync = false, personalGroupId?: string, deferRegistration = false, scheduled?: { sessionId: string; taskId: string; runId: string }) {
     this.assertWorkspace();
     if (personalGroupId && (!this.personal || !this.store.settings.personalGroups?.some(group => group.id === personalGroupId))) throw new Error('个人分组已改变，请重新选择');
     if (desktopSync && provider === 'cursor') assertCursorSharedSessionAvailable();
@@ -1678,11 +1730,12 @@ export class Workbench {
     const cached = this.localProfile();
     const binding = purpose === 'prepare' && parentId ? this.session(parentId).binding : this.projectBinding(projectId || PERSONAL_PROJECT_ID);
     this.assertCanWork(binding);
-    const id = randomUUID(); const dir = purpose === 'work' ? path.join(cwd, '.workbench', 'sessions', id) : cwd;
+    const id = scheduled?.sessionId || randomUUID(); const dir = purpose === 'work' ? path.join(cwd, '.workbench', 'sessions', id) : cwd;
     await fs.mkdir(dir, { recursive: true });
     const handoffPath = path.join(dir, 'handoff.md');
     await fs.writeFile(handoffPath, '# 阶段摘要\n\n## 当前工作焦点与范围\n待补充。\n\n## 当前进展\n尚未整理。\n\n## 已确认的决定与依据\n尚无。\n\n## 改动、影响范围与验证\n记录文件、版本、受影响的流程或文档、检查结果；尚无时写“尚未验证”。\n\n## 阻塞与待确认事项\n尚无。\n\n## 下一步\n待补充。\n', { flag: 'wx' });
     const session: AgentSession = { relayAccount: parentId ? this.session(parentId).relayAccount : undefined, personalGroupId: parentId ? this.session(parentId).personalGroupId : personalGroupId, id, title: purpose === 'prepare' ? '成果整理' : '新会话', provider, model, permissionMode, cwd, purpose, networkRoute: route || (this.store.settings.egress?.enabled ? 'management' : 'direct'), parentId, createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], binding, autoUpload: false, handoffPath, ...(purpose === 'work' ? { followProjectBrief: includeBrief } : {}) };
+    if (scheduled) session.scheduledRun = { taskId: scheduled.taskId, runId: scheduled.runId, managed: true };
     session.directoryMode = deferRegistration ? 'fixed' : 'project';
     if(desktopSync && provider==='codex')session.codexDesktop=true;
     if (deferRegistration) return session;
@@ -2044,7 +2097,7 @@ export class Workbench {
     const available = sessionWithAvailableReferences({ ...session, messages: history }, this.store.conclusions);
     sourceIds = [...new Set([...sourceIds, ...available.sources.filter(source => source.sourcePath.startsWith('question:')).map(source => source.id)])];
     const ids = new Set(available.sources.map(source => source.id));
-    const journal = session.cursorNative || session.codexRemote ? undefined : await this.journal.context(available);
+    const journal = session.scheduledRun?.managed || session.cursorNative || session.codexRemote ? undefined : await this.journal.context(available);
     // Keep the existing privacy rule for personal cross-session references.
     if (journal && Object.keys(journal.receipt.sessions).some(id => id !== session.id) && session.autoUpload) {
       session.autoUpload = false; clearTimeout(this.trajectoryTimers.get(session.id)); this.trajectoryTimers.delete(session.id);
@@ -2279,6 +2332,7 @@ export class Workbench {
         const runtime = this.runtimes.get(id); if (runtime) { this.runtimes.delete(id); await runtime.close(); }
       }
     }
+    if (s.scheduledRun?.managed) { await this.scheduled.complete(s.id); return; }
     await this.questions.completed(s);
     await this.store.saveSession(id); this.broadcast();
     if (s.purpose === 'work' && !s.closedAt) { this.activity.completed(s.id); if (s.binding) void this.rsi.completed(s.binding.project.id).catch(() => {}); }
@@ -3941,5 +3995,5 @@ export class Workbench {
     }
     return this.closeTask;
   }
-  private async closeOnce() { this.closing = true; clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  private async closeOnce() { this.closing = true; await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

@@ -34,7 +34,7 @@ export function sessionContext(s: AgentSession, userText: string, sourceIds: str
   const directoryChanged = s.directoryChange && !s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.directoryRevision === s.directoryChange!.id);
   const sources = uniqueSources(withoutSupersededProjectBrief(s, selected)).filter(f => directoryChanged || known[f.id] !== f.sha256);
   const managed = s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.text.includes(managedHandoffNotice));
-  const workRecord = s.purpose === 'work' && !s.cursorNative && (!hasWorkRecord || !managed || !!directoryChanged);
+  const workRecord = s.purpose === 'work' && !s.scheduledRun?.managed && !s.cursorNative && (!hasWorkRecord || !managed || !!directoryChanged);
   const remoteContext = remoteFork && known[remoteFork.sourceId] !== remoteFork.snapshotHash ? remoteFork.remoteContext : undefined;
   const directoryNotice = directoryChanged ? '\n\n[工作目录变更]\n' + JSON.stringify({ previousDirectory: s.directoryChange!.from, workingDirectory: s.cwd, retainedCopies: s.directoryChange!.conflicts }) + '\n以上路径是工作台目录配置数据。后续新建、下载及相对路径均使用当前工作目录；旧路径仅供追溯，勿继续写入旧目录。若有保留副本，先核对其中的项目文件。' : '';
   const text = userText + (workRecord ? workRecordInstructions(s) : '') + directoryNotice + (remoteContext ? '\n\n' + remoteContext : '') + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (journal?.text || '');

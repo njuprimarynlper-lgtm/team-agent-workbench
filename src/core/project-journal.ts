@@ -83,7 +83,7 @@ export class ProjectJournal {
     });
   }
   private sources(target: AgentSession) {
-    return this.store.sessions.filter(s => s.purpose === 'work' && !s.closedAt && key(s) && key(s) === key(target)).map(s => {
+    return this.store.sessions.filter(s => s.purpose === 'work' && !s.scheduledRun?.managed && !s.closedAt && key(s) && key(s) === key(target)).map(s => {
       const record = this.records.get(s.id);
       const summaryPath = record ? path.join(journalDirectory(target), s.id + '.md') : undefined;
       const entries = record?.entries || [];
@@ -106,7 +106,7 @@ export class ProjectJournal {
   }
   context(s: AgentSession): Promise<JournalContext | undefined> {
     return this.serial(async () => {
-      if (s.purpose !== 'work' || !s.binding || s.closedAt) return;
+      if (s.purpose !== 'work' || s.scheduledRun?.managed || !s.binding || s.closedAt) return;
       await this.load();
       const { sources, path: index } = await this.materialize(s);
       const latestMessage = [...s.messages].reverse().find(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.projectJournal);
