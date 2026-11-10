@@ -137,6 +137,9 @@ else if (command === 'login' && process.argv[3] === 'status') {
       }
       else if (current.status === 'expired') send({ id: m.id, error: { code: -32000, message: 'refresh_token_expired' } });
       else { const reply = () => send({ id: m.id, result: { requiresOpenaiAuth: current.status !== 'custom', account: current.status === 'ready' ? { type: 'chatgpt', email: 'fake@example.com', planType: 'pro' } : null } }); if (current.delay) setTimeout(reply, current.delay); else reply(); }
+    } else if (m.method === 'thread/inject_items') {
+      if (m.params.threadId !== threadId) send({ id: m.id, error: { code: -32602, message: 'Wrong thread' } });
+      else send({ id: m.id, result: {} });
     } else if (m.method === 'thread/start' || m.method === 'thread/resume') {
       threadId = m.params.threadId || (current.nativeHistory ? randomUUID() : m.params.ephemeral ? 'fake-background-' + process.pid : 'fake-thread');
       if (current.nativeHistory && process.env.CODEX_HOME) {

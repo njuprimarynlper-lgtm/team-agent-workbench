@@ -37,7 +37,7 @@ function partsText(content: unknown) {
   return content.map(part => typeof part === 'string' ? part : typeof part?.text === 'string' ? part.text : '').filter(Boolean).join('\n');
 }
 
-function codexItem(payload: any): { id: string; role: Message['role']; phase?: Message['phase']; text: string; at?: number } | undefined {
+export function codexItem(payload: any): { id: string; role: Message['role']; phase?: Message['phase']; text: string; at?: number } | undefined {
   if (payload?.type !== 'item_completed' || !payload.item || typeof payload.item !== 'object') return;
   const item = payload.item, id = String(item.id || ''), at = typeof payload.completed_at_ms === 'number' ? payload.completed_at_ms : undefined;
   if (item.type === 'UserMessage' || item.type === 'AgentMessage') {

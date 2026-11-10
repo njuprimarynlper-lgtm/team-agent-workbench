@@ -69,6 +69,28 @@ async function main() {
   runtime.rpc.request = (method, params, timeout, written) => { calls.push({ method, params }); return request(method, params, timeout, written); };
   try {
     await runtime.start();
+    if (process.argv.includes('--tool-receipt')) {
+      const output = 'Process exited with code 7\n' + 'COMPACT_TOOL_RECORD\n'.repeat(60_000);
+      await runtime.rpc.request('thread/inject_items', { threadId: session.nativeId, items: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '检查看过的工具结果' }] },
+        { type: 'reasoning', summary: [], encrypted_content: 'p'.repeat(915_000) },
+        { type: 'function_call', call_id: 'receipt_fixture', name: 'exec_command', arguments: '{"cmd":"fixture"}' },
+        { type: 'function_call_output', call_id: 'receipt_fixture', output },
+      ] });
+      await runtime.rpc.request('thread/compact/start', { threadId: session.nativeId });
+      const deadline = Date.now() + 30_000;
+      while (!uploads.length && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+      const result = uploads.flatMap(entry => entry.value.input || []).find(item => item.call_id === 'receipt_fixture' && item.type === 'function_call_output');
+      assert.ok(result?.output?.includes('退出码 7'), 'expected a verified file reference for the over-budget compact request');
+      const receipt = result.output.split('完整路径：')[1].split('\n')[0];
+      assert.equal(path.dirname(receipt), path.join(root, '.workbench', 'sessions', session.id, 'tool-results'));
+      const saved = await fs.readFile(receipt, 'utf8');
+      assert.ok(saved.startsWith('Process exited with code 7') && saved.includes('COMPACT_TOOL_RECORD'));
+      assert.ok(result.output.includes(Buffer.byteLength(saved) + ' 字节'));
+      assert(uploads.every(entry => entry.bytes < 1_000_000));
+      console.log(JSON.stringify({ passed: true, scenario: 'oversized-compact-with-tool-receipt', savedToolBytes: Buffer.byteLength(saved), uploadedBytes: uploads.map(entry => entry.bytes) }));
+      return;
+    }
     const initialConfig = await fs.readFile(path.join(root, 'config.toml'), 'utf8');
     (runtime as any).requestGuard.observeRequests((value: any) => observations.push(value));
     if (!withTool) await runtime.rpc.request('thread/inject_items', { threadId: session.nativeId, items: [

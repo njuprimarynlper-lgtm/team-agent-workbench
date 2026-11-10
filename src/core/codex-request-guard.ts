@@ -9,6 +9,7 @@ import { guardHeaders, guardRequest, guardNetworkEnvironment, guardProbe } from 
 import { GuardNetworkError } from './codex-guard-trust';
 import type { GuardNetworkProblem } from '../shared/guard-network';
 import { guardHash, guardHistory, redactedMediaSummaryItem, replaceGuardHistory, summaryRequest, type ResponseBody } from './codex-guard-history';
+import { compactToolReceipts, saveCompactReceipts, type CompactWorkspace } from './codex-tool-receipts';
 
 /** Exclusive limit for every outgoing HTTP body, including summary requests. */
 export const codexRequestBudget = 1_000_000;
@@ -104,7 +105,7 @@ export class CodexRequestGuard {
   private queues = new Map<string, Promise<unknown>>();
   private requestObservers = new Set<(request: GuardRequestSize) => void>();
   private retryObservers = new Set<(retry: GuardNetworkRetry) => void>();
-  private uploadChecks = new Set<GuardUploadCheck>();
+  private uploadChecks = new Map<GuardUploadCheck, ((threadId: string) => CompactWorkspace | undefined) | undefined>();
   private readonly secret = randomBytes(24).toString('hex');
   private closed = false;
   private closeJob?: Promise<void>;
@@ -143,8 +144,8 @@ export class CodexRequestGuard {
     this.retryObservers.add(listener);
     return () => { this.retryObservers.delete(listener); };
   }
-  beforeUpload(check: GuardUploadCheck) {
-    this.uploadChecks.add(check);
+  beforeUpload(check: GuardUploadCheck, workspace?: (threadId: string) => CompactWorkspace | undefined) {
+    this.uploadChecks.set(check, workspace);
     return () => { this.uploadChecks.delete(check); };
   }
   async probe() {
@@ -258,17 +259,20 @@ export class CodexRequestGuard {
     this.stats.summaryOutputTokens += Number(completed.usage?.output_tokens) || 0;
     return summary;
   }
-  private async prepare(bodyBytes: Buffer, encoding: string | undefined, target: URL, headers: http.OutgoingHttpHeaders, signal: AbortSignal, scope: string, cacheable: boolean) {
+  private async prepare(bodyBytes: Buffer, encoding: string | undefined, target: URL, headers: http.OutgoingHttpHeaders, signal: AbortSignal, scope: string, cacheable: boolean,
+    options: { workspace?: CompactWorkspace; retainedResults?: ReadonlySet<number> } = {}): Promise<Encoded> {
     const ready = await encodeGuardBody(bodyBytes, encoding, this.options.compression, this.budget);
     if (ready) { this.cache = this.cache.filter(entry => entry.scope !== scope); return ready; }
     let body: ResponseBody, raw: Buffer;
     try { raw = await decoded(bodyBytes, encoding); body = JSON.parse(raw.toString('utf8')); } catch { throw new Error('超限正文不是可安全处理的 JSON，原推理请求未上传'); }
-    const keyBase = { scope, config: { ...body, input: undefined }, target: target.href };
+    const keyBase = { scope, config: { ...body, input: undefined }, target: target.href,
+      retainedResults: options.retainedResults ? [...options.retainedResults] : undefined };
     let summariesLeft = maxSummaries, diagnostics = '', fallback: Encoded | undefined;
     this.prune();
     // Broaden only after the safer level cannot fit. Historical image bytes are
     // never sent to the summarizer; only verified text parts from their results are.
-    const conservative = guardHistory(body), completed = guardHistory(body, 'completed'), completedMedia = guardHistory(body, 'completed_media');
+    const conservative = guardHistory(body, 'conservative', options.retainedResults), completed = guardHistory(body, 'completed', options.retainedResults),
+      completedMedia = guardHistory(body, 'completed_media', options.retainedResults);
     const hasSecondLevel = completed.omittedIndices.size > 0 || [...conservative.protectedIndices].some(index => !completed.protectedIndices.has(index));
     const hasThirdLevel = completedMedia.omittedIndices.size > completed.omittedIndices.size || [...completed.protectedIndices].some(index => !completedMedia.protectedIndices.has(index));
     for (const [level, history] of [['conservative', conservative], ['completed', completed], ['completed_media', completedMedia]] as const) {
@@ -359,7 +363,41 @@ export class CodexRequestGuard {
       }
       if (fallback) return fallback; // Do not broaden history loss merely to gain optional headroom.
     }
+    if (options.workspace) {
+      const withFiles = await this.compactWithFiles(body, options.workspace, target, headers, signal, scope);
+      if (withFiles) return withFiles;
+    }
     throw new GuardSizeError(`分层历史处理后仍无法缩至 1 MB 以下（${diagnostics}）；原推理请求未上传。原生 compact 尚未执行，需在确认本轮结束后尝试恢复。`);
+  }
+  private async compactWithFiles(body: ResponseBody, workspace: CompactWorkspace,
+    target: URL, headers: http.OutgoingHttpHeaders, signal: AbortSignal, scope: string): Promise<Encoded | undefined> {
+    const receipts = compactToolReceipts(body, workspace);
+    if (!receipts.length) return;
+    let prepared: Encoded | undefined;
+    let count = 0;
+    while (count < receipts.length) {
+      signal.throwIfAborted();
+      const end = Math.min(receipts.length, Math.max(1, count * 2));
+      for (const receipt of receipts.slice(count, end)) body.input![receipt.index].output = receipt.replacement;
+      count = end;
+      const candidate = Buffer.from(JSON.stringify(body));
+      prepared = await encodeGuardBody(candidate, undefined, this.options.compression, this.budget);
+      if (prepared) break;
+      // With current tool results bounded, an older history prefix may now
+      // be summarizable. Never re-enter the file fallback from prepare().
+      if (count === receipts.length) prepared = await this.prepare(candidate, undefined, target, headers, signal, scope, true,
+        { retainedResults: new Set(receipts.map(receipt => receipt.index)) });
+    }
+    if (!prepared) return;
+    try { await saveCompactReceipts(workspace, receipts.slice(0, count), signal); }
+    catch (error) { throw new Error('无法保存或校验工具结果文件，原生 compact 请求未上传。', { cause: error }); }
+    return prepared;
+  }
+  private compactWorkspace(threadId: string) {
+    for (const lookup of this.uploadChecks.values()) {
+      const workspace = lookup?.(threadId);
+      if (workspace) return workspace;
+    }
   }
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
     const controller = new AbortController(); this.controllers.add(controller);
@@ -390,7 +428,7 @@ export class CodexRequestGuard {
         // when Codex already sent zstd. Interrupt only if lossless encoding
         // cannot fit the hard wire limit; the 80% mark is not a send limit.
         if (!await encodeGuardBody(body, encoding, this.options.compression, this.budget)) {
-          for (const check of this.uploadChecks) {
+          for (const check of this.uploadChecks.keys()) {
             const pause = check(measured, raw);
             if (!pause) continue;
             // Native compact supersedes the pending inference and closes its
@@ -407,7 +445,8 @@ export class CodexRequestGuard {
         // go to /responses, never to the stateless /responses/compact endpoint.
         let prepared: Encoded | undefined;
         try {
-          prepared = suffix.startsWith('/responses') ? await this.prepare(body, encoding, this.target('/responses', local.search), headers, controller.signal, scope, !!session)
+          const workspace = compact && typeof session === 'string' ? this.compactWorkspace(session) : undefined;
+          prepared = suffix.startsWith('/responses') ? await this.prepare(body, encoding, this.target('/responses', local.search), headers, controller.signal, scope, !!session, { workspace })
             : await encodeGuardBody(body, encoding, this.options.compression, this.budget);
         } catch (error) {
           // Only a verified local size rejection can schedule recovery. Summary,

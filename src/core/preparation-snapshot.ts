@@ -6,6 +6,7 @@ import type { AgentSession, PreparationScope, SourceFile } from '../shared/types
 import { atomicJson } from './store';
 import { freezeFile } from './artifacts';
 import { mentionedFiles } from './session-files';
+import { preparationCompact, freezePreparationState } from './preparation-compact';
 import { preparationDelta } from '../shared/preparation-progress';
 import { localWithin } from './paths';
 import { isPersonalHandoffSource } from '../shared/session-context';
@@ -80,7 +81,8 @@ interface PreparationSnapshotOptions {
 // Capture messages before the first await: ongoing work must not change this input.
 export async function preparationSnapshot(session: AgentSession, inputDir: string, extraFiles: string[] = [], options: PreparationSnapshotOptions = {}) {
   const allMessages = structuredClone(session.messages), capturedAt = new Date().toISOString(), scope = options.scope || 'full';
-  let messages = allMessages;
+  const compact = scope === 'full' ? await preparationCompact(session, allMessages, capturedAt) : undefined;
+  let messages = compact?.messages || allMessages;
   if (scope === 'incremental') {
     const delta = preparationDelta({ messages: allMessages }, { capturedAt: options.baseCapturedAt || '', conversationHash: '', messageCount: options.baseMessageCount ?? -1, lastMessageId: options.baseLastMessageId, lastMessageLength: options.baseLastMessageLength });
     if (!delta.count) throw new Error(delta.reason);
@@ -91,6 +93,7 @@ export async function preparationSnapshot(session: AgentSession, inputDir: strin
   const conversation = messages.map(m => ({ id: m.id, role: m.role, text: m.role === 'user' && m.context?.projectJournal ? m.userText ?? m.text : m.text, createdAt: m.createdAt }));
   const conversationHash = createHash('sha256').update(JSON.stringify(conversation)).digest('hex');
   await fs.mkdir(inputDir, { recursive: true });
+  if (compact?.checkpoint.nativeHash) await freezePreparationState(inputDir, compact.nativeState);
   // Windows PowerShell 5 defaults to the system code page for BOM-less files.
   // ASCII JSON escapes preserve Chinese text even when a reader omits UTF-8.
   await atomicJson(path.join(inputDir, 'conversation.json'), conversation, true);
@@ -115,7 +118,7 @@ export async function preparationSnapshot(session: AgentSession, inputDir: strin
       files.push(await freezeFile(candidate, inputDir));
     } catch { /* Missing or changing outputs can be added manually after preparation. */ }
   }
-  const snapshot = { capturedAt, messageCount: messages.length, totalMessageCount: allMessages.length, lastMessageId: allMessages.at(-1)?.id, lastMessageLength: allMessages.at(-1)?.text.length, conversationHash, scope, baseDraftId: options.baseDraftId, baseLastMessageId: options.baseLastMessageId, baseCapturedAt: options.baseCapturedAt };
+  const snapshot = { capturedAt, ...(compact && { compact: compact.checkpoint }), messageCount: messages.length, totalMessageCount: allMessages.length, lastMessageId: allMessages.at(-1)?.id, lastMessageLength: allMessages.at(-1)?.text.length, conversationHash, scope, baseDraftId: options.baseDraftId, baseLastMessageId: options.baseLastMessageId, baseCapturedAt: options.baseCapturedAt };
   await atomicJson(path.join(inputDir, 'source-index.json'), { sourceSessionId: session.id, ...snapshot, conversation: 'conversation.json', handoff, noteWarning, files }, true);
   return { files, snapshot };
 }
