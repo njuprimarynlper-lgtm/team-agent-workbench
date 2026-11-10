@@ -7,13 +7,14 @@ import { atomicJson } from './store';
 import { RsiDailySnapshot } from './rsi-snapshot';
 import { loadRsiDocument, metadataChanges, pruneRsiJournal, rsiJournalDir, rsiJournalFile, RsiJournalError, type RsiChangeV2 } from './rsi-journal';
 import type { TextTask } from './background-text';
+import { supportsSessionResults } from '../shared/session-results';
 import type { AgentSession } from '../shared/types';
 import { applyMemory, emptyMemory, evidenceKey, latestProjectEvidence, pendingEvidence, projectContext } from './rsi-context';
 import { candidateBundle, learningPrompt, policyBundle, policyPrompt, recommendationTemplate } from './rsi-prompts';
 import { assertLearningCurrent, learningReference } from './rsi-learning';
 import { reviewRecommendations, valueHash, valueReviewContract } from './rsi-value-review';
 import { rsiAnswerSchema, rsiCaseSchema, rsiConfigSchema, rsiDefaultRules, rsiPolicySchema, rsiReactionSchema, rsiShadowSettingsSchema, rsiReview, rsiFeedbackState, type RsiInbox,
-  type RsiAnswer, type RsiCase, type RsiConfig, type RsiEvaluation, type RsiEvidence, type RsiObservation,
+  type RsiEvent, type RsiAnswer, type RsiCase, type RsiConfig, type RsiEvaluation, type RsiEvidence, type RsiObservation,
   type RsiPolicy, type RsiProject, type RsiScope, type RsiScore, type RsiView } from '../shared/rsi';
 
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -325,7 +326,7 @@ export class RsiEngine {
   }
   private linkableSessions(projectId: string) {
     const sessions = this.host.sessions?.(projectId) ?? [this.host.session(projectId)].filter((item): item is AgentSession => !!item);
-    return sessions.filter(item => item.purpose === 'work' && !item.closedAt);
+    return sessions.filter(supportsSessionResults);
   }
   async inbox(projectId: string): Promise<RsiInbox> {
     const project = await this.current(projectId), sessions = this.linkableSessions(projectId);
@@ -436,7 +437,7 @@ export class RsiEngine {
       project.revision++; project.lastError = undefined;
     });
   }
-  async feedback(projectId: string, input: unknown) {
+  async feedback(projectId: string, input: unknown, attachReference = false) {
     const reaction = rsiReactionSchema.parse(input), scope = this.host.scope(projectId);
     if (['edited', 'feedback', 'action', 'outcome'].includes(reaction.kind) && !reaction.text) throw new Error('请补充原因、执行记录或结果依据');
     if (reaction.linkedSessionId !== undefined && reaction.kind !== 'supplement') throw new Error('请在补充信息中关联会话');
@@ -456,7 +457,12 @@ export class RsiEngine {
       }
       const at = iso(), id = randomUUID(), evidenceId = hash([scope.key, id]);
       const decisionEventId = ['accepted', 'rejected'].includes(reaction.kind) ? id : rsiFeedbackState(suggestion.id, project.events).decision?.id;
-      const event = { ...reaction, id, at, actor: scope.user, evidenceId, decisionEventId };
+      const priorReference = rsiFeedbackState(suggestion.id, project.events).supplement?.reference;
+      const sameLink = reaction.kind === 'supplement' && !!reaction.linkedSessionId && reaction.linkedSessionId === review.linkedSessionId;
+      const reference = sameLink && priorReference?.status === 'ready' ? priorReference
+        : { ...(reaction.linkedSessionId ? { sessionId: reaction.linkedSessionId } : {}), status: sameLink && !this.linkableSessions(projectId).some(item => item.id === reaction.linkedSessionId) ? 'deferred' as const : 'pending' as const };
+      const event: RsiEvent = { ...reaction, id, at, actor: scope.user, evidenceId, decisionEventId,
+        ...(attachReference && ['accepted', 'rejected', 'supplement'].includes(reaction.kind) ? { reference: structuredClone(reference) } : {}) };
       project.events.push(event);
       const text = JSON.stringify({ ...reaction, decisionEventId });
       project.evidence.push({ id: evidenceId, scope: scope.key, source: 'interface', sourceId: id, factKey: reaction.requestId, eventAt: at, observedAt: at, version: '1', text, hash: hash(text), assertion: 'explicit', actor: scope.user, suggestionId: suggestion.id, sessionId: suggestion.sessionId });
@@ -466,6 +472,32 @@ export class RsiEngine {
     const current = await this.current(projectId);
     if (current.config.enabled && current.config.autoLearn && reaction.text && ['accepted', 'rejected', 'feedback', 'supplement', 'outcome'].includes(reaction.kind)) this.enqueue(projectId, 'learn');
     return result;
+  }
+  async referenceContext(projectId: string, eventId: string) {
+    const project = await this.current(projectId), event = project.events.find(item => item.id === eventId);
+    const suggestion = event && project.suggestions.find(item => item.id === event.suggestionId);
+    if (!event || !suggestion) throw Error('推荐记录已不可用，请刷新');
+    const state = rsiFeedbackState(suggestion.id, project.events), review = rsiReview(suggestion.id, project.events);
+    return structuredClone({ event, suggestion, review, current: event.kind === 'supplement' ? state.supplement?.id === event.id : state.decision?.id === event.id,
+      evidence: suggestion.evidenceIds.map(id => project.evidence.find(item => item.id === id)).filter((item): item is RsiEvidence => !!item).map(({ text }) => text.slice(0, 3500)) });
+  }
+  async referenceReady(projectId: string, eventId: string, sourceId?: string) {
+    return this.edit(projectId, project => {
+      const event = project.events.find(item => item.id === eventId);
+      if (!event) throw Error('推荐关联已变化，请刷新');
+      const state = rsiFeedbackState(event.suggestionId, project.events);
+      if (event.kind === 'supplement' ? state.supplement?.id !== event.id : state.decision?.id !== event.id) throw Error('推荐的处理已更新，请核对最新状态后再保存');
+      event.reference = { status: 'ready', ...(event.linkedSessionId ? { sessionId: event.linkedSessionId } : {}), ...(sourceId ? { sourceId } : {}) }; project.revision++; return event;
+    });
+  }
+  async unappliedReferences(projectId: string) {
+    await this.ready();
+    const project = this.projects[this.host.scope(projectId).key]; if (!project) return [];
+    return project.suggestions.flatMap(suggestion => {
+      const { decision, supplement } = rsiFeedbackState(suggestion.id, project.events);
+      const current = supplement || decision;
+      return current?.reference?.status === 'pending' || decision?.kind === 'accepted' && supplement?.linkedSessionId && supplement.reference?.status !== 'ready' ? [current!.id] : [];
+    });
   }
   async completed(projectId: string) {
     if (this.closed) return;

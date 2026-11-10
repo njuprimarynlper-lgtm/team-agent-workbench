@@ -1,7 +1,7 @@
 import { MarkdownEditor } from './markdown-editor';
 import React, { useEffect, useRef, useState } from 'react';
 import { Handshake, Network, MessageCircleQuestion, Sparkles, PanelRightClose, PanelRightOpen } from 'lucide-react';
-import type { RsiInbox, RsiReaction } from '../shared/rsi';
+import type { RsiEvent, RsiInbox, RsiReaction } from '../shared/rsi';
 import type { WorkbenchAPI } from '../shared/types';
 import { useInteractionPanelResize } from './interaction-panel-resize';
 
@@ -52,11 +52,11 @@ export function RsiRecommendations({ inbox, error, call, reload }: { inbox?: Rsi
     lock.current = true; setPending({ id: item.id, kind }); setFailure('');
     setNotice(kind === 'supplement' ? '正在保存补充…' : kind === 'dismissed' ? '正在关闭推荐…' : '正在保存处理结果…');
     try {
-      await call('rsi.feedback', { projectId: inbox.projectId, reaction: { ...reaction, requestId: retry.current.requestId } });
+      const saved = await call<RsiEvent>('rsi.feedback', { projectId: inbox.projectId, reaction: { ...reaction, requestId: retry.current.requestId } });
       retry.current = undefined;
       if (['accepted', 'rejected', 'supplement', 'dismissed'].includes(kind)) setDrafts(current => { const next = { ...current }; delete next[item.id]; return next; });
       if (kind === 'supplement' || kind === 'dismissed') setCompleted(current => [...current, item.id]);
-      setNotice(kind === 'accepted' ? '已接受。可选填关联会话和反馈，再保存补充。' : kind === 'rejected' ? '已拒绝。可选填反馈，再保存补充。' : kind === 'dismissed' ? `已关闭“${item.title}”，处理记录已保留。` : `“${item.title}”的补充已保存，推荐已移出列表。`);
+      setNotice(kind === 'accepted' ? '已接受。可选填关联会话和反馈，再保存补充。' : kind === 'rejected' ? '已拒绝。可选填反馈，再保存补充。' : kind === 'dismissed' ? `已关闭“${item.title}”，处理记录已保留。` : kind === 'supplement' && item.review.decision === 'accepted' && draft?.linkedSessionId ? saved.reference?.status === 'deferred' ? '补充已保存；原关联会话已关闭，重新打开后随下一次消息生效。' : `已关联到“${inbox.sessions.find(session => session.id === draft.linkedSessionId)?.title || '所选会话'}”，随下一次发送生效。当前生成不受影响。` : `“${item.title}”的补充已保存，推荐已移出列表。`);
       try { await reload(); } catch { setFailure('处理结果已保存，列表暂未刷新，请重试刷新。'); }
     } catch (reason: any) { setNotice(''); setFailure(reason.message); if (reason.message.includes('处理已更新')) await reload().catch(() => {}); }
     finally { lock.current = false; setPending(undefined); }
@@ -74,7 +74,7 @@ export function RsiRecommendations({ inbox, error, call, reload }: { inbox?: Rsi
           <h3>{item.title}</h3><p>{item.action}</p>
           <details key={item.id}><summary>推荐依据</summary><p>{item.reason}</p>{item.conditions.length > 0 && <p>适用条件：{item.conditions.join('；')}</p>}{item.uncertainty && <p>尚不确定：{item.uncertainty}</p>}<div className="rsi-evidence">{item.evidence.map(evidence => <blockquote key={evidence.id}>{evidence.text}</blockquote>)}</div></details>
           {item.review.decision === 'pending' ? <div className="rsi-actions"><button className="primary" disabled={busy} onClick={() => void act('accepted')}>接受</button><button className="secondary" disabled={busy} onClick={() => void act('rejected')}>拒绝</button><button className="text-button rsi-close" disabled={busy} onClick={() => void act('dismissed')}>{pending?.id === item.id && pending.kind === 'dismissed' ? '正在关闭…' : '关闭'}</button></div> : <form className="rsi-supplement" onSubmit={event => { event.preventDefault(); void act('supplement'); }}>
-            <fieldset disabled={busy}>{item.review.decision === 'accepted' && <label>关联会话 <small>选填</small><select aria-label="关联会话" value={draft!.linkedSessionId} onChange={event => update({ linkedSessionId: event.target.value })}><option value="">暂不关联</option>{draft!.linkedSessionId && !inbox.sessions.some(session => session.id === draft!.linkedSessionId) && <option value={draft!.linkedSessionId}>原关联会话（已关闭或不可用）</option>}{inbox.sessions.map(session => <option key={session.id} value={session.id}>{session.title}</option>)}</select></label>}
+            <fieldset disabled={busy}>{item.review.decision === 'accepted' && <label>关联会话 <small>选填</small><select aria-label="关联会话" value={draft!.linkedSessionId} onChange={event => update({ linkedSessionId: event.target.value })}><option value="">暂不关联</option>{draft!.linkedSessionId && !inbox.sessions.some(session => session.id === draft!.linkedSessionId) && <option value={draft!.linkedSessionId}>原关联会话（已关闭或不可用）</option>}{inbox.sessions.map(session => <option key={session.id} value={session.id}>{session.title}</option>)}</select><small>保存后作为会话的待发送参考，随下一次消息生效。</small></label>}
             <label>推荐反馈 <small>选填</small><MarkdownEditor aria-label="推荐反馈" rows={3} maxLength={6000} value={draft!.text} onChange={event => update({ text: event.target.value })} placeholder="评价这条推荐：描述是否具体、背景是否充分，或希望它关注哪一层的问题。"/></label>
             <div className="rsi-actions"><button className="primary" type="submit" disabled={staleDraft}>{pending?.id === item.id && pending.kind === 'supplement' ? '保存中…' : '保存补充'}</button><button className="text-button" type="button" onClick={() => void act(item.review.decision === 'accepted' ? 'rejected' : 'accepted')}>{item.review.decision === 'accepted' ? '改为拒绝' : '改为接受'}</button><button className="text-button rsi-close" type="button" onClick={() => void act('dismissed')}>{pending?.id === item.id && pending.kind === 'dismissed' ? '正在关闭…' : '关闭'}</button></div></fieldset>
           </form>}

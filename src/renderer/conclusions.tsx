@@ -8,7 +8,6 @@ import { canonicalCategory, orderedResults, resultCategory, resultDefaultStatus,
 import { ResultCategoryDialog, ResultHistoryDrawer, ResultStatusSelect } from './result-lifecycle';
 import { resultPreview } from '../shared/result-reading';
 import { conclusionUploadState, uploadAction, uploadBlocked } from '../shared/conclusion-upload';
-import { destinationLabel } from '../shared/submission';
 import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from './math-markdown';
 import remarkGfm from 'remark-gfm';
@@ -47,8 +46,7 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
   const [classifying, setClassifying] = useState<ProjectConclusion>(), [historyItem, setHistoryItem] = useState<ProjectConclusion>();
   const [todoFilter, setTodoFilter] = useState('all');
   const [pendingDelete, setPendingDelete] = useState<ProjectConclusion[]>([]), [deleteError, setDeleteError] = useState('');
-  const [publishing, setPublishing] = useState<ProjectConclusion>(), [disclosed, setDisclosed] = useState<ResultReference[]>([]);
-  const publishingState = publishing && (items.find(item => item.id === publishing.id)?.uploadState || conclusionUploadState(publishing));
+  const publishing = useRef(false), activeProject = useRef(project.id); activeProject.current = project.id;
   const [selectingDelete, setSelectingDelete] = useState(false), [deleteSelection, setDeleteSelection] = useState<string[]>([]);
   const [deletePreview, setDeletePreview] = useState<{ key: string; items: ConclusionDeletePreview[] }>();
   const deleteKey = pendingDelete.map(item => item.id + ':' + item.version).join(',');
@@ -129,6 +127,23 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
     catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
+  const publish = async (value: ProjectConclusion) => {
+    if (publishing.current) return;
+    publishing.current = true; setBusy(true); setError('');
+    try {
+      const original = value.publication?.contentId ? (await api.call<SharedContent[]>('content.list', { projectId: project.id })).find(item => item.id === value.publication?.contentId) : undefined;
+      if (activeProject.current !== project.id) return;
+      let disclose: ResultReference[] = [];
+      const folders = await destination.choose({ scope: 'team', title: '分享至团队 · 选择目录', confirmLabel: '分享至团队',
+        items: [{ id: value.id, title: conclusionTitle(value), category: resultCategory(value), folderId: original?.folderId }],
+        details: !!value.derivedFrom?.length && <SourceDisclosure references={value.derivedFrom} change={refs => { disclose = refs; }}/> });
+      if (!folders || activeProject.current !== project.id) return;
+      await api.call('conclusion.publish', { id: value.id, version: value.version, disclose, folderId: folders[value.id] });
+      if (activeProject.current === project.id) await load();
+      notice('已开始分享，已有发布关联时更新原团队成果');
+    } catch (reason: any) { setError(reason.message); }
+    finally { publishing.current = false; setBusy(false); }
+  };
   const move = async (values: ProjectConclusion[]) => { setBusy(true); setError(''); try { const folders = await destination.choose({ scope: 'personal', title: '移动个人成果', items: values }); if (!folders) return; await moveResultDestinations(project.id, 'personal', values.map(value => ({ id: value.id, version: value.version, folderVersion: value.folderVersion })), folders); await directories.load(); await load(); setMergeSelection([]); setDeleteSelection([]); notice('成果目录已更新，内容和分享关联保留'); } catch (reason: any) { await load(); setError(reason.message); } finally { setBusy(false); } };
   const renderEditor = () => <>
     {creating && <p className="muted small">保存位置：{resultDirectoryLabel(folder === 'all' ? canonicalCategory(category)! : folder, directories.directories)}</p>}
@@ -163,7 +178,7 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
         {!value.archived && <button className="secondary compact" disabled={disabled} onClick={() => { open(value); setEditing(true); }}>编辑</button>}
         {project.id !== PERSONAL_PROJECT_ID && !value.archived && <button className="secondary compact" disabled={disabled || uploadBlocked(uploadState)} title={uploadState.status === 'done' ? '当前版本已上传' : undefined} onClick={() => {
           if (uploadState.status === 'error') { void (async () => { setBusy(true); try { await api.call('conclusion.publish', { id: value.id, version: value.version }); await load(); notice('已重试原上传'); } catch (error: any) { setError(error.message); } finally { setBusy(false); } })(); return; }
-          setPublishing(value); setDisclosed([]); setError('');
+          void publish(value);
         }}>{uploadAction(uploadState)}</button>}
         <button className="secondary compact" disabled={disabled || value.archived || !attachSessions.length} title={value.archived ? '请先恢复此成果' : !attachSessions.length ? '请先创建或重新打开当前项目的工作会话' : '选择会话使用这份成果'} onClick={() => { setAttaching(value); setAttachSelection([]); setAttachedIds([]); setError(''); }}>加入会话</button>
         <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(value.titleAlias || ''); setAliasError(''); }}>设置本地别名</button>
@@ -216,7 +231,6 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
       <div className="modal-body"><p>将删除以下 {pendingDelete.length} 条项目成果，历史列表中也不再保留，无法通过“恢复使用”找回。</p><ul className="delete-selection-list">{pendingDelete.map(value => <li key={value.id}>{conclusionTitle(value)}{value.archived ? '（历史成果）' : ''}</li>)}</ul><p className="muted small">已经加入会话的引用保留。如果只是暂时不用，请取消并选择“移入历史”。</p>{!deleteLinked ? <p role="status">正在检查团队发布关联…</p> : deleteLinked.length > 0 ? <><p>所选成果有团队发布或来源关联：</p><ul>{deleteLinked.map((link, index) => <li key={link.localId || index}>{link.title}{link.status === 'linked' ? '：团队中也有，可同步删除原条目' : '：' + link.message}</li>)}</ul></> : <p className="muted small">这些成果没有团队发布关联。</p>}{deleteError && <div className="inline-error" role="alert">{deleteError}</div>}</div>
       <footer><button className="secondary" disabled={busy} onClick={() => setPendingDelete([])}>取消</button><button className="secondary danger" disabled={busy} onClick={() => void remove(false)}>{busy ? '正在删除…' : '仅删除本地'}</button>{deleteLinked?.some(item => item.status === 'linked') && <button className="primary danger" disabled={busy || deleteLinked.some(item => item.status === 'error')} onClick={() => void remove(true)}>同时删除团队成果</button>}</footer>
     </section></div>}
-    {publishing && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="publish-conclusion-title"><header><h2 id="publish-conclusion-title">分享至团队</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setPublishing(undefined)}>×</button></header><div className="modal-body"><p>将“{conclusionTitle(publishing)}”分享到团队。已有本人发布关联的成果会更新原条目；首次分享或他人的参考副本会新建成果。个人原件保留。</p><p className="muted small">默认不公开个人来源。仅勾选希望团队看到的直接来源 ID 和版本。</p>{publishing.derivedFrom?.map(ref => <label className="check-row" key={ref.scope + ref.id + ref.version}><input type="checkbox" checked={disclosed.some(item => item.scope === ref.scope && item.id === ref.id && item.version === ref.version)} onChange={event => setDisclosed(current => event.target.checked ? [...current, ref] : current.filter(item => !(item.scope === ref.scope && item.id === ref.id && item.version === ref.version)))}/>{ref.scope === 'personal' ? '个人' : '团队'} · {ref.id} · v{ref.version}</label>)}</div><footer><button className="secondary" disabled={busy} onClick={() => setPublishing(undefined)}>取消</button><button className="primary" disabled={busy || !!publishingState && uploadBlocked(publishingState)} onClick={() => void (async () => { setBusy(true); try { const original = publishing.publication?.contentId ? (await api.call<SharedContent[]>('content.list', { projectId: project.id })).find(item => item.id === publishing.publication?.contentId) : undefined; const folders = await destination.choose({ scope: 'team', title: '选择团队提交目录', items: [{ id: publishing.id, title: conclusionTitle(publishing), category: resultCategory(publishing), folderId: original?.folderId }] }); if (!folders) return; await api.call('conclusion.publish', { id: publishing.id, version: publishing.version, disclose: disclosed, folderId: folders[publishing.id] }); setPublishing(undefined); await load(); notice('已开始分享，已有发布关联时更新原团队成果'); } catch (error: any) { setError(error.message); } finally { setBusy(false); } })()}>{busy ? '正在提交…' : `提交到 ${destinationLabel(project, projects)}`}</button></footer></section></div>}
     {aliasItem && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="conclusion-alias-title">
       <header><h2 id="conclusion-alias-title">设置成果别名</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setAliasItem(undefined)}>×</button></header>
       <div className="modal-body"><p className="muted small">别名只影响本机显示，原名、内容和已加入会话的快照保持不变。</p>{aliasError && <div className="inline-error" role="alert">{aliasError}</div>}<label className="field">本地别名<input autoFocus aria-label="成果本地别名" maxLength={200} value={aliasValue} placeholder={aliasItem.title} onChange={event => setAliasValue(event.target.value)}/></label><p className="muted small">原名：{aliasItem.title}</p></div>
@@ -225,4 +239,9 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
     {attaching && <div className="modal-backdrop"><section className="modal attach-session-modal" role="dialog" aria-modal="true" aria-labelledby="attach-conclusion-title"><header><h2 id="attach-conclusion-title">选择使用成果的会话</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setAttaching(undefined)}>×</button></header><div className="modal-body"><p>{conclusionTitle(attaching)}</p><p className="muted small">下次提问时带入所选成果；发送前可在会话输入区撤销，不影响当前正在运行的任务。</p>{error && <div className="inline-error" role="alert">{error}</div>}<div className="attach-session-options">{attachSessions.map(session => { const used = alreadyAttached(session); return <label className="attach-session-option" key={session.id}><input type="checkbox" aria-label={`使用成果的会话：${session.title}`} checked={used || attachSelection.includes(session.id)} disabled={busy || used || !!session.closedAt || !!attaching.archived} onChange={e => setAttachSelection(current => e.target.checked ? [...new Set([...current, session.id])] : current.filter(id => id !== session.id))}/><span><b>{session.title}</b><small>{used ? '已加入会话' : session.closedAt ? '会话已关闭' : attaching.archived ? '请先恢复此成果' : '尚未使用'} · {session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor'}</small></span></label>; })}</div>{!attachSessions.length && <p className="muted">当前项目没有打开的工作会话，请创建或重新打开一个会话。</p>}</div><footer><button className="secondary" disabled={busy} onClick={() => setAttaching(undefined)}>关闭</button><button className="primary" disabled={busy || !newSelection.length} onClick={() => void attach()}>{busy ? '正在加入…' : `加入 ${newSelection.length} 个会话`}</button></footer></section></div>}
     {confirmingMerge && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-conclusion-merge"><header><h2 id="confirm-conclusion-merge">处理所选成果</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setConfirmingMerge(false)}>×</button></header><div className="modal-body"><p>将根据你的要求处理所选 {selectedMergeItems.length} 条成果，生成一份预处理结果。你可以审阅和修改；保存新成果时，可选择将哪些来源移入历史。保留的来源还能用于其他整理组合。</p>{error && <div className="inline-error" role="alert">{error}</div>}{sessions.length ? <label className="field">使用哪个会话的模型<select aria-label="用于处理成果的会话" value={mergeSessionId} disabled={busy} onChange={event => setMergeSessionId(event.target.value)}>{sessions.map(session => <option value={session.id} key={session.id}>{session.title} · {session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor'}</option>)}</select></label> : <p className="inline-error">请先为当前项目创建工作会话。</p>}<label className="field">处理要求（可选）<MarkdownEditor aria-label="成果处理要求" rows={6} disabled={busy} placeholder="例如：保留不同样本范围，去除重复描述；分类保持不变。待办仅合并同一事项的重复记录。" value={instruction} onChange={event => setInstruction(event.target.value)}/></label><div className="merge-confirm-sources">{selectedMergeItems.map(value => <span key={value.id}>{conclusionTitle(value)}</span>)}</div></div><footer><button className="secondary" disabled={busy} onClick={() => setConfirmingMerge(false)}>返回选择</button><button className="primary" disabled={busy || !mergeReady || !mergeSessionId} onClick={() => void startMerge()}><Sparkles size={14}/>{busy ? '正在准备…' : '生成预处理结果'}</button></footer></section></div>}
   </div>;
+}
+
+function SourceDisclosure({ references, change }: { references: ResultReference[]; change: (value: ResultReference[]) => void }) {
+  const [selected, setSelected] = useState<ResultReference[]>([]);
+  return <details><summary>公开直接来源（选填）</summary><p className="muted small">默认不公开个人来源；勾选需要随成果分享的来源。</p>{references.map(ref => <label className="check-row" key={ref.scope + ref.id + ref.version}><input type="checkbox" checked={selected.includes(ref)} onChange={event => { const next = event.target.checked ? [...selected, ref] : selected.filter(value => value !== ref); setSelected(next); change(next); }}/>{ref.scope === 'personal' ? '个人' : '团队'} · {ref.id} · v{ref.version}</label>)}</details>;
 }

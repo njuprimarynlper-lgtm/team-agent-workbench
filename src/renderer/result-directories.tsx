@@ -98,7 +98,7 @@ export function ResultDirectorySidebar({ state, value, change, items, manage = t
 }
 
 interface DestinationItem { id: string; title: string; category?: string; folderId?: string; kind?: string }
-interface DestinationRequest { scope: Scope; title?: string; items: DestinationItem[] }
+interface DestinationRequest { scope: Scope; title?: string; items: DestinationItem[]; details?: React.ReactNode; confirmLabel?: string }
 function DestinationDialog({ projectId, request, finish }: { projectId: string; request: DestinationRequest; finish: (value?: Record<string, string>) => void }) {
   const state = useResultDirectories(projectId, request.scope);
   const [folders, setFolders] = useState<Record<string, string>>({}), [selected, setSelected] = useState(request.items[0].id);
@@ -113,8 +113,8 @@ function DestinationDialog({ projectId, request, finish }: { projectId: string; 
       {state.error && <div className="inline-error" role="alert">{state.error}<button type="button" className="text-button" onClick={() => void state.load()}>刷新目录</button></div>}
       <div className="result-destination-grid"><div className="result-destination-items" aria-label="选择需要指定目录的成果">{request.items.map(item => <button type="button" key={item.id} className={selected === item.id ? 'is-selected' : ''} onClick={() => setSelected(item.id)}><b>{item.title}</b><small>{state.loaded ? resultDirectoryLabel(folder(item), state.directories) : '正在读取目录…'}</small></button>)}</div>
         <div><DirectoryTree directories={state.directories} value={current} change={id => setFolders(previous => ({ ...previous, [selected]: id }))} disabled={!state.loaded}/><DirectoryManagement state={state} value={current} select={id => setFolders(previous => ({ ...previous, [selected]: id }))} manage={false}/></div>
-      </div>{request.items.length > 1 && <button type="button" className="text-button" disabled={!state.loaded} onClick={() => setFolders(Object.fromEntries(request.items.map(item => [item.id, current])))}>全部保存到当前选中的目录</button>}
-    </div><footer><button type="button" className="secondary" onClick={() => finish()}>取消</button><button type="button" className="primary" disabled={!state.loaded} onClick={() => finish(Object.fromEntries(request.items.map(item => [item.id, folder(item)])))}>确认目录并继续</button></footer>
+      </div>{request.items.length > 1 && <button type="button" className="text-button" disabled={!state.loaded} onClick={() => setFolders(Object.fromEntries(request.items.map(item => [item.id, current])))}>全部保存到当前选中的目录</button>}{request.details}
+    </div><footer><button type="button" className="secondary" onClick={() => finish()}>取消</button><button type="button" className="primary" disabled={!state.loaded} onClick={() => finish(Object.fromEntries(request.items.map(item => [item.id, folder(item)])))}>{request.confirmLabel || '确认目录并继续'}</button></footer>
   </section></div>;
 }
 

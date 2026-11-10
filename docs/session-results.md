@@ -26,3 +26,11 @@
 - `session.attachContent` / `session.attachConclusion`：兼容原入口，支持 `expectedRevision` / `expectedVersion`。
 
 验证：`npm run test:session-results`、`npm run test:session-results-ui`。真实 Electron 托盘和重启验证：先 `npm run build:check`，再 `node scripts/session-results-desktop-smoke.mjs <本次构建的 user 目录>`。
+
+## AI 推荐关联与团队分享（v2.3.42）
+
+AI 推荐接受后，在补充信息中选择会话并保存，会冻结建议、理由、条件和支撑片段，作为该会话下一次发送的自动参考。生成中关联不修改当前轮或本轮引导；未发送时可从输入框撤销，发送成功后按引用回执去重。旧版本仅保存了跟踪关系的关联会在启动或下一次发送前补齐；撤销的参考不会因重启或重复请求重新出现。保存失败的关联保留在推荐列表，重复请求沿用同一记录。已关闭会话的历史关联可继续保存评价，重新打开后再补齐参考。
+
+个人成果分享至团队直接打开目录选择，选好目录后提交一次；可选的来源披露放在同一窗口，默认不公开。不再展示前置的说明确认弹窗。失败上传仍重试原传输，已有发布关联继续更新同一条团队成果。
+
+相关验证：`npm run test:recommendation-reference` 与 `npm run test:recommendation-sharing-ui`。CLI 流程使用本机模拟协议验证，不调用真实模型。

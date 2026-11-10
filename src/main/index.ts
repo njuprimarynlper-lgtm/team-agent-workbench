@@ -398,7 +398,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'rsi.configure': { const p = z.object({ projectId: text, config: z.unknown() }).parse(raw); return workbench.rsi.configure(p.projectId, p.config); }
     case 'rsi.collect': return workbench.rsi.collect(z.object({ projectId: text }).parse(raw).projectId);
     case 'rsi.run': { const p = z.object({ projectId: text, operation: z.enum(['recommend', 'learn', 'evaluate']), candidateId: text.optional() }).parse(raw); await workbench.rsi.start(p.projectId, p.operation, 'manual', p.candidateId); return true; }
-    case 'rsi.feedback': { const p = z.object({ projectId: text, reaction: z.unknown() }).parse(raw); return workbench.rsi.feedback(p.projectId, p.reaction); }
+    case 'rsi.feedback': { const p = z.object({ projectId: text, reaction: z.unknown() }).parse(raw); return workbench.feedbackRecommendation(p.projectId, p.reaction); }
     case 'rsi.case': { const p = z.object({ projectId: text, value: z.unknown() }).parse(raw); return workbench.rsi.addCase(p.projectId, p.value); }
     case 'rsi.evaluation.review': { const p = z.object({ projectId: text, evaluationId: text, review: z.unknown() }).parse(raw); return workbench.rsi.reviewEvaluation(p.projectId, p.evaluationId, p.review); }
     case 'rsi.publish': { const p = z.object({ projectId: text, candidateId: text }).parse(raw); return workbench.rsi.publish(p.projectId, p.candidateId); }

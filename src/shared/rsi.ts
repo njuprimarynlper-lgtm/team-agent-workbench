@@ -102,7 +102,7 @@ export const rsiReactionSchema = z.object({
   outcome: z.enum(['success', 'failure', 'rework', 'unknown']).optional(),
 }).strict();
 export type RsiReaction = z.infer<typeof rsiReactionSchema>;
-export interface RsiEvent extends RsiReaction { id: string; at: string; actor: string; evidenceId: string; decisionEventId?: string }
+export interface RsiEvent extends RsiReaction { id: string; at: string; actor: string; evidenceId: string; decisionEventId?: string; reference?: { sessionId?: string; status: 'pending' | 'ready' | 'deferred'; sourceId?: string } }
 export interface RsiRun {
   id: string; at: string; policyId: string; model: string; provider: string; route: string;
   trigger: string; inputHash: string; evidenceIds: string[]; inputChars: number;
@@ -188,7 +188,7 @@ export function rsiFeedbackState(suggestionId: string, events: RsiEvent[]) {
   // Saving the optional supplement completes this review in the same durable
   // event. A new decision starts a new review; an explicit reopen still wins.
   const closure = own.filter(event => event.kind === 'dismissed' || event.kind === 'reopened' || event.kind === 'supplement' && currentEpisode.includes(event)).at(-1);
-  const closed = closure?.kind === 'dismissed' || closure?.kind === 'supplement';
+  const closed = closure?.kind === 'dismissed' || closure?.kind === 'supplement' && closure.reference?.status !== 'pending';
   return { decision, feedback, supplement, outcome, closed };
 }
 export interface RsiReview {

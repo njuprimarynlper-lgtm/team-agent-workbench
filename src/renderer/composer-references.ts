@@ -1,5 +1,5 @@
 import type { AgentSession, SourceFile } from '../shared/types';
-import { acceptedSessionContext, sourceIdentity, sourceWasAccepted, uniqueSources, withoutSupersededProjectBrief } from '../shared/session-context';
+import { acceptedSessionContext, isRecommendationSource, sourceIdentity, sourceWasAccepted, uniqueSources, withoutSupersededProjectBrief } from '../shared/session-context';
 import { isConclusionSource } from '../shared/conclusion-context';
 import { isRemovableSessionReference, isProtectedSessionSource } from '../shared/session-result-references';
 
@@ -7,7 +7,7 @@ export function pendingComposerReferences(session: AgentSession, selectedIds: st
   const hashes = acceptedSessionContext(session).sourceHashes;
   const selected = new Set(session.sources.filter(source => selectedIds.includes(source.id)).map(sourceIdentity));
   return uniqueSources(withoutSupersededProjectBrief(session)).filter(source => !source.supersededBy && hashes[source.id] !== source.sha256).map(source => {
-    const automatic = isProtectedSessionSource(session, source) || isConclusionSource(source) || !!source.resultLink || source.sourcePath.startsWith('question:');
+    const automatic = isProtectedSessionSource(session, source) || isConclusionSource(source) || !!source.resultLink || isRecommendationSource(source) || source.sourcePath.startsWith('question:');
     return { source, automatic, selected: automatic || selected.has(sourceIdentity(source)), removable: isRemovableSessionReference(session, source) && !sourceWasAccepted(session, source) };
   }).reverse(); // Most recently attached snapshots remain nearest to More when the window shrinks.
 }
