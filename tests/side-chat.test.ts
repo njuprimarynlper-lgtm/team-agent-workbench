@@ -141,6 +141,8 @@ test('temporary chats retain selections and drafts without entering sessions, lo
     const chat = await pending;
     parent.messages[0].text += '捕获以后';
     assert(!JSON.stringify(rpc.calls).includes('捕获以后'));
+    assert.equal(chat.inheritedMessageCount, 1);
+    assert.equal((await wb.sideChatHistoryPage(chat.id, 1, 160)).messages[0].text, '捕获之前');
     assert.equal(chat.draft, '  选中文字\n原样保留');
     wb.sideChatDraft(chat.id, '新的问题');
     await wb.sendSideChat(chat.id, '新的问题');

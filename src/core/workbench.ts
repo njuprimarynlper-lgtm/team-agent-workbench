@@ -12,6 +12,8 @@ import { Questions } from './questions';
 import { groupCommandSchema, type GroupCommand } from '../shared/team-groups';
 import { assertCursorSharedSessionAvailable } from '../shared/cursor-session-consistency';
 import { conclusionUploadState, unfinishedConclusionUploads, uploadBlocked } from '../shared/conclusion-upload';
+import { freezeTranscript, frozenTranscriptName, readFrozenPage } from './frozen-transcript';
+import { inheritedMessageCount } from '../shared/transcript-page';
 import { injectPreparationState } from './preparation-compact';
 import { buildPreparationContext, cachedPreparationBrief, personalContextResults, preparationContextLimit, type PreparationContext } from './preparation-context';
 import { submissionRecord } from '../shared/submission';
@@ -99,7 +101,7 @@ import type { JournalEntry } from '../shared/project-journal';
 import type { ActivityChoice, ActivityActionResult } from '../shared/activity-assistant';
 import { editableTurnMessage } from '../shared/editable-turn';
 import { revertLastCodexTurn } from './codex-edit-turn';
-import { sourceHeader, sourceText } from '../shared/session-context-text';
+import { sessionMessageText, sourceHeader, sourceText, withoutQuestionFillTurns } from '../shared/session-context-text';
 import { SessionInputQueue } from './session-input-queue';
 export class Workbench {
   readonly inputQueue: SessionInputQueue;
@@ -116,7 +118,7 @@ export class Workbench {
   private activityActions = new Set<string>();
   store: Store; remote: SharedFiles; queue: TransferQueue; providers: ProviderInfo[] = [];
   private assignmentUploads: AssignmentUploads;
-  private sideChats = new Map<string, { view: import('../shared/types').SideChat; runtime: AgentRuntime; busy?: boolean }>();
+  private sideChats = new Map<string, { view: import('../shared/types').SideChat; runtime: AgentRuntime; history: Message[]; busy?: boolean }>();
   private runtimes = new Map<string, AgentRuntime | ClaudeRuntime>(); private sending = new Set<string>();
   private codexWriters = new Set<AgentRuntime>();
   private steering = new Set<string>();
@@ -186,7 +188,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'project.connection.open'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.historyPage', 'sidechat.historyPage', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -3575,8 +3577,11 @@ export class Workbench {
     };
     const parentRuntime = await this.runtime(parent);
     if (!(parentRuntime instanceof AgentRuntime)) throw new Error('Codex 运行环境不可用');
+    let history: Message[] = [];
     const runtime = await parentRuntime.createSideChat(view.session, { changed: () => this.broadcast(), messageChanged: messageId => { view.session.storageRevision = (view.session.storageRevision || 0) + 1; if (this.emitSessionDelta) this.emitSessionDelta(view.session, messageId, view.id); else this.broadcast(); }, event: () => {}, done: () => this.broadcast() }, () => {
       view.capturedAt = new Date().toISOString();
+      history = withoutQuestionFillTurns(parent.messages).map(message => ({ ...message, userText: message.role === 'user' ? sessionMessageText(parent, message) : message.userText, context: structuredClone(message.context), nativeDetails: structuredClone(message.nativeDetails), steps: structuredClone(message.steps) }));
+      view.inheritedMessageCount = inheritedMessageCount(parent) + history.length;
       const unfinished = ['starting', 'running', 'approval'].includes(parent.status);
       const lastUser = parent.messages.findLastIndex(message => message.role === 'user' && !message.steering);
       const partial = unfinished ? parent.messages.slice(Math.max(0, lastUser)).filter(message => message.role === 'assistant').map(message => message.text).join('\n').slice(-64000) : '';
@@ -3585,7 +3590,7 @@ export class Workbench {
     try {
       if (this.closing || epoch !== this.accountRevision || parent.closedAt || !this.store.sessions.includes(parent)) throw new Error('原会话或账号已改变，未保留侧聊');
       this.session(parentId);
-      this.sideChats.set(view.id, { view, runtime });
+      this.sideChats.set(view.id, { view, runtime, history });
       runtime.rpc.once('closed', () => { if (this.sideChats.has(view.id)) { view.expired = true; this.broadcast(); } });
       this.broadcast(); return view;
     } catch (error) { await runtime.close(); throw error; }
@@ -3595,6 +3600,15 @@ export class Workbench {
     if (!entry) throw new Error('侧边提问已关闭，请重新创建');
     this.session(entry.view.parentId); // Account ownership is checked on every operation.
     return entry;
+  }
+  async sideChatHistoryPage(id: string, before: number, limit: number) {
+    const { view, history } = this.sideChat(id), parent = this.session(view.parentId);
+    const inherited = inheritedMessageCount(parent), end = Math.min(before, inherited + history.length);
+    const start = Math.max(0, end - limit);
+    const own = history.slice(Math.max(0, start - inherited), Math.max(0, end - inherited));
+    if (start >= inherited) return { messages: own, before: start };
+    const prefix = await this.subsessionHistoryPage(parent.id, Math.min(inherited, end), limit - own.length);
+    return { messages: [...prefix.messages, ...own], before: prefix.before };
   }
   sideChatDraft(id: string, text: string) {
     const entry = this.sideChat(id);
@@ -3675,8 +3689,9 @@ export class Workbench {
         child = await this.createSession('codex', captured.cwd, captured.binding!.project.id, 'work', parentId, captured.model, captured.permissionMode || 'inherit', false, captured.networkRoute, false, captured.personalGroupId, true);
         if (!child.binding || accountIdentity(child.binding) !== accountIdentity(captured.binding!)) throw new Error('创建期间账号已改变');
         const directory = path.join(this.store.sessionDir(child.id), 'sources'); await fs.mkdir(directory, { recursive: true });
-        const visibleSnapshotPath = path.join(directory, 'inherited-conversation.json');
-        await fs.writeFile(visibleSnapshotPath, JSON.stringify(captured.messages), { flag: 'wx' });
+        const visibleSnapshotPath = path.join(directory, frozenTranscriptName);
+        const displayMessages = withoutQuestionFillTurns(captured.messages).map(m => m.role === 'user' ? { ...m, userText: sessionMessageText(captured, m) } : m);
+        const visibleMessageCount = await freezeTranscript(visibleSnapshotPath, this.inheritedFile(captured), displayMessages);
         const active = ['starting', 'running', 'approval'].includes(captured.status);
         let from = captured.messages.length;
         if (active || !native) {
@@ -3703,7 +3718,7 @@ export class Workbench {
         child.followProjectBrief = captured.followProjectBrief;
         child.directoryMode = followsProjectDirectory(captured) ? 'project' : 'fixed';
         child.directoryMove = captured.directoryMove ? { ...captured.directoryMove, id: randomUUID() } : undefined;
-        child.fork = { parentId, capturedAt, parentMessageId: captured.messages.at(-1)?.id, parentMessageCount: captured.messages.length, snapshotHash, sourceId, inheritedSourceIds, workspaceKind: 'shared-directory', workspaceRoot: captured.codexRemote?.cwd || captured.cwd, nativeFork: !!native, ...(captured.codexRemote ? { remoteContext: context } : {}), parentWasRunning: active, visibleSnapshotPath };
+        child.fork = { parentId, capturedAt, visibleMessageCount, parentMessageId: captured.messages.at(-1)?.id, parentMessageCount: captured.messages.length, snapshotHash, sourceId, inheritedSourceIds, workspaceKind: 'shared-directory', workspaceRoot: captured.codexRemote?.cwd || captured.cwd, nativeFork: !!native, ...(captured.codexRemote ? { remoteContext: context } : {}), parentWasRunning: active, visibleSnapshotPath };
         if (native) {
           child.nativeId = native.id; child.nativePath = native.path;
           if (native.remote) { child.codexRemote = native.remote; child.nativeLive = true; }
@@ -3732,11 +3747,15 @@ export class Workbench {
       this.broadcast(); return session;
     }, false);
   }
-  async subsessionHistory(id: string) {
-    const session = this.session(id);
+  private inheritedFile(session: AgentSession) {
     const file = session.fork?.visibleSnapshotPath;
-    if (!file || !localWithin(this.store.sessionDir(id), file)) return [];
-    return JSON.parse(await fs.readFile(file, 'utf8')) as Message[];
+    return file && localWithin(this.store.sessionDir(session.id), file) ? file : undefined;
+  }
+  subsessionHistoryPage(id: string, before: number, limit: number) {
+    return readFrozenPage(this.inheritedFile(this.session(id)), before, limit);
+  }
+  async subsessionHistory(id: string) {
+    return (await this.subsessionHistoryPage(id, Infinity, Infinity)).messages;
   }
   async previewSubsessionReport(childId: string): Promise<SubsessionReportPreview> {
     if (!this.betaFeatureEnabled('subsessions')) throw new Error('请先在 Beta 功能中开启 Subsession');

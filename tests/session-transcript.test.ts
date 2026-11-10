@@ -14,7 +14,7 @@ const render = (messages: Message[], status: AgentSession['status'] = 'idle', cl
 test('long conversations render the recent window and offer older history', () => {
   const messages = Array.from({ length: 220 }, (_, index) => message('m' + index, 'user', 'text ' + index));
   const html = render(messages);
-  assert.match(html, /加载更早消息（还有 60 条）/);
+  assert.match(html, /向上滚动查看更早消息/);
   assert(!html.includes('data-message-id="m0"'));
   assert(html.includes('data-message-id="m60"'));
   assert(html.includes('data-message-id="m219"'));

@@ -30,14 +30,14 @@ test('next-turn quotation keeps the stop control and does not become a current-t
   const finished = renderToStaticMarkup(React.createElement(ComposerActions, { ...props, session: { ...props.session, status: 'idle' } }));
   assert.match(finished, /aria-label="发送任务"/); assert.doesNotMatch(finished, /disabled=/);
 });
-test('child chat keeps management actions folded, presents inherited context folded, and retains its draft', () => {
+test('child chat keeps management actions folded, supports frozen history on upward scroll, and retains its draft', () => {
   const parent = session('root'), child = session('child', parent.id);
   const api = { call: async () => { throw new Error('no IPC during render'); } } as unknown as WorkbenchAPI;
   const html = renderToStaticMarkup(React.createElement(SubsessionChat, { session: child, sessions: [parent, child], input: { text: '> 引用\n\n继续问', sourceIds: [], answers: {} }, api, active: true, edit() {}, open() {}, promote() {}, remove() {}, closed() {}, changed: async () => {} }));
   assert.match(html, /更多子会话操作/); assert.doesNotMatch(html, /<button[^>]*>创建子会话/); assert.match(html, /包含当时未完成的回复/);
   assert.match(html, /aria-label="修改会话名称：child"/);
   assert.match(html, /共用工作目录/); assert.match(html, /继续问/);
-  assert.match(html, /<details class="inherited-conversation">/);
+  assert.match(html, /data-transcript-scroll/);
   assert.match(html, /aria-label="加入队列"/);
   assert.match(html, /aria-label="选择模型"/);
   assert.match(html, /aria-label="当前执行权限"/);

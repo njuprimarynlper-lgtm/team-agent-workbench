@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { SideChat, WorkbenchAPI } from '../shared/types';
 import { ConversationMessage } from './conversation-message';
+import type { TranscriptPage } from '../shared/transcript-page';
 import { SessionTranscript } from './session-transcript';
 import { SessionTurnProgress } from './turn-timing';
 import { RequestCard } from './request-card';
@@ -56,6 +57,10 @@ function SideChatConversation({ chat, api, changed, active, closed }: { chat: Si
     }
   };
   const requestClose = () => { if (hasConversation) setConfirmClose(true); else void close(); };
+  const parentHistory = useMemo(() => ({
+    count: chat.inheritedMessageCount || 0,
+    read: (before: number, limit: number) => api.call<TranscriptPage>('sidechat.historyPage', { id: chat.id, parentId: chat.parentId, before, limit }),
+  }), [api, chat.id, chat.parentId, chat.inheritedMessageCount]);
   const scrolling = useConversationScroll(chat.id, `${session.messages.length}:${session.messages.at(-1)?.text}:${pending?.text}`, active);
   const renderMessage = useMemo(() => (message: typeof session.messages[number]) => <ConversationMessage key={message.id} message={message} provider={session.provider} text={message.userText ?? message.text}/>, [session.provider]);
   const edit = (value: string) => { draftRevision.current++; currentText.current = value; setText(value); void invoke('sidechat.draft', { text: value }).catch(reason => setError(reason.message)); };
@@ -77,9 +82,9 @@ function SideChatConversation({ chat, api, changed, active, closed }: { chat: Si
       <p className="side-chat-parent" title={chat.parentTitle}>来自：{chat.parentTitle}</p><p className="subsession-context-note">临时对话 · 结束后清除</p>
     </header>
     {confirmClose && createPortal(<div className="modal-backdrop" onPointerDown={event => { if (event.target === event.currentTarget && !closing) setConfirmClose(false); }}><section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="side-chat-close-title" aria-describedby="side-chat-close-description"><header><h2 id="side-chat-close-title">结束这条侧聊？</h2></header><div className="modal-body"><p id="side-chat-close-description">这段临时对话会被清除，无法恢复。主会话不受影响。</p>{running && <p>当前回答将停止。</p>}{!!text.trim() && <p>未发送的输入也会丢失。</p>}{error && <p className="inline-error" role="alert">{error}</p>}</div><footer><button className="secondary" autoFocus disabled={closing} onClick={() => setConfirmClose(false)}>取消</button><button className="primary" disabled={closing} onClick={() => void close()}>{closing ? '正在结束…' : '结束并清除'}</button></footer></section></div>, document.body)}
-    <div className="subsession-messages" ref={scrolling.ref} onScroll={scrolling.onScroll}>
+    <div className="subsession-messages" data-transcript-scroll tabIndex={0} ref={scrolling.ref} onScroll={scrolling.onScroll}>
       {!session.messages.length && <p className="muted small">已继承创建时的上下文，可以直接提问。</p>}
-      <SessionTranscript session={session} renderMessage={renderMessage} active={active}/>
+      <SessionTranscript key={session.id} session={session} renderMessage={renderMessage} active={active} inherited={parentHistory} readingEarlier={scrolling.readingEarlier}/>
       {pending && <PendingSessionMessage pending={pending} messages={session.messages} session={session}/>}
       <SessionTurnProgress session={session}/>
       {!chat.expired && session.approvals.map(request => <RequestCard key={request.id} request={request} onAnswer={(option, answers) => void action(() => invoke('sidechat.answer', { requestId: request.id, option, answers }))}/>)}

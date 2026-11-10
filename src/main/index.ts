@@ -1,3 +1,4 @@
+import { transcriptPageSize } from '../shared/transcript-page';
 import { saveAgentSettings } from '../core/agent-settings';
 import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, type ProjectCreationIntent } from '../shared/project-connection';
 import { assertPersonalRelay, isNativeSessionRecordAction } from '../core/personal-relay';
@@ -316,6 +317,11 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'sidechat.answer': { const p = z.object({ id, parentId: id, requestId: z.string(), option: z.string(), answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional() }).parse(raw); return workbench.answerSideChat(p.id, p.requestId, p.option, p.answers); }
     case 'subsession.create': { const p = z.object({ parentId: id, focus: z.string().trim().max(120).default('子会话'), selectedText: z.string().max(128 * 1024).default('') }).parse(raw); return workbench.forkSubsession(p.parentId, p.focus, p.selectedText); }
     case 'subsession.promote': return workbench.promoteSubsession(sessionInput.parse(raw).id);
+    case 'sidechat.historyPage':
+    case 'subsession.historyPage': {
+      const p = z.object({ id, before: z.number().int().nonnegative(), limit: z.number().int().min(1).max(transcriptPageSize) }).parse(raw);
+      return action === 'sidechat.historyPage' ? workbench.sideChatHistoryPage(p.id, p.before, p.limit) : workbench.subsessionHistoryPage(p.id, p.before, p.limit);
+    }
     case 'subsession.history': return workbench.subsessionHistory(sessionInput.parse(raw).id);
     case 'subsession.report.preview': return workbench.previewSubsessionReport(sessionInput.parse(raw).id);
     case 'subsession.report.publish': { const p = z.object({ id, sourceHash: z.string().regex(/^[a-f0-9]{64}$/), body: z.string().min(1).max(128 * 1024) }).parse(raw); return workbench.publishSubsessionReport(p.id, p.sourceHash, p.body); }
