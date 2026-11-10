@@ -44,7 +44,43 @@ test('large RSI history saves only the new evidence and restores it after restar
       await (engine as any).snapshot.captureIfDue(new Date(Date.now() + 24 * 60 * 60 * 1000));
       const checkpoint = JSON.parse(await fs.readFile(base, 'utf8'));
       assert.equal(checkpoint.changeSeq, 2);
+      await assert.rejects(fs.stat(rsiJournalFile(root, 1)), { code: 'ENOENT' });
+      await assert.rejects(fs.stat(rsiJournalFile(root, 2)), { code: 'ENOENT' });
       assert.equal((await loadRsiDocument(root)).value.projects.p.evidence.length, previousEvidence + 1);
+    } finally { await engine.close(); }
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('large run history is not copied into each change and unchanged edits make no journal file', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-rsi-runs-'));
+  const host = { scope: (projectId: string) => ({ key: projectId, account: 'alice', user: 'alice', projectId }), session: () => undefined, collect: async () => [], changed() {} };
+  const create = () => new RsiEngine(root, host, async () => { throw Error('unexpected model call'); });
+  try {
+    const setup = create();
+    await setup.configure('p', { enabled: false });
+    await setup.close();
+    const base = path.join(root, 'rsi-v2.json');
+    const saved = JSON.parse(await fs.readFile(base, 'utf8'));
+    saved.projects.p.runs.push({ id: 'prior', status: 'completed', output: 'x'.repeat(9 * 1024 * 1024) });
+    saved.projects.p.lastError = 'old error';
+    await fs.writeFile(base, JSON.stringify(saved));
+    const engine = create();
+    try {
+      await (engine as any).edit('p', (project: any) => { project.runs[0].status = 'error'; project.runs.push({ id: 'next', status: 'completed', output: 'small' }); project.lastError = undefined; });
+      const journal = JSON.parse(await fs.readFile(rsiJournalFile(root, 1), 'utf8'));
+      assert.equal(journal.version, 2);
+      assert((await fs.stat(rsiJournalFile(root, 1))).size < 1000);
+      assert.equal(journal.projects[0].fields.runs.array.updates.length, 1);
+      assert.equal(journal.projects[0].fields.runs.array.append.length, 1);
+      engine.enqueue('p');
+      await new Promise(resolve => setImmediate(resolve));
+      await engine.settled();
+      await assert.rejects(fs.stat(rsiJournalFile(root, 2)), { code: 'ENOENT' });
+      const loaded = await loadRsiDocument(root);
+      assert.equal(loaded.value.projects.p.runs[0].output.length, 9 * 1024 * 1024);
+      assert.equal(loaded.value.projects.p.runs[0].status, 'error');
+      assert.equal(loaded.value.projects.p.runs[1].id, 'next');
+      assert.equal(loaded.value.projects.p.lastError, undefined);
     } finally { await engine.close(); }
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });

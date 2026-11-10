@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { atomicJson } from './store';
 import { RsiDailySnapshot } from './rsi-snapshot';
-import { loadRsiDocument, rsiJournalFile, RsiJournalError, type RsiChange } from './rsi-journal';
+import { loadRsiDocument, metadataChanges, pruneRsiJournal, rsiJournalDir, rsiJournalFile, RsiJournalError, type RsiChangeV2 } from './rsi-journal';
 import type { TextTask } from './background-text';
 import type { AgentSession } from '../shared/types';
 import { applyMemory, emptyMemory, evidenceKey, latestProjectEvidence, pendingEvidence, projectContext } from './rsi-context';
@@ -94,15 +95,26 @@ export class RsiEngine {
   private closed = false;
   private journal = false;
   private changeSeq = 0;
+  private journalBytes = 0;
+  private journalEntries = 0;
   constructor(private root: string, private host: RsiHost, public runText: TextTask, private timing = { debounceMs: 25000, retryMs: 60000 }) {
     this.snapshot = new RsiDailySnapshot(root, value => this.prepareSaved(value), async () => {
       if (!this.journal) return;
-      const checkpoint = this.writes.catch(() => {}).then(() => atomicJson(path.join(this.root, 'rsi-v2.json'), { version: 3, changeSeq: this.changeSeq, projects: this.projects, preferences: this.preferences }));
+      const checkpoint = this.writes.catch(() => {}).then(() => this.checkpointJournal());
       this.writes = checkpoint.then(() => {}, () => {});
       await checkpoint;
     });
   }
   get busy() { return this.jobs.size > 0; }
+  private async checkpointJournal() {
+    const file = path.join(this.root, 'rsi-v2.json');
+    await atomicJson(file, { version: 3, changeSeq: this.changeSeq, projects: this.projects, preferences: this.preferences });
+    const handle = await fs.open(file, 'r+');
+    try { await handle.sync(); } finally { await handle.close(); }
+    await pruneRsiJournal(this.root, this.changeSeq);
+    this.journalBytes = 0;
+    this.journalEntries = 0;
+  }
   private async captureSnapshot() {
     try { await this.snapshot.captureIfDue(); return true; }
     catch (error) { console.error('AI推荐每日快照失败：', error instanceof Error ? error.message : error); return false; }
@@ -183,6 +195,13 @@ export class RsiEngine {
       this.preferences = prepared.preferences;
       this.changeSeq = loaded?.sequence || 0;
       this.journal = !!loaded?.journal || (await fs.stat(file)).size >= 8 * 1024 * 1024;
+      if (this.journal) {
+        const names = await fs.readdir(rsiJournalDir(this.root)).catch((error: NodeJS.ErrnoException) => error.code === 'ENOENT' ? [] : Promise.reject(error));
+        for (const name of names) if (/^\d{12}\.json$/.test(name)) {
+          this.journalBytes += (await fs.stat(path.join(rsiJournalDir(this.root), name))).size;
+          this.journalEntries++;
+        }
+      }
       if (recovered) this.host.notice?.(`AI推荐数据已从 ${new Date(this.recovery!.snapshotAt).toLocaleString('zh-CN')} 的每日快照自动恢复；快照之后的记录可能丢失。${this.recovery!.archivePath ? '损坏原件已保留。' : '原数据文件缺失。'}`);
       else this.scheduleSnapshot(!await this.captureSnapshot());
       if (recovered) this.scheduleSnapshot();
@@ -238,16 +257,18 @@ export class RsiEngine {
     try {
       result = structuredClone(apply(project));
       const keys = affectsAll ? Object.keys(this.projects) : [project.scope.key];
-      const projects: RsiChange['projects'] = keys.map(key => {
+      const projects: RsiChangeV2['projects'] = keys.map((key): RsiChangeV2['projects'][number] => {
         const source = this.projects[key], prior = existing.has(key) ? before.get(key) : undefined;
         const { evidence, ...metadata } = source;
         const change = !prior || evidence !== prior.evidence || evidence.length < prior.length
           ? { replace: evidence }
           : evidence.length > prior.length ? { append: evidence.slice(prior.length) } : undefined;
-        return { key, metadata, ...(change ? { evidence: change } : {}) };
-      });
+        return { key, ...(prior ? { fields: metadataChanges(prior.metadata, metadata) } : { create: metadata }), ...(change ? { evidence: change } : {}) };
+      }).filter(entry => entry.create || Object.keys(entry.fields || {}).length || entry.evidence);
+      const changedPreferences = !isDeepStrictEqual(preferences, this.preferences);
+      if (!projects.length && !changedPreferences) return result;
       const sequence = this.changeSeq + 1;
-      await atomicJson(rsiJournalFile(this.root, sequence), { version: 1, sequence, projects, preferences: this.preferences } satisfies RsiChange);
+      await atomicJson(rsiJournalFile(this.root, sequence), { version: 2, sequence, projects, ...(changedPreferences ? { preferences: this.preferences } : {}) } satisfies RsiChangeV2);
       this.changeSeq = sequence;
     } catch (error) {
       for (const key of Object.keys(this.projects)) if (!existing.has(key)) delete this.projects[key];
@@ -257,6 +278,13 @@ export class RsiEngine {
       }
       this.preferences = preferences;
       throw error;
+    }
+    this.journalEntries++;
+    try { this.journalBytes += (await fs.stat(rsiJournalFile(this.root, this.changeSeq))).size; }
+    catch (error) { console.error('AI推荐增量大小读取失败：', error); }
+    if (this.journalBytes >= 64 * 1024 * 1024 || this.journalEntries >= 256) {
+      try { await this.checkpointJournal(); }
+      catch (error) { console.error('AI推荐增量合并失败：', error); }
     }
     this.host.changed();
     return result;
