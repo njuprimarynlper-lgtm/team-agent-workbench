@@ -46,6 +46,10 @@ test('Codex forks while streaming, freezes visible deltas and sources, and publi
     assert.match(snapshot, /比较两种实现/); assert.match(snapshot, /已生成的半句/);
     assert.doesNotMatch(snapshot, /创建以后才生成/);
     assert.equal((await wb.subsessionHistory(child.id)).at(-1)!.text, '已生成的半句');
+    child.messages.push({ id: randomUUID(), role: 'user', text: '子会话自己的问题', createdAt: new Date().toISOString() });
+    const crossing = await wb.sessionTranscriptPage(child.id, 3, 2);
+    assert.deepEqual(crossing.messages.map(message => message.text), ['已生成的半句', '子会话自己的问题']);
+    assert.equal(crossing.before, 1);
     assert.equal(wb.store.inputs[child.id].text, selectedText, 'selection is the editable message body, with no added quotation syntax');
     assert.equal(sessionContext(child, '开始探索', []).sources.some(source => source.id === child.fork?.sourceId), true);
     assert.equal(child.fork?.inheritedSourceIds.length, 1);

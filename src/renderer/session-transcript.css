@@ -1,6 +1,8 @@
 .tool-execution-group,.turn-activity-group{max-width:950px;margin:4px auto 16px;color:#6d7f73;font-size:12px}
 .transcript-boundary,.transcript-divider{text-align:center;color:var(--muted);font-size:12px;padding:6px 0}
 .transcript-boundary:empty{display:none}
+.paged-message-controls{display:flex;align-items:center;gap:10px;margin:6px 0 10px;color:#718579;font-size:11px}
+.paged-message-controls .text-button{font-size:11px}
 .transcript-divider{border-top:1px solid var(--border);margin:12px 0}
 .tool-execution-summary{display:flex;align-items:center;gap:8px;min-height:34px;padding:6px 8px;border-radius:7px;cursor:pointer;list-style:none}
 .tool-execution-summary::-webkit-details-marker,.tool-execution-output>summary::-webkit-details-marker{display:none}

@@ -72,7 +72,7 @@ export interface AgentSession {
   handoffState?: import('./activity-assistant').HandoffState;
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string; stoppedAt?: string;
   completion?: { id: string; readAt?: string };
-  messages: Message[]; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
+  messages: Message[]; messageCount?: number; historyToken?: string; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
   permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue; settingsPending?: boolean;
   cliConnection?: import('./cli-connection').CliConnection;
   projectBrief?: { revision: number; sourceId: string; capturedAt: string }; followProjectBrief?: boolean; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;

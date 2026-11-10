@@ -38,3 +38,20 @@ test('missing local history requests a full snapshot', () => {
   const before = snapshot(), compact = compactSnapshotContent(before, snapshotAccountKey(before), knownSessionContent(before));
   assert.equal(hydrateSnapshotContent(compact, snapshot({ ...session(), id: 'other' })), undefined);
 });
+
+test('paged snapshot sends only the newest message page and keeps the full count', () => {
+  const full = session();
+  full.messages = Array.from({ length: 700 }, (_, index) => ({ ...full.messages[0], id: `m${index}`, text: `message ${index}` }));
+  const data = snapshot(full);
+  const first = compactSnapshotContent(data, snapshotAccountKey(data), undefined, true);
+  assert.equal(first.sessions[0].messageCount, 700);
+  assert.deepEqual(first.sessions[0].messages.map(message => message.id), full.messages.slice(-160).map(message => message.id));
+  assert.equal(knownSessionContent(first)[full.id], first.sessions[0].historyToken);
+  const second = compactSnapshotContent(data, snapshotAccountKey(data), knownSessionContent(first), true);
+  assert.equal(second.sessions[0].messages, undefined);
+  assert.equal(hydrateSnapshotContent(second, first)?.sessions[0].messages.length, 160);
+  data.sideChats = [{ id: 'chat', parentId: full.id, projectId: 'project', parentTitle: full.title, capturedAt: full.createdAt, draft: '', session: { ...full, id: 'chat-session' } }];
+  const withChat = compactSnapshotContent(data, snapshotAccountKey(data), undefined, true);
+  assert.equal(withChat.sideChats?.[0].session.messageCount, 700);
+  assert.equal(withChat.sideChats?.[0].session.messages.length, 160);
+});

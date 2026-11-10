@@ -195,7 +195,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
         activity: { ...snapshot.activity, jobs: [...(snapshot.activity?.jobs || []), ...(local?.activity?.jobs || [])] },
         personal: local && { settings: local.settings, providers: local.providers, auth: local.auth, egress: personalContext!.egress.status() },
         settings: { ...snapshot.settings, personalGroups: local?.settings.personalGroups || [], sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes, defaultServer: sharedServerEndpoint }, egress: egress.status() };
-      return compactSnapshotContent(full as Snapshot, known?.accountKey, known?.sessions);
+      return compactSnapshotContent(full as Snapshot, known?.accountKey, known?.sessions, true);
     }
     case 'project.connection.open': { const p = z.object({ localProjectId: z.string().optional(), key: z.string().min(1), projectId: z.string().optional(), createProject: projectCreationInputSchema.optional() }).parse(raw); return openProjectConnection(owner, p.key, p.projectId, p.createProject, p.localProjectId); }
     case 'project.connection.disconnect': { const p = z.object({ projectId: z.string().min(1) }).parse(raw); await workbench.disconnectProject(p.projectId); return true; }
@@ -351,6 +351,14 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'subsession.historyPage': {
       const p = z.object({ id, before: z.number().int().nonnegative(), limit: z.number().int().min(1).max(transcriptPageSize) }).parse(raw);
       return action === 'sidechat.historyPage' ? workbench.sideChatHistoryPage(p.id, p.before, p.limit) : workbench.subsessionHistoryPage(p.id, p.before, p.limit);
+    }
+    case 'session.transcriptPage': {
+      const p = z.object({ id, before: z.number().int().nonnegative(), limit: z.number().int().min(1).max(transcriptPageSize) }).parse(raw);
+      return workbench.sessionTranscriptPage(p.id, p.before, p.limit);
+    }
+    case 'sidechat.transcriptPage': {
+      const p = z.object({ id, before: z.number().int().nonnegative(), limit: z.number().int().min(1).max(transcriptPageSize) }).parse(raw);
+      return workbench.sideChatTranscriptPage(p.id, p.before, p.limit);
     }
     case 'subsession.history': return workbench.subsessionHistory(sessionInput.parse(raw).id);
     case 'subsession.report.preview': return workbench.previewSubsessionReport(sessionInput.parse(raw).id);
@@ -836,7 +844,7 @@ async function createDataContext(root: string, personal = false): Promise<DataCo
         if (!pending.sideChatId && !workbench.store.sessions.some(item => item.id === id)) continue;
         const { messages, sources: _sources, ...metadata } = pending.session;
         const changed = messages.filter(message => pending.ids.has(message.id));
-        emit(pending.sideChatId ? { type: 'sidechat-delta', chatId: pending.sideChatId, session: metadata, messages: changed } : { type: 'session-delta', session: metadata, messages: changed });
+        emit(pending.sideChatId ? { type: 'sidechat-delta', chatId: pending.sideChatId, session: { ...metadata, messageCount: messages.length }, messages: changed } : { type: 'session-delta', session: { ...metadata, messageCount: messages.length }, messages: changed });
       }
     }, 80);
   };

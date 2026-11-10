@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import type { AgentSession, Message } from '../shared/types';
+import { PagedMessageText } from './paged-message-text';
 
 export function CursorNativeRecord({ message }: { message: Message }) {
+  const [open, setOpen] = useState(false);
   if (!message.nativeDetails) return null;
   const details=message.nativeDetails;
-  return <details className="native-record"><summary>{details.toolCall?'原生工具记录':details.error?'原生错误记录':'原生思考记录'}</summary><pre>{JSON.stringify(details,null,2)}</pre></details>;
+  return <details className="native-record" onToggle={event => setOpen(event.currentTarget.open)}><summary>{details.toolCall?'原生工具记录':details.error?'原生错误记录':'原生思考记录'}</summary>{open && <PagedMessageText text={JSON.stringify(details,null,2)} render={part => <pre>{part}</pre>}/>}</details>;
 }
 
 export function CursorNativeQueue({ session }: { session: AgentSession }) {

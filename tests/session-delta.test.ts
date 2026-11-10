@@ -42,3 +42,17 @@ test('side chat output updates without replacing the parent conversation', () =>
   assert.equal(updated?.sessions[0], parent);
   assert.equal(mergeNewerSessions(current, updated).sideChats?.[0].session.messages[0].text, '侧聊第二段');
 });
+
+test('streaming after a paged snapshot evicts old tail messages and advances the total', () => {
+  const current = snapshot(session(1, 'old'));
+  current.sessions[0].messages = Array.from({ length: 160 }, (_, index) => ({ ...current.sessions[0].messages[0], id: `m${index}` }));
+  current.sessions[0].messageCount = 700;
+  current.sessions[0].historyToken = 'before';
+  const incoming = { ...current.sessions[0].messages[0], id: 'new', text: 'latest' };
+  const result = applySessionDelta(current, { type: 'session-delta', session: { id: current.sessions[0].id, storageRevision: 2, messageCount: 701 } as AgentSession, messages: [incoming] })!;
+  assert.equal(result.sessions[0].messages.length, 160);
+  assert.equal(result.sessions[0].messages[0].id, 'm1');
+  assert.equal(result.sessions[0].messages.at(-1)?.id, 'new');
+  assert.equal(result.sessions[0].messageCount, 701);
+  assert.equal(result.sessions[0].historyToken, undefined);
+});

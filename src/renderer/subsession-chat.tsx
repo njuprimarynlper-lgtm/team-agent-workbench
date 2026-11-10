@@ -12,7 +12,8 @@ import type { AgentSession, FollowUpMode, Message, SessionInput, SourceFile, Wor
 import { quoteSessionText, subsessionParentId } from '../shared/subsessions';
 import { sessionMessageText } from '../shared/session-context-text';
 import { submitOptimisticInput } from './composer-input';
-import { subsessionPages } from './transcript-pages';
+import { sessionTranscriptPages } from './transcript-pages';
+import { sessionMessageCount } from '../shared/transcript-page';
 import { SessionTranscript } from './session-transcript';
 import { SessionTurnProgress } from './turn-timing';
 import { SelectionActions } from './selection-actions';
@@ -95,11 +96,11 @@ export function SubsessionChat({ session, sessions, input, inputDrafts, flush, e
   const actions = useRef({ edit, sideChat }); actions.current = { edit, sideChat };
   const editableMessageId = session && !locked ? editableTurnMessage(session)?.id : undefined;
   const render = useMemo(() => session ? (message: Message, inherited = false) => <ConversationMessage key={message.id} message={message} provider={session.provider} editLast={!inherited && editableMessageId === message.id ? async text => { if (!await api.call('session.editLast', { id: session.id, messageId: message.id, text })) throw Error('未能确认发送，请核对会话记录'); await changed(); } : undefined} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => { const current = latestInput.current; actions.current.edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }); } : undefined} sideChat={!session.closedAt && sideChat ? text => actions.current.sideChat?.(session, text) : undefined}/> : (_message: Message) => null, [session, !!sideChat, editableMessageId]);
-  const parentHistory = useMemo(() => subsessionPages(api, session), [api, session?.id, session?.fork]);
+  const parentHistory = useMemo(() => sessionTranscriptPages(api, session), [api, session?.id, session?.fork, session?.messageCount, session?.messages.length]);
   const latestSessionId = useRef(session?.id); latestSessionId.current = session?.id;
   useEffect(() => { setError(''); }, [session?.id]);
   useSessionCompletionRead(active ? session : undefined, (id, completionId) => api.call('session.completion.read', { id, completionId }), reason => setError(reason.message));
-  const scrolling = useConversationScroll(session?.id, `${session?.messages.length}:${session?.messages.at(-1)?.text}:${pending?.text}`, active), messages = scrolling.ref;
+  const scrolling = useConversationScroll(session?.id, `${session && sessionMessageCount(session)}:${session?.messages.at(-1)?.text}:${pending?.text}`, active), messages = scrolling.ref;
   if (!session) return <div className="subsession-empty">在左侧会话菜单中创建或打开子会话。</div>;
   const running = !!session.contextCompacting || ['starting', 'running', 'approval'].includes(session.status);
   const parent = sessions.find(value => value.id === subsessionParentId(session));
@@ -138,7 +139,7 @@ export function SubsessionChat({ session, sessions, input, inputDrafts, flush, e
     if (mode === 'wait') return;
     lock.current = true; setSending(true);
     const enqueue = mode === 'queue' || mode === 'steer';
-    setPending({ text: current.text, beforeMessageCount: session.messages.length, phase: mode === 'steer' ? 'steering' : enqueue ? 'queueing' : 'submitting' });
+    setPending({ text: current.text, beforeMessageCount: sessionMessageCount(session), phase: mode === 'steer' ? 'steering' : enqueue ? 'queueing' : 'submitting' });
     scrolling.latest();
     try { setError(''); await flush?.(session.id); const accepted = await submitOptimisticInput(api, session.id, current, () => latestInput.current || current, replaceDraft, enqueue, mode === 'steer' ? activeTurnId : undefined); if (!accepted) throw new Error('消息未能送达，请检查后重试'); setFailed(undefined); await changed().catch(reason => setError('消息已发送，刷新失败：' + reason.message)); }
     catch (reason: any) { setError(reason.message); setFailed(structuredClone(current)); }

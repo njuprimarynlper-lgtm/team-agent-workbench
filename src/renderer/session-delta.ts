@@ -1,4 +1,5 @@
 import type { AgentSession, Snapshot, WorkbenchEvent } from '../shared/types';
+import { transcriptPageSize } from '../shared/transcript-page';
 
 /** Keep a newer streamed session when an in-flight full snapshot arrives late. */
 export function mergeNewerSessions(next: Snapshot, current?: Snapshot): Snapshot {
@@ -24,7 +25,9 @@ function mergeSession(previous: AgentSession, event: Pick<Extract<WorkbenchEvent
     if (position === undefined) { indexes.set(message.id, messages.length); messages.push(message); }
     else messages[position] = message;
   }
-  return { ...event.session, sources: previous.sources, messages };
+  const paged = previous.messageCount !== undefined;
+  return { ...event.session, sources: previous.sources, messages: paged ? messages.slice(-transcriptPageSize) : messages,
+    ...(paged ? { messageCount: event.session.messageCount ?? previous.messageCount! + Math.max(0, messages.length - previous.messages.length), historyToken: undefined } : {}) };
 }
 
 export function applySessionDelta(current: Snapshot | undefined, event: Extract<WorkbenchEvent, { type: 'session-delta' }>): Snapshot | undefined {

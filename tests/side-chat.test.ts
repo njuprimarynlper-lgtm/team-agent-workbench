@@ -146,6 +146,9 @@ test('temporary chats retain selections and drafts without entering sessions, lo
     assert.equal(chat.draft, '  选中文字\n原样保留');
     wb.sideChatDraft(chat.id, '新的问题');
     await wb.sendSideChat(chat.id, '新的问题');
+    const ownCount = chat.session.messages.length;
+    const page = await wb.sideChatTranscriptPage(chat.id, chat.inheritedMessageCount! + ownCount, 2);
+    assert.equal(page.messages.at(-1)?.id, chat.session.messages.at(-1)?.id);
     assert.equal(wb.snapshot().sideChats?.[0].draft, '');
     assert.equal(wb.store.sessions.length, 1);
     await wb.store.save();

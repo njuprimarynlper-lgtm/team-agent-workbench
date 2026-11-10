@@ -192,7 +192,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'project.connection.open'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.historyPage', 'sidechat.historyPage', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.transcriptPage', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.historyPage', 'sidechat.historyPage', 'sidechat.transcriptPage', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -3665,6 +3665,14 @@ export class Workbench {
     const prefix = await this.subsessionHistoryPage(parent.id, Math.min(inherited, end), limit - own.length);
     return { messages: [...prefix.messages, ...own], before: prefix.before };
   }
+  async sideChatTranscriptPage(id: string, before: number, limit: number) {
+    const { view } = this.sideChat(id), inherited = view.inheritedMessageCount || 0;
+    const end = Math.min(before, inherited + view.session.messages.length), start = Math.max(0, end - limit);
+    const own = view.session.messages.slice(Math.max(0, start - inherited), Math.max(0, end - inherited));
+    if (start >= inherited) return { messages: own, before: start };
+    const previous = await this.sideChatHistoryPage(id, Math.min(inherited, end), limit - own.length);
+    return { messages: [...previous.messages, ...own], before: previous.before };
+  }
   sideChatDraft(id: string, text: string) {
     const entry = this.sideChat(id);
     if (text.length > 128 * 1024) throw new Error('输入过长');
@@ -3808,6 +3816,14 @@ export class Workbench {
   }
   subsessionHistoryPage(id: string, before: number, limit: number) {
     return readFrozenPage(this.inheritedFile(this.session(id)), before, limit);
+  }
+  async sessionTranscriptPage(id: string, before: number, limit: number) {
+    const session = this.session(id), inherited = inheritedMessageCount(session);
+    const end = Math.min(before, inherited + session.messages.length), start = Math.max(0, end - limit);
+    const own = session.messages.slice(Math.max(0, start - inherited), Math.max(0, end - inherited));
+    if (start >= inherited) return { messages: own, before: start };
+    const previous = await this.subsessionHistoryPage(id, Math.min(inherited, end), limit - own.length);
+    return { messages: [...previous.messages, ...own], before: previous.before };
   }
   async subsessionHistory(id: string) {
     return (await this.subsessionHistoryPage(id, Infinity, Infinity)).messages;

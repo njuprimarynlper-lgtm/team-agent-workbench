@@ -88,7 +88,7 @@ test('completion folds commentary, plans and tools together, leaving the user an
   assert.match(html, /工作过程 · 4 项/);
   assert.doesNotMatch(html, /<details[^>]*\sopen(?:[ =>])/);
   assert.doesNotMatch(html, /turn-activity-content|正在检查|执行计划|passed|已完成检查/);
-  assert.match(html, /<\/details><article data-message-id="final">最终结果<\/article>$/);
+  assert.match(html, /<\/details><\/div><div class="transcript-row" data-transcript-anchor="session-a:final"><article data-message-id="final">最终结果<\/article><\/div>/);
 });
 
 test('streaming and pending confirmations stay visible until the turn actually finishes', () => {

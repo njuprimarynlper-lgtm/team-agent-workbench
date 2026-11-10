@@ -6,6 +6,7 @@ import { CursorNativeRecord } from './cursor-native-record';
 import { messageTimingMap } from '../shared/turn-timing';
 import { useTranscriptPages, type InheritedTranscript } from './transcript-pages';
 import { MessageTime, TurnTimingSummary } from './turn-timing';
+import { PagedMessageText } from './paged-message-text';
 
 type TranscriptRow = { kind: 'message'; id: string; message: Message } | { kind: 'tools'; id: string; messages: Message[] };
 type DisplayRow = TranscriptRow | { kind: 'activity'; id: string; messages: Message[] };
@@ -63,13 +64,24 @@ export function sessionDisplayRows(session: Pick<AgentSession, 'messages' | 'sta
 export function toolExecutionTitle(message: Message): string {
   // Some providers store structured events; avoid a bare "{" as the label.
   let event: Record<string, unknown> | undefined;
-  if (message.text.trimStart().startsWith('{')) {
+  if (message.text.length <= 4096 && message.text.trimStart().startsWith('{')) {
     try { event = JSON.parse(message.text); } catch { /* Streaming/incomplete JSON keeps its original text. */ }
   }
   const title = event && [event.title, event.command, event.tool, event.name].find(value => typeof value === 'string' && value.trim());
   const types: Record<string, string> = { fileChange: '修改文件', mcpToolCall: '调用 MCP 工具', webSearch: '搜索网页' };
   const text = typeof title === 'string' ? title : event && typeof event.type === 'string' ? types[event.type] || event.type : message.text;
-  return text.split(/\r?\n/).find(line => line.trim())?.trim().slice(0, 160) || '查看工具记录';
+  return text.slice(0, 2048).split(/\r?\n/).find(line => line.trim())?.trim().slice(0, 160) || '查看工具记录';
+}
+
+function ToolExecutionItem({ message }: { message: Message }) {
+  const [open, setOpen] = useState(false);
+  return <div className="tool-execution-item">
+    <details className="tool-execution-output" onToggle={event => setOpen(event.currentTarget.open)}>
+      <summary><ChevronRight size={12} aria-hidden="true"/><span>{toolExecutionTitle(message)}</span><MessageTime at={message.createdAt}/></summary>
+      {open && <PagedMessageText text={message.text} render={part => <pre>{part}</pre>}/>}
+    </details>
+    <CursorNativeRecord message={message}/>
+  </div>;
 }
 
 function ToolExecutionGroup({ messages, activity }: { messages: Message[]; activity?: string }) {
@@ -86,13 +98,7 @@ function ToolExecutionGroup({ messages, activity }: { messages: Message[]; activ
       <span className="tool-execution-preview" title={latest}>{latest}</span>
     </summary>
     {open && <div className="tool-execution-list">
-      {messages.map(message => <div className="tool-execution-item" key={message.id}>
-        <details className="tool-execution-output">
-          <summary><ChevronRight size={12} aria-hidden="true"/><span>{toolExecutionTitle(message)}</span><MessageTime at={message.createdAt}/></summary>
-          <pre>{message.text}</pre>
-        </details>
-        <CursorNativeRecord message={message}/>
-      </div>)}
+      {messages.map(message => <ToolExecutionItem key={message.id} message={message}/>)}
     </div>}
   </details>;
 }
@@ -110,17 +116,22 @@ export const SessionTranscript = React.memo(function SessionTranscript({ session
   inherited?: InheritedTranscript; readingEarlier?: () => void;
 }) {
   const pages = useTranscriptPages(session.messages, inherited, active, readingEarlier);
-  const rows = sessionDisplayRows({ ...session, messages: session.messages.slice(pages.start) });
+  const parentSize = Math.max(0, Math.min(pages.history.length, (inherited?.parentCount ?? inherited?.count ?? 0) - pages.historyStart));
+  const parentHistory = pages.history.slice(0, parentSize), olderOwn = pages.history.slice(parentSize);
+  const rows = sessionDisplayRows({ ...session, status: pages.newer ? 'running' : session.status, messages: session.messages.slice(pages.start, pages.end) });
   const timings = messageTimingMap(session);
   const attached = new Set([...timings.values()].map(timing => timing.id));
   const renderRow = (row: TranscriptRow, activity?: string, historical = false) => row.kind === 'tools'
     ? <React.Fragment key={`${session.id}:tools:${row.id}`}><ToolExecutionGroup messages={row.messages} activity={activity}/>{!historical && row.messages.filter(message => timings.has(message.id)).map(message => <TurnTimingSummary key={message.id} timing={timings.get(message.id)!}/>)}</React.Fragment>
     : <React.Fragment key={`${session.id}:message:${row.id}`}>{renderMessage(row.message, historical)}{!historical && timings.has(row.message.id) && <TurnTimingSummary timing={timings.get(row.message.id)!}/>}</React.Fragment>;
   const renderHistory = (row: TranscriptRow) => renderRow(row, undefined, true);
+  const anchored = (row: DisplayRow, historical: boolean, content: React.ReactNode) =>
+    <div key={`${historical ? 'history' : session.id}:${row.id}`} className="transcript-row" data-transcript-anchor={`${historical ? 'history' : session.id}:${row.id}`}>{content}</div>;
   return <><div ref={pages.marker} className="transcript-boundary">{pages.status || (pages.remaining ? '向上滚动查看更早消息' : '')}</div>
-    {pages.history.length > 0 && <><div className="transcript-inherited">{sessionDisplayRows({ messages: pages.history, status: 'idle' }).map(row => row.kind === 'activity'
-      ? <TurnActivityGroup key={row.id} messages={row.messages} renderRow={renderHistory}/> : renderHistory(row))}</div>
-      <div className="transcript-divider">{inherited?.label || '以上为创建时的父会话记录'}</div></>}{rows.map((row, index) => row.kind === 'activity'
-    ? <TurnActivityGroup key={`${session.id}:activity:${row.id}`} messages={row.messages} renderRow={renderRow}/>
-    : renderRow(row, index === rows.length - 1 && !session.closedAt ? session.status === 'approval' ? '等待确认' : ['running', 'starting'].includes(session.status) ? '本轮进行中' : undefined : undefined))}{session.turnTimings?.slice(-1).filter(timing => timing.finishedAt && !timing.userMessageId && !timing.assistantMessageIds.length && !attached.has(timing.id)).map(timing => <TurnTimingSummary key={timing.id} timing={timing}/>)}</>;
+    {parentHistory.length > 0 && <><div className="transcript-inherited">{sessionDisplayRows({ messages: parentHistory, status: 'idle' }).map(row => row.kind === 'activity'
+      ? anchored(row, true, <TurnActivityGroup messages={row.messages} renderRow={renderHistory}/>) : anchored(row, true, renderHistory(row)))}</div>
+      <div className="transcript-divider">{inherited?.label || '以上为创建时的父会话记录'}</div></>}{olderOwn.length > 0 && sessionDisplayRows({ messages: olderOwn, status: 'idle' }).map(row => row.kind === 'activity'
+      ? anchored(row, false, <TurnActivityGroup messages={row.messages} renderRow={renderHistory}/>) : anchored(row, false, renderHistory(row)))}{rows.map((row, index) => row.kind === 'activity'
+    ? anchored(row, false, <TurnActivityGroup messages={row.messages} renderRow={renderRow}/>)
+    : anchored(row, false, renderRow(row, index === rows.length - 1 && !session.closedAt ? session.status === 'approval' ? '等待确认' : ['running', 'starting'].includes(session.status) ? '本轮进行中' : undefined : undefined)))}<div ref={pages.bottomMarker} className="transcript-boundary" data-transcript-newer={pages.newer ? 'true' : undefined}>{pages.newer ? '向下滚动查看后续消息' : ''}</div>{session.turnTimings?.slice(-1).filter(timing => timing.finishedAt && !timing.userMessageId && !timing.assistantMessageIds.length && !attached.has(timing.id)).map(timing => <TurnTimingSummary key={timing.id} timing={timing}/>)}</>;
 }, (before, after) => before.active === false && after.active === false || before.active === after.active && before.session === after.session && before.renderMessage === after.renderMessage && before.inherited === after.inherited && before.readingEarlier === after.readingEarlier);

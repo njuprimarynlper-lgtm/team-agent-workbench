@@ -6,6 +6,7 @@ import { Markdown } from './markdown';
 import { CursorNativeRecord } from './cursor-native-record';
 import { CopyTextButton } from './copy-text-button';
 import { MessageTime } from './turn-timing';
+import { PagedMessageText } from './paged-message-text';
 import { ContextMenu, contextAnchor, type ContextAnchor, type ContextAction } from './context-menu';
 
 export const ConversationMessage = React.memo(function ConversationMessage({ message, provider, text = message.text, sessionId, openFile, pendingLabel, children, quote, sideChat, editLast }: {
@@ -49,7 +50,9 @@ export const ConversationMessage = React.memo(function ConversationMessage({ mes
       }}/><small>发送后将重新生成这一轮，已执行的文件修改会保留。</small>
         {editError && <p role="alert" className="inline-error">{editError}</p>}
         <div><button type="button" className="text-button" disabled={saving} onClick={() => setEdit(undefined)}>取消</button><button type="button" className="primary compact" disabled={saving || !edit.trim() || !editLast} onClick={() => void save()}>重新发送</button></div>
-      </div> : children ?? (message.role === 'tool' ? <details><summary>{text.split('\n')[0]?.slice(0, 130) || '查看工具事件'}</summary><pre>{text}</pre></details> : <Markdown text={text} sessionId={sessionId} openFile={openFile} conversation/>)}
+      </div> : <PagedMessageText text={text} render={part => part === text && children ? children : message.role === 'tool'
+        ? <details><summary>{text.split('\n')[0]?.slice(0, 130) || '查看工具事件'}</summary><pre>{part}</pre></details>
+        : <Markdown text={part} sessionId={sessionId} openFile={openFile} conversation/>}/>}
       {user && !!message.context?.capabilities?.length && <div className="message-capabilities">{message.context.capabilities.map(item => <span key={item.id}><Puzzle size={11}/>{item.name}</span>)}</div>}
       <CursorNativeRecord message={message}/>
       {(assistant || user) && !!text.trim() && <footer className="conversation-message-footer">{editLast && edit === undefined && <button type="button" className="icon" aria-label="编辑上一条消息" title="编辑上一条消息" onClick={() => { setEditError(''); setEdit(text); }}><Pencil size={13}/></button>}<CopyTextButton text={text} label={user ? '复制这条消息' : '复制这条回复'}/></footer>}

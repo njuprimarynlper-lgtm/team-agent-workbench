@@ -2,6 +2,7 @@ import { MarkdownEditor } from './markdown-editor';
 import React, { useId, useState } from 'react';
 import { X } from 'lucide-react';
 import type { AgentSession, PreparationCheckpoint, PreparationScope } from '../shared/types';
+import { sessionMessageCount } from '../shared/transcript-page';
 import { preparationDelta } from '../shared/preparation-progress';
 import { contributionCategoryInfo, type ContributionCategory } from '../shared/content';
 import { preparationCategories, preparationMaxPerCategory, resultCategoryBoundaries, type PreparationCategory } from '../shared/result-rules';
@@ -38,10 +39,10 @@ export function PreparationOptionsModal({ session, baseline, initialDirections, 
   return <div className="modal-backdrop"><section className="modal preparation-dialog" role="dialog" aria-modal="true" aria-labelledby="preparation-options-title">
     <header><h2 id="preparation-options-title">{again ? '再次整理成果' : '整理成果'}</h2><button className="icon" aria-label="关闭整理选项" disabled={busy} onClick={close}><X size={18}/></button></header>
       <div className="modal-body">
-        <p className="preparation-intro">{session.title} · {session.messages.length} 条会话消息</p>
+        <p className="preparation-intro">{session.title} · {sessionMessageCount(session)} 条会话消息</p>
         {(baseline || again) && <fieldset className="preparation-range"><legend>整理范围</legend><div className="preparation-options">
           <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="增量整理" checked={scope === 'incremental'} disabled={disabled || !canIncremental} onChange={() => setScope('incremental')}/><span><b>只看新增内容</b><small>{canIncremental ? `增量整理 ${delta.count} 条新增或续写消息；不会重新读取完整会话。` : delta.reason}</small></span></label>
-          <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="整理对话" checked={scope === 'full'} disabled={disabled} onChange={() => setScope('full')}/><span><b>整理对话</b><small>{session.provider === 'codex' ? '优先读取最近的 compact 和之后的消息；没有可用 compact 时读取会话记录。' : `读取全部 ${session.messages.length} 条消息。`}</small></span></label>
+          <label className="preparation-option"><input type="radio" name="preparation-scope" aria-label="整理对话" checked={scope === 'full'} disabled={disabled} onChange={() => setScope('full')}/><span><b>整理对话</b><small>{session.provider === 'codex' ? '优先读取最近的 compact 和之后的消息；没有可用 compact 时读取会话记录。' : `读取全部 ${sessionMessageCount(session)} 条消息。`}</small></span></label>
         </div></fieldset>}
         <section className="preparation-classification" aria-label="整理方面">
           <h3>整理哪些方面</h3>
