@@ -59,6 +59,7 @@ export async function atomicJson(file: string, data: unknown, ascii = false) {
 }
 export class Store {
   private dirtySessionMessages = new Map<string, Map<string, number>>();
+  private savedOverlayRevisions = new Map<string, number>();
   private inputWrite: Promise<void> = Promise.resolve();
   private retryInputWrite = false;
   private inputSave?: { timer: ReturnType<typeof setTimeout>; promise: Promise<void>; resolve: () => void; reject: (error: unknown) => void };
@@ -68,6 +69,7 @@ export class Store {
   sessions: AgentSession[] = []; transfers: Transfer[] = []; drafts: Draft[] = []; conclusions: ProjectConclusion[] = [];
   inputs: Record<string, SessionInput> = {};
   private sessionIndexExpected = false;
+  private checkpointedSessionIds = new Set<string>();
   constructor(public root: string) {}
   private enqueue(write: () => Promise<void>) {
     const resolved = path.resolve(this.root), key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -82,6 +84,7 @@ export class Store {
     const sessions = await readSessionIndex(this.root, this.sessionIndexExpected);
     this.sessionIndexExpected = sessions !== undefined;
     this.sessions = sessions || [];
+    this.checkpointedSessionIds = new Set(this.sessions.map(session => session.id));
     // The checkpoint wins after a crash between writing sessions.json and deleting an older overlay.
     for (const session of this.sessions) {
       if (!validSessionId(session.id)) continue; // Legacy and synthetic IDs use full checkpoints only.
@@ -101,6 +104,8 @@ export class Store {
         else messages[index] = message;
       }
       Object.assign(session, delta.session, { messages });
+      this.dirtySessionMessages.set(session.id, new Map(delta.messages.map(message => [message.id, delta.revision])));
+      this.savedOverlayRevisions.set(session.id, delta.revision);
     }
     try {
       const state = JSON.parse(await fs.readFile(path.join(this.root, 'activity-assistant.json'), 'utf8'));
@@ -199,7 +204,7 @@ export class Store {
     return write;
   }
   recordSessionDelta(sessionId: string, messageId?: string) {
-    if (!validSessionId(sessionId)) return false;
+    if (!validSessionId(sessionId) || !this.checkpointedSessionIds.has(sessionId)) return false;
     const session = this.sessions.find(item => item.id === sessionId);
     if (!session) return false;
     const revision = (session.storageRevision || 0) + 1;
@@ -213,13 +218,18 @@ export class Store {
     // Include every changed message since the checkpoint so each atomic overlay stands alone.
     const deltas = [...this.dirtySessionMessages].flatMap(([id, dirty]) => {
       const session = this.sessions.find(item => item.id === id);
-      if (!session) return [];
+      if (!session || (session.storageRevision || 0) <= (this.savedOverlayRevisions.get(id) || 0)) return [];
       const { messages, ...metadata } = session;
       const changed = messages.filter(message => dirty.has(message.id));
       return [{ id, value: JSON.parse(JSON.stringify({ version: 1, revision: session.storageRevision, session: metadata, messages: changed })) }];
     });
     if (!deltas.length) return Promise.resolve();
-    return this.enqueue(async () => { for (const delta of deltas) await atomicJson(path.join(this.sessionDir(delta.id), 'delta.json'), delta.value); });
+    return this.enqueue(async () => { for (const delta of deltas) { await atomicJson(path.join(this.sessionDir(delta.id), 'delta.json'), delta.value); this.savedOverlayRevisions.set(delta.id, Math.max(this.savedOverlayRevisions.get(delta.id) || 0, delta.value.revision)); } });
+  }
+  async saveSession(sessionId: string) {
+    if (!this.recordSessionDelta(sessionId)) return this.save();
+    await this.flushInputs();
+    await this.saveSessionDeltas();
   }
   save(options: StoreSaveOptions = {}) {
     // Full saves (including send, account changes and shutdown) are barriers.
@@ -250,13 +260,24 @@ export class Store {
         try { delta = JSON.parse(await fs.readFile(file, 'utf8')); }
         catch (error: any) { if (error.code === 'ENOENT') continue; throw new Error('本地会话增量无法读取，原文件已保留：' + file, { cause: error }); }
         if (typeof delta.revision !== 'number' || !Number.isSafeInteger(delta.revision)) throw new Error('本地会话增量格式无效，原文件已保留：' + file);
-        if (delta.revision > revision) throw new Error(`已拦截过期会话覆盖，较新的增量记录仍在：${file}`);
+        if (delta.revision > revision) {
+          // A delta from this Store may have finished after save() captured its
+          // full snapshot. Fold that newer in-memory session into the barrier.
+          // Another Store's delta remains protected by the original rejection.
+          const current = this.sessions.find(session => session.id === old.id);
+          if ((this.savedOverlayRevisions.get(old.id) || 0) < delta.revision || !current || (current.storageRevision || 0) < delta.revision) throw new Error(`已拦截过期会话覆盖，较新的增量记录仍在：${file}`);
+          const refreshed = JSON.parse(JSON.stringify(current)) as AgentSession;
+          (data.sessions as AgentSession[])[incomingIds.indexOf(old.id)] = refreshed;
+          revisions.set(old.id, refreshed.storageRevision || 0);
+        }
       }
       for (const [key, value] of Object.entries(data)) await atomicJson(path.join(this.root, key + '.json'), value);
       this.sessionIndexExpected = true;
+      this.checkpointedSessionIds = new Set(incomingIds);
       for (const id of new Set([...incomingIds, ...removedIds])) {
         if (!validSessionId(id)) continue;
         await fs.rm(path.join(this.sessionDir(id), 'delta.json'), { force: true }).catch(() => {});
+        this.savedOverlayRevisions.delete(id);
         const dirty = this.dirtySessionMessages.get(id);
         if (!dirty) continue;
         for (const [messageId, revision] of dirty) if (revision <= (revisions.get(id) || 0)) dirty.delete(messageId);

@@ -112,6 +112,7 @@ test('personal deletion filters UI, stale selections, automatic send context and
     const sent = s.messages.find(message => message.role === 'user')!;
     assert(!sent.text.includes(ref.localPath)); assert(!sent.context?.sourceHashes[ref.id]);
     assert(await fs.stat(ref.localPath), 'the frozen copy remains available for audit/history');
+    await wb.flushEdits();
     const restored = new Workbench(wb.store.root, () => {}, () => {}); await restored.store.init();
     assert(!restored.snapshot().sessions.find(value => value.id === s.id)!.sources.some(value => value.id === ref.id));
     await restored.close();

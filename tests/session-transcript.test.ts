@@ -11,6 +11,15 @@ const render = (messages: Message[], status: AgentSession['status'] = 'idle', cl
   renderMessage: m => React.createElement('article', { 'data-message-id': m.id }, m.text),
 }));
 
+test('long conversations render the recent window and offer older history', () => {
+  const messages = Array.from({ length: 220 }, (_, index) => message('m' + index, 'user', 'text ' + index));
+  const html = render(messages);
+  assert.match(html, /加载更早消息（还有 60 条）/);
+  assert(!html.includes('data-message-id="m0"'));
+  assert(html.includes('data-message-id="m60"'));
+  assert(html.includes('data-message-id="m219"'));
+});
+
 test('only adjacent tools fold together; user turns, prose, errors and plans retain their order', () => {
   const messages = [message('u1', 'user'), message('a1', 'assistant'), message('t1', 'tool'), message('t2', 'tool'), message('a2', 'assistant'), message('t3', 'tool'), message('error', 'system'), message('t4', 'tool'), message('plan', 'assistant', '计划', { kind: 'planSteps', steps: [] }), message('u2', 'user'), message('t5', 'tool')];
   const original = JSON.stringify(messages), rows = sessionTranscriptRows(messages);

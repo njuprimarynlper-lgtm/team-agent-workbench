@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { atomicJson } from './store';
 import { RsiDailySnapshot } from './rsi-snapshot';
+import { loadRsiDocument, rsiJournalFile, RsiJournalError, type RsiChange } from './rsi-journal';
 import type { TextTask } from './background-text';
 import type { AgentSession } from '../shared/types';
 import { applyMemory, emptyMemory, evidenceKey, latestProjectEvidence, pendingEvidence, projectContext } from './rsi-context';
@@ -91,8 +92,15 @@ export class RsiEngine {
   private recovery?: { snapshotAt: string; archivePath?: string };
   private draining = false;
   private closed = false;
+  private journal = false;
+  private changeSeq = 0;
   constructor(private root: string, private host: RsiHost, public runText: TextTask, private timing = { debounceMs: 25000, retryMs: 60000 }) {
-    this.snapshot = new RsiDailySnapshot(root, value => this.prepareSaved(value));
+    this.snapshot = new RsiDailySnapshot(root, value => this.prepareSaved(value), async () => {
+      if (!this.journal) return;
+      const checkpoint = this.writes.catch(() => {}).then(() => atomicJson(path.join(this.root, 'rsi-v2.json'), { version: 3, changeSeq: this.changeSeq, projects: this.projects, preferences: this.preferences }));
+      this.writes = checkpoint.then(() => {}, () => {});
+      await checkpoint;
+    });
   }
   get busy() { return this.jobs.size > 0; }
   private async captureSnapshot() {
@@ -150,23 +158,31 @@ export class RsiEngine {
     if (!this.readyTask) this.readyTask = (async () => {
       const file = path.join(this.root, 'rsi-v2.json');
       let prepared: ReturnType<RsiEngine['prepareSaved']>, recovered = false;
+      let loaded: Awaited<ReturnType<typeof loadRsiDocument>> | undefined;
       try {
-        prepared = this.prepareSaved(JSON.parse(await fs.readFile(file, 'utf8')));
+        loaded = await loadRsiDocument(this.root);
+        prepared = this.prepareSaved(loaded.value);
       } catch (error: any) {
-        if (error instanceof RsiVersionError || error.code && error.code !== 'ENOENT') throw error;
+        if (error instanceof RsiVersionError || error instanceof RsiJournalError || error.code && error.code !== 'ENOENT') throw error;
         try {
           const restored = await this.snapshot.restoreFromSnapshot(value => this.prepareSaved(value));
-          prepared = restored.value;
+          loaded = await loadRsiDocument(this.root);
+          prepared = this.prepareSaved(loaded.value);
           this.recovery = { snapshotAt: restored.snapshotAt, archivePath: restored.archivePath };
           recovered = true;
         } catch (snapshotError: any) {
-          if (error.code === 'ENOENT' && snapshotError.code === 'ENOENT') return;
+          if (error.code === 'ENOENT' && snapshotError.code === 'ENOENT') {
+            const changes = await fs.readdir(path.join(this.root, 'rsi-v2.changes')).catch((readError: NodeJS.ErrnoException) => readError.code === 'ENOENT' ? [] : Promise.reject(readError));
+            if (!changes.some(name => /^\d{12}\.json$/.test(name))) return;
+          }
           throw new Error('AI推荐数据异常，且每日快照未能自动恢复；原文件已保留：' + (snapshotError instanceof Error ? snapshotError.message : String(snapshotError)), { cause: snapshotError });
         }
       }
       if (prepared.version === 2) await fs.copyFile(file, file + '.v2-backup', 1).catch((error: any) => { if (error.code !== 'EEXIST') throw error; });
       this.projects = prepared.projects;
       this.preferences = prepared.preferences;
+      this.changeSeq = loaded?.sequence || 0;
+      this.journal = !!loaded?.journal || (await fs.stat(file)).size >= 8 * 1024 * 1024;
       if (recovered) this.host.notice?.(`AI推荐数据已从 ${new Date(this.recovery!.snapshotAt).toLocaleString('zh-CN')} 的每日快照自动恢复；快照之后的记录可能丢失。${this.recovery!.archivePath ? '损坏原件已保留。' : '原数据文件缺失。'}`);
       else this.scheduleSnapshot(!await this.captureSnapshot());
       if (recovered) this.scheduleSnapshot();
@@ -194,14 +210,56 @@ export class RsiEngine {
     const project = this.project(projectId);
     return this.host.execution ? this.host.execution(projectId, project.config) : this.host.session(projectId);
   }
-  private async edit<T>(projectId: string, apply: (project: RsiProject) => T): Promise<T> {
+  private async edit<T>(projectId: string, apply: (project: RsiProject) => T, affectsAll = false): Promise<T> {
     await this.ready();
     const work = this.writes.catch(() => {}).then(async () => {
+      if (this.journal) return this.editJournal(projectId, apply, affectsAll);
       const project = this.project(projectId), before = structuredClone(this.projects), preferences = structuredClone(this.preferences);
-      try { const result = apply(project); await atomicJson(path.join(this.root, 'rsi-v2.json'), { version: 3, projects: this.projects, preferences: this.preferences }); this.host.changed(); this.scheduleSnapshot(!await this.captureSnapshot()); return structuredClone(result); }
+      try { const result = apply(project); await atomicJson(path.join(this.root, 'rsi-v2.json'), { version: 3, projects: this.projects, preferences: this.preferences }); this.host.changed(); this.scheduleSnapshot(!await this.captureSnapshot()); this.journal = (await fs.stat(path.join(this.root, 'rsi-v2.json'))).size >= 8 * 1024 * 1024; return structuredClone(result); }
       catch (error) { this.projects = before; this.preferences = preferences; throw error; }
     });
-    this.writes = work.then(() => {}, () => {}); return work;
+    this.writes = work.then(() => {}, () => {});
+    if (this.journal) void work.then(() => this.captureSnapshot().then(ok => this.scheduleSnapshot(!ok)), () => {});
+    return work;
+  }
+  private async editJournal<T>(projectId: string, apply: (project: RsiProject) => T, affectsAll: boolean): Promise<T> {
+    const existing = new Set(Object.keys(this.projects));
+    const project = this.project(projectId);
+    type Previous = { metadata: Omit<RsiProject, 'evidence'>; evidence: RsiEvidence[]; length: number };
+    const before = new Map<string, Previous>();
+    for (const key of affectsAll ? Object.keys(this.projects) : [project.scope.key]) {
+      if (!existing.has(key)) continue;
+      const source = this.projects[key];
+      const { evidence, ...metadata } = source;
+      before.set(key, { metadata: structuredClone(metadata), evidence, length: evidence.length });
+    }
+    const preferences = structuredClone(this.preferences);
+    let result!: T;
+    try {
+      result = structuredClone(apply(project));
+      const keys = affectsAll ? Object.keys(this.projects) : [project.scope.key];
+      const projects: RsiChange['projects'] = keys.map(key => {
+        const source = this.projects[key], prior = existing.has(key) ? before.get(key) : undefined;
+        const { evidence, ...metadata } = source;
+        const change = !prior || evidence !== prior.evidence || evidence.length < prior.length
+          ? { replace: evidence }
+          : evidence.length > prior.length ? { append: evidence.slice(prior.length) } : undefined;
+        return { key, metadata, ...(change ? { evidence: change } : {}) };
+      });
+      const sequence = this.changeSeq + 1;
+      await atomicJson(rsiJournalFile(this.root, sequence), { version: 1, sequence, projects, preferences: this.preferences } satisfies RsiChange);
+      this.changeSeq = sequence;
+    } catch (error) {
+      for (const key of Object.keys(this.projects)) if (!existing.has(key)) delete this.projects[key];
+      for (const [key, prior] of before) {
+        prior.evidence.length = prior.length;
+        this.projects[key] = { ...prior.metadata, evidence: prior.evidence };
+      }
+      this.preferences = preferences;
+      throw error;
+    }
+    this.host.changed();
+    return result;
   }
   private async current(projectId: string): Promise<RsiProject> {
     await this.ready(); await this.writes;
@@ -213,6 +271,11 @@ export class RsiEngine {
     // Historical run snapshots are an audit ledger. Recommendation and evaluation
     // need the current evidence, but cloning the entire ledger on each call is costly.
     return structuredClone({ ...source, runs: last ? [{ ...last, snapshot: undefined }] : [] });
+  }
+  async settings(projectId: string) {
+    const project = await this.current(projectId);
+    const source = this.execution(projectId);
+    return structuredClone({ config: project.config, sourceSession: source ? { id: source.id, title: source.title, provider: source.provider, model: source.model, reasoningEffort: source.reasoningEffort } : undefined });
   }
   async view(projectId: string): Promise<RsiView> {
     const project = await this.current(projectId);
@@ -253,7 +316,7 @@ export class RsiEngine {
       this.preferences[project.scope.account] = { text: text.trim(), at: iso() };
       for (const item of Object.values(this.projects)) if (item.scope.account === project.scope.account) item.revision++;
       return text.trim();
-    });
+    }, true);
   }
   async reuse(projectId: string, sourceProjectId: string, policyId: string) {
     this.host.scope(sourceProjectId);
@@ -265,7 +328,7 @@ export class RsiEngine {
       const candidate: RsiPolicy = { id, createdAt: at, baseId: project.activePolicyId, bundle: structuredClone(policy.bundle), familyId: policy.familyId || policy.id, origin: { projectId: sourceProjectId, policyId }, rules: structuredClone(policy.rules), hypothesis: '复用另一项目的经验，需在当前项目独立评估适用性', evidenceIds: [evidenceId], status: 'candidate', scope: 'user-project' };
       candidate.heldOutCaseIds = project.cases.map(item => item.id);
       project.policies.push(candidate); project.revision++; return candidate;
-    });
+    }, true);
   }
   async configure(projectId: string, input: unknown) {
     const parsed = rsiConfigSchema.partial().strict().parse(input);
@@ -655,7 +718,7 @@ export class RsiEngine {
       base.status = 'retired'; candidate.status = 'active'; project.activePolicyId = candidate.id;
       if (this.proofs(candidate).size >= 2) for (const other of Object.values(this.projects)) for (const policy of other.policies) if ((policy.familyId || policy.id) === (candidate.familyId || candidate.id)) policy.scope = 'general';
       return candidate;
-    });
+    }, true);
   }
   async rollback(projectId: string) {
     return this.edit(projectId, project => {

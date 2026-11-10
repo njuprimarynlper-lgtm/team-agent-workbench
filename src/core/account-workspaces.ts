@@ -6,6 +6,7 @@ import { ownsBinding } from '../shared/account-scope';
 import { projectDirectoryKey } from '../shared/project-directory';
 import type { AgentSession, ConnectionProfile, Draft, ProjectConclusion, Settings, Transfer } from '../shared/types';
 import { atomicJson, readSessionIndex } from './store';
+import { loadRsiDocument } from './rsi-journal';
 import { settingsSchema } from './config';
 import { recoverAccountWindows, resumeAccountRecovery, type AccountMigration } from './account-workspace-recovery';
 
@@ -160,7 +161,7 @@ export async function migrateAccountWorkspace(root: string, profile: ConnectionP
   // Learned policies and their evidence are account data, never installation defaults.
   const rsi: any = { version: 3, projects: {}, preferences: {} };
   for (const source of sources) {
-    const saved = await json<any>(path.join(source.directory, 'rsi-v2.json'), undefined);
+    const saved = await loadRsiDocument(source.directory).then(result => result.value).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
     if (!saved) continue;
     if (![2, 3].includes(saved.version)) throw new Error('AI推荐数据版本不兼容，原目录已保留');
     for (const [key, project] of Object.entries(saved.projects || {}) as [string, any][]) {

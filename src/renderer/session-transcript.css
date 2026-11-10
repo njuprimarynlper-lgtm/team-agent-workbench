@@ -1,4 +1,6 @@
 .tool-execution-group,.turn-activity-group{max-width:950px;margin:4px auto 16px;color:#6d7f73;font-size:12px}
+.transcript-more{display:block;margin:10px auto 20px;padding:7px 16px;border:1px solid #dce6df;border-radius:7px;background:#f7faf8;color:#527a61;cursor:pointer;font-size:12px}
+.transcript-more:hover{background:#edf5ef}
 .tool-execution-summary{display:flex;align-items:center;gap:8px;min-height:34px;padding:6px 8px;border-radius:7px;cursor:pointer;list-style:none}
 .tool-execution-summary::-webkit-details-marker,.tool-execution-output>summary::-webkit-details-marker{display:none}
 .tool-execution-summary:hover{background:#f0f5f2;color:#355b45}

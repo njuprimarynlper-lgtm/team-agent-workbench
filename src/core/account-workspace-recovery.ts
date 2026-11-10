@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicJson } from './store';
+import { loadRsiDocument } from './rsi-journal';
 import { settingsSchema } from './config';
 
 export interface AccountMigration {
@@ -73,7 +74,7 @@ export async function recoverAccountWindows(destination: string, owner: string, 
   files['inputs.json'] = { ...inputs, ...Object.fromEntries(added[0].filter(id => recoveredInputs[id] && !Object.hasOwn(inputs, id)).map(id => [id, recoveredInputs[id]])) };
   const rsi = await read<any>(path.join(staging, 'rsi-v2.json'), undefined);
   if (rsi) {
-    const current = await read<any>(path.join(destination, 'rsi-v2.json'), undefined);
+    const current = await loadRsiDocument(destination).then(result => result.value).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
     before['rsi-v2.json'] = current;
     files['rsi-v2.json'] = current ? { ...current, projects: { ...rsi.projects, ...current.projects }, preferences: { ...rsi.preferences, ...current.preferences } } : rsi;
   }

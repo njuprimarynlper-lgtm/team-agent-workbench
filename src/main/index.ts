@@ -30,10 +30,11 @@ import { atomicJson } from '../core/store';
 import { AccountWorkspacePool, migrateAccountWorkspace } from '../core/account-workspaces';
 import { accountIdentity } from '../shared/account-data';
 import { scopeAccountSnapshot } from '../shared/account-scope';
+import { compactSnapshotContent } from '../shared/snapshot-content';
 import { settingsSchema, profileSchema } from '../core/config';
 import { historyMarkdown, packageDraft, freezeFile } from '../core/artifacts';
 import { safeFilename } from '../core/paths';
-import type { WorkbenchEvent } from '../shared/types';
+import type { WorkbenchEvent, Snapshot } from '../shared/types';
 import { projectBriefSchema } from '../shared/project-brief';
 import { projectOrganizationSchema } from '../shared/project-organization';
 import { assignmentAllFiles, assignmentCreateSchema, assignmentStatusSchema } from '../shared/assignments';
@@ -153,15 +154,17 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
         : source.moveWithinLocal(p.projectId, p);
     }
     case 'snapshot': {
+      const known = z.object({ accountKey: z.string(), sessions: z.record(z.string(), z.string().max(100)).optional() }).optional().parse(raw);
       const snapshot = switchingWindows.has(owner) ? scopeAccountSnapshot({ ...workbench.snapshot(), accountChanging: true }) : workbench.snapshot();
       const local = personalContext?.workbench.snapshot();
-      return { ...snapshot, projectLinkTarget: active!.projectLinkTarget, projectSync: { ...snapshot.projectSync, ...local?.projectSync }, workspaceReady: true, selectedProjectId: active!.selectedProjectId, projectCreation: active!.projectCreation,
+      const full = { ...snapshot, projectLinkTarget: active!.projectLinkTarget, projectSync: { ...snapshot.projectSync, ...local?.projectSync }, workspaceReady: true, selectedProjectId: active!.selectedProjectId, projectCreation: active!.projectCreation,
         reusableConnections: reusableProjectConnections(liveConnectionContexts().map(value => value.workbench.remote.profile!)),
         sideChats: [...(local?.sideChats || []), ...(snapshot.sideChats || [])], sessions: [...(local?.sessions || []), ...snapshot.sessions], drafts: [...(local?.drafts || []), ...snapshot.drafts],
         inputs: { ...snapshot.inputs, ...local?.inputs }, activeTurns: { ...snapshot.activeTurns, ...local?.activeTurns },
         activity: { ...snapshot.activity, jobs: [...(snapshot.activity?.jobs || []), ...(local?.activity?.jobs || [])] },
         personal: local && { settings: local.settings, providers: local.providers, auth: local.auth, egress: personalContext!.egress.status() },
         settings: { ...snapshot.settings, personalGroups: local?.settings.personalGroups || [], sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes, defaultServer: sharedServerEndpoint }, egress: egress.status() };
+      return compactSnapshotContent(full as Snapshot, known?.accountKey, known?.sessions);
     }
     case 'project.connection.open': { const p = z.object({ localProjectId: z.string().optional(), key: z.string().min(1), projectId: z.string().optional(), createProject: projectCreationInputSchema.optional() }).parse(raw); return openProjectConnection(owner, p.key, p.projectId, p.createProject, p.localProjectId); }
     case 'project.connection.disconnect': { const p = z.object({ projectId: z.string().min(1) }).parse(raw); await workbench.disconnectProject(p.projectId); return true; }
@@ -341,7 +344,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'content.history': { const p = z.object({ projectId: z.string(), id: z.string().uuid().optional(), revision: z.number().int().positive().optional() }).parse(raw); return p.id ? workbench.remote.contentHistory(workbench.remote.binding(p.projectId), p.id, p.revision) : refreshTeamCache(workbench, { action, projectId: p.projectId }, () => workbench.remote.contentHistory(workbench.remote.binding(p.projectId))); }
     case 'conclusion.publish': { const p = z.object({ folderId: resultFolderIdSchema.optional(), id: z.string().uuid(), version: z.number().int().positive().optional(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose, p.version, p.folderId); }
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
-    case 'rsi.settings': { const p = z.object({ projectId: text }).parse(raw); const view = await workbench.rsi.view(p.projectId); return { config: view.config, sourceSession: view.sourceSession, cwd: workbench.store.root }; }
+    case 'rsi.settings': { const p = z.object({ projectId: text }).parse(raw); return { ...await workbench.rsi.settings(p.projectId), cwd: workbench.store.root }; }
     case 'rsi.shadow.configure': { const p = z.object({ projectId: text, config: z.unknown() }).parse(raw); return workbench.rsi.configureShadow(p.projectId, p.config); }
     case 'rsi.preference': { const p = z.object({ projectId: text, text: z.string().max(2000) }).parse(raw); return workbench.rsi.personalPreference(p.projectId, p.text); }
     case 'rsi.reuse': { const p = z.object({ projectId: text, sourceProjectId: text, policyId: text }).parse(raw); return workbench.rsi.reuse(p.projectId, p.sourceProjectId, p.policyId); }

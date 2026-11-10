@@ -104,6 +104,35 @@ test('streamed changes write a small overlay and recover without rewriting the f
   assert.equal(checkpoint.sessions[0].messages.at(-1)?.text, latest.text);
 });
 
+test('routine session saves update the overlay and a new session still gets an index entry', async t => {
+  const store = await fixture(t), active = session();
+  active.messages.push({ id: randomUUID(), role: 'assistant', text: '原始内容', createdAt: active.createdAt });
+  store.sessions = [active]; await store.save();
+  const indexFile = path.join(store.root, 'sessions.json'), before = await fs.readFile(indexFile, 'utf8');
+  active.title = '增量标题'; active.messages[0].text = '增量内容';
+  store.recordSessionDelta(active.id, active.messages[0].id);
+  await store.saveSession(active.id);
+  assert.equal(await fs.readFile(indexFile, 'utf8'), before);
+  let reopened = new Store(store.root); await reopened.init();
+  assert.equal(reopened.sessions[0].title, '增量标题');
+  assert.equal(reopened.sessions[0].messages[0].text, '增量内容');
+  const added = session(); store.sessions.push(added); await store.saveSession(added.id);
+  reopened = new Store(store.root); await reopened.init();
+  assert.deepEqual(reopened.sessions.map(item => item.id), [active.id, added.id]);
+});
+
+test('restarting with an overlay keeps earlier uncheckpointed messages in later overlays', async t => {
+  const store = await fixture(t), active = session();
+  store.sessions = [active]; await store.save();
+  const first = { id: randomUUID(), role: 'assistant' as const, text: '第一轮', createdAt: active.createdAt };
+  active.messages.push(first); store.recordSessionDelta(active.id, first.id); await store.saveSessionDeltas();
+  const resumed = new Store(store.root); await resumed.init();
+  const second = { id: randomUUID(), role: 'assistant' as const, text: '第二轮', createdAt: active.createdAt };
+  resumed.sessions[0].messages.push(second); resumed.recordSessionDelta(active.id, second.id); await resumed.saveSessionDeltas();
+  const reopened = new Store(store.root); await reopened.init();
+  assert.deepEqual(reopened.sessions[0].messages.map(message => message.text), ['第一轮', '第二轮']);
+});
+
 test('a delta queued after a checkpoint preserves later output', async t => {
   const store = await fixture(t), active = session();
   active.messages.push({ id: randomUUID(), role: 'assistant', text: '原文', createdAt: active.createdAt });

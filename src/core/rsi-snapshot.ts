@@ -19,7 +19,7 @@ export class RsiDailySnapshot {
   private pending: Promise<void> = Promise.resolve();
   constructor(private root: string, private validate: (value: unknown) => unknown = value => {
     if (!validRsi(value)) throw new Error('AI推荐快照来源格式无效');
-  }) {}
+  }, private prepareSource?: () => Promise<void>) {}
 
   private validateFile(value: string) { this.validate(JSON.parse(value)); }
 
@@ -40,6 +40,7 @@ export class RsiDailySnapshot {
       }
       const temp = snapshot + '.' + randomUUID() + '.tmp';
       try {
+        await this.prepareSource?.();
         await fs.copyFile(path.join(this.root, 'rsi-v2.json'), temp, constants.COPYFILE_EXCL);
         this.validateFile(await fs.readFile(temp, 'utf8'));
         const handle = await fs.open(temp, 'r+');

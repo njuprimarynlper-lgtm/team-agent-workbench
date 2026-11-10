@@ -142,6 +142,7 @@ export class Workbench {
   private catalogJobs = new Map<string, { provider: Provider; controller: AbortController; promise: ReturnType<typeof inspectCatalog> }>();
   private catalogCache = new Map<string, { provider: Provider; value: import('../shared/types').ProviderCatalog; expires: number }>();
   private runtimeJobs = new Map<string, Promise<AgentRuntime | ClaudeRuntime>>();
+  private completionJobs = new Map<string, Promise<void>>();
   private stagedConclusionFiles: SourceFile[] = [];
   private preparing = new Map<string, Promise<Draft>>();
   private reorganizing = new Map<string, Promise<Draft>>();
@@ -1107,7 +1108,10 @@ export class Workbench {
     if (this.closing || s.closedAt || epoch !== this.accountRevision) { await remoteRpc?.close(); throw new Error('会话或账号已改变，未启动 CLI'); }
     if (s.codexPrivateFork) await this.store.save();
     const runtimeRoute = s.networkRoute;
-    const hooks = { changed: this.changed, messageChanged: (messageId?: string) => this.changedMessage(s.id, messageId), event: (value: unknown) => this.event(s.id, value), done: () => void this.onDone(s.id).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)), authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
+    const hooks = { changed: () => this.changedSession(s.id), messageChanged: (messageId?: string) => this.changedMessage(s.id, messageId), event: (value: unknown) => this.event(s.id, value), done: () => {
+      const job = (this.completionJobs.get(s.id) || Promise.resolve()).then(() => this.onDone(s.id)).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)).finally(() => { if (this.completionJobs.get(s.id) === job) this.completionJobs.delete(s.id); });
+      this.completionJobs.set(s.id, job);
+    }, authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => {
       if (!this.configuring && this.ownsLocal(s.binding)) {
         this.connectionReport?.({ ...s, networkRoute: runtimeRoute }, value);
@@ -1504,6 +1508,7 @@ export class Workbench {
     this.broadcast(); return project;
   }
   changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
+  private changedSession(id: string) { this.changedMessage(id); this.broadcast(); }
   private changedMessage(id: string, messageId?: string) {
     if (this.closing) return;
     const session = this.store.sessions.find(item => item.id === id);
@@ -2104,7 +2109,7 @@ export class Workbench {
     if (edit && (!original || original.id !== edit.messageId || s.nativeId !== edit.nativeId)) throw Error('编辑目标已变化');
     this.sending.add(id); s.stoppedAt = undefined; s.error = undefined;
     const preview = questionRunId && !draft ? this.questionPreview(s, questionRunId, userText) : undefined;
-    this.changed();
+    this.changedSession(id);
     const canceled = () => this.canceledSends.has(id) || this.closing;
     let handedOff = false;
     try {
@@ -2114,7 +2119,7 @@ export class Workbench {
       await this.adoptLatestProjectBrief(s);
       if (canceled()) return false;
       if (this.attachingCodex.has(id)) throw new Error('正在同步到 Codex，请稍后发送；输入已保留');
-      s.status = 'starting'; this.changed();
+      s.status = 'starting'; this.changedSession(id);
       if (!s.cursorNative && !s.codexDesktop && !s.codexRemote) await this.requireAuth(s.provider, s.cwd, s.networkRoute);
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
@@ -2122,7 +2127,7 @@ export class Workbench {
       if (canceled() || s.closedAt) { if (this.runtimes.get(id) === runtime) this.runtimes.delete(id); await runtime.close(); if (s.closedAt) throw new Error('此会话已关闭'); return false; }
       // Resolve the actual native conversation before deciding what it already knows.
       await runtime.ensureStarted();
-      await this.store.save(); // Persist a new/private-fork native identity before any model task is sent.
+      await this.store.saveSession(id); // Persist a new/private-fork native identity before any model task is sent.
       if(s.codexDesktop)this.ensureNativeTranscriptSync();
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
@@ -2159,6 +2164,7 @@ export class Workbench {
         const index = s.messages.findIndex(m => m.id === original.id);
         if (index < 0) throw Error('原生会话已回退，请核对本地记录后恢复编辑稿');
         const removed = new Set(s.messages.splice(index).map(m => m.id));
+        this.store.recordSessionDelta(s.id);
         s.turnTimings = s.turnTimings?.filter(timing => !removed.has(timing.userMessageId || ''));
         if (s.proposedPlan && removed.has(s.proposedPlan.messageId)) delete s.proposedPlan;
         delete s.completion;
@@ -2168,12 +2174,12 @@ export class Workbench {
       s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted, messageId: preview?.id });
       handedOff = true;
       if (started && edit) delete s.historyEditRecovery;
-      await this.store.save();
+      await this.store.saveSession(id);
       return started;
-    } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; if (s.inputQueue?.items.length) { s.inputQueue.paused = true; s.inputQueue.error = e.message; } this.changed(); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
+    } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; if (s.inputQueue?.items.length) { s.inputQueue.paused = true; s.inputQueue.error = e.message; } this.changedSession(id); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
     finally {
-      if (!handedOff && preview && s.messages.includes(preview)) { s.messages.splice(s.messages.indexOf(preview), 1); void this.store.save().catch(() => {}); this.changed(); }
-      this.sending.delete(id); if (this.canceledSends.delete(id)) { s.status = 'idle'; s.error = undefined; this.changed(); }
+      if (!handedOff && preview && s.messages.includes(preview)) { s.messages.splice(s.messages.indexOf(preview), 1); void this.store.save().catch(() => {}); this.changedSession(id); }
+      this.sending.delete(id); if (this.canceledSends.delete(id)) { s.status = 'idle'; s.error = undefined; this.changedSession(id); }
     }
   }
   private questionPreview(session: AgentSession, questionRunId: string, userText: string) {
@@ -2235,10 +2241,10 @@ export class Workbench {
     // internally without using the user-facing accessor, which is locked at login.
     const s = this.store.sessions.find(session => session.id === id); if (!s) return;
     if (s.inputQueue?.items.length && (s.error || s.stoppedAt || s.status === 'error')) {
-      s.inputQueue.paused = true; s.inputQueue.error = s.error; this.changed();
+      s.inputQueue.paused = true; s.inputQueue.error = s.error; this.changedSession(id);
     }
     if (!this.closing && s.purpose === 'work' && !s.closedAt && !s.stoppedAt && s.status === 'idle' && !s.error) {
-      s.completion = { id: randomUUID() }; this.changed();
+      s.completion = { id: randomUUID() }; this.changedSession(id);
     }
     if (!this.closing && !s.closedAt && s.nativeLive && s.purpose === 'work') { try { await this.readNativeTranscriptInto(s); } catch (error: any) { this.sessionNotice(s, '原会话记录尚未刷新：' + error.message); } }
     if (s.purpose === 'prepare') {
@@ -2261,8 +2267,7 @@ export class Workbench {
       }
     }
     await this.questions.completed(s);
-    clearTimeout(this.timer); this.timer = undefined;
-    await this.store.save(); this.broadcast();
+    await this.store.saveSession(id); this.broadcast();
     if (s.purpose === 'work' && !s.closedAt) { this.activity.completed(s.id); if (s.binding) void this.rsi.completed(s.binding.project.id).catch(() => {}); }
     if (!this.configuring && this.ownsLocal(s.binding) && s.autoUpload && s.binding && this.projectConnected(s.binding.project.id) && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.sessionNotice(s, '会话自动上传未完成：' + e.message); } }
   }
@@ -2271,7 +2276,7 @@ export class Workbench {
     // A delayed acknowledgement must never clear the next turn's notification.
     if (s.purpose !== 'work' || !completion || completion.id !== completionId || completion.readAt) return false;
     completion.readAt = new Date().toISOString();
-    try { await this.store.save(); }
+    try { await this.store.saveSession(id); }
     catch (error) { delete completion.readAt; throw error; }
     this.broadcast(); return true;
   }
@@ -2494,6 +2499,7 @@ export class Workbench {
       const next = await this.codexRemote.read(session);
       if (this.nativeTranscriptBlocked(session) || this.store.sessions.some(item => item.id === session.id && item !== session)) return false;
       const changed = nativeTranscriptChanged(session.messages, next); session.messages = next;
+      if (changed) this.store.recordSessionDelta(session.id);
       if (changed && persist) { await this.store.save(); this.broadcast(); }
       return changed;
     }
@@ -2506,6 +2512,7 @@ export class Workbench {
     migrateSessionContext({ ...session, messages: next });
     if (!nativeTranscriptChanged(session.messages, next)) return false;
     session.messages = next;
+    this.store.recordSessionDelta(session.id);
     if (persist) { await this.store.save(); this.broadcast(); }
     return true;
   }
@@ -3829,7 +3836,7 @@ export class Workbench {
       if (s.binding) { if (!await this.journal.commit(s, beforeHash, count, text, entry)) return false; }
       else { await writeHandoffAtomic(s.handoffPath, text); s.handoffState = { messageCount: count, hash: textHash(text), version: (s.handoffState?.version || 0) + 1 }; }
       this.activity.summaryChanged(s.id);
-      await this.store.save(); this.broadcast(); return true;
+      await this.store.saveSession(s.id); this.broadcast(); return true;
     }, false);
   }
   saveHandoff(id: string, text: string, expectedText?: string) {
@@ -3842,7 +3849,7 @@ export class Workbench {
         if (!await this.journal.commit(s, textHash(before), s.handoffState?.messageCount || 0, text, undefined, true)) throw new Error('阶段摘要已更新，请重新打开后更正');
       } else { await writeHandoffAtomic(s.handoffPath, text); s.handoffState = { messageCount: s.messages.length, hash: textHash(text), version: (s.handoffState?.version || 0) + 1 }; }
       this.activity.summaryChanged(s.id);
-      await this.store.save(); this.broadcast();
+      await this.store.saveSession(s.id); this.broadcast();
     }, false);
   }
   activityView() {
@@ -3893,7 +3900,7 @@ export class Workbench {
       await this.store.save(); this.broadcast(); return results;
     } finally { this.activityActions.delete(id); }
   }
-  async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await this.store.save(); }
+  async flushEdits() { await this.edits.catch(() => {}); for (const [key, fn] of this.unsavedEdits) { await fn(); if (this.unsavedEdits.get(key) === fn) this.unsavedEdits.delete(key); } await Promise.all(this.completionJobs.values()); await this.store.save(); }
   listDirections() { return this.remote.memberDirections(); }
   saveDirections(directions: unknown) { return this.remote.memberDirections(directions); }
   async close() { this.closing = true; clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }

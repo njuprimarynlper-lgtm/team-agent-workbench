@@ -26,6 +26,7 @@ import { newAccountPasswordSchema } from '../shared/accounts';
 import { SessionTranscript } from './session-transcript';
 import { createSnapshotRefresh, createStateEventRefresh } from './snapshot-refresh';
 import { applySessionDelta, applySideChatDelta, mergeNewerSessions } from './session-delta';
+import { hydrateSnapshotContent, knownSessionContent } from '../shared/snapshot-content';
 import { SessionTurnProgress } from './turn-timing';
 import './session-transcript.css';
 import { clientVersion, clientWindowTitle } from '../shared/client-version';
@@ -194,11 +195,22 @@ function ConclusionMatchModal({ matches, close, confirm, skip }: { matches: Conc
 }
 function App() {
   const [state, setState] = useState<Snapshot>(), [error, setError] = useState('');
+  const stateRef = useRef<Snapshot | undefined>(undefined);
+  const forceFullSnapshot = useRef(false);
+  stateRef.current = state;
   const refreshRef = useRef<() => Promise<void>>(undefined);
   const viewAccount = useRef('');
   refreshRef.current ||= createSnapshotRefresh<Snapshot>(
-    () => api.call<Snapshot>('snapshot'),
-    next => { React.startTransition(() => setState(current => mergeNewerSessions(next, current))); setError(''); },
+    () => {
+      const current = forceFullSnapshot.current ? undefined : stateRef.current;
+      forceFullSnapshot.current = false;
+      return api.call<Snapshot>('snapshot', current && !current.accountChanging ? { accountKey: snapshotAccountKey(current), sessions: knownSessionContent(current) } : undefined);
+    },
+    next => { React.startTransition(() => setState(current => {
+      const hydrated = hydrateSnapshotContent(next, current);
+      if (!hydrated) { setTimeout(() => { forceFullSnapshot.current = true; void refreshRef.current?.(); }, 0); return current; }
+      return mergeNewerSessions(hydrated, current);
+    })); setError(''); },
     error => setError(error instanceof Error ? error.message : String(error)));
   const refresh = refreshRef.current;
   useEffect(() => {
@@ -681,7 +693,7 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
           </SessionMoreMenu>
         </div>
       </div>
-      <CliConnectionNotice value={session.cursorNative || parseGuardNetworkProblem(session.error || '') ? undefined : session.cliConnection} provider={session.provider}/><div className="messages" ref={scroller} onScroll={scrolling.onScroll}>{!session.messages.length && !pendingMessages[session.id] && <div className="session-welcome"><div className="welcome-symbol"><MessageSquare size={26}/></div><h2>开始这次工作</h2><code>{session.codexRemote?.cwd || session.cwd}</code></div>}<SelectionActions sessionId={session.id} add={!session.closedAt ? text => quoteIntoSession(session, text) : undefined} sideChat={!session.closedAt && session.provider === 'codex' ? text => void createSideChat(session, text) : undefined}><SessionTranscript session={session} renderMessage={renderTranscriptMessage}/></SelectionActions><CursorNativeQueue key={session.id} session={session}/>{pendingMessages[session.id] && <PendingSessionMessage pending={pendingMessages[session.id]} messages={session.messages} session={session}/>} {session.error && <GuardConnectionError key={session.id} message={session.error} configure={() => setSettingsOpen(true)} testConnection={() => api.call("guard.connection.test", { sessionId: session.id })}><CentralConnectionError message={session.error} reconnect={openCentralPanel}/></GuardConnectionError> }{!session.cursorNative && !session.codexDesktop && !session.codexRemote && ["unauthenticated", "error", "logging-in"].includes(state.auth[session.provider].status) && state.auth[session.provider].cwd === session.cwd && state.auth[session.provider].networkRoute === session.networkRoute && <ProviderAuthPanel provider={session.provider} auth={activeAuth[session.provider]} cwd={session.cwd} networkRoute={session.networkRoute} autoCheck={false}/>}<SessionTurnProgress session={session}/>
+      <CliConnectionNotice value={session.cursorNative || parseGuardNetworkProblem(session.error || '') ? undefined : session.cliConnection} provider={session.provider}/><div className="messages" ref={scroller} onScroll={scrolling.onScroll}>{!session.messages.length && !pendingMessages[session.id] && <div className="session-welcome"><div className="welcome-symbol"><MessageSquare size={26}/></div><h2>开始这次工作</h2><code>{session.codexRemote?.cwd || session.cwd}</code></div>}<SelectionActions sessionId={session.id} add={!session.closedAt ? text => quoteIntoSession(session, text) : undefined} sideChat={!session.closedAt && session.provider === 'codex' ? text => void createSideChat(session, text) : undefined}><SessionTranscript key={session.id} session={session} renderMessage={renderTranscriptMessage}/></SelectionActions><CursorNativeQueue key={session.id} session={session}/>{pendingMessages[session.id] && <PendingSessionMessage pending={pendingMessages[session.id]} messages={session.messages} session={session}/>} {session.error && <GuardConnectionError key={session.id} message={session.error} configure={() => setSettingsOpen(true)} testConnection={() => api.call("guard.connection.test", { sessionId: session.id })}><CentralConnectionError message={session.error} reconnect={openCentralPanel}/></GuardConnectionError> }{!session.cursorNative && !session.codexDesktop && !session.codexRemote && ["unauthenticated", "error", "logging-in"].includes(state.auth[session.provider].status) && state.auth[session.provider].cwd === session.cwd && state.auth[session.provider].networkRoute === session.networkRoute && <ProviderAuthPanel provider={session.provider} auth={activeAuth[session.provider]} cwd={session.cwd} networkRoute={session.networkRoute} autoCheck={false}/>}<SessionTurnProgress session={session}/>
       {failedInputs[session.id] && <div className="send-failure" role="alert"><span>发送失败：{failedInputs[session.id].error}</span><button className="text-button" disabled={sendingIds.includes(session.id)} onClick={() => { const failed = failedInputs[session.id]; const draft = localInputs.current[session.id] || currentInput; if ((draft.text.trim() || draft.sourceIds.length || draft.capabilities?.length) && JSON.stringify(draft) !== JSON.stringify(failed.input)) { setNotice('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } editInput(session.id, failed.input); setFailedInputs(current => { const next = { ...current }; delete next[session.id]; return next; }); }}>恢复到输入框</button></div>}{scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}{session.approvals.map(a => <RequestCard key={a.id} request={a} onAnswer={(option, answers) => void run(() => api.call('session.answer', { id: session.id, requestId: a.id, option, answers }))}/>)}</div>
       {!session.closedAt && <SessionInputDraft drafts={inputDrafts} id={session.id} initial={state.inputs[session.id]}>{(currentInput, inputError) => { const follow = followUpAction(session, state.activeTurns?.[session.id], currentInput, activeSettings.followUpMode); const composer = currentInput.text, selectedSources = currentInput.sourceIds, selectedCapabilities = currentInput.capabilities || []; return <div className="composer-wrap"><DirectoryMoveNotice key={'directory-' + session.id} session={session} api={api} changed={refresh}/>{selectedCapabilities.length > 0 && <div className="capability-chips" aria-label="下一条消息使用的能力"><span>下一条消息</span>{selectedCapabilities.map(item => <button key={item.id} title="点击移除" onClick={() => setSelectedCapabilities(selectedCapabilities.filter(value => value.id !== item.id))}><Puzzle size={11}/>{item.name}<X size={11}/></button>)}</div>}{!session.cursorNative && <ActivityRecommendations key={'activity-' + session.id} ref={activityPanel} session={session} jobs={state.activity?.jobs || []} changed={refresh} view={viewActivityResult}
           sourcesAdded={ids => { const input = localInputs.current[session.id] || state.inputs[session.id] || currentInput; editInput(session.id, { sourceIds: [...new Set([...input.sourceIds, ...ids])] }); }}

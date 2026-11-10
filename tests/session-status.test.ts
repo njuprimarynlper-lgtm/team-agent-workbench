@@ -100,13 +100,17 @@ test('Claude remains spinning during approvals and only marks successful complet
 test('reading one session is isolated by session/account and a failed save stays retryable', () => withWorkbench(async (wb, root) => {
   const first = await wb.createSession('codex', root, offlineProjectId), second = await wb.createSession('cursor', root, offlineProjectId);
   first.completion = { id: randomUUID() }; second.completion = { id: randomUUID() };
-  const save = wb.store.save.bind(wb.store);
-  wb.store.save = async () => { throw new Error('fixture disk unavailable'); };
+  const checkpoint = await fs.readFile(path.join(wb.store.root, 'sessions.json'), 'utf8');
+  const save = wb.store.saveSession.bind(wb.store);
+  wb.store.saveSession = async () => { throw new Error('fixture disk unavailable'); };
   await assert.rejects(wb.readSessionCompletion(first.id, first.completion.id), /disk unavailable/);
   assert(hasUnreadCompletion(first));
-  wb.store.save = save;
+  wb.store.saveSession = save;
   await wb.readSessionCompletion(first.id, first.completion.id);
   assert(!hasUnreadCompletion(first)); assert(hasUnreadCompletion(second));
+  assert.equal(await fs.readFile(path.join(wb.store.root, 'sessions.json'), 'utf8'), checkpoint);
+  const restored = new Store(wb.store.root); await restored.init();
+  assert(restored.sessions.find(session => session.id === first.id)?.completion?.readAt);
   second.binding = { ...second.binding!, username: 'another-account' };
   await assert.rejects(wb.readSessionCompletion(second.id, second.completion.id), /不属于当前账号/);
   assert(hasUnreadCompletion(second));

@@ -140,7 +140,7 @@ export class ActivityAssistant {
     catch (e: any) {
       if (e.code === 'ENOENT') return '';
       s.handoffState = { messageCount: s.handoffState?.messageCount || 0, hash: s.handoffState?.hash || '', version: s.handoffState?.version || 0, error: '阶段摘要暂时无法读取：' + e.message };
-      await this.host.store.save(); return undefined;
+      await this.host.store.saveSession(s.id); return undefined;
     }
   }
   private async summary(s: AgentSession, signal: AbortSignal) {
@@ -179,7 +179,7 @@ export class ActivityAssistant {
       if (current === undefined || (s.handoffState?.version || 0) !== currentVersion || textHash(current) !== textHash(before)) return;
       const message = error instanceof Error ? error.message : '摘要更新失败';
       s.handoffState = { messageCount: start, hash: textHash(before), version: currentVersion, error: message };
-      await this.host.store.save(); this.lastError = message;
+      await this.host.store.saveSession(s.id); this.lastError = message;
     }
   }
   private async process(signal: AbortSignal) {
