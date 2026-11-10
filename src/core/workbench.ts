@@ -1,5 +1,5 @@
 import { SessionResults } from './session-results';
-import { sourceResultReference } from '../shared/session-results';
+import { sourceResultReference, supportsSessionResults } from '../shared/session-results';
 import { teamAccessRevoked } from '../shared/team-cache';
 import { pruneTeamCache, refreshTeamCache } from './team-cache';
 import { conclusionPublicationOrigin, resolveConclusionPublication } from './conclusion-sharing';
@@ -80,7 +80,7 @@ import { normalizedResultBody, teamResultDifference } from '../shared/team-resul
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
 import { conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
-import { acceptedSessionContext, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
+import { acceptedSessionContext, isRecommendationSource, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
 import { subsessionFamily, subsessionParentId, sessionMoveFamilyIds } from '../shared/subsessions';
 import { changedWorkspaceFiles, reportSourceHash } from './subsession-report';
 import { safeFilename, localWithin } from './paths';
@@ -345,6 +345,7 @@ export class Workbench {
     await this.startCursorNativeSessions();
     await this.scheduled.init();
     await this.resultReferences.restore();
+    await this.restoreRecommendationReferences();
   }
   async scheduledLocation(projectId: string, taskId?: string) {
     const binding = this.projectBinding(projectId); this.assertCanWork(binding);
@@ -1538,7 +1539,7 @@ export class Workbench {
       await this.store.save(); this.workspaceReady = !!this.remote.workspaces.length;
       await this.startCursorNativeSessions(); this.broadcast(); return result;
     } catch (error) { this.remote.disconnect(); throw error; }
-    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); } this.broadcast(); }
+    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); await this.restoreRecommendationReferences(); } this.broadcast(); }
   }
   async initializeProject(name: string, groupName: string, brief: ProjectBrief, contextKey: string) {
     this.assertWorkspace();
@@ -2110,9 +2111,10 @@ export class Workbench {
     this.eventWrites.set(id, write);
   }
   private async availableSessionContext(session: AgentSession, userText: string, sourceIds: string[], history = session.messages, pendingResults = true) {
+    if (pendingResults && session.purpose === 'work') await this.restoreRecommendationReferences(session.id);
     if (sourceIds.some(id => !session.sources.some(source => source.id === id))) throw new Error('引用不属于当前会话');
     const snapshot = { ...session, messages: history, sources: structuredClone(session.sources) };
-    if (!pendingResults) snapshot.sources = snapshot.sources.filter(source => !sourceResultReference(snapshot, source) || sourceWasAccepted(snapshot, source));
+    if (!pendingResults) snapshot.sources = snapshot.sources.filter(source => !(sourceResultReference(snapshot, source) || isRecommendationSource(source)) || sourceWasAccepted(snapshot, source));
     const available = sessionWithAvailableReferences(snapshot, this.store.conclusions);
     sourceIds = [...new Set([...sourceIds, ...available.sources.filter(source => source.sourcePath.startsWith('question:')).map(source => source.id)])];
     const ids = new Set(available.sources.map(source => source.id));
@@ -2877,6 +2879,72 @@ export class Workbench {
     const source: SourceFile = { id: sourceId, name: path.posix.basename(remotePath), localPath, sourcePath: `${binding.username}@${binding.host}:${binding.port}${remotePath}`, sha256: await hashFile(localPath), size: (await fs.stat(localPath)).size, fetchedAt: new Date().toISOString() };
     if (s.closedAt) throw new Error('请选择未关闭的工作会话');
     s.sources.push(source); await this.store.save(); this.broadcast(); return source;
+  }
+  async feedbackRecommendation(projectId: string, input: unknown) {
+    return this.edit('rsi-feedback:' + projectId, async () => {
+      const event = await this.rsi.feedback(projectId, input, true);
+      return ['accepted', 'rejected', 'supplement'].includes(event.kind) ? this.applyRecommendationReference(projectId, event.id) : event;
+    }, false);
+  }
+  private async applyRecommendationReference(projectId: string, eventId: string) {
+    const context = await this.rsi.referenceContext(projectId, eventId), { event, suggestion, review } = context;
+    if (!context.current) throw Error('推荐的处理已更新，请核对最新状态后再保存');
+    if (event.reference?.status === 'ready') return event;
+    if (event.reference?.status === 'deferred' && !this.store.sessions.some(session => session.id === review.linkedSessionId && supportsSessionResults(session))) return event;
+    const binding = this.projectBinding(projectId); this.assertCanWork(binding);
+    const target = event.kind === 'supplement' && review.decision === 'accepted' && review.linkedSessionId ? this.session(review.linkedSessionId) : undefined;
+    const check = () => {
+      if (target && (!supportsSessionResults(target) || target.binding?.project.id !== projectId || !this.ownsLocal(target.binding))) throw Error('请选择本项目中支持本机参考文件的开放工作会话');
+      this.assertCanWork(binding);
+    };
+    check();
+    const prefix = `rsi-recommendation:${suggestion.id}:`, sourcePath = prefix + event.decisionEventId;
+    let source = target?.sources.find(item => item.sourcePath === sourcePath && !item.supersededBy), created: SourceFile | undefined;
+    if (target && !source) {
+      const temporary = path.join(this.store.sessionDir(target.id), 'recommendation-' + randomUUID() + '.md');
+      const body = `# AI 推荐：${suggestion.title}\n\n生成时间：${suggestion.createdAt}\n\n## 建议行动\n${suggestion.action}\n\n## 判断依据\n${suggestion.reason}`
+        + (suggestion.conditions.length ? '\n\n适用条件：\n' + suggestion.conditions.map(value => '- ' + value).join('\n') : '')
+        + (suggestion.uncertainty ? '\n\n尚不确定：' + suggestion.uncertainty : '')
+        + (context.evidence.length ? '\n\n## 支撑片段\n' + context.evidence.map(value => '> ' + value.replace(/\n/g, '\n> ')).join('\n\n') : '');
+      await fs.mkdir(path.dirname(temporary), { recursive: true }); await fs.writeFile(temporary, body, { mode: 0o600 });
+      try { created = source = await freezeFile(temporary, path.join(this.store.sessionDir(target.id), 'sources')); }
+      finally { await fs.rm(temporary, { force: true }).catch(() => {}); }
+      source.name = 'AI 推荐 · ' + suggestion.title; source.sourcePath = sourcePath;
+      check();
+    }
+    const previous = new Map<SourceFile, string | undefined>();
+    if (created) target!.sources.push(created);
+    for (const session of this.store.sessions.filter(value => value.binding?.project.id === projectId && this.ownsLocal(value.binding))) {
+      for (const item of session.sources) if (item !== source && item.sourcePath.startsWith(prefix) && !item.supersededBy && !isProtectedSessionSource(session, item)) {
+        previous.set(item, item.supersededBy); item.supersededBy = 'rsi-review:' + event.id;
+      }
+    }
+    if (created || previous.size) {
+      try { await this.store.save(); }
+      catch (error) { if (created) target!.sources = target!.sources.filter(value => value.id !== created!.id); for (const [item, status] of previous) item.supersededBy = status; throw error; }
+      this.broadcast();
+    }
+    return this.rsi.referenceReady(projectId, event.id, source?.id);
+  }
+  private async restoreRecommendationReferences(sessionId?: string) {
+    const requested = sessionId ? this.session(sessionId) : undefined;
+    for (const project of this.projectSync.projects().filter(project => !requested || project.id === requested.binding?.project.id)) {
+      let events: string[];
+      try { events = await this.rsi.unappliedReferences(project.id); } catch { continue; }
+      for (const eventId of events) {
+        try {
+          const context = await this.rsi.referenceContext(project.id, eventId);
+          const linked = context.review.decision === 'accepted' && context.event.kind === 'supplement' ? context.review.linkedSessionId : undefined;
+          const target = linked ? this.store.sessions.find(session => session.id === linked) : undefined;
+          if (linked && (!target || !supportsSessionResults(target) || target.binding?.project.id !== project.id || !this.ownsLocal(target.binding))) continue;
+          if (requested && (linked ? linked !== sessionId : !requested.sources.some(source => source.sourcePath.startsWith(`rsi-recommendation:${context.suggestion.id}:`)))) continue;
+          await this.edit('rsi-reference:' + eventId, () => this.applyRecommendationReference(project.id, eventId), false);
+        } catch (error: any) {
+          if (requested) throw Error('AI 推荐参考尚未准备好，本轮未发送：' + error.message);
+          this.notice('AI 推荐参考暂未恢复：' + error.message);
+        }
+      }
+    }
   }
   async attachContent(id: string, contentId: string, expectedRevision?: number) {
     return this.resultReferences.one(id, 'team', contentId, expectedRevision);
