@@ -1,6 +1,6 @@
 {
   "name": "team-agent-workbench",
-  "version": "2.3.40",
+  "version": "2.3.41",
   "private": true,
   "description": "Windows team workspace for local Codex, Cursor and Claude Code agents with Linux SFTP sharing",
   "main": "dist/user/main.cjs",
@@ -64,7 +64,10 @@
     "test:scheduled-ui": "node scripts/scheduled-tasks-smoke.mjs",
     "test:scheduled-tray": "node scripts/scheduled-tray-smoke.mjs",
     "test:rsi": "tsx --test --test-concurrency=1 tests/rsi.test.ts tests/rsi-quality.test.ts tests/rsi-value-review.test.ts tests/rsi-prompts.test.ts tests/rsi-incremental.test.ts tests/rsi-workbench.test.ts tests/project-interactions.test.ts tests/project-recommendation-ui.test.ts",
-    "test:desktop-interactions": "node scripts/desktop-interactions-smoke.mjs"
+    "test:desktop-interactions": "node scripts/desktop-interactions-smoke.mjs",
+    "test:session-results": "node scripts/test-background.mjs tests/session-results.test.ts",
+    "test:session-results-ui": "node scripts/session-results-smoke.mjs",
+    "test:session-results-desktop": "node scripts/session-results-desktop-smoke.mjs"
   },
   "dependencies": {
     "archiver": "^8.0.0",

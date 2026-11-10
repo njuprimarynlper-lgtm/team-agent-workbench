@@ -1,3 +1,4 @@
+import { supportsSessionResults } from '../shared/session-results';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Plus, RefreshCw, Search, X } from 'lucide-react';
@@ -112,7 +113,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
       {!trigger && menu !== 'command' && <label className="capability-search"><Search size={13}/><input aria-label={menu === 'skill' ? '搜索 Skill' : '搜索插件'} autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) && !event.nativeEvent.isComposing) { event.preventDefault(); if (event.key === 'Enter') chooseActive(); else setActive(index => count ? (index + (event.key === 'ArrowDown' ? 1 : count - 1)) % count : 0); } }} placeholder="搜索"/></label>}
       <div className="composer-options">
         {menu === 'command' ? <>
-          {!trigger && <div className="composer-extra-actions">{attach && <button className="setting-option" onClick={() => { close(); attach(); }}>添加本地参考文件</button>}<button className="setting-option" disabled={!session.binding} onClick={() => { close(); setMaterials(true); }}>引用项目成果</button>{handoff && <button className="setting-option" onClick={() => { close(); handoff(); }}>引用会话摘要 <small>Beta</small></button>}</div>}
+          {!trigger && <div className="composer-extra-actions">{attach && <button className="setting-option" onClick={() => { close(); attach(); }}>添加本地参考文件</button>}<button className="setting-option" disabled={!session.binding || !supportsSessionResults(session)} title={session.codexRemote ? '远程会话暂不支持本机成果引用' : undefined} onClick={() => { close(); setMaterials(true); }}>关联成果</button>{handoff && <button className="setting-option" onClick={() => { close(); handoff(); }}>引用会话摘要 <small>Beta</small></button>}</div>}
           {error && <p role="alert" className="inline-error">{error}</p>}{trigger && loading && <p role="status" className="muted small">读取命令…</p>}
           <div role="listbox" aria-label="输入框命令">{commands.map((item, index) => <button className={'setting-option ' + (active === index ? 'keyboard-active' : '')} role="option" aria-selected={active === index} key={item.id + (item.item ? '-skill' : '')} onClick={() => void chooseCommand(item)}><span>{item.label}<small>{item.help}</small></span><code>/{item.id}</code></button>)}</div>
         </> : <>

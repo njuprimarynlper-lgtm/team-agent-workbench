@@ -24,7 +24,7 @@ export interface QueuedSessionInput { id: string; input: SessionInput; state: 'q
 export interface WorkspaceAccess { path: string; canonicalPath: string; canCreateProject: boolean; role?: import('./team-groups').GroupRole; creator?: string; groupName?: string; groupLabel?: string; accessError?: string; isEmpty?: boolean }
 export interface RemoteEntry { name: string; path: string; kind: 'directory' | 'file' | 'link'; size: number; modified: number }
 export interface FilePreview { name: string; path: string; type: 'text' | 'image' | 'binary'; content: string; truncated: boolean; size: number }
-export interface SourceFile { userAttachment?: boolean; resultUnavailable?: boolean; id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string; contentRef?: { projectId: string; id: string; revision: number } }
+export interface SourceFile { resultLink?: import('./session-results').SessionResultLink; supersededBy?: string; userAttachment?: boolean; resultUnavailable?: boolean; id: string; name: string; localPath: string; sourcePath: string; sha256: string; size: number; fetchedAt: string; contentRef?: { projectId: string; id: string; revision: number } }
 export interface SessionFile { path: string; name: string; size: number; modifiedAt: string }
 export interface MessageContext { directoryRevision?: string; questionRunId?: string; questionFill?: boolean; nativeId: string; accepted: boolean; workRecord: boolean; sourceHashes: Record<string, string>; capabilities?: AgentCapabilitySelection[]; projectJournal?: import('./project-journal').JournalReceipt }
 export interface Message { id: string; nativeItemId?: string; role: 'user' | 'assistant' | 'tool' | 'system'; phase?: 'commentary' | 'final_answer'; text: string; userText?: string; context?: MessageContext; steering?: boolean; createdAt: string; kind?: 'plan' | 'planSteps'; steps?: import('./session-mode').PlanStep[]; nativeDetails?: { thinking?: unknown; allThinkingBlocks?: unknown; toolCall?: unknown; toolResults?: unknown; artifacts?: Array<{ content: string; blobId: string }>; error?: unknown } }
@@ -73,6 +73,7 @@ export interface AgentSession {
   status: 'idle' | 'starting' | 'running' | 'approval' | 'error'; error?: string; stoppedAt?: string;
   completion?: { id: string; readAt?: string };
   messages: Message[]; messageCount?: number; historyToken?: string; approvals: Approval[]; sources: SourceFile[]; binding?: RemoteBinding;
+  referenceReceipts?: import('./session-context').SessionReferenceReceipts;
   permissionMode?: PermissionMode; permissions?: PermissionReport; permissionIssue?: PermissionIssue; settingsPending?: boolean;
   cliConnection?: import('./cli-connection').CliConnection;
   projectBrief?: { revision: number; sourceId: string; capturedAt: string }; followProjectBrief?: boolean; lastTrajectoryHash?: string; lastTrajectoryQueuedAt?: string;

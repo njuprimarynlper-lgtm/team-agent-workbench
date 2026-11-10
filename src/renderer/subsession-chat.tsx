@@ -146,7 +146,7 @@ export function SubsessionChat({ session, sessions, input, inputDrafts, flush, e
     finally { lock.current = false; setSending(false); setPending(undefined); }
   };
   const detachSource = async (source: SourceFile) => {
-    if (referenceLock.current || lock.current || availabilityLock.current || running || locked) return;
+    if (referenceLock.current || lock.current || availabilityLock.current || session.status === 'starting' || locked) return;
     referenceLock.current = true; setDetaching(true);
     try {
       const result = await api.call<{ sourceIds: string[] }>('session.detachPendingSource', { id: session.id, sourceId: source.id });

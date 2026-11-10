@@ -1,6 +1,7 @@
 import type { AgentSession, Snapshot } from './types';
 import { snapshotAccountKey } from './account-scope';
 import { transcriptPageSize } from './transcript-page';
+import { sessionReferenceReceipts } from './session-context';
 
 // Message events advance storageRevision. The shape check also catches history
 // replacement, removal and additions performed outside the streaming path.
@@ -22,12 +23,12 @@ export function compactSnapshotContent(snapshot: Snapshot, accountKey: string | 
   const sameAccount = !!known && !!accountKey && accountKey === snapshotAccountKey(snapshot);
   if (!sameAccount && !pageMessages) return snapshot;
   return { ...snapshot, sideChats: pageMessages ? snapshot.sideChats?.map(chat => ({ ...chat, session: {
-    ...chat.session, messageCount: chat.session.messages.length, messages: chat.session.messages.slice(-transcriptPageSize),
+    ...chat.session, messageCount: chat.session.messages.length, referenceReceipts: sessionReferenceReceipts(chat.session), messages: chat.session.messages.slice(-transcriptPageSize),
   } })) : snapshot.sideChats, sessions: snapshot.sessions.map(session => {
     const token = sessionContentToken(session);
     const messages = sameAccount && known?.[session.id] === token ? undefined as unknown as AgentSession['messages']
       : pageMessages ? session.messages.slice(-transcriptPageSize) : session.messages;
-    return { ...session, messages, ...(pageMessages ? { messageCount: session.messages.length, historyToken: token } : {}) };
+    return { ...session, messages, ...(pageMessages ? { messageCount: session.messages.length, historyToken: token, referenceReceipts: sessionReferenceReceipts(session) } : {}) };
   }) };
 }
 

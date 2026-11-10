@@ -582,7 +582,7 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
       setPendingMessages(messages => ({ ...messages, [session.id]: { text: sent.text, beforeMessageCount: sessionMessageCount(session), phase: 'matching' } }));
       try {
         const candidates = await run(() => api.call<ConclusionMatch[]>('conclusion.match', { projectId: session.binding!.project.id, query: sent.text }));
-        const matches = candidates?.filter(match => !attachedConclusion(session, match.conclusion.id));
+        const matches = candidates?.filter(match => !attachedConclusion(session, match.conclusion.id, match.conclusion.version));
         if (matches?.length) { setPendingMessages(messages => { const next = { ...messages }; delete next[session.id]; return next; }); setConclusionMatch({ sessionId: session.id, text: sent.text, sourceIds: sent.sourceIds, capabilities: sent.capabilities || [], matches }); return; }
       } finally { matchingInputs.current.delete(session.id); }
     }
@@ -670,7 +670,7 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
         const names: string[] = [];
         for (const targetId of sessionIds) {
           const target = state.sessions.find(value => value.id === targetId); if (!target) continue;
-          const source = await api.call<SourceFile>('session.attachContent', { id: targetId, contentId: item.id });
+          const source = await api.call<SourceFile>('session.attachContent', { id: targetId, contentId: item.id, expectedRevision: item.revision });
           const input = localInputs.current[targetId] || state.inputs[targetId] || { text: '', sourceIds: [], answers: {} };
           editInput(targetId, { sourceIds: [...new Set([...input.sourceIds, source.id])] }); names.push(target.title);
         }
@@ -750,7 +750,7 @@ function AccountWorkspace({ state, refresh }: { state: Snapshot; refresh: () => 
     {nativeProvider && projectId && <NativeSessionPicker cursorDesktopBeta={cursorDesktopBetaEnabled} directory={currentProjectDirectory || ''} key={nativeProvider} provider={nativeProvider} projectId={projectId} close={() => setNativeProvider('')} linked={sessions => { const session = sessions[0]; if (!session) return; setNativeProvider(''); setClosedHistory(undefined); if (session.binding && projects.some(item => item.id === session.binding!.project.id)) setProjectId(session.binding.project.id); setSessionId(session.id); setView('sessions'); setNotice(sessions.length > 1 ? `已导入 ${sessions.length} 条会话` : '已导入这条会话'); void refresh(); }}/>}
     {conclusionMatch && <ConclusionMatchModal matches={conclusionMatch.matches} close={() => setConclusionMatch(undefined)}
       skip={async () => { const pending = conclusionMatch; setConclusionMatch(undefined); await sendInput(pending.sessionId, { text: pending.text, sourceIds: pending.sourceIds, answers: {}, capabilities: pending.capabilities }); }}
-      confirm={async ids => { const pending = conclusionMatch, sourceIds = [...pending.sourceIds]; for (const conclusionId of ids) { const source = await api.call<SourceFile>('session.attachConclusion', { id: pending.sessionId, conclusionId }); sourceIds.push(source.id); } const sent = { text: pending.text, sourceIds: [...new Set(sourceIds)], answers: {}, capabilities: pending.capabilities }; editInput(pending.sessionId, sent); setConclusionMatch(undefined); await sendInput(pending.sessionId, sent); }}/>}
+      confirm={async ids => { const pending = conclusionMatch, sourceIds = [...pending.sourceIds]; for (const conclusionId of ids) { const source = await api.call<SourceFile>('session.attachConclusion', { id: pending.sessionId, conclusionId, expectedVersion: pending.matches.find(match => match.conclusion.id === conclusionId)?.conclusion.version }); sourceIds.push(source.id); } const sent = { text: pending.text, sourceIds: [...new Set(sourceIds)], answers: {}, capabilities: pending.capabilities }; editInput(pending.sessionId, sent); setConclusionMatch(undefined); await sendInput(pending.sessionId, sent); }}/>}
     {referenceSession && <Modal title="AI 参考内容" close={() => setReferenceSessionId('')}>
       <div className="modal-body">
         <p className="muted small">已带入的资料会保留在当前对话中，无需再次选择。阶段摘要和日志由后台自动维护。</p>

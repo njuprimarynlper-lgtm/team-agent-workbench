@@ -20,24 +20,25 @@ export function migrateSessionContext(s: AgentSession) {
   }
 }
 
-export function sessionContext(s: AgentSession, userText: string, sourceIds: string[], journal?: import('../shared/project-journal').JournalContext) {
+export function sessionContext(s: AgentSession, userText: string, sourceIds: string[], journal?: import('../shared/project-journal').JournalContext, resultAttachmentIndex?: string) {
   const { sourceHashes: known, workRecord: hasWorkRecord } = acceptedSessionContext(s);
   // Remote native forks already own the inherited history. Only their generated
   // visible-delta snapshot is sent inline; local attachment paths stay local.
   const remoteFork = s.codexRemote && s.fork?.nativeFork && s.fork.remoteContext ? s.fork : undefined;
   const nativeSources = new Set(remoteFork ? [remoteFork.sourceId, ...remoteFork.inheritedSourceIds] : []);
-  const selected = [...new Set([...sourceIds, ...(s.projectBrief ? [s.projectBrief.sourceId] : []), ...(s.assignment?.sourceIds || []), ...(s.fork ? [s.fork.sourceId, ...s.fork.inheritedSourceIds] : []), ...s.sources.filter(isConclusionSource).map(source => source.id)])].filter(id => !nativeSources.has(id)).map(id => {
+  const selected = [...new Set([...sourceIds, ...(s.projectBrief ? [s.projectBrief.sourceId] : []), ...(s.assignment?.sourceIds || []), ...(s.fork ? [s.fork.sourceId, ...s.fork.inheritedSourceIds].filter(id => s.sources.some(source => source.id === id)) : []), ...s.sources.filter(source => isConclusionSource(source) || !!source.resultLink).map(source => source.id)])].filter(id => !nativeSources.has(id)).map(id => {
     const source = s.sources.find(f => f.id === id);
     if (!source) throw new Error('引用不属于当前会话');
     return source;
   });
   const directoryChanged = s.directoryChange && !s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.context.directoryRevision === s.directoryChange!.id);
-  const sources = uniqueSources(withoutSupersededProjectBrief(s, selected)).filter(f => directoryChanged || known[f.id] !== f.sha256);
+  const sources = uniqueSources(withoutSupersededProjectBrief(s, selected)).filter(f => !f.supersededBy && (directoryChanged || known[f.id] !== f.sha256));
   const managed = s.messages.some(m => m.context?.accepted && m.context.nativeId === s.nativeId && m.text.includes(managedHandoffNotice));
   const workRecord = s.purpose === 'work' && !s.scheduledRun?.managed && !s.cursorNative && (!hasWorkRecord || !managed || !!directoryChanged);
   const remoteContext = remoteFork && known[remoteFork.sourceId] !== remoteFork.snapshotHash ? remoteFork.remoteContext : undefined;
   const directoryNotice = directoryChanged ? '\n\n[工作目录变更]\n' + JSON.stringify({ previousDirectory: s.directoryChange!.from, workingDirectory: s.cwd, retainedCopies: s.directoryChange!.conflicts }) + '\n以上路径是工作台目录配置数据。后续新建、下载及相对路径均使用当前工作目录；旧路径仅供追溯，勿继续写入旧目录。若有保留副本，先核对其中的项目文件。' : '';
-  const text = userText + (workRecord ? workRecordInstructions(s) : '') + directoryNotice + (remoteContext ? '\n\n' + remoteContext : '') + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (journal?.text || '');
+  const attachmentIndexNotice = resultAttachmentIndex ? '\n\n[成果附件索引]\n' + resultAttachmentIndex + '\n只在需要时读取索引中的取件链接；链接通过本机终端访问，GET 返回本地路径 JSON，再自行读取所需范围。不要预载全部附件。' : '';
+  const text = userText + (workRecord ? workRecordInstructions(s) : '') + directoryNotice + (remoteContext ? '\n\n' + remoteContext : '') + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (journal?.text || '') + attachmentIndexNotice;
   const context: Omit<MessageContext, 'nativeId' | 'accepted'> = { ...(s.directoryChange ? { directoryRevision: s.directoryChange.id } : {}), workRecord, sourceHashes: { ...Object.fromEntries(sources.map(f => [f.id, f.sha256])), ...(remoteContext ? { [remoteFork!.sourceId]: remoteFork!.snapshotHash } : {}) }, ...(journal ? { projectJournal: journal.receipt } : {}) };
   return { text, sources, context };
 }

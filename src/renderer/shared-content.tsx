@@ -1,3 +1,4 @@
+import { supportsSessionResults } from '../shared/session-results';
 import { ResultDirectorySidebar, useResultDirectories, useResultDestination, moveResultDestinations } from './result-directories';
 import { resultDirectoryLabel, resultItemFolder, resultDirectoryPath } from '../shared/result-directories';
 import { MarkdownEditor } from './markdown-editor';
@@ -43,7 +44,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   const bulkDeleteRunning = useRef(false);
   const contentScope = useRef(''); contentScope.current = JSON.stringify([project.id, username, admin, resultId]);
   const [attachItem, setAttachItem] = useState<SharedContent>(), [attachSelection, setAttachSelection] = useState<string[]>([]), [attachBusy, setAttachBusy] = useState(false);
-  const attachSessions = candidateSessions.filter(session => session.purpose === 'work' && !session.closedAt && session.binding?.project.id === project.id);
+  const attachSessions = candidateSessions.filter(session => supportsSessionResults(session) && session.binding?.project.id === project.id);
   const currentAttachSelection = attachSelection.filter(id => attachSessions.some(session => session.id === id));
   useEffect(() => {
     const available = new Set(attachSessions.map(session => session.id));

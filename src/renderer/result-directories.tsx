@@ -51,7 +51,7 @@ export async function moveResultDestinations(projectId: string, scope: Scope, it
   } catch (reason: any) { throw new Error((moved ? `已移动 ${moved} 条，其余未完成。` : '') + reason.message); }
 }
 
-function DirectoryTree({ directories, value, change, all, counts = {}, disabled = false }: { directories: ResultDirectory[]; value: string; change: (id: string) => void; all?: boolean; counts?: Record<string, number>; disabled?: boolean }) {
+export function DirectoryTree({ directories, value, change, all, counts = {}, disabled = false }: { directories: ResultDirectory[]; value: string; change: (id: string) => void; all?: boolean; counts?: Record<string, number>; disabled?: boolean }) {
   const [collapsed, setCollapsed] = useState<string[]>([]);
   useEffect(() => { const ancestors = resultDirectoryPath(value, directories).map(item => item.id); setCollapsed(current => current.filter(id => !ancestors.includes(id))); }, [value, directories]);
   const nodes = resultDirectoryNodes(directories);

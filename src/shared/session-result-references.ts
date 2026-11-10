@@ -25,6 +25,7 @@ export function isRemovableSessionReference(session: AgentSession, source: Sourc
 // history, while excluding unavailable, never-sent results from new inputs.
 export function sessionWithAvailableReferences(session: AgentSession, conclusions: ProjectConclusion[]): AgentSession {
   const sources = session.sources.filter(source => {
+    if (source.supersededBy) return false;
     if (isProtectedSessionSource(session, source) || sourceWasAccepted(session, source)) return true;
     if (isConclusionSource(source)) {
       const id = source.sourcePath.match(/^local-conclusion:(.+):v\d+$/)![1];
