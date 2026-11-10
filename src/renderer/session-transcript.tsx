@@ -1,9 +1,10 @@
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { ChevronRight, LoaderCircle, Terminal } from 'lucide-react';
 import type { AgentSession, Message } from '../shared/types';
 import { withoutQuestionFillTurns } from '../shared/session-context-text';
 import { CursorNativeRecord } from './cursor-native-record';
 import { messageTimingMap } from '../shared/turn-timing';
+import { useTranscriptPages, type InheritedTranscript } from './transcript-pages';
 import { MessageTime, TurnTimingSummary } from './turn-timing';
 
 type TranscriptRow = { kind: 'message'; id: string; message: Message } | { kind: 'tools'; id: string; messages: Message[] };
@@ -104,27 +105,22 @@ function TurnActivityGroup({ messages, renderRow }: { messages: Message[]; rende
   </details>;
 }
 
-export const SessionTranscript = React.memo(function SessionTranscript({ session, renderMessage }: { session: AgentSession; renderMessage: (message: Message) => React.ReactNode; active?: boolean }) {
-  const [visibleCount, setVisibleCount] = useState(160);
-  const scrollRestore = useRef<{ element: HTMLElement; height: number; top: number } | undefined>(undefined);
-  const hiddenCount = Math.max(0, session.messages.length - visibleCount);
-  const rows = sessionDisplayRows({ ...session, messages: hiddenCount ? session.messages.slice(hiddenCount) : session.messages });
-  useLayoutEffect(() => {
-    const previous = scrollRestore.current;
-    if (!previous) return;
-    scrollRestore.current = undefined;
-    previous.element.scrollTop = previous.top + previous.element.scrollHeight - previous.height;
-  }, [visibleCount]);
+export const SessionTranscript = React.memo(function SessionTranscript({ session, renderMessage, active = true, inherited, readingEarlier }: {
+  session: AgentSession; renderMessage: (message: Message, inherited?: boolean) => React.ReactNode; active?: boolean;
+  inherited?: InheritedTranscript; readingEarlier?: () => void;
+}) {
+  const pages = useTranscriptPages(session.messages, inherited, active, readingEarlier);
+  const rows = sessionDisplayRows({ ...session, messages: session.messages.slice(pages.start) });
   const timings = messageTimingMap(session);
   const attached = new Set([...timings.values()].map(timing => timing.id));
-  const renderRow = (row: TranscriptRow, activity?: string) => row.kind === 'tools'
-    ? <React.Fragment key={`${session.id}:tools:${row.id}`}><ToolExecutionGroup messages={row.messages} activity={activity}/>{row.messages.filter(message => timings.has(message.id)).map(message => <TurnTimingSummary key={message.id} timing={timings.get(message.id)!}/>)}</React.Fragment>
-    : <React.Fragment key={`${session.id}:message:${row.id}`}>{renderMessage(row.message)}{timings.has(row.message.id) && <TurnTimingSummary timing={timings.get(row.message.id)!}/>}</React.Fragment>;
-  return <>{hiddenCount > 0 && <button className="transcript-more" onClick={event => {
-    const element = event.currentTarget.closest('.messages') as HTMLElement | null;
-    if (element) scrollRestore.current = { element, height: element.scrollHeight, top: element.scrollTop };
-    setVisibleCount(count => count + 160);
-  }}>加载更早消息（还有 {hiddenCount} 条）</button>}{rows.map((row, index) => row.kind === 'activity'
+  const renderRow = (row: TranscriptRow, activity?: string, historical = false) => row.kind === 'tools'
+    ? <React.Fragment key={`${session.id}:tools:${row.id}`}><ToolExecutionGroup messages={row.messages} activity={activity}/>{!historical && row.messages.filter(message => timings.has(message.id)).map(message => <TurnTimingSummary key={message.id} timing={timings.get(message.id)!}/>)}</React.Fragment>
+    : <React.Fragment key={`${session.id}:message:${row.id}`}>{renderMessage(row.message, historical)}{!historical && timings.has(row.message.id) && <TurnTimingSummary timing={timings.get(row.message.id)!}/>}</React.Fragment>;
+  const renderHistory = (row: TranscriptRow) => renderRow(row, undefined, true);
+  return <><div ref={pages.marker} className="transcript-boundary">{pages.status || (pages.remaining ? '向上滚动查看更早消息' : '')}</div>
+    {pages.history.length > 0 && <><div className="transcript-inherited">{sessionDisplayRows({ messages: pages.history, status: 'idle' }).map(row => row.kind === 'activity'
+      ? <TurnActivityGroup key={row.id} messages={row.messages} renderRow={renderHistory}/> : renderHistory(row))}</div>
+      <div className="transcript-divider">以上为创建时的父会话记录</div></>}{rows.map((row, index) => row.kind === 'activity'
     ? <TurnActivityGroup key={`${session.id}:activity:${row.id}`} messages={row.messages} renderRow={renderRow}/>
     : renderRow(row, index === rows.length - 1 && !session.closedAt ? session.status === 'approval' ? '等待确认' : ['running', 'starting'].includes(session.status) ? '本轮进行中' : undefined : undefined))}{session.turnTimings?.slice(-1).filter(timing => timing.finishedAt && !timing.userMessageId && !timing.assistantMessageIds.length && !attached.has(timing.id)).map(timing => <TurnTimingSummary key={timing.id} timing={timing}/>)}</>;
-}, (before, after) => after.active === false || before.active === after.active && before.session === after.session && before.renderMessage === after.renderMessage);
+}, (before, after) => before.active === false && after.active === false || before.active === after.active && before.session === after.session && before.renderMessage === after.renderMessage && before.inherited === after.inherited && before.readingEarlier === after.readingEarlier);

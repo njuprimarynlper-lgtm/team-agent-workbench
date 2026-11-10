@@ -12,6 +12,7 @@ import type { AgentSession, FollowUpMode, Message, SessionInput, SourceFile, Wor
 import { quoteSessionText, subsessionParentId } from '../shared/subsessions';
 import { sessionMessageText } from '../shared/session-context-text';
 import { submitOptimisticInput } from './composer-input';
+import { subsessionPages } from './transcript-pages';
 import { SessionTranscript } from './session-transcript';
 import { SessionTurnProgress } from './turn-timing';
 import { SelectionActions } from './selection-actions';
@@ -83,7 +84,7 @@ export function SubsessionChat({ session, sessions, input, inputDrafts, flush, e
   api: WorkbenchAPI; active: boolean; activeTurnId?: string; open: (session: AgentSession) => void; sideChat?: (session: AgentSession, text?: string) => void;
   promote: (session: AgentSession) => void; remove: (session: AgentSession) => void; closed: (id: string) => void; locked?: boolean; changed: () => Promise<void>; configureAgent?: () => void;
 }) {
-  const [error, setError] = useState(''), [sending, setSending] = useState(false), [history, setHistory] = useState<Message[]>();
+  const [error, setError] = useState(''), [sending, setSending] = useState(false);
   const [pending, setPending] = useState<PendingMessage>(), [failed, setFailed] = useState<SessionInput>();
   const lock = useRef(false), swappingDraft = useRef(false), availabilityLock = useRef(false), referenceLock = useRef(false);
   const [detaching, setDetaching] = useState(false);
@@ -93,10 +94,10 @@ export function SubsessionChat({ session, sessions, input, inputDrafts, flush, e
   const latestInput = useRef(current); latestInput.current = current;
   const actions = useRef({ edit, sideChat }); actions.current = { edit, sideChat };
   const editableMessageId = session && !locked ? editableTurnMessage(session)?.id : undefined;
-  const render = useMemo(() => session ? (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} editLast={editableMessageId === message.id ? async text => { if (!await api.call('session.editLast', { id: session.id, messageId: message.id, text })) throw Error('未能确认发送，请核对会话记录'); await changed(); } : undefined} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => { const current = latestInput.current; actions.current.edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }); } : undefined} sideChat={!session.closedAt && sideChat ? text => actions.current.sideChat?.(session, text) : undefined}/> : (_message: Message) => null, [session, !!sideChat, editableMessageId]);
-  const inherited = useMemo(() => session && history ? { ...session, messages: history, status: 'idle' as const, turnTimings: undefined } : undefined, [session, history]);
+  const render = useMemo(() => session ? (message: Message, inherited = false) => <ConversationMessage key={message.id} message={message} provider={session.provider} editLast={!inherited && editableMessageId === message.id ? async text => { if (!await api.call('session.editLast', { id: session.id, messageId: message.id, text })) throw Error('未能确认发送，请核对会话记录'); await changed(); } : undefined} text={message.role === 'system' && parseGuardNetworkProblem(message.text) ? guardNetworkMessage(parseGuardNetworkProblem(message.text)!) : sessionMessageText(session, message)} sessionId={session.id} quote={!session.closedAt ? text => { const current = latestInput.current; actions.current.edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text), nextTurnOnly: true }); } : undefined} sideChat={!session.closedAt && sideChat ? text => actions.current.sideChat?.(session, text) : undefined}/> : (_message: Message) => null, [session, !!sideChat, editableMessageId]);
+  const parentHistory = useMemo(() => subsessionPages(api, session), [api, session?.id, session?.fork]);
   const latestSessionId = useRef(session?.id); latestSessionId.current = session?.id;
-  useEffect(() => { setError(''); setHistory(undefined); }, [session?.id]);
+  useEffect(() => { setError(''); }, [session?.id]);
   useSessionCompletionRead(active ? session : undefined, (id, completionId) => api.call('session.completion.read', { id, completionId }), reason => setError(reason.message));
   const scrolling = useConversationScroll(session?.id, `${session?.messages.length}:${session?.messages.at(-1)?.text}:${pending?.text}`, active), messages = scrolling.ref;
   if (!session) return <div className="subsession-empty">在左侧会话菜单中创建或打开子会话。</div>;
@@ -167,13 +168,12 @@ export function SubsessionChat({ session, sessions, input, inputDrafts, flush, e
         </SessionMoreMenu>
       </div>
       {parent && <button className="subsession-parent text-button" title={'返回 ' + parent.title} onClick={() => open(parent)}>← {parent.title}</button>}
-      <p className="subsession-context-note" title="上下文独立；与父会话共用工作目录，文件修改会相互可见。">上下文独立 · 共用工作目录<SessionDirectoryStatus session={session}/></p>
+      <p className="subsession-context-note" title="上下文独立；与父会话共用工作目录，文件修改会相互可见。">上下文独立 · 共用工作目录{session.fork?.parentWasRunning && ' · 包含当时未完成的回复'}<SessionDirectoryStatus session={session}/></p>
     </header>
     {children.length > 0 && <details className="subsession-child-list"><summary>下级子会话 · {children.length}</summary><nav className="subsession-child-links" aria-label="下级子会话">{children.map(child => <button key={child.id} title={child.title} onClick={() => open(child)}><span>{child.title}</span><SessionStatusIndicator session={child}/></button>)}</nav></details>}
-    <div className="subsession-messages" ref={messages} onScroll={scrolling.onScroll}>
+    <div className="subsession-messages" data-transcript-scroll tabIndex={0} ref={messages} onScroll={scrolling.onScroll}>
       <SelectionActions sessionId={session.id} add={!session.closedAt ? text => edit(session.id, { text: current.text + (current.text ? '\n\n' : '') + quoteSessionText(text) }) : undefined} sideChat={!session.closedAt && sideChat ? text => sideChat(session, text) : undefined}>
-        {session.fork && <details className="inherited-conversation" onToggle={event => { if (event.currentTarget.open && !history) void api.call<Message[]>('subsession.history', { id: session.id }).then(setHistory, reason => setError(reason.message)); }}><summary>创建时的上下文 · {new Date(session.fork.capturedAt).toLocaleTimeString('zh-CN')}{session.fork.parentWasRunning ? ' · 包含当时未完成的回复' : ''}</summary>{inherited ? <SessionTranscript session={inherited} renderMessage={render} active={active}/> : <p>正在读取固定快照…</p>}</details>}
-        <SessionTranscript session={session} renderMessage={render} active={active}/>
+        <SessionTranscript key={session.id} session={session} renderMessage={render} active={active} inherited={parentHistory} readingEarlier={scrolling.readingEarlier}/>
       </SelectionActions>
       {pending && <PendingSessionMessage pending={pending} messages={session.messages} session={session}/>}
       <SessionTurnProgress session={session}/>

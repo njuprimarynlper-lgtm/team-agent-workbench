@@ -4,6 +4,7 @@ import type { AgentSession, Message, WorkbenchAPI } from '../shared/types';
 import { sessionMessageText } from '../shared/session-context-text';
 import { subsessionParentId } from '../shared/subsessions';
 import { ConversationMessage } from './conversation-message';
+import { subsessionPages } from './transcript-pages';
 import { SessionTranscript } from './session-transcript';
 import './closed-sessions.css';
 
@@ -71,13 +72,9 @@ export function ClosedSessionsDialog({ sessions, initialId, api, close, reopen, 
 }
 
 function ClosedSessionRecord({ session, api }: { session: AgentSession; api: WorkbenchAPI }) {
-  const [inherited, setInherited] = useState<Message[]>(), [error, setError] = useState('');
   const render = (message: Message) => <ConversationMessage key={message.id} message={message} provider={session.provider} text={sessionMessageText(session, message)} sessionId={session.id}/>;
-  return <div className="closed-session-record">
-    {session.fork && <details className="inherited-conversation" onToggle={event => {
-      if (event.currentTarget.open && !inherited) void api.call<Message[]>('subsession.history', { id: session.id }).then(setInherited, reason => setError(reason.message));
-    }}><summary>创建时的上下文</summary>{error ? <p className="inline-error" role="alert">{error}</p> : inherited ? <SessionTranscript session={{ ...session, messages: inherited, status: 'idle' }} renderMessage={render}/> : <p className="muted small">正在读取固定快照…</p>}</details>}
-    <SessionTranscript session={session} renderMessage={render}/>
+  return <div className="closed-session-record" data-transcript-scroll tabIndex={0}>
+    <SessionTranscript session={session} renderMessage={render} inherited={subsessionPages(api, session)}/>
     {!session.messages.length && <p className="muted small">此会话暂无对话记录。</p>}
   </div>;
 }
