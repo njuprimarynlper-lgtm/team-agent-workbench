@@ -38,6 +38,7 @@ export interface SubsessionReportPreview { childId: string; parentId: string; ti
 export interface SideChat { inheritedMessageCount?: number; pendingReferences?: Pick<SessionInput, 'sourceIds' | 'capabilities'>; id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
 export type SessionNetworkRoute = 'direct' | 'management';
 export interface AgentSession {
+  scheduledRun?: { taskId: string; runId: string; managed: boolean };
   /** Monotonic revision for changes stored outside the full session checkpoint. */
   storageRevision?: number;
   historyEditRecovery?: SessionInput;
@@ -104,7 +105,7 @@ export interface ModelOption { id: string; name: string; isDefault?: boolean; de
 export interface QuotaWindow { name: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }
 export interface ProviderCatalog { models: ModelOption[]; defaultModel?: string; defaultModelWarning?: string; modelError?: string; quota: { windows: QuotaWindow[]; detail: string; url: string }; checkedAt: string }
 export interface Snapshot { projectLinkTarget?: string; projectConnections?: Record<string, { connected: boolean; disconnecting?: boolean }>; sideChats?: SideChat[]; projectSync?: Record<string, { pending: boolean; localOnly: boolean; history?: { id: string; at: string; method: string }[]; error?: string; conflict?: import('./sync-conflict').SyncConflict }>; projectCreation?: import('./project-connection').ProjectCreationIntent; selectedProjectId?: string; reusableConnections?: import('./project-connection').ReusableProjectConnection[]; personal?: { settings: Settings; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; egress?: UserEgressStatus }; questions?: import('./questions').QuestionInbox; activity?: import('./activity-assistant').ActivityAssistantView; publishingConclusions?: string[]; accountChanging?: boolean; activeTurns?: Record<string, string>; accountSync?: import('./account-data').AccountSyncState; settings: Settings; sessions: AgentSession[]; inputs: Record<string, SessionInput>; transfers: Transfer[]; drafts: Draft[]; connection?: { profile: ConnectionProfile; connected: boolean; workspace?: WorkspaceAccess; workspaces: WorkspaceAccess[] }; providers: ProviderInfo[]; auth: Record<Provider, ProviderAuth>; workspaceReady: boolean; egress?: UserEgressStatus }
-export type WorkbenchEvent = { type: 'state' } | { type: 'questions' } | { type: 'notice'; message: string } | { type: 'session-delta'; session: Omit<AgentSession, 'messages' | 'sources'>; messages: Message[] } | { type: 'sidechat-delta'; chatId: string; session: Omit<AgentSession, 'messages' | 'sources'>; messages: Message[] };
+export type WorkbenchEvent = { type: 'scheduled-tasks' } | { type: 'state' } | { type: 'questions' } | { type: 'notice'; message: string } | { type: 'session-delta'; session: Omit<AgentSession, 'messages' | 'sources'>; messages: Message[] } | { type: 'sidechat-delta'; chatId: string; session: Omit<AgentSession, 'messages' | 'sources'>; messages: Message[] };
 export interface WorkbenchAPI {
   call<T = unknown>(action: string, payload?: unknown): Promise<T>;
   subscribe(listener: (event: WorkbenchEvent) => void): () => void;

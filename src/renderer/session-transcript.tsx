@@ -120,7 +120,7 @@ export const SessionTranscript = React.memo(function SessionTranscript({ session
   return <><div ref={pages.marker} className="transcript-boundary">{pages.status || (pages.remaining ? '向上滚动查看更早消息' : '')}</div>
     {pages.history.length > 0 && <><div className="transcript-inherited">{sessionDisplayRows({ messages: pages.history, status: 'idle' }).map(row => row.kind === 'activity'
       ? <TurnActivityGroup key={row.id} messages={row.messages} renderRow={renderHistory}/> : renderHistory(row))}</div>
-      <div className="transcript-divider">以上为创建时的父会话记录</div></>}{rows.map((row, index) => row.kind === 'activity'
+      <div className="transcript-divider">{inherited?.label || '以上为创建时的父会话记录'}</div></>}{rows.map((row, index) => row.kind === 'activity'
     ? <TurnActivityGroup key={`${session.id}:activity:${row.id}`} messages={row.messages} renderRow={renderRow}/>
     : renderRow(row, index === rows.length - 1 && !session.closedAt ? session.status === 'approval' ? '等待确认' : ['running', 'starting'].includes(session.status) ? '本轮进行中' : undefined : undefined))}{session.turnTimings?.slice(-1).filter(timing => timing.finishedAt && !timing.userMessageId && !timing.assistantMessageIds.length && !attached.has(timing.id)).map(timing => <TurnTimingSummary key={timing.id} timing={timing}/>)}</>;
 }, (before, after) => before.active === false && after.active === false || before.active === after.active && before.session === after.session && before.renderMessage === after.renderMessage && before.inherited === after.inherited && before.readingEarlier === after.readingEarlier);

@@ -6,9 +6,9 @@ export function PermissionSummary({ report }: { report?: PermissionReport }) {
   if (!report) return <p className="muted small">权限尚未检测</p>;
   return <div className="permission-summary"><p>{permissionReportDescription(report)}</p></div>;
 }
-export function PermissionPicker({ provider, cwd, networkRoute, mode, changed }: { provider: Provider; cwd: string; networkRoute: SessionNetworkRoute; mode: PermissionMode; changed: (m: PermissionMode) => void }) {
+export function PermissionPicker({ provider, cwd, networkRoute, mode, changed, api = window.workbench }: { api?: import('../shared/types').WorkbenchAPI; provider: Provider; cwd: string; networkRoute: SessionNetworkRoute; mode: PermissionMode; changed: (m: PermissionMode) => void }) {
   const [report, setReport] = useState<PermissionReport>(), [busy, setBusy] = useState(false), [error, setError] = useState(''); const sequence = useRef(0);
-  const check = async () => { const n = ++sequence.current; setBusy(true); setError(''); try { const next = await window.workbench.call<PermissionReport>('provider.permissions', { provider, cwd, networkRoute }); if (n === sequence.current) setReport(next); } catch (e: any) { if (n === sequence.current) setError('权限检测失败：' + e.message); } finally { if (n === sequence.current) setBusy(false); } };
+  const check = async () => { const n = ++sequence.current; setBusy(true); setError(''); try { const next = await api.call<PermissionReport>('provider.permissions', { provider, cwd, networkRoute }); if (n === sequence.current) setReport(next); } catch (e: any) { if (n === sequence.current) setError('权限检测失败：' + e.message); } finally { if (n === sequence.current) setBusy(false); } };
   useEffect(() => { setReport(undefined); if (cwd) void check(); return () => { sequence.current++; }; }, [provider, cwd, networkRoute]);
   return <section className="permission-picker" aria-label="CLI 执行权限"><div className="row"><b>执行权限</b><span className="spacer"/><button type="button" className="text-button" disabled={busy || !cwd} onClick={() => void check()}>{busy ? '检测中…' : '重新检测权限'}</button></div><label className="field">权限模式<select aria-label="权限模式" value={mode} onChange={e => changed(e.target.value as PermissionMode)}>{(['inherit', 'review', 'auto', 'full'] as const).map(m => {
       const unavailable = provider === 'cursor' && m === 'auto';
@@ -17,6 +17,6 @@ export function PermissionPicker({ provider, cwd, networkRoute, mode, changed }:
     })}</select></label>
     {mode !== 'inherit' && <p className="muted small">{permissionEffects[provider][mode]}</p>}
     {error && <p className="inline-error" role="alert">{error}</p>}<PermissionSummary report={report}/>
-    {provider === 'cursor' && mode === 'review' && <details className="cursor-review-config"><summary>配置 Cursor Allowlist</summary><p>清空账号及当前目录的自动允许列表，启用白名单审批；保留拒绝规则并备份配置。会影响使用同一配置的其他 Cursor CLI 会话。</p>{report?.cursorConfig?.files.map(file => <code key={file}>{file}</code>)}<button className="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const next = await window.workbench.call<PermissionReport>('provider.cursorReview', { cwd }); setReport(next); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>应用 Cursor Allowlist 配置</button></details>}
+    {provider === 'cursor' && mode === 'review' && <details className="cursor-review-config"><summary>配置 Cursor Allowlist</summary><p>清空账号及当前目录的自动允许列表，启用白名单审批；保留拒绝规则并备份配置。会影响使用同一配置的其他 Cursor CLI 会话。</p>{report?.cursorConfig?.files.map(file => <code key={file}>{file}</code>)}<button className="secondary" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { const next = await api.call<PermissionReport>('provider.cursorReview', { cwd }); setReport(next); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>应用 Cursor Allowlist 配置</button></details>}
   </section>;
 }

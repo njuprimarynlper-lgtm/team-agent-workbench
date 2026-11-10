@@ -14,7 +14,8 @@ import { draftDeleteIdsSchema } from '../shared/draft-delete';
 import { preparationDirectionsSchema } from '../shared/preparation-directions';
 import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema, resultReferenceSchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
-import { app, BrowserWindow, Notification, ipcMain, dialog, shell, clipboard, safeStorage } from 'electron';
+import { app, BrowserWindow, Notification, ipcMain, dialog, shell, clipboard, safeStorage, Tray, Menu, nativeImage, powerMonitor } from 'electron';
+import { scheduledTaskInputSchema } from '../shared/scheduled-task';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -82,6 +83,12 @@ let personalContext: DataContext | undefined;
 let personalRelay: DataContext | undefined;
 function actionContext(action: string, raw: any, owner: BrowserWindow, preferPersonal = false): DataContext {
   const team = contexts.get(owner)!;
+  if (personalContext && action.startsWith('scheduledTask.') && raw?.id && (personalContext.workbench.scheduled.ownsTask(raw.id) || personalContext.workbench.scheduled.ownsRun(raw.id))) return personalContext;
+  if (personalContext && action === 'scheduledTask.deleteRuns' && Array.isArray(raw?.ids)) {
+    const count = raw.ids.filter((id: string) => personalContext!.workbench.scheduled.ownsRun(id)).length;
+    if (count && count !== raw.ids.length) throw Error('请分别删除不同账号的运行记录');
+    if (count) return personalContext;
+  }
   preferPersonal ||= personalWindows.has(owner);
   if (personalContext && !['project.link', 'project.create', 'project.initialize', 'local.move'].includes(action) && raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
   if (!personalContext || action === 'snapshot' || action === 'workspace.select' || action === 'layout.sidebar' || action.startsWith('account.') || action === 'local.move' || /^(remote\.|group\.|project\.|assignment\.|question\.|rsi\.|content\.|team\.|directions\.)/.test(action)) return team;
@@ -89,6 +96,7 @@ function actionContext(action: string, raw: any, owner: BrowserWindow, preferPer
   if (raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
   if (Array.isArray(raw?.ids)) { const localIds = new Set([...personalContext.workbench.store.sessions, ...personalContext.workbench.store.drafts].map(item => item.id)); if (raw.ids.some((id: string) => localIds.has(id)) && !raw.ids.every((id: string) => localIds.has(id))) throw new Error('请分别处理未分项目和团队项目中的记录'); if (raw.ids.every((id: string) => localIds.has(id))) return personalContext; }
   const sessionId = action.startsWith('sidechat.') ? raw?.parentId : raw?.id || raw?.parentId || raw?.sessionId;
+  if (sessionId && /^session\.file/.test(action) && !team.workbench.store.sessions.some(session => session.id === sessionId) && personalContext.workbench.scheduled.ownsSession(sessionId)) return personalContext;
   if (sessionId && !preferPersonal && team.workbench.store.conclusions.some(item => item.id === sessionId)) return team;
   if (sessionId && (personalContext.workbench.store.sessions.some(item => item.id === sessionId) || personalContext.workbench.store.drafts.some(item => item.id === sessionId) || personalContext.workbench.store.conclusions.some(item => item.id === sessionId))) return personalContext;
   if (raw?.projectId && raw.projectId !== PERSONAL_PROJECT_ID) return team;
@@ -154,6 +162,28 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
         ? local.movePersonalTo(workbench, p.projectId, p)
         : source.moveWithinLocal(p.projectId, p);
     }
+    case 'scheduledTask.list': {
+      const p = z.object({ projectId: z.string().optional() }).parse(raw || {});
+      return [...new Set([contexts.get(owner)?.workbench, personalContext?.workbench].filter(Boolean))].flatMap(value => value!.scheduled.list(p.projectId));
+    }
+    case 'scheduledTask.location': { const p = z.object({ projectId: z.string() }).parse(raw); return workbench.scheduledLocation(p.projectId); }
+    case 'scheduledTask.pickAttachments': { const p = z.object({ projectId: z.string() }).parse(raw); workbench.assertCanWork(workbench.projectBinding(p.projectId)); return workbench.scheduled.stage(await chooseFiles(owner)); }
+    case 'scheduledTask.save': { const p = z.object({ id: z.string().uuid().optional(), input: scheduledTaskInputSchema }).parse(raw); const target = actionContext(action, { id: p.id, projectId: p.input.projectId }, owner); return target.workbench.scheduled.saveTask(p.input, p.id); }
+    case 'scheduledTask.attach': { const p = z.object({ id: z.string().uuid() }).parse(raw); return workbench.scheduled.attachments(p.id, await chooseFiles(owner)); }
+    case 'scheduledTask.detach': { const p = z.object({ id: z.string().uuid(), sourceId: z.string().uuid() }).parse(raw); return workbench.scheduled.attachments(p.id, [], p.sourceId); }
+    case 'scheduledTask.pause': { const p = z.object({ id: z.string().uuid(), paused: z.boolean() }).parse(raw); return workbench.scheduled.pause(p.id, p.paused); }
+    case 'scheduledTask.runNow': return workbench.scheduled.runNow(z.object({ id: z.string().uuid() }).parse(raw).id);
+    case 'scheduledTask.delete': { const p = z.object({ id: z.string().uuid(), deleteHistory: z.boolean().default(false) }).parse(raw); return workbench.scheduled.remove(p.id, p.deleteHistory); }
+    case 'scheduledTask.runs': {
+      const p = z.object({ projectId: z.string().optional(), taskId: z.string().uuid().optional(), offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(100).default(30) }).parse(raw || {});
+      const all = [...new Set([contexts.get(owner)?.workbench, personalContext?.workbench].filter(Boolean))].flatMap(value => value!.scheduled.runs(p.projectId, p.taskId, 0, Number.MAX_SAFE_INTEGER).items).sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      return { items: all.slice(p.offset, p.offset + p.limit), total: all.length };
+    }
+    case 'scheduledTask.open': return workbench.scheduled.open(z.object({ id: z.string().uuid() }).parse(raw).id);
+    case 'scheduledTask.historyPage': { const p = z.object({ id: z.string().uuid(), before: z.number().int().nonnegative(), limit: z.number().int().min(1).max(transcriptPageSize).default(transcriptPageSize) }).parse(raw); return workbench.scheduled.page(p.id, p.before, p.limit); }
+    case 'scheduledTask.continue': return workbench.scheduled.continueRun(z.object({ id: z.string().uuid() }).parse(raw).id);
+    case 'scheduledTask.stop': return workbench.scheduled.stop(z.object({ id: z.string().uuid() }).parse(raw).id);
+    case 'scheduledTask.deleteRuns': return workbench.scheduled.deleteRuns(z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }).parse(raw).ids);
     case 'snapshot': {
       const known = z.object({ accountKey: z.string(), sessions: z.record(z.string(), z.string().max(100)).optional() }).optional().parse(raw);
       const snapshot = switchingWindows.has(owner) ? scopeAccountSnapshot({ ...workbench.snapshot(), accountChanging: true }) : workbench.snapshot();
@@ -584,11 +614,11 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       return true;
     }
     case 'copy': clipboard.writeText(text.parse(raw)); return true;
-    case 'session.files': return listSessionFiles(workbench.session(sessionInput.parse(raw).id));
-    case 'session.file.preview': { const p = z.object({ id, path: text }).parse(raw); return previewSessionFile(workbench.session(p.id), p.path); }
+    case 'session.files': return listSessionFiles(await workbench.sessionForFiles(sessionInput.parse(raw).id));
+    case 'session.file.preview': { const p = z.object({ id, path: text }).parse(raw); return previewSessionFile(await workbench.sessionForFiles(p.id), p.path); }
     case 'session.file.open': {
       const p = z.object({ id, path: text, reveal: z.boolean().default(false) }).parse(raw);
-      const { target } = await checkedSessionFile(workbench.session(p.id), p.path);
+      const { target } = await checkedSessionFile(await workbench.sessionForFiles(p.id), p.path);
       if (process.env.WORKBENCH_TEST === '1') return target;
       if (p.reveal) { shell.showItemInFolder(target); return target; }
       if (/\.(exe|com|bat|cmd|ps1|sh|msi|vbs|vbe|js|jse|wsf|wsh|scr|lnk|url|reg|hta)$/i.test(target)) throw new Error('脚本和程序请在页面预览或使用“打开所在文件夹”');
@@ -813,9 +843,9 @@ async function createDataContext(root: string, personal = false): Promise<DataCo
   let emitTimer: NodeJS.Timeout | undefined;
   const broadcast = () => { egress?.sharedServerConnectionChanged(personal ? !!personalRelay?.workbench.remote.connected : !!workbench?.remote.connected); if (!personal) personalContext?.egress.sharedServerConnectionChanged(!!personalRelay?.workbench.remote.connected); if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) syncTaskbar(window, context.workbench); }, 80); };
   const notice = (message: string) => { emit({ type: 'notice', message });
-    if (/^(收到求助|收到求助答复|求助已关闭|收到提问|收到问题答复|问题已关闭)：/.test(message) && Notification.isSupported()) {
-      const notification = new Notification({ title: '团队工作台 · 寻求帮助', body: message });
-      notification.on('click', () => { for (const [window, context] of contexts) if (context.workbench === workbench && !window.isDestroyed()) { window.show(); window.focus(); window.webContents.send('workbench:event', { type: 'questions' }); break; } });
+    if (/^(定时任务完成|定时任务结束|定时任务待处理|收到求助|收到求助答复|求助已关闭|收到提问|收到问题答复|问题已关闭)：/.test(message) && Notification.isSupported()) {
+      const notification = new Notification({ title: message.startsWith('定时任务') ? '团队工作台 · 定时任务与授权' : '团队工作台 · 寻求帮助', body: message });
+      notification.on('click', () => { for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) { window.show(); window.focus(); window.webContents.send('workbench:event', { type: message.startsWith('定时任务') ? 'scheduled-tasks' : 'questions' }); break; } });
       notification.show();
     } if (message.startsWith('待授权：')) for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed() && !window.isFocused()) window.flashFrame(true); };
   let egress: EgressClientProxy | undefined;
@@ -863,8 +893,7 @@ async function createWindow(preferredSlot?: number, fresh = false, reuse?: { pro
     if (quitting || closingWindows.has(window)) return;
     event.preventDefault();
     dismissWindow(window);
-    if (windows.size === 1) void finishQuit();
-    else void closeWindow(window);
+    ensureTaskTray();
   });
   window.on('closed', () => {
     for (const current of contexts.values()) current.workbench.activity.removeWindow(String(window.id));
@@ -928,7 +957,28 @@ if (ownDataDirectory(latestWindow, queueLauncherWindow)) app.whenReady().then(as
   windowsReady = true;
   void drainAdditionalWindows();
 }).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
-app.on('window-all-closed', () => { if (!closing) void finishQuit(); });
+app.on('window-all-closed', () => { if (!closing && !taskTray) void finishQuit(); });
+let taskTray: Tray | undefined;
+app.whenReady().then(() => {
+  const services = () => [...new Set([personalContext, ...contexts.values()].filter(Boolean).map(context => context!.workbench.scheduled))];
+  powerMonitor.on('suspend', () => services().forEach(service => service.suspend()));
+  powerMonitor.on('resume', () => services().forEach(service => void service.resumeAfterSleep().catch(error => console.error('恢复定时任务失败', errorMessage(error)))));
+});
+function ensureTaskTray() {
+  if (taskTray) return;
+  // Electron nativeImage does not decode SVG consistently on Windows; use a small RGBA clock.
+  const pixels = Buffer.alloc(32 * 32 * 4);
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+    const i = (y * 32 + x) * 4, d = Math.hypot(x - 16, y - 16);
+    const white = d >= 10 && d <= 12 || x >= 15 && x <= 17 && y >= 8 && y <= 17 || y >= 15 && y <= 17 && x >= 16 && x <= 24;
+    pixels.set(white ? [255, 255, 255, 255] : [36, 122, 83, 255], i);
+  }
+  taskTray = new Tray(nativeImage.createFromBitmap(pixels, { width: 32, height: 32 }));
+  taskTray.setToolTip('团队工作台 · 定时任务后台运行中');
+  const open = () => { for (const window of windows) if (!window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); return; } void createWindow(); };
+  taskTray.on('double-click', open);
+  taskTray.setContextMenu(Menu.buildFromTemplate([{ label: '打开工作台', click: open }, { type: 'separator' }, { label: '退出工作台', click: () => void finishQuit() }]));
+}
 function dismissWindow(window: BrowserWindow) {
   if (window.isDestroyed()) return;
   window.hide();
@@ -950,6 +1000,7 @@ async function closeWindow(window: BrowserWindow) {
 }
 async function finishQuit() {
   if (closing) return; closing = true;
+  taskTray?.destroy(); taskTray = undefined;
   const pending = [...contexts.entries()];
   for (const [window, context] of pending) {
     closingWindows.add(window); activeSlots.delete(context.slot); windows.delete(window); contexts.delete(window);

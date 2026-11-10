@@ -4,6 +4,7 @@ import type { AgentSession, Message, WorkbenchAPI } from '../shared/types';
 import { inheritedMessageCount } from '../shared/transcript-page';
 
 export interface InheritedTranscript {
+  label?: string;
   count: number;
   read: (before: number, limit: number) => Promise<TranscriptPage>;
 }
@@ -32,7 +33,7 @@ export function useTranscriptPages(messages: Message[], inherited: InheritedTran
     try {
       let previous: TranscriptPage | undefined;
       if (limit && inherited && before) {
-        setStatus('正在读取创建时的消息…');
+        setStatus(inherited.label ? '正在读取更早消息…' : '正在读取创建时的消息…');
         previous = await inherited.read(before, limit);
       }
       if (!mounted.current) return;
