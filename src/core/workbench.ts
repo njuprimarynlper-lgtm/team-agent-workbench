@@ -1,3 +1,5 @@
+import { SessionResults } from './session-results';
+import { sourceResultReference } from '../shared/session-results';
 import { teamAccessRevoked } from '../shared/team-cache';
 import { pruneTeamCache, refreshTeamCache } from './team-cache';
 import { conclusionPublicationOrigin, resolveConclusionPublication } from './conclusion-sharing';
@@ -77,7 +79,7 @@ import { applyWorkspacePaths, relocateWorkspace, remapWorkspacePath } from './wo
 import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
-import { attachedConclusion, conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
+import { conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
 import { acceptedSessionContext, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
 import { subsessionFamily, subsessionParentId, sessionMoveFamilyIds } from '../shared/subsessions';
 import { changedWorkspaceFiles, reportSourceHash } from './subsession-report';
@@ -107,6 +109,7 @@ import { ScheduledTasks } from './scheduled-tasks';
 import type { ScheduledTask, ScheduledRun } from '../shared/scheduled-task';
 
 export class Workbench {
+  readonly resultReferences: SessionResults;
   readonly scheduled: ScheduledTasks;
   readonly inputQueue: SessionInputQueue;
   private inputQueueTimer?: NodeJS.Timeout;
@@ -192,7 +195,7 @@ export class Workbench {
   async runAccountOperation<T>(action: string, operation: () => Promise<T>): Promise<T> {
     const independent = ['snapshot', 'remote.connect', 'project.connection.open'].includes(action);
     if (!independent) this.assertAccountReady();
-    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.transcriptPage', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.historyPage', 'sidechat.historyPage', 'sidechat.transcriptPage', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
+    const readOnly = ['result.directory.list', 'team.cache.read', 'directions.list', 'rsi.view', 'rsi.inbox', 'rsi.settings', 'rsi.summary', 'remote.list', 'remote.preview', 'remote.manifest', 'content.list', 'content.history', 'content.sync', 'content.updates', 'account.sync', 'project.brief', 'question.members', 'question.sync', 'assignment.list', 'assignment.members', 'conclusion.list', 'conclusion.match', 'content.deletion.conclusions', 'session.history', 'session.transcriptPage', 'session.resultCandidates', 'session.files', 'session.file.preview', 'session.source.preview', 'handoff.read', 'handoff.list', 'subsession.history', 'subsession.historyPage', 'sidechat.historyPage', 'sidechat.transcriptPage', 'subsession.report.preview', 'draft.attachment.preview', 'content.attachment.preview', 'conclusion.file.preview', 'question.file.preview', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'copy', 'open.link', 'open.data'].includes(action);
     const epoch = this.accountRevision, token = Symbol(action);
     if (!independent && !readOnly) this.accountMutations.add(token);
     try {
@@ -234,6 +237,19 @@ export class Workbench {
       unload: session => this.unloadScheduledRun(session),
       restore: async session => { this.assertCanWork(this.projectBinding(session.binding!.project.id)); session.closedAt = undefined; session.stoppedAt = undefined; session.status = 'idle'; session.error = undefined; session.followProjectBrief = true; if (!this.store.sessions.some(value => value.id === session.id)) this.store.sessions.unshift(session); await this.store.save(); this.broadcast(); return session; },
       stop: id => this.stop(id), changed: this.broadcast, notice: this.notice,
+    });
+    this.resultReferences = new SessionResults({
+      store: this.store, remote: this.remote,
+      session: id => { const session = this.session(id); this.assertCanWork(session.binding); return session; },
+      fileSession: id => this.sessionForFiles(id), personal: (id, archived) => this.conclusions(id, archived),
+      directories: id => this.personalResultDirectories(id),
+      binding: id => { const binding = this.projectBinding(id); this.assertCanWork(binding); return binding; },
+      connected: id => this.projectConnected(id), teamTitle: (id, item) => this.localContentTitle(id, item),
+      edit: (id, run) => this.edit(id, run, false), changed: this.broadcast,
+      record: (reference, session, title) => {
+        if (reference.scope === 'team') this.recordContentAction(reference.projectId, reference.id, reference.version, { kind: 'attached_session', targetId: session.id, targetTitle: session.title, sourceTitle: title });
+        else for (const origin of this.store.conclusions.find(item => item.id === reference.id)?.sources || []) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(reference.projectId, origin.id, origin.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title });
+      },
     });
     this.journal = new ProjectJournal(this.store);
     this.questions = new Questions(this.store, this.remote, {
@@ -328,6 +344,7 @@ export class Workbench {
     this.ensureNativeTranscriptSync();
     await this.startCursorNativeSessions();
     await this.scheduled.init();
+    await this.resultReferences.restore();
   }
   async scheduledLocation(projectId: string, taskId?: string) {
     const binding = this.projectBinding(projectId); this.assertCanWork(binding);
@@ -1521,7 +1538,7 @@ export class Workbench {
       await this.store.save(); this.workspaceReady = !!this.remote.workspaces.length;
       await this.startCursorNativeSessions(); this.broadcast(); return result;
     } catch (error) { this.remote.disconnect(); throw error; }
-    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); } this.broadcast(); }
+    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); } this.broadcast(); }
   }
   async initializeProject(name: string, groupName: string, brief: ProjectBrief, contextKey: string) {
     this.assertWorkspace();
@@ -2092,9 +2109,11 @@ export class Workbench {
     const write = previous.then(() => this.store.event(id, value)).catch(e => this.notice('会话事件保存失败：' + e.message));
     this.eventWrites.set(id, write);
   }
-  private async availableSessionContext(session: AgentSession, userText: string, sourceIds: string[], history = session.messages) {
+  private async availableSessionContext(session: AgentSession, userText: string, sourceIds: string[], history = session.messages, pendingResults = true) {
     if (sourceIds.some(id => !session.sources.some(source => source.id === id))) throw new Error('引用不属于当前会话');
-    const available = sessionWithAvailableReferences({ ...session, messages: history }, this.store.conclusions);
+    const snapshot = { ...session, messages: history, sources: structuredClone(session.sources) };
+    if (!pendingResults) snapshot.sources = snapshot.sources.filter(source => !sourceResultReference(snapshot, source) || sourceWasAccepted(snapshot, source));
+    const available = sessionWithAvailableReferences(snapshot, this.store.conclusions);
     sourceIds = [...new Set([...sourceIds, ...available.sources.filter(source => source.sourcePath.startsWith('question:')).map(source => source.id)])];
     const ids = new Set(available.sources.map(source => source.id));
     const journal = session.scheduledRun?.managed || session.cursorNative || session.codexRemote ? undefined : await this.journal.context(available);
@@ -2103,7 +2122,8 @@ export class Workbench {
       session.autoUpload = false; clearTimeout(this.trajectoryTimers.get(session.id)); this.trajectoryTimers.delete(session.id);
       this.sessionNotice(session, '项目日志包含其他个人会话，已关闭此会话的轨迹自动上传；核对后仍可手动上传。');
     }
-    const input = sessionContext(available, userText, sourceIds.filter(id => ids.has(id)), journal);
+    const resultIndex = await this.resultReferences.prepareContext({ ...available, sources: snapshot.sources.filter(source => ids.has(source.id) || sourceWasAccepted(snapshot, source)) });
+    const input = sessionContext(available, userText, sourceIds.filter(id => ids.has(id)), journal, resultIndex);
     if (session.codexRemote && input.sources.length) throw new Error('远程会话暂不支持附带本机参考文件，请移除本机文件引用后发送');
     return input;
   }
@@ -2273,7 +2293,7 @@ export class Workbench {
     if (!expectedTurnId || runtime?.activeTurnId !== expectedTurnId) throw new Error('当前轮次已结束或发生变化，引导未发送；请核对后重新发送');
     this.steering.add(id);
     try {
-      const input = await this.availableSessionContext(s, userText, sourceIds);
+      const input = await this.availableSessionContext(s, userText, sourceIds, s.messages, false);
       for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
       const capabilities = await runtime.resolveCapabilities(capabilitySelections);
       this.assertCanWork(s.binding);
@@ -2292,7 +2312,7 @@ export class Workbench {
     if (s.closedAt || this.stoppingSessions.has(id) || this.closing || this.steering.has(id) || !['running', 'approval'].includes(s.status)) return false;
     this.steering.add(id);
     try {
-      const input = await this.availableSessionContext(s, userText, []);
+      const input = await this.availableSessionContext(s, userText, [], s.messages, false);
       input.context.questionRunId = runId;
       input.text = agentNotice + input.text;
       await runtime.steer(runtime.activeTurnId, input.text, { userText, context: input.context });
@@ -2859,52 +2879,16 @@ export class Workbench {
     s.sources.push(source); await this.store.save(); this.broadcast(); return source;
   }
   async attachContent(id: string, contentId: string, expectedRevision?: number) {
-    return this.edit('content-attach:' + id, async () => {
-      const session = this.session(id); this.assertCanWork(session.binding); if (!session.binding) throw new Error('请选择项目');
-      if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
-      const item = (await this.remote.contentList(session.binding)).find(i => i.id === contentId); if (!item) throw new Error('内容已删除，请刷新');
-      if (expectedRevision !== undefined && item.revision !== expectedRevision) throw new Error('成果版本已变化，请查看新动态后重新选择');
-      assertContentReadable(item);
-      if (session.closedAt) throw new Error('请选择未关闭的工作会话');
-      const existing = session.sources.find(source => source.contentRef
-        ? source.contentRef.projectId === session.binding!.project.id && source.contentRef.id === item.id && source.contentRef.revision === item.revision
-        : source.sourcePath === item.path && source.name.endsWith(' · v' + item.revision));
-      if (existing) return existing;
-      const local = path.join(this.store.sessionDir(id), 'reference-' + randomUUID() + '.md'); await fs.mkdir(path.dirname(local), { recursive: true });
-      const localTitle = this.localContentTitle(session.binding.project.id, item);
-      await fs.writeFile(local, `# ${localTitle}\n\n远端原标题：${item.title}\n提交人：${item.author}；维护人：${item.updatedBy}；修订：${item.revision}；更新：${item.updatedAt}\n来源：${item.path}\n${item.repoUrl || ''}\n\n${item.description}`);
-      const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local); source.name = localTitle + ' · v' + item.revision; source.sourcePath = item.path;
-      source.contentRef = { projectId: session.binding.project.id, id: item.id, revision: item.revision };
-      if (session.closedAt) throw new Error('请选择未关闭的工作会话');
-      session.sources.push(source);
-      this.recordContentAction(session.binding.project.id, item.id, item.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title, sourceTitle: item.title });
-      await this.store.save(); this.broadcast(); return source;
-    }, false);
+    return this.resultReferences.one(id, 'team', contentId, expectedRevision);
   }
-  async attachConclusion(id: string, conclusionId: string) {
-    return this.edit('conclusion-attach:' + id, async () => {
-      const session = this.session(id); this.assertCanWork(session.binding);
-      if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
-      const conclusion = this.conclusion(conclusionId);
-      if (!session.binding || session.binding.project.id !== conclusion.projectId) throw new Error('结论与当前会话不属于同一项目');
-      const existing = attachedConclusion(session, conclusionId); if (existing) return existing;
-      if (conclusion.archived) throw new Error('结论已归档，请恢复后再加入会话');
-      const sourcePath = `local-conclusion:${conclusion.id}:v${conclusion.version}`;
-      const local = path.join(this.store.sessionDir(id), 'conclusion-' + randomUUID() + '.md'); await fs.mkdir(path.dirname(local), { recursive: true });
-      const sources = conclusion.sources.length ? '\n\n来源：\n' + conclusion.sources.map(source => `- ${source.title}${source.revision ? ` · v${source.revision}` : ''}${source.path ? ` · ${source.path}` : ''}`).join('\n') : '\n\n来源：本机手工记录';
-      await fs.writeFile(local, `# ${conclusion.title}\n\n本地结论版本：v${conclusion.version}\n更新时间：${conclusion.updatedAt}${sources}\n\n${conclusion.content}`);
-      const source = await freezeFile(local, path.join(this.store.sessionDir(id), 'sources')); await fs.unlink(local); source.name = conclusionTitle(conclusion) + ' · 本地结论 v' + conclusion.version; source.sourcePath = sourcePath;
-      if (session.closedAt) throw new Error('请选择未关闭的工作会话');
-      session.sources.push(source);
-      for (const origin of conclusion.sources) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(conclusion.projectId, origin.id, origin.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title });
-      await this.store.save(); this.broadcast(); return source;
-    }, false);
+  async attachConclusion(id: string, conclusionId: string, expectedVersion?: number) {
+    return this.resultReferences.one(id, 'personal', conclusionId, expectedVersion);
   }
   async detachPendingSource(id: string, sourceId: string) {
     return this.edit('source-detach:' + id, async () => {
       const session = this.session(id); this.assertCanWork(session.binding);
       if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
-      if (this.sending.has(id) || this.steering.has(id) || ['starting', 'running', 'approval'].includes(session.status)) throw new Error('会话正在发送，请等待本轮结束后重试');
+      if (this.sending.has(id) || this.steering.has(id) || session.status === 'starting') throw new Error('消息正在提交，请稍后撤销未发送的引用');
       const source = session.sources.find(item => item.id === sourceId);
       if (!source) throw new Error('引用不属于当前会话');
       if (isProtectedSessionSource(session, source)) throw new Error('项目说明、任务资料或父会话继承内容不能在此撤销');
@@ -2913,6 +2897,11 @@ export class Workbench {
       if (matches.some(item => sourceWasAccepted(session, item))) throw new Error('这份参考内容已发送给模型，不能从当前对话历史中撤销');
       const removed = new Set(matches.map(item => item.id));
       session.sources = session.sources.filter(item => !removed.has(item.id));
+      for (const item of session.sources) if (item.supersededBy && removed.has(item.supersededBy)) {
+        let successor = item.supersededBy; const seen = new Set<string>();
+        while (successor && removed.has(successor) && !seen.has(successor)) { seen.add(successor); successor = matches.find(value => value.id === successor)?.supersededBy || ''; }
+        if (successor && !removed.has(successor)) item.supersededBy = successor; else delete item.supersededBy;
+      }
       const input = this.store.inputs[id]; if (input) input.sourceIds = input.sourceIds.filter(item => !removed.has(item));
       const refs = new Map<string, { projectId: string; id: string; revision: number }>();
       for (const item of matches) {
@@ -4011,5 +4000,5 @@ export class Workbench {
     }
     return this.closeTask;
   }
-  private async closeOnce() { this.closing = true; await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  private async closeOnce() { this.closing = true; await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

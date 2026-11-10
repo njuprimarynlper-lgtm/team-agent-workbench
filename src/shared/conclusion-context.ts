@@ -11,6 +11,6 @@ export function isConclusionSource(source: SourceFile) {
   return /^local-conclusion:.+:v\d+$/.test(source.sourcePath);
 }
 
-export function attachedConclusion(session: AgentSession, conclusionId: string) {
-  return session.sources.find(source => isConclusionSource(source) && source.sourcePath.startsWith(`local-conclusion:${conclusionId}:v`));
+export function attachedConclusion(session: AgentSession, conclusionId: string, version?: number) {
+  return [...session.sources].reverse().find(source => !source.supersededBy && !source.resultUnavailable && isConclusionSource(source) && (version === undefined ? source.sourcePath.startsWith(`local-conclusion:${conclusionId}:v`) : source.sourcePath === `local-conclusion:${conclusionId}:v${version}`));
 }

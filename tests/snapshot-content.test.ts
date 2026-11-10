@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import type { AgentSession, Snapshot } from '../src/shared/types';
 import { compactSnapshotContent, hydrateSnapshotContent, knownSessionContent } from '../src/shared/snapshot-content';
 import { snapshotAccountKey } from '../src/shared/account-scope';
+import { acceptedSessionContext, sourceWasAccepted } from '../src/shared/session-context';
+import { pendingComposerReferences } from '../src/renderer/composer-references';
 
 const session = (): AgentSession => ({ id: '11111111-1111-4111-8111-111111111111', title: '会话', provider: 'codex', purpose: 'work', status: 'idle', createdAt: '2026-01-01T00:00:00.000Z', cwd: '', handoffPath: '', sources: [], approvals: [], autoUpload: false,
   messages: [{ id: 'm1', role: 'assistant', text: '历史消息', createdAt: '2026-01-01T00:00:00.000Z' }] });
@@ -54,4 +56,25 @@ test('paged snapshot sends only the newest message page and keeps the full count
   const withChat = compactSnapshotContent(data, snapshotAccountKey(data), undefined, true);
   assert.equal(withChat.sideChats?.[0].session.messageCount, 700);
   assert.equal(withChat.sideChats?.[0].session.messages.length, 160);
+});
+
+test('paged history retains reference receipts without presenting old sent results as removable pending inputs', () => {
+  const full = session(); full.nativeId = 'current';
+  full.sources = ['current', 'previous', 'unsent'].map(id => ({ id, name: id, sourcePath: `local-conclusion:${id}:v1`, localPath: '/frozen/' + id + '.md', sha256: 'hash-' + id, size: 1, fetchedAt: '' }));
+  full.messages = Array.from({ length: 700 }, (_, index) => ({ ...full.messages[0], id: `m${index}` }));
+  full.messages[0].context = { nativeId: 'previous', accepted: true, workRecord: false, sourceHashes: { previous: 'hash-previous' } };
+  full.messages[1].context = { nativeId: 'current', accepted: true, workRecord: true, sourceHashes: { current: 'hash-current' } };
+  full.messages[2].context = { nativeId: 'current', accepted: false, workRecord: false, sourceHashes: { unsent: 'hash-unsent' } };
+  const data = snapshot(full), paged = compactSnapshotContent(data, snapshotAccountKey(data), undefined, true).sessions[0];
+  assert.equal(paged.messages.length, 160);
+  assert.deepEqual(acceptedSessionContext(paged), acceptedSessionContext(full));
+  assert(sourceWasAccepted(paged, paged.sources[0])); assert(sourceWasAccepted(paged, paged.sources[1]));
+  assert(!sourceWasAccepted(paged, paged.sources[2]));
+  assert.deepEqual(pendingComposerReferences(paged, []).map(item => [item.source.id, item.removable]), [['unsent', true], ['previous', false]]);
+  const compact = compactSnapshotContent(data, snapshotAccountKey(data), knownSessionContent(snapshot(paged)), true);
+  assert.deepEqual(acceptedSessionContext(hydrateSnapshotContent(compact, snapshot(paged))!.sessions[0]), acceptedSessionContext(full));
+  assert.deepEqual(acceptedSessionContext({ ...paged, nativeId: 'new-context' }).sourceHashes, {});
+  assert(!sourceWasAccepted({ ...paged, id: 'another-session' }, paged.sources[0]));
+  assert(!sourceWasAccepted({ ...paged, sources: [{ ...paged.sources[0], sha256: 'changed' }] }, { ...paged.sources[0], sha256: 'changed' }));
+  assert.equal(full.referenceReceipts, undefined, 'renderer receipts never mutate persistent sessions');
 });

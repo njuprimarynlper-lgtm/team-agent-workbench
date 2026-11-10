@@ -1,3 +1,4 @@
+import { attachResultsSchema } from '../shared/session-results';
 import { transcriptPageSize } from '../shared/transcript-page';
 import { saveAgentSettings } from '../core/agent-settings';
 import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, type ProjectCreationIntent } from '../shared/project-connection';
@@ -492,8 +493,10 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       const snapshot = await freezeFile(file, path.join(workbench.store.root, 'uploads', 'replacements'));
       try { await workbench.remote.contentReplace(binding, p.change, snapshot.localPath); return true; } finally { await fs.rm(snapshot.localPath, { force: true }); }
     }
-    case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid() }).parse(raw); return workbench.attachContent(p.id, p.contentId); }
-    case 'session.attachConclusion': { const p = z.object({ id, conclusionId: z.string().uuid() }).parse(raw); return workbench.attachConclusion(p.id, p.conclusionId); }
+    case 'session.resultCandidates': { const p = z.object({ id, scope: z.enum(['personal', 'team']), refresh: z.boolean().default(false) }).parse(raw); return workbench.resultReferences.candidates(p.id, p.scope, p.refresh); }
+    case 'session.attachResults': { const p = attachResultsSchema.parse(raw); return workbench.resultReferences.attach(p.id, p.references); }
+    case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid(), expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.attachContent(p.id, p.contentId, p.expectedRevision); }
+    case 'session.attachConclusion': { const p = z.object({ id, conclusionId: z.string().uuid(), expectedVersion: z.number().int().positive().optional() }).parse(raw); return workbench.attachConclusion(p.id, p.conclusionId, p.expectedVersion); }
     case 'session.detachPendingSource': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return workbench.detachPendingSource(p.id, p.sourceId); }
     case 'session.source.preview': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return previewSessionSource(workbench.session(p.id), p.sourceId); }
     case 'session.projectContext': return workbench.refreshProjectContext(sessionInput.parse(raw).id);

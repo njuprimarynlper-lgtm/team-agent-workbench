@@ -1,3 +1,4 @@
+import { supportsSessionResults } from '../shared/session-results';
 import { ResultDirectorySidebar, useResultDirectories, useResultDestination, moveResultDestinations } from './result-directories';
 import { resultDirectoryLabel, resultItemFolder, resultDirectoryPath } from '../shared/result-directories';
 import type { ConclusionDeletePreview } from '../shared/conclusion-upload';
@@ -74,18 +75,18 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
     try { const saved = await api.call<ProjectConclusion>('conclusion.alias.save', { id: aliasItem.id, alias }); setItems(current => current.map(value => value.id === saved.id ? { ...saved, uploadState: value.uploadState } : value)); setAliasItem(undefined); notice(alias.trim() ? '成果别名已保存' : '成果别名已清除'); }
     catch (e: any) { setAliasError(e.message); } finally { setBusy(false); }
   };
-  const attachSessions = sessions.filter(session => session.purpose === 'work' && !session.closedAt && session.binding?.project.id === project.id);
+  const attachSessions = sessions.filter(session => supportsSessionResults(session) && session.binding?.project.id === project.id);
   useEffect(() => {
     const available = new Set(attachSessions.map(session => session.id));
     setAttachSelection(current => { const selected = current.filter(id => available.has(id)); return selected.length === current.length ? current : selected; });
   }, [sessions, project.id]);
-  const alreadyAttached = (session: AgentSession) => !!attaching && (!!attachedConclusion(session, attaching.id) || attachedIds.includes(session.id));
+  const alreadyAttached = (session: AgentSession) => !!attaching && (!!attachedConclusion(session, attaching.id, attaching.version) || attachedIds.includes(session.id));
   const newSelection = attachSelection.filter(id => attachSessions.some(session => session.id === id && !session.closedAt && !alreadyAttached(session)));
   const attach = async () => {
     if (!attaching) return; setBusy(true); setError('');
     try {
       for (const id of newSelection) {
-        await api.call('session.attachConclusion', { id, conclusionId: attaching.id });
+        await api.call('session.attachConclusion', { id, conclusionId: attaching.id, expectedVersion: attaching.version });
         setAttachedIds(current => [...new Set([...current, id])]);
         setAttachSelection(current => current.filter(value => value !== id));
       }

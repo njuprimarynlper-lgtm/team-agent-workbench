@@ -69,7 +69,7 @@ export function SessionSyncFrame({ session, api, changed, locked = false, refere
     <button ref={trigger} type="button" className="session-sync-tab composer-edge-tab" aria-expanded={open} aria-controls={panelId} aria-label={`${label}，${localCodex ? '调整桌面同步' : '查看同步状态'}`} title={detail} onClick={() => setOpen(value => !value)}>
       <span className="session-sync-dot" aria-hidden="true"/><span aria-live="polite">{label}</span><ChevronDown size={12} aria-hidden="true"/>
     </button>
-    {references && <ComposerReferenceTabs session={session} api={api} controls={references} locked={locked || busy || connecting} removalLocked={active || busy || connecting} syncOpen={open} onOpen={() => setOpen(false)}/>}
+    {references && <ComposerReferenceTabs session={session} api={api} controls={references} locked={locked || busy || connecting} removalLocked={locked || session.status === 'starting' || busy || connecting} syncOpen={open} onOpen={() => setOpen(false)}/>}
     <div ref={panel} id={panelId} className="session-sync-options" role="region" aria-label="桌面同步设置" hidden={!open}>
       {localCodex && <div className="session-sync-switch-row"><span>与 Codex 桌面版同步</span><button type="button" className="session-sync-toggle" role="switch" aria-label="与 Codex 桌面版同步" aria-checked={enabled} aria-describedby={noteId} disabled={disabled} onClick={toggle}><span aria-hidden="true"/></button></div>}
       <p id={noteId} className="session-sync-note" role="status">{note}</p>

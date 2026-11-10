@@ -10,7 +10,7 @@ import type { SharedContent } from '../src/shared/content';
 test('closed targets reject personal and team results; reopening restores both capabilities',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'wb-closed-results-')),wb=new Workbench(root,()=>{},()=>{});
   try{
-    await wb.store.init();grantTestWorkspace(wb,root);
+    await wb.store.init();grantTestWorkspace(wb,root);wb.projectConnected=()=>true;wb.remote.resultDirectories=async()=>[];
     const session=await wb.createSession('codex',root,offlineProjectId),local=await wb.createConclusion(offlineProjectId,'验证范围','只验证官方样例。');
     const remote:SharedContent={id:'remote-result',title:'团队验证范围',description:'包括长尾样例。',kind:'contribution',state:'submitted',revision:1,path:'/projects/test/P/result.md',author:'alice',updatedBy:'alice',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),size:1,sha256:'a'.repeat(64)};
     let reads=0;wb.remote.contentList=async()=>{reads++;return [remote];};
@@ -26,7 +26,7 @@ test('closed targets reject personal and team results; reopening restores both c
 test('closing while a team result is being fetched never appends a reference',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'wb-closing-result-')),wb=new Workbench(root,()=>{},()=>{});
   try{
-    await wb.store.init();grantTestWorkspace(wb,root);const session=await wb.createSession('codex',root,offlineProjectId);
+    await wb.store.init();grantTestWorkspace(wb,root);wb.projectConnected=()=>true;wb.remote.resultDirectories=async()=>[];const session=await wb.createSession('codex',root,offlineProjectId);
     let finish!:(items:SharedContent[])=>void,started!:()=>void;
     const reading=new Promise<void>(resolve=>started=resolve),gate=new Promise<SharedContent[]>(resolve=>finish=resolve);
     wb.remote.contentList=()=>{started();return gate;};
