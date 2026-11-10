@@ -37,11 +37,11 @@ const opaqueCompletedReasoning = (item: any) => item?.type === 'reasoning' && ty
   && Object.keys(item).every(key => ['type', 'id', 'status', 'summary', 'encrypted_content', 'internal_chat_message_metadata_passthrough'].includes(key));
 
 /** Only closed tool groups may be crossed, including results arriving after other messages. */
-export function guardHistory(body: ResponseBody, level: GuardHistoryLevel = 'conservative') {
+export function guardHistory(body: ResponseBody, level: GuardHistoryLevel = 'conservative', retainedResults?: ReadonlySet<number>) {
   if (!Array.isArray(body.input) || body.input.length < 2 || body.previous_response_id || body.conversation || body.input.some(item => item?.type === 'item_reference'))
     throw new Error('请求达到 1 MB，续接引用或当前输入不能安全摘要，原推理请求未上传');
   if (body.input.length > 20000) throw new Error('历史结构过大，无法安全缩小请求，原推理请求未上传');
-  const items = body.input, protectedIndices = new Set<number>(), omittedIndices = new Set<number>();
+  const items = body.input, protectedIndices = new Set<number>(retainedResults), omittedIndices = new Set<number>();
   // The last user message begins the active turn, even when native reasoning or
   // tool results have already followed it in the pending request.
   const activeStart = Math.max(0, items.findLastIndex(item => item?.role === 'user' && !/<\/?[a-z_][^>]*>/i.test(text(item))));

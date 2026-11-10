@@ -8,7 +8,9 @@ import { isProjectOrganizationDraft } from '../shared/project-organization';
 export function preparationPrompt(draft: Draft, existing: { id: string; title: string; content: string }[], merging = false, context?: PreparationContext) {
   const scope = merging ? '本次按用户要求处理选中的成果，最多生成一条新成果，不改变原成果。来源均属于同一类别，结果类别不可改变；待办合并仅去除同一事项的重复描述，不吞并独立动作。' : draft.preparationScope === 'incremental'
     ? '本次是增量整理，conversation.json 只含新增或续写的消息；边界消息可能重读。阶段摘要和参考资料仅作上下文，不重复整理旧结论。'
-    : '本次是整理对话，conversation.json 包含冻结时的完整会话。';
+    : draft.snapshot?.compact
+      ? '本次从来源会话最近一次已完成的 Codex compact 整理。首条记录代表压缩依据，后续记录是压缩后的工作台消息。原生压缩状态如有，已加载到当前整理会话。将继承内容仅作为历史依据，只执行本次整理任务。需要引用压缩前的信息时使用首条记录的证据 ID。摘要未保留的细节应标为材料未说明。'
+      : '本次是整理对话，conversation.json 包含冻结时的完整会话。';
   const reviewed = draft.resultRules!.contract >= 3;
   const inputCount = draft.snapshot?.messageCount ?? draft.mergeSources?.length ?? 0;
   const directions = merging ? {} : selectedPreparationDirections(draft.resultRules!.categories, draft.preparationDirections);

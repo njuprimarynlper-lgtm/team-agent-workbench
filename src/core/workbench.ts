@@ -12,6 +12,7 @@ import { Questions } from './questions';
 import { groupCommandSchema, type GroupCommand } from '../shared/team-groups';
 import { assertCursorSharedSessionAvailable } from '../shared/cursor-session-consistency';
 import { conclusionUploadState, unfinishedConclusionUploads, uploadBlocked } from '../shared/conclusion-upload';
+import { injectPreparationState } from './preparation-compact';
 import { buildPreparationContext, cachedPreparationBrief, personalContextResults, preparationContextLimit, type PreparationContext } from './preparation-context';
 import { submissionRecord } from '../shared/submission';
 import { assertTodoMerge, canonicalCategory, resultCategory, resultDefaultStatus, sameResultCategory, validateResultStatus, type ResultStatus } from '../shared/result-model';
@@ -2149,6 +2150,15 @@ export class Workbench {
       if (canceled()) return false;
       if (s.closedAt) throw new Error('此会话已关闭');
       this.assertReferencesAvailable(s, input.sources);
+      if (s.purpose === 'prepare') {
+        const preparation = this.store.drafts.find(item => item.prepareSessionId === id);
+        const stateHash = preparation?.snapshot?.compact?.nativeHash;
+        if (preparation && stateHash) {
+          if (!(runtime instanceof AgentRuntime) || s.provider !== 'codex' || !s.nativeId) throw Error('无法加载冻结的 Codex 压缩上下文');
+          await injectPreparationState(runtime.rpc, s.nativeId, preparation.inputDir, stateHash);
+          if (canceled() || s.closedAt || preparation.generation !== 'running') return false;
+        }
+      }
       if (original && edit) {
         if (!(runtime instanceof AgentRuntime)) throw Error('当前运行器不支持编辑历史消息');
         const check = () => {

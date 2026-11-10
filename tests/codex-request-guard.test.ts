@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import { CodexRequestGuard, codexRequestBudget, createCodexRequestGuard, encodeGuardBody } from '../src/core/codex-request-guard';
@@ -84,6 +87,54 @@ test('compressed size at the exclusive limit is also rejected', async () => {
   assert.equal(await encodeGuardBody(compressed, 'zstd', true, compressed.length), undefined);
   assert.equal((await encodeGuardBody(compressed, 'zstd', true, compressed.length + 1))!.bytes, compressed);
 });
+
+test('only an oversized native compact may replace finished tool results with verified session files', () => fixture(async ({ url, guard, received }) => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'codex-receipts-'));
+  const directory = path.join(cwd, '.workbench', 'sessions', 'child', 'tool-results');
+  const detach = guard.beforeUpload(() => undefined, thread => thread === 'thread-A' ? { id: 'child', cwd } : undefined);
+  const output = 'Process exited with code 7\n' + randomBytes(36_000).toString('base64') + '\nLAST_ERROR';
+  const call = { type: 'function_call', call_id: 'build', name: 'exec_command', arguments: '{"cmd":"build"}' };
+  const result = { type: 'function_call_output', call_id: 'build', output };
+  const body = { model: 'm', input: [msg('user', text('KEEP_CURRENT_TASK')), call, result] };
+  try {
+    const small = { ...body, input: [...body.input.slice(0, 2), { ...result, output: 'Z'.repeat(35000) }] };
+    assert.equal((await request(url + '/compact', json(small))).status, 200);
+    assert.deepEqual(received.at(-1)!.value, small);
+    assert.equal((await request(url, json(body))).status, 400);
+    assert.equal((await request(url + '/compact', json(body), { session_id: 'parent' })).status, 400);
+    const running = { ...body, input: [...body.input.slice(0, 2), { ...result, output: 'Process running with session ID 421\n' + output }] };
+    assert.equal((await request(url + '/compact', json(running))).status, 400);
+    await assert.rejects(fs.access(directory), { code: 'ENOENT' });
+
+    assert.equal((await request(url + '/compact', json(body))).status, 200);
+    const saved = received.at(-1)!;
+    assert(saved.bytes.length < 12000); assert.deepEqual(saved.value.input.slice(0, 2), body.input.slice(0, 2));
+    const ref = saved.value.input[2];
+    assert.equal(ref.call_id, 'build'); assert.match(ref.output, /退出码 7/); assert.match(ref.output, /LAST_ERROR/);
+    const [file] = await fs.readdir(directory);
+    assert(ref.output.includes(path.join(directory, file))); assert.equal(await fs.readFile(path.join(directory, file), 'utf8'), output);
+    const headers = { 'x-codex-turn-metadata': '{"request_kind":"compaction"}' };
+    assert.equal((await request(url, json(body), headers)).status, 200);
+    assert.deepEqual(await fs.readdir(directory), [file]);
+    const parts = [{ type: 'input_text', text: output }];
+    const structured = { ...body, input: [...body.input.slice(0, 2), { ...result, output: parts }] };
+    assert.equal((await request(url, json(structured), headers)).status, 200);
+    const jsonFile = (await fs.readdir(directory)).find(name => name.endsWith('.json'))!;
+    assert(received.at(-1)!.value.input[2].output[0].text.includes(jsonFile));
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, jsonFile), 'utf8')), parts);
+    // Neither summarizing the old turns alone nor storing the tool output
+    // alone fits. Combining them must retain the call and its readable receipt.
+    const oldTurns = Array.from({ length: 30 }, (_, i) => [msg('user', text('old-' + i)), msg('assistant', text(randomBytes(900).toString('base64')))]).flat();
+    const combined = { ...body, input: [...oldTurns, ...body.input] };
+    assert.equal((await request(url + '/compact', json(combined))).status, 200);
+    const repaired = received.at(-1)!.value.input;
+    assert(JSON.stringify(repaired).includes('工作台历史交接摘要'));
+    assert.deepEqual(repaired.slice(-2), [call, ref]);
+    const before = received.length;
+    await fs.writeFile(path.join(directory, file), 'changed');
+    assert.equal((await request(url, json(body), headers)).status, 400); assert.equal(received.length, before);
+  } finally { detach(); await fs.rm(cwd, { recursive: true, force: true }); }
+}, { compression: true, budget: 12000 }));
 
 test('strict gateway receives 999,999 unchanged and automatically repaired boundary requests', () => fixture(async ({ url, received, guard }) => {
   const body = json({ model: 'test', input: 'Reply OK' });
@@ -416,8 +467,8 @@ test('existing proxy is mandatory, including CONNECT refusal; unsupported scheme
   const proxy = http.createServer((_req, res) => res.writeHead(403).end());
   proxy.on('connect', (_req, socket) => { connects++; socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'); });
   await new Promise<void>(resolve => proxy.listen(0, '127.0.0.1', resolve));
-  const guard = new CodexRequestGuard({ upstream: 'https://unreachable.invalid/v1', compression: false, env: { ...direct, HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as any).port}` } });
-  try { const result = await request((await guard.start()) + '/responses', json({ input: 'ok' })); assert.equal(result.status, 400); assert.equal(connects, 1); assert(result.body.includes('未切换网络通路')); assert(result.body.includes('PROXY_403')); }
+  const guard = new CodexRequestGuard({ upstream: 'https://unreachable.invalid/v1', compression: false, proxyRetryDelayMs: 0, env: { ...direct, HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as any).port}` } });
+  try { const result = await request((await guard.start()) + '/responses', json({ input: 'ok' })); assert.equal(result.status, 400); assert.equal(connects, 11); assert(result.body.includes('未切换网络通路')); assert(result.body.includes('PROXY_403')); }
   finally { await guard.close(); proxy.closeAllConnections(); await new Promise<void>(resolve => proxy.close(() => resolve())); }
   assert.throws(() => guardProxy(new URL('https://example.com'), { ...direct, HTTPS_PROXY: 'socks5://localhost:1' }), /不支持/);
 });

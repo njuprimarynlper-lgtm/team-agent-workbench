@@ -135,7 +135,7 @@ export class AgentRuntime {
       });
       this.autoCompaction?.close();
       this.autoCompaction = new CodexAutoCompaction(guard, this.rpc, () => this.session.nativeId, undefined,
-        (request, body) => this.checkCodexUpload(request, body));
+        (request, body) => this.checkCodexUpload(request, body), () => ({ cwd: this.executionCwd, id: this.session.id }));
     }
   }
   private discardEmptyCursorSession() {

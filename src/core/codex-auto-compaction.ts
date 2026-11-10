@@ -1,5 +1,6 @@
 import type { AgentRpc } from './rpc';
 import type { CodexRequestGuard, GuardRequestSize, GuardUploadCheck } from './codex-request-guard';
+import type { CompactWorkspace } from './codex-tool-receipts';
 
 export type AutoCompactionResult = { status: 'completed' | 'failed' | 'uncertain' | 'closed'; message?: string; turnId?: string };
 type Job = {
@@ -24,10 +25,11 @@ export class CodexAutoCompaction {
   private rejection?: string;
   private detachCheck?: () => void;
   constructor(readonly guard: CodexRequestGuard, private rpc: AgentRpc, private threadId: () => string | undefined,
-    private timeoutMs = 10 * 60_000, beforeUpload?: GuardUploadCheck) {
+    private timeoutMs = 10 * 60_000, beforeUpload?: GuardUploadCheck, workspace?: () => CompactWorkspace) {
     this.detach = guard.observeRequests(request => this.observe(request));
     if (beforeUpload) this.detachCheck = guard.beforeUpload((request, body) =>
-      request.threadId === this.threadId() ? beforeUpload(request, body) : undefined);
+      request.threadId === this.threadId() ? beforeUpload(request, body) : undefined,
+      threadId => threadId === this.threadId() ? workspace?.() : undefined);
   }
   get active() { return !!this.job; }
   get activeTurnId() { return this.job?.turnId; }

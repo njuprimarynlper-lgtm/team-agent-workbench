@@ -28,6 +28,7 @@ try {
     window.workbench = {
       subscribe(listener){listeners.push(listener);const off=original.subscribe(listener);return()=>{listeners.splice(listeners.indexOf(listener),1);off();};},
       async call(action,p){action=action.replace(/^personal:/,'');calls.push({action,p});const s=data.snapshot.sessions.find(s=>s.id===p?.id);
+        if(action==='session.input.flush')return true;
         if(action==='settings.agent.save'){Object.assign(data.snapshot.settings,p);fixture.emit();return true;}
         if(action==='session.editLast'){
           const index=s.messages.findIndex(m=>m.id===p.messageId);
