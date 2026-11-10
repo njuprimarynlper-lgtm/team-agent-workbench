@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -38,6 +38,21 @@ test('requests publish atomically in submission order and the same request ID ca
     assert.deepEqual(f.calls,['second']);
     await f.bridge.enqueue('second',requests[2].id);assert.deepEqual(f.calls,['second']);
   }finally{await f.clean();}
+});
+
+test('Windows retries a temporarily locked request file without losing the send receipt',{skip:process.platform!=='win32'},async()=>{
+  const f=await fixture();const rename=fs.rename.bind(fs);let requestWrites=0;
+  const renamed=mock.method(fs,'rename',async (...args:Parameters<typeof fs.rename>)=>{
+    if(String(args[1]).endsWith('.json')&&!String(args[1]).endsWith('control.json')&&++requestWrites===3){
+      const error=Object.assign(new Error('temporarily locked'),{code:'EPERM'});throw error;
+    }
+    return rename(...args);
+  });
+  try{
+    const request=await f.bridge.enqueue('one native prompt');await f.bridge.refresh();
+    assert.equal((await f.bridge.requests()).find(item=>item.id===request.id)?.state,'accepted');
+    assert.equal((await f.bridge.view()).paused,false);assert.equal(requestWrites,4);
+  }finally{renamed.mock.restore();await f.clean();}
 });
 
 test('transient aborted storage immediately after send does not finish or abort the request',async()=>{
@@ -90,7 +105,7 @@ test('a confirmed native stop persists the pause across restart; cancellation ca
     await f.bridge.enqueue('native turn');await f.bridge.refresh();f.observed.status='generating';await f.bridge.refresh();
     const pending=await f.bridge.enqueue('do not execute after stop');assert.equal(await f.bridge.cancel(pending.id),true);
     f.history.checkpointSha256='stopped-state';f.history.status='aborted';f.history.settled=false;f.observed.status='cancelled';await f.bridge.refresh();f.advance();await f.bridge.refresh();
-    assert.equal((await f.bridge.requests())[0].state,'aborted');assert.equal((await f.bridge.view()).paused,true);
+    const stopped=(await f.bridge.requests())[0];assert.equal(stopped.state,'aborted',stopped.error ?? '');assert.equal((await f.bridge.view()).paused,true);
     await f.bridge.close();second=f.make();await second.start();assert.equal((await second.view()).paused,true);
     await second.resume();assert.equal((await second.view()).paused,false);assert.equal(f.calls.filter(x=>x==='do not execute after stop').length,0);
   }finally{await second?.close();await f.clean();}

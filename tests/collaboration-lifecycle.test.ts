@@ -94,13 +94,15 @@ test('personal activity actions show destinations, reject invalid transitions an
     const binding = x.alice.remote.binding(x.project.id), file = path.join(x.root, 'personal.md'); await fs.writeFile(file, '个人处理记录');
     await x.alice.remote.upload(binding, file, binding.project.uploadPath + '/personal.md', () => {}, { kind: 'contribution', title: '数据覆盖约束', description: '需要补充低清晰度 OCR 样本。' });
     const remote = (await x.alice.remote.contentList(binding))[0], event = (await x.bob.syncContentUpdates()).find(item => item.id === remote.id)!;
+    // Account sync can replace the inbox objects while a remote operation is pending.
+    const currentEvent = () => x.bob.contentUpdates().find(item => item.eventId === event.eventId)!;
     const sharedBefore = structuredClone(await x.alice.remote.contentList(binding));
     const local = (await x.bob.importContentConclusion(x.project.id, remote.id)).conclusion;
     assert.deepEqual(x.alice.conclusions(x.project.id), [], 'another member does not get the private copy');
     assert.deepEqual(await x.alice.remote.contentList(binding), sharedBefore, 'private import never rewrites shared content');
-    assert.equal(event.actions?.[0].kind, 'saved_conclusion'); assert.equal(event.actions?.[0].targetId, local.id);
-    const firstAction = structuredClone(event.actions![0]);
-    await x.bob.importContentConclusion(x.project.id, remote.id); assert.deepEqual(event.actions, [firstAction]);
+    assert.equal(currentEvent().actions?.[0].kind, 'saved_conclusion'); assert.equal(currentEvent().actions?.[0].targetId, local.id);
+    const firstAction = structuredClone(currentEvent().actions![0]);
+    await x.bob.importContentConclusion(x.project.id, remote.id); assert.deepEqual(currentEvent().actions, [firstAction]);
     const first = await x.bob.createSession('codex', x.root, x.project.id), second = await x.bob.createSession('codex', x.root, x.project.id);
     await x.bob.renameSession(first.id, '样本补全'); await x.bob.renameSession(second.id, '验收复核');
     const [a, duplicate] = await Promise.all([x.bob.attachContent(first.id, remote.id), x.bob.attachContent(first.id, remote.id)]);
@@ -109,12 +111,12 @@ test('personal activity actions show destinations, reject invalid transitions an
     assert.equal((await x.bob.attachContent(first.id, remote.id)).id, a.id, 'old snapshots without contentRef are reused by origin and revision');
     assert.equal(first.sources.filter(source => source.sourcePath === remote.path).length, 1);
     await x.bob.attachConclusion(second.id, local.id); await x.bob.attachConclusion(second.id, local.id);
-    assert.deepEqual(event.actions?.filter(action => action.kind === 'attached_session').map(action => action.targetTitle), ['样本补全', '验收复核']);
-    const recorded = structuredClone(event.actions); second.closedAt = new Date().toISOString();
+    assert.deepEqual(currentEvent().actions?.filter(action => action.kind === 'attached_session').map(action => action.targetTitle), ['样本补全', '验收复核']);
+    const recorded = structuredClone(currentEvent().actions); second.closedAt = new Date().toISOString();
     await assert.rejects(x.bob.attachContent(second.id, remote.id), /未关闭/);
     await assert.rejects(x.bob.attachLocal(second.id, [file]), /未关闭/);
     await assert.rejects(x.bob.attachRemote(second.id, x.project.id, remote.path), /未关闭/);
-    assert.deepEqual(event.actions, recorded, 'rejected operations must not add success records');
+    assert.deepEqual(currentEvent().actions, recorded, 'rejected operations must not add success records');
     const closing = await x.bob.createSession('codex', x.root, x.project.id), list = x.bob.remote.contentList.bind(x.bob.remote);
     let release!: () => void, started!: () => void;
     const hold = new Promise<void>(resolve => { release = resolve; }), reading = new Promise<void>(resolve => { started = resolve; });
@@ -122,7 +124,7 @@ test('personal activity actions show destinations, reject invalid transitions an
     const attaching = x.bob.attachContent(closing.id, remote.id); await reading; await x.bob.closeSession(closing.id); release();
     await assert.rejects(attaching, /未关闭/); x.bob.remote.contentList = list;
     assert.equal(closing.sources.some(source => source.contentRef?.id === remote.id), false);
-    assert.deepEqual(event.actions, recorded, 'closing during the remote read must not attach or record success');
+    assert.deepEqual(currentEvent().actions, recorded, 'closing during the remote read must not attach or record success');
 
     await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: remote.revision, action: 'save', title: remote.title, description: '新版还要求覆盖倾斜扫描件。', curate: true, merge: [] });
     const newer = (await x.bob.syncContentUpdates()).find(item => item.id === remote.id && item.revision === remote.revision + 1)!;
@@ -133,11 +135,11 @@ test('personal activity actions show destinations, reject invalid transitions an
     assert.notEqual(updatedSource.id, a.id, 'new versions must not be collapsed with legacy snapshots');
     assert.equal(updatedSource.contentRef?.revision, newer.revision);
     await x.bob.markContentUpdates([event.eventId], false);
-    assert.equal(event.readAt, undefined, 'a member can reopen an already imported activity');
+    assert.equal(currentEvent().readAt, undefined, 'a member can reopen an already imported activity');
     await x.alice.editSharedContent(x.project.id, { id: remote.id, revision: newer.revision, action: 'delete', curate: true, merge: [] });
     const after = await x.bob.syncContentUpdates(), removed = after.find(item => item.id === remote.id && item.change === 'deleted')!;
     assert(after.find(item => item.eventId === event.eventId)?.unavailableAt, 'processed events survive shared removal');
-    assert.deepEqual(after.find(item => item.eventId === event.eventId)?.actions, event.actions, 'reopened history survives shared removal too');
+    assert.deepEqual(after.find(item => item.eventId === event.eventId)?.actions, currentEvent().actions, 'reopened history survives shared removal too');
     assert.equal(removed.readAt, undefined); assert.equal(removed.actions, undefined);
     await x.bob.resolveContentDeletion(removed.eventId, []); assert.equal(x.bob.contentUpdates().find(item => item.eventId === removed.eventId)?.actions?.[0].kind, 'kept_conclusion');
     await x.bob.resolveContentDeletion(removed.eventId, [{ id: local.id, version: local.version }]); assert.equal(x.bob.contentUpdates().find(item => item.eventId === removed.eventId)?.actions?.at(-1)?.kind, 'deleted_conclusion');
@@ -180,7 +182,8 @@ test('bulk activity deletion keeps content, survives sync and does not lose conc
     await x.bob.close();
     const restored = new Workbench(x.bob.store.root, () => {}, () => {}); await restored.store.init();
     assert.deepEqual(restored.contentUpdates().map(item => item.eventId), after.map(item => item.eventId));
-    assert.deepEqual(restored.conclusions(x.project.id, true), before); await restored.close();
+    // Persistence drops optional properties whose value is undefined.
+    assert.deepEqual(restored.conclusions(x.project.id, true), JSON.parse(JSON.stringify(before))); await restored.close();
   } finally { await x.close(); }
 });
 

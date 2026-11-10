@@ -71,7 +71,15 @@ export class CursorFileBridge {
   private async atomic(file: string, value: unknown) {
     const temporary = file + '.' + randomUUID() + '.tmp';
     await fs.writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
-    await fs.rename(temporary, file);
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try { await fs.rename(temporary, file); return; }
+        catch (error: any) {
+          if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt === 5) throw error;
+          await new Promise(resolve => setTimeout(resolve, 20 * (2 ** attempt)));
+        }
+      }
+    } finally { await fs.unlink(temporary).catch(() => {}); }
   }
   private async save(request: CursorFileRequest) { await this.atomic(this.file(request.id), request); }
   private assertBound(request: CursorFileRequest) {

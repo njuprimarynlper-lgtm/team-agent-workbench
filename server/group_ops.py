@@ -13,6 +13,7 @@ import unicodedata as _tg_unicode
 import uuid as _tg_uuid
 import shutil as _tg_shutil
 import re as _tg_re
+import time as _tg_time
 
 def tg_now():
     return _tg_date.datetime.now(_tg_date.timezone.utc).isoformat()
@@ -50,7 +51,15 @@ def tg_json(file, value, mode=0o600):
     try:
         with temp.open('x', encoding='utf-8') as stream:
             _tg_json.dump(value, stream, ensure_ascii=False); stream.flush(); _tg_os.fsync(stream.fileno())
-        _tg_os.chmod(temp, mode); _tg_os.replace(temp, file)
+        _tg_os.chmod(temp, mode)
+        for attempt in range(6):
+            try:
+                _tg_os.replace(temp, file)
+                break
+            except OSError as error:
+                if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == 5:
+                    raise
+                _tg_time.sleep(0.02 * (2 ** attempt))
     finally:
         temp.unlink(missing_ok=True)
 

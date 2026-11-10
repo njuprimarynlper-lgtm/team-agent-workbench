@@ -505,6 +505,19 @@ class ContentRules(unittest.TestCase):
         self.state['users']['bob']['groups'] = []
         with self.assertRaises(PermissionError): self.call('bob', op='assignment_list')
 
+    @unittest.skipIf(os.name == 'nt', 'legacy stage paths exceed the classic Windows path limit')
+    def test_legacy_assignment_stage_survives_upgrade(self):
+        task_id, upload_id = str(uuid.uuid4()), str(uuid.uuid4())
+        owner = content.hashlib.sha256(b'alice').hexdigest()
+        legacy = self.root / '.workbench/admin/assignment-stage' / self.project / owner / task_id / upload_id
+        legacy.parent.mkdir(parents=True)
+        shutil.copyfile(self.incoming, legacy)
+        receipt = dict(id=upload_id, name='old.txt', **content.assignment_hashes(legacy))
+        legacy.with_name(upload_id + '.json').write_text(json.dumps(receipt), encoding='utf-8')
+        created = self.call('alice', op='assignment_create', task=dict(id=task_id, title='旧附件', description='升级前上传', acceptance='保留附件', assignee='bob', references=[], uploadIds=[upload_id]))
+        self.assertEqual(created['files'][0]['sha256'], receipt['sha256'])
+        self.assertFalse(legacy.exists())
+
     def test_assignment_review_delete_restore_and_reference_safe_purge(self):
         self.state['users']['bob']['uid'] = 1001
         self.state['users']['alice']['uid'] = 1000
@@ -522,6 +535,9 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(ValueError): change('alice', task, 'completed')
         with self.assertRaises(ValueError): change('bob', task, 'pending_review', submission=dict(summary='   '))
         upload = dict(id=str(uuid.uuid4()), name='proof.txt', sha256=content.digest(self.incoming), size=self.incoming.stat().st_size)
+        if os.name == 'nt':
+            staged = content.assignment_stage(self.root, self.project, 'bob', task['id'], upload['id'])
+            self.assertLess(len(str(staged) + '.json'), 260)
         with self.assertRaises(PermissionError): self.call('alice', op='assignment_file_upload', taskId=task['id'], file=upload)
         self.call('bob', op='assignment_file_upload', taskId=task['id'], file=upload)
         submission = dict(summary='候选不优于基线，不建议继续', references=[dict(id=source['id'], revision=1)], uploadIds=[upload['id']])

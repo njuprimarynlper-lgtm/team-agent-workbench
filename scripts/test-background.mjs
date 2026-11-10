@@ -15,7 +15,7 @@ const files = selected.length ? await Promise.all(selected.map(async file => {
   return resolved;
 })) : (await readdir(path.join(root, 'tests'))).filter(file => /\.test\.tsx?$/.test(file) && !desktopOnly.has(file)).sort().map(file => path.join(root, 'tests', file));
 
-const child = spawn(process.execPath, ['--require', path.join(root, 'scripts/background-guard.cjs'), '--import', 'tsx', '--test', '--test-concurrency=1', ...files], {
+const child = spawn(process.execPath, ['--require', path.join(root, 'scripts/background-guard.cjs'), '--require', path.join(root, 'scripts/test-css.cjs'), '--import', 'tsx', '--test', '--test-concurrency=1', ...files], {
   cwd: root, windowsHide: true, shell: false, stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, WORKBENCH_BACKGROUND_TESTS: '1' },
 });
 child.once('error', error => { console.error(error.message); process.exitCode = 1; });

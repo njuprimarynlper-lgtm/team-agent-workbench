@@ -338,7 +338,12 @@ def assignment_stage(root, project_id, username, task_id, file_id):
         if not isinstance(identifier, str) or str(uuid.UUID(identifier)) != identifier:
             raise ValueError('任务附件编号无效')
     owner = hashlib.sha256(username.encode()).hexdigest()
-    return safe(root, f'.workbench/admin/assignment-stage/{project_id}/{owner}/{task_id}/{file_id}')
+    legacy = safe(root, f'.workbench/admin/assignment-stage/{project_id}/{owner}/{task_id}/{file_id}')
+    # Keep uploads staged by older workers available after an upgrade.
+    if legacy.is_file() or legacy.with_name(legacy.name + '.json').is_file():
+        return legacy
+    key = assignment_digest([project_id, username, task_id, file_id])
+    return safe(root, f'.workbench/admin/assignment-stage/{key[:2]}/{key}')
 
 
 def assignment_blob(root, project_id, assignee, file):

@@ -23,6 +23,22 @@ class TeamGroupRules(unittest.TestCase):
         self.call('alice',action='delete',group=again['id'],revision=again['revision'])
         with self.assertRaises(ValueError):self.call('alice',action='create',label='算法实验',requestId=request_id)
 
+    def test_windows_sharing_violation_retries_role_publication(self):
+        replace=groups._tg_os.replace
+        calls=[]
+        def busy_once(source,destination):
+            calls.append(destination)
+            if destination.name=='roles.json' and sum(path.name=='roles.json' for path in calls)==1:
+                error=PermissionError(13,'temporarily locked',str(destination))
+                error.winerror=5
+                raise error
+            return replace(source,destination)
+        with patch.object(groups._tg_os,'replace',busy_once),patch.object(groups._tg_time,'sleep') as sleep:
+            self.call('alice',action='create',label='短暂占用组')
+        self.assertGreaterEqual(len(calls),2)
+        sleep.assert_called_once_with(0.02)
+        self.assertTrue((self.root/'.workbench/roles.json').exists())
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=pathlib.Path(self.temp.name)
         (self.root/'projects').mkdir();(self.root/'.workbench/admin').mkdir(parents=True)
