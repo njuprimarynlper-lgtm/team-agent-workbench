@@ -6,6 +6,8 @@ export interface SessionReferenceReceipts {
   acceptedHashes: Record<string, string>; workRecord: boolean;
 }
 
+export const isPathReference = (source: SourceFile) => source.referenceMode === 'path';
+
 export const isRecommendationSource = (source: SourceFile) => source.sourcePath.startsWith('rsi-recommendation:');
 
 // Personal, local continuity notes are conversation context, not team result inputs.

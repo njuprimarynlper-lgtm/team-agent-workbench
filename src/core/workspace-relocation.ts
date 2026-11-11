@@ -219,7 +219,7 @@ export function applyWorkspacePaths(session: AgentSession, drafts: Draft[], mapp
   const remap = (file: string) => remapWorkspacePath(file, mappings);
   session.cwd = session.directoryMove!.to;
   session.handoffPath = path.join(session.cwd, '.workbench', 'sessions', session.id, 'handoff.md');
-  for (const source of session.sources) source.localPath = remap(source.localPath);
+  for (const source of session.sources) if (source.referenceMode !== 'path') source.localPath = remap(source.localPath);
   session.outputFiles = session.outputFiles?.map(remap);
   if (session.fork) { session.fork.workspaceRoot = remap(session.fork.workspaceRoot); if (session.fork.visibleSnapshotPath) session.fork.visibleSnapshotPath = remap(session.fork.visibleSnapshotPath); }
   for (const draft of drafts.filter(draft => draft.sessionId === session.id)) {

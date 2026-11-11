@@ -41,19 +41,20 @@ const url = pathToFileURL(path.join(out, 'index.html')).href;
 const share = async () => { await page.locator('.result-more > summary').click(); await page.getByRole('button', { name: '分享至团队', exact: true }).click(); };
 try {
  await page.goto(url);
- await share(); const dialog = page.getByRole('dialog', { name: '选择成果保存目录', exact: true });
- await expect(page.getByRole('dialog')).toHaveCount(1); await expect(dialog).toContainText('分享至团队 · 选择目录');
- expect(await page.evaluate(() => window.calls.some(call => call.action === 'conclusion.publish'))).toBe(false);
- await dialog.getByRole('button', { name: '取消', exact: true }).click();
- expect(await page.evaluate(() => window.calls.some(call => call.action === 'conclusion.publish'))).toBe(false);
- await share(); await dialog.getByRole('button', { name: '团队验收', exact: true }).click();
- await page.screenshot({ path: path.join(out, 'single-share-dialog.png') });
+ await share(); await expect(page.getByRole('dialog')).toHaveCount(0);
+ await expect.poll(() => page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish').length)).toBe(1);
+ expect(await page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish')[0].payload)).toEqual({ id: '00000000-0000-4000-8000-000000000001', version: 3, disclose: [] });
+ const chooseFolder = async () => { await page.locator('.result-more > summary').click(); await page.getByRole('button', { name: '选择目录分享…', exact: true }).click(); };
+ await chooseFolder(); const dialog = page.getByRole('dialog', { name: '选择成果保存目录', exact: true });
+ await expect(dialog).toBeVisible(); await dialog.getByRole('button', { name: '取消', exact: true }).click();
+ expect(await page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish').length)).toBe(1);
+ await chooseFolder(); await dialog.getByRole('button', { name: '团队验收', exact: true }).click();
  await dialog.getByRole('button', { name: '分享至团队', exact: true }).click(); await expect(dialog).toHaveCount(0);
- expect(await page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish').map(call => call.payload))).toEqual([{ id: '00000000-0000-4000-8000-000000000001', version: 3, disclose: [], folderId: '00000000-0000-4000-8000-000000000004' }]);
- await share(); await dialog.getByText('公开直接来源（选填）', { exact: true }).click();
+ expect(await page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish').at(-1).payload.folderId)).toBe('00000000-0000-4000-8000-000000000004');
+ await chooseFolder(); await dialog.getByText('公开直接来源（选填）', { exact: true }).click();
  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: '分享至团队', exact: true }).click();
  expect(await page.evaluate(() => window.calls.filter(call => call.action === 'conclusion.publish').at(-1).payload.disclose.length)).toBe(1);
- await share(); await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+ await chooseFolder(); await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
  await page.goto(url + '?rsi');
  await page.getByRole('button', { name: '接受', exact: true }).click(); await page.getByRole('combobox', { name: '关联会话' }).selectOption('00000000-0000-4000-8000-000000000003');
  await expect(page.getByText('保存后作为会话的待发送参考，随下一次消息生效。', { exact: true })).toBeVisible();
@@ -66,5 +67,5 @@ try {
  const attempts = await page.evaluate(() => window.calls.filter(call => call.action === 'rsi.feedback' && call.payload.reaction.kind === 'supplement').map(call => call.payload.reaction.requestId));
  expect(attempts[0]).toBe(attempts[1]); expect(attempts.length).toBe(2);
  await page.screenshot({ path: path.join(out, 'recommendation-linked.png') });
- expect(errors).toEqual([]); console.log(JSON.stringify({ passed: true, checks: ['single share directory dialog', 'cancel and Escape send nothing', 'private sources excluded by default with optional disclosure', 'recommendation link explains next-message semantics', 'failed save stays retryable and reuses request id'], out }));
+ expect(errors).toEqual([]); console.log(JSON.stringify({ passed: true, checks: ['direct share has no confirmation', 'optional directory sharing and cancellation', 'private sources excluded by default with optional disclosure', 'recommendation link explains next-message semantics', 'failed save stays retryable and reuses request id'], out }));
 } catch (error) { await page.screenshot({ path: path.join(out, 'failure.png') }); throw error; } finally { await browser.close(); }

@@ -127,18 +127,21 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
     catch (e: any) { setError(e.message); }
     finally { setBusy(false); }
   };
-  const publish = async (value: ProjectConclusion) => {
+  const publish = async (value: ProjectConclusion, chooseFolder = false) => {
     if (publishing.current) return;
     publishing.current = true; setBusy(true); setError('');
     try {
-      const original = value.publication?.contentId ? (await api.call<SharedContent[]>('content.list', { projectId: project.id })).find(item => item.id === value.publication?.contentId) : undefined;
-      if (activeProject.current !== project.id) return;
-      let disclose: ResultReference[] = [];
-      const folders = await destination.choose({ scope: 'team', title: '分享至团队 · 选择目录', confirmLabel: '分享至团队',
-        items: [{ id: value.id, title: conclusionTitle(value), category: resultCategory(value), folderId: original?.folderId }],
-        details: !!value.derivedFrom?.length && <SourceDisclosure references={value.derivedFrom} change={refs => { disclose = refs; }}/> });
-      if (!folders || activeProject.current !== project.id) return;
-      await api.call('conclusion.publish', { id: value.id, version: value.version, disclose, folderId: folders[value.id] });
+      let disclose: ResultReference[] = [], folderId: string | undefined;
+      if (chooseFolder) {
+        const original = value.publication?.contentId ? (await api.call<SharedContent[]>('content.list', { projectId: project.id })).find(item => item.id === value.publication?.contentId) : undefined;
+        if (activeProject.current !== project.id) return;
+        const folders = await destination.choose({ scope: 'team', title: '分享至团队 · 选择目录', confirmLabel: '分享至团队',
+          items: [{ id: value.id, title: conclusionTitle(value), category: resultCategory(value), folderId: original?.folderId }],
+          details: !!value.derivedFrom?.length && <SourceDisclosure references={value.derivedFrom} change={refs => { disclose = refs; }}/> });
+        if (!folders || activeProject.current !== project.id) return;
+        folderId = folders[value.id];
+      }
+      await api.call('conclusion.publish', { id: value.id, version: value.version, disclose, ...(folderId ? { folderId } : {}) });
       if (activeProject.current === project.id) await load();
       notice('已开始分享，已有发布关联时更新原团队成果');
     } catch (reason: any) { setError(reason.message); }
@@ -180,6 +183,7 @@ export function ConclusionLibrary({ project, projects = [], sessions, notice, me
           if (uploadState.status === 'error') { void (async () => { setBusy(true); try { await api.call('conclusion.publish', { id: value.id, version: value.version }); await load(); notice('已重试原上传'); } catch (error: any) { setError(error.message); } finally { setBusy(false); } })(); return; }
           void publish(value);
         }}>{uploadAction(uploadState)}</button>}
+        {project.id !== PERSONAL_PROJECT_ID && !value.archived && uploadState.status === 'ready' && <button className="secondary compact" disabled={disabled} title="选择团队目录后分享；直接分享使用原团队目录或分类根目录" onClick={() => void publish(value, true)}>选择目录分享…</button>}
         <button className="secondary compact" disabled={disabled || value.archived || !attachSessions.length} title={value.archived ? '请先恢复此成果' : !attachSessions.length ? '请先创建或重新打开当前项目的工作会话' : '选择会话使用这份成果'} onClick={() => { setAttaching(value); setAttachSelection([]); setAttachedIds([]); setError(''); }}>加入会话</button>
         <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(value.titleAlias || ''); setAliasError(''); }}>设置本地别名</button>
       </ResultMoreMenu>

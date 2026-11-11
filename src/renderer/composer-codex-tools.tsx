@@ -1,7 +1,7 @@
 import { supportsSessionResults } from '../shared/session-results';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Check, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowLeft, Blocks, BookOpen, Check, ChevronRight, FileText, Paperclip, Plus, RefreshCw, Search, Sparkles, Wrench, X } from 'lucide-react';
 import type { AgentCapabilityCatalog, AgentCapabilityOption, AgentCapabilitySelection, AgentSession } from '../shared/types';
 import { composerTrigger, removeComposerTrigger, type ComposerTrigger } from './composer-command';
 import { McpPanel } from './mcp-panel';
@@ -13,7 +13,7 @@ export interface ComposerToolProps {
   text?: string; changeText?: (text: string) => void; attach?: () => void; handoff?: () => void; changed?: () => Promise<void>;
   openSettings?: () => void;
 }
-type Menu = 'command' | 'skill' | 'plugin';
+type Menu = 'add' | 'command' | 'skill' | 'plugin';
 export function CodexComposerTools({ session, selected, change, text = '', changeText, attach, handoff, changed, openSettings }: ComposerToolProps) {
   const [menu, setMenu] = useState<Menu>(), [trigger, setTrigger] = useState<ComposerTrigger>(), [query, setQuery] = useState(''), [active, setActive] = useState(0);
   const [catalog, setCatalog] = useState<AgentCapabilityCatalog>(), [loading, setLoading] = useState(false), [error, setError] = useState('');
@@ -30,7 +30,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
   // Cursor discovers Skills by starting an ACP session. Built-in commands and
   // the plus menu must stay local, including while typing /p -> /plan.
   const localCommand = session.provider === 'cursor' && menu === 'command' && (!trigger?.query || ['skills', 'mcp', 'plan', 'agent', 'ask'].some(name => name.startsWith(trigger.query)));
-  const catalogKind = !menu || localCommand ? undefined : menu === 'command' ? 'skill' : menu;
+  const catalogKind = !menu || menu === 'add' || localCommand ? undefined : menu === 'command' ? 'skill' : menu;
   useEffect(() => {
     setError('');
     if (catalogKind) void refresh(catalogKind); else setLoading(false);
@@ -38,6 +38,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
   }, [catalogKind, session.id]);
   useEffect(() => { setActive(0); }, [query, menu]);
   const syncTrigger = () => {
+    if (session.provider === 'claude') return; // Claude owns its native slash commands.
     const textarea = input(); if (!textarea || document.activeElement !== textarea || dismissed.current === textarea.value) return;
     dismissed.current = undefined;
     const next = composerTrigger(textarea.value, textarea.selectionStart, session.provider === 'cursor' ? 'cursor' : 'codex');
@@ -47,7 +48,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
   useEffect(syncTrigger, [text]);
   const consume = (focus = true) => {
     const textarea = input();
-    const current = textarea && composerTrigger(textarea.value, textarea.selectionStart, session.provider === 'cursor' ? 'cursor' : 'codex');
+    const current = session.provider !== 'claude' && textarea && composerTrigger(textarea.value, textarea.selectionStart, session.provider === 'cursor' ? 'cursor' : 'codex');
     if (current && changeText) {
       const next = removeComposerTrigger(textarea!.value, current); changeText(next);
       if (focus) requestAnimationFrame(() => { if (textarea?.value === next) { textarea.focus(); textarea.setSelectionRange(current.start, current.start); } });
@@ -69,7 +70,15 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
     ...(trigger ? [{ id: 'plan', label: 'Plan', help: '切换规划模式', mode: 'plan' as const }, { id: 'agent', label: 'Agent', help: '切换执行模式', mode: 'default' as const }, ...(session.provider === 'cursor' ? [{ id: 'ask', label: 'Ask', help: '回答问题', mode: 'ask' as const }] : [])] : []),
     ...(trigger ? (catalog?.skills || []).filter(item => item.enabled).map(item => ({ id: item.invocation, label: item.name, help: item.description, item })) : []),
   ].filter(item => item.id.toLowerCase().includes(query.toLowerCase()));
-  const count = menu === 'command' ? commands.length : options.length;
+  const additions = [
+    { label: '本地文件', icon: Paperclip, disabled: !attach, title: '仅关联原文件路径，由模型按需读取', run: () => { close(); attach?.(); } },
+    { label: '项目成果', icon: BookOpen, disabled: !session.binding || !supportsSessionResults(session), title: session.codexRemote ? '远程会话暂不支持本机成果引用' : undefined, run: () => { close(); setMaterials(true); } },
+    { label: 'Skills', icon: Sparkles, run: () => command('skill'), nested: true },
+    { label: 'MCP 工具', icon: Wrench, disabled: session.provider === 'claude', title: session.provider === 'claude' ? '请在 Claude CLI 中管理 MCP' : undefined, run: () => command('mcp'), nested: true },
+    { label: '插件', icon: Blocks, disabled: session.provider === 'cursor', title: session.provider === 'cursor' ? 'Cursor 插件由 CLI 配置加载' : undefined, run: () => command('plugin'), nested: true },
+    ...(handoff ? [{ label: '引用会话摘要', icon: FileText, run: () => { close(); handoff(); } }] : []),
+  ];
+  const count = menu === 'add' ? additions.length : menu === 'command' ? commands.length : options.length;
   const chooseCommand = async (item: typeof commands[number]) => {
     if (item.item) { pick(item.item); return; }
     if (item.mode) {
@@ -77,14 +86,14 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
       catch (e: any) { setError(e.message || '模式切换失败，请重试。'); }
     } else if (item.kind) command(item.kind);
   };
-  const chooseActive = () => { if (menu === 'command') { const item = commands[active]; if (item) void chooseCommand(item); } else { const item = options[active]; if (item) pick(item); } };
+  const chooseActive = () => { if (menu === 'add') { const item = additions[active]; if (item && !item.disabled) item.run(); } else if (menu === 'command') { const item = commands[active]; if (item) void chooseCommand(item); } else { const item = options[active]; if (item) pick(item); } };
   useLayoutEffect(() => {
     const textarea = input(); if (!textarea) return;
     const key = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape' && mcp) { event.preventDefault(); event.stopImmediatePropagation(); setMcp(false); close(); return; }
       // Recognized slash commands are handled locally, never sent as a model task.
-      const exact = /^\s*\/(skills|mcp|plugins|plan|agent|ask)\s*$/i.exec(textarea.value);
+      const exact = session.provider !== 'claude' && /^\s*\/(skills|mcp|plugins|plan|agent|ask)\s*$/i.exec(textarea.value);
       if (event.key === 'Enter' && !event.shiftKey && exact && ['plan', 'agent', 'ask'].includes(exact[1].toLowerCase())) { event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) void chooseCommand({ id: exact[1], label: '', help: '', mode: exact[1].toLowerCase() === 'plan' ? 'plan' : exact[1].toLowerCase() === 'ask' ? 'ask' : 'default' }); return; }
       if (event.key === 'Enter' && !event.shiftKey && exact) { event.preventDefault(); event.stopImmediatePropagation(); if (!event.repeat) command(exact[1].toLowerCase() === 'skills' ? 'skill' : exact[1].toLowerCase() === 'plugins' ? 'plugin' : 'mcp'); return; }
       if (event.key === 'Escape' && (menu || composerTrigger(textarea.value, textarea.selectionStart, session.provider === 'cursor' ? 'cursor' : 'codex'))) { event.preventDefault(); event.stopImmediatePropagation(); close(); return; }
@@ -107,13 +116,20 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
   useEffect(() => { if (active >= count) setActive(0); }, [count, active]);
   useEffect(() => { root.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [active, count, menu]);
   return <div className="composer-capabilities composer-codex-tools" ref={root}>
-    <button className="icon composer-plus" ref={plus} aria-label="添加内容或工具" title={session.provider === 'cursor' ? '添加内容（/ Skill，@ 引用）' : '添加内容（/ 命令，$ Skill）'} aria-expanded={!!menu} aria-haspopup="dialog" onClick={() => { if (menu) close(); else { dismissed.current = undefined; setTrigger(undefined); setQuery(''); setMenu('command'); } }}><Plus size={19}/></button>
-    {menu && <section className="composer-popover codex-tools-popover" role="dialog" aria-label={menu === 'command' ? '添加内容或工具' : menu === 'skill' ? '选择 Skill' : '选择插件'}>
-      <header><strong>{menu === 'command' ? '添加内容或工具' : menu === 'skill' ? 'Skills' : '插件'}</strong><span className="spacer"/>{menu !== 'command' && <button className="icon" title="刷新选项" disabled={loading} onClick={() => void refresh(menu, true)}><RefreshCw size={13} className={loading ? 'spin' : ''}/></button>}<button className="icon" aria-label="关闭选项" onClick={() => { close(); input()?.focus(); }}><X size={14}/></button></header>
-      {!trigger && menu !== 'command' && <label className="capability-search"><Search size={13}/><input aria-label={menu === 'skill' ? '搜索 Skill' : '搜索插件'} autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) && !event.nativeEvent.isComposing) { event.preventDefault(); if (event.key === 'Enter') chooseActive(); else setActive(index => count ? (index + (event.key === 'ArrowDown' ? 1 : count - 1)) % count : 0); } }} placeholder="搜索"/></label>}
+    <button className="icon composer-plus" ref={plus} aria-label="添加内容或工具" title="添加内容或工具" aria-expanded={!!menu} aria-haspopup="dialog" onClick={() => { if (menu) close(); else { dismissed.current = undefined; setTrigger(undefined); setQuery(''); setMenu('add'); } }}><Plus size={19}/></button>
+    {menu && <section className={'composer-popover codex-tools-popover' + (menu === 'add' ? ' composer-add-popover' : '')} role="dialog" aria-label={menu === 'add' || menu === 'command' ? '添加内容或工具' : menu === 'skill' ? '选择 Skill' : '选择插件'} onKeyDown={event => {
+      if (menu !== 'add' || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')];
+      if (!buttons.length) return;
+      event.preventDefault(); const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length;
+      buttons[next].focus();
+    }}>
+      {menu !== 'add' && <header>{!trigger && menu !== 'command' && <button className="icon" aria-label="返回添加菜单" onClick={() => { setQuery(''); setMenu('add'); }}><ArrowLeft size={16}/></button>}<strong>{menu === 'command' ? '输入框命令' : menu === 'skill' ? 'Skills' : '插件'}</strong><span className="spacer"/>{(menu === 'skill' || menu === 'plugin') && <button className="icon" title="刷新选项" disabled={loading} onClick={() => void refresh(menu, true)}><RefreshCw size={13} className={loading ? 'spin' : ''}/></button>}<button className="icon" aria-label="关闭选项" onClick={() => { close(); input()?.focus(); }}><X size={14}/></button></header>}
+      {!trigger && (menu === 'skill' || menu === 'plugin') && <label className="capability-search"><Search size={13}/><input aria-label={menu === 'skill' ? '搜索 Skill' : '搜索插件'} autoFocus value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) && !event.nativeEvent.isComposing) { event.preventDefault(); if (event.key === 'Enter') chooseActive(); else setActive(index => count ? (index + (event.key === 'ArrowDown' ? 1 : count - 1)) % count : 0); } }} placeholder="搜索"/></label>}
       <div className="composer-options">
-        {menu === 'command' ? <>
-          {!trigger && <div className="composer-extra-actions">{attach && <button className="setting-option" onClick={() => { close(); attach(); }}>添加本地参考文件</button>}<button className="setting-option" disabled={!session.binding || !supportsSessionResults(session)} title={session.codexRemote ? '远程会话暂不支持本机成果引用' : undefined} onClick={() => { close(); setMaterials(true); }}>关联成果</button>{handoff && <button className="setting-option" onClick={() => { close(); handoff(); }}>引用会话摘要 <small>Beta</small></button>}</div>}
+        {menu === 'add' ? <div role="menu" aria-label="添加内容或工具">{additions.map((item, index) => <React.Fragment key={item.label}>{(index === 2 || index === 5) && <div className="composer-add-divider" role="separator"/>}<button type="button" role="menuitem" className="composer-add-row" disabled={item.disabled} title={item.title} onClick={item.run}><item.icon size={17} aria-hidden="true"/><span>{item.label}</span>{item.nested && <ChevronRight size={14} aria-hidden="true"/>}</button></React.Fragment>)}</div> :
+        menu === 'command' ? <>
           {error && <p role="alert" className="inline-error">{error}</p>}{trigger && loading && <p role="status" className="muted small">读取命令…</p>}
           <div role="listbox" aria-label="输入框命令">{commands.map((item, index) => <button className={'setting-option ' + (active === index ? 'keyboard-active' : '')} role="option" aria-selected={active === index} key={item.id + (item.item ? '-skill' : '')} onClick={() => void chooseCommand(item)}><span>{item.label}<small>{item.help}</small></span><code>/{item.id}</code></button>)}</div>
         </> : <>

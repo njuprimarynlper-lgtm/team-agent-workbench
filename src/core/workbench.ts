@@ -80,7 +80,8 @@ import { normalizedResultBody, teamResultDifference } from '../shared/team-resul
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
 import { conclusionTitle, isConclusionSource } from '../shared/conclusion-context';
-import { acceptedSessionContext, isRecommendationSource, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
+import { acceptedSessionContext, isPathReference, isRecommendationSource, isPersonalHandoffSource, sourceIdentity, sourceWasAccepted } from '../shared/session-context';
+import { assertSourceReadable, linkLocalFile, localReferenceKey } from './local-references';
 import { subsessionFamily, subsessionParentId, sessionMoveFamilyIds } from '../shared/subsessions';
 import { changedWorkspaceFiles, reportSourceHash } from './subsession-report';
 import { safeFilename, localWithin } from './paths';
@@ -2008,7 +2009,7 @@ export class Workbench {
         for (const file of session.sources) if (file.contentRef && sourceProjects.has(file.contentRef.projectId)) file.contentRef.projectId = projectId;
         const events = this.store.sessionDir(session.id);
         if (await fs.stat(events).catch(() => undefined)) await fs.cp(events, target.store.sessionDir(session.id), { recursive: true, force: true });
-        for (const source of session.sources) if (localWithin(events, source.localPath)) source.localPath = path.join(target.store.sessionDir(session.id), path.relative(events, source.localPath));
+        for (const source of session.sources) if (!isPathReference(source) && localWithin(events, source.localPath)) source.localPath = path.join(target.store.sessionDir(session.id), path.relative(events, source.localPath));
         if (session.fork?.visibleSnapshotPath && localWithin(events, session.fork.visibleSnapshotPath)) session.fork.visibleSnapshotPath = path.join(target.store.sessionDir(session.id), path.relative(events, session.fork.visibleSnapshotPath));
       }
       const movedDrafts = structuredClone(drafts);
@@ -2222,7 +2223,7 @@ export class Workbench {
         if (draft) input.context.questionFill = true;
         if (agentNotice) input.text = agentNotice + input.text;
       }
-      for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
+      for (const source of input.sources) await assertSourceReadable(source);
       if (s.closedAt) throw new Error('此会话已关闭');
       const capabilities = await runtime.resolveCapabilities(capabilitySelections);
       if (canceled()) return false;
@@ -2296,7 +2297,7 @@ export class Workbench {
     this.steering.add(id);
     try {
       const input = await this.availableSessionContext(s, userText, sourceIds, s.messages, false);
-      for (const source of input.sources) if (await hashFile(source.localPath) !== source.sha256) throw new Error('参考快照已改变，请重新添加文件：' + source.name);
+      for (const source of input.sources) await assertSourceReadable(source);
       const capabilities = await runtime.resolveCapabilities(capabilitySelections);
       this.assertCanWork(s.binding);
       if (s.closedAt || this.stoppingSessions.has(id) || this.closing || this.runtimes.get(id) !== runtime) throw new Error('会话已关闭或正在停止，引导未发送');
@@ -2862,12 +2863,19 @@ export class Workbench {
   }
   answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) { this.session(id); const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); return runtime.answer(requestId, option, answers); }
   async attachLocal(id: string, files: string[]) {
-    const s = this.session(id); if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
-    const directory = path.join(s.cwd, '.workbench', 'sources', id);
-    const result: SourceFile[] = [];
-    for (const file of files) result.push(await freezeFile(file, directory));
-    if (s.closedAt) throw new Error('请选择未关闭的工作会话');
-    s.sources.push(...result); await this.store.save(); this.broadcast(); return result;
+    return this.edit('source-attach:' + id, async () => {
+      const s = this.session(id);
+      if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
+      const linked: SourceFile[] = [];
+      for (const file of files) {
+        const source = await linkLocalFile(file);
+        const existing = [...s.sources, ...linked].find(item => isPathReference(item) && localReferenceKey(item.localPath) === localReferenceKey(source.localPath));
+        if (!linked.some(item => item.id === existing?.id)) linked.push(existing || source);
+      }
+      if (s.closedAt) throw new Error('请选择未关闭的工作会话');
+      for (const source of linked) if (!s.sources.some(item => item.id === source.id)) s.sources.push(source);
+      await this.store.save(); this.broadcast(); return linked;
+    }, false);
   }
   async attachRemote(id: string, projectId: string, remotePath: string) {
     const s = this.session(id), binding = this.projectBinding(projectId);
@@ -2960,8 +2968,13 @@ export class Workbench {
       const source = session.sources.find(item => item.id === sourceId);
       if (!source) throw new Error('引用不属于当前会话');
       if (isProtectedSessionSource(session, source)) throw new Error('项目说明、任务资料或父会话继承内容不能在此撤销');
-      if (!isRemovableSessionReference(session, source)) throw new Error('只能撤销尚未发送的成果或会话摘要引用');
+      if (!isRemovableSessionReference(session, source)) throw new Error('此参考资料不能在此撤销');
       const identity = sourceIdentity(source), matches = session.sources.filter(item => sourceIdentity(item) === identity);
+      if (isPathReference(source) && matches.some(item => sourceWasAccepted(session, item))) {
+        const removed = new Set(matches.map(item => item.id)), input = this.store.inputs[id];
+        if (input) input.sourceIds = input.sourceIds.filter(item => !removed.has(item));
+        await this.store.save(); this.broadcast(); return { sourceIds: [...removed] };
+      }
       if (matches.some(item => sourceWasAccepted(session, item))) throw new Error('这份参考内容已发送给模型，不能从当前对话历史中撤销');
       const removed = new Set(matches.map(item => item.id));
       session.sources = session.sources.filter(item => !removed.has(item.id));
@@ -2983,7 +2996,7 @@ export class Workbench {
       }
       for (const ref of refs.values()) this.recordContentAction(ref.projectId, ref.id, ref.revision, { kind: 'detached_session', targetId: id, targetTitle: session.title });
       await this.store.save(); this.broadcast();
-      for (const item of matches) if (localWithin(path.join(this.store.sessionDir(id), 'sources'), item.localPath)) await fs.rm(item.localPath, { force: true }).catch(() => {});
+      for (const item of matches) if (!isPathReference(item) && localWithin(path.join(this.store.sessionDir(id), 'sources'), item.localPath)) await fs.rm(item.localPath, { force: true }).catch(() => {});
       return { sourceIds: [...removed] };
     }, false);
   }
@@ -3752,7 +3765,7 @@ export class Workbench {
       });
       this.assertReferencesAvailable(parent, sources);
       if (parent.codexRemote && sources.length) throw Error('远程侧聊暂不支持本机参考文件');
-      for (const file of sources) if (await hashFile(file.localPath) !== file.sha256) throw Error('参考快照已改变：' + file.name);
+      for (const file of sources) await assertSourceReadable(file);
       const capabilities = await entry.runtime.resolveCapabilities(pending?.capabilities || []);
       const prompt = text + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '');
       const accepted = await entry.runtime.prompt(prompt, pending ? { userText: text, capabilities, context: { workRecord: false, sourceHashes: Object.fromEntries(sources.map(file => [file.id, file.sha256])) } } : undefined);
@@ -3829,6 +3842,10 @@ export class Workbench {
         child.sources.push({ id: sourceId, name: '创建时的上下文', localPath, sourcePath: 'session-handoff:fork:' + parentId, sha256: snapshotHash, size: Buffer.byteLength(context), fetchedAt: capturedAt });
         const inheritedSourceIds: string[] = [];
         for (const original of captured.sources.filter(source => !captured.codexRemote && (accepted[source.id] === source.sha256 || source.id === captured.fork?.sourceId || captured.fork?.inheritedSourceIds.includes(source.id)))) {
+          if (isPathReference(original)) {
+            const linked = { ...original, id: randomUUID() };
+            child.sources.push(linked); inheritedSourceIds.push(linked.id); continue;
+          }
           const frozen = await freezeFile(original.localPath, directory);
           Object.assign(frozen, { name: original.name, sourcePath: original.sourcePath, contentRef: original.contentRef });
           if (frozen.sha256 !== original.sha256) throw new Error('父会话引用已改变，请重新创建');
