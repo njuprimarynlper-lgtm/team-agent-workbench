@@ -63,6 +63,20 @@ try {
     }
     await page.setViewportSize({ width: 1050, height: 800 });
   };
+  await plus.click();
+  const rootMenu = page.getByRole('dialog', { name: '添加内容或工具', exact: true });
+  assert.deepEqual(await rootMenu.getByRole('menuitem').allTextContents(), ['本地文件', '项目成果', 'Skills', 'MCP 工具', '插件']);
+  const rowMetrics = await rootMenu.getByRole('menuitem').evaluateAll(rows => rows.map(row => ({ height: row.getBoundingClientRect().height, icon: row.querySelector('svg').getBoundingClientRect().width })));
+  assert(rowMetrics.every(row => row.height === 42 && row.icon === 17));
+  assert.equal(await page.evaluate(() => window.calls.filter(call => call.action === 'session.capabilities').length), 0, 'opening the root menu must not launch CLI discovery');
+  await page.screenshot({ path: path.join(root, 'artifacts', 'composer-add-root.png') });
+  await rootMenu.getByRole('menuitem', { name: 'Skills', exact: true }).click();
+  const skillLevel = page.getByRole('dialog', { name: '选择 Skill', exact: true });
+  await expect(skillLevel.getByRole('option').first()).toBeVisible();
+  await skillLevel.getByRole('button', { name: '返回添加菜单', exact: true }).click();
+  await expect(rootMenu.getByRole('menuitem')).toHaveCount(5);
+  await page.mouse.click(800, 100); await expect(rootMenu).toHaveCount(0);
+  await plus.click(); await page.keyboard.press('Escape'); await expect(rootMenu).toHaveCount(0);
   await verifyModeMenu();
   await input.fill('/mcp'); await input.press('Enter');
   const mcp = page.getByRole('dialog', { name: 'MCP 服务器', exact: true });
@@ -84,8 +98,8 @@ try {
   await input.fill('/skills');await input.press('Enter');const skills=page.getByRole('dialog',{name:'选择 Skill',exact:true});await expect(skills).toBeVisible();await skills.getByRole('option').first().click();await expect(skills).toHaveCount(0);await page.getByLabel('已选择能力').getByRole('button').click();await expect(page.getByLabel('已选择能力')).toBeEmpty();
   await input.fill('@dri');await expect(page.getByRole('dialog',{name:'选择插件',exact:true})).toBeVisible();await input.press('Tab');await expect(page.getByLabel('已选择能力')).toContainText('Drive');
   await input.fill('$rev');await input.press('Escape');await expect(skills).toHaveCount(0);await expect(input).toHaveValue('$rev');
-  await input.fill('普通文本');await plus.click();const menu=page.getByRole('dialog',{name:'添加内容或工具',exact:true});await menu.getByRole('button',{name:'添加本地参考文件',exact:true}).click();assert.equal(await page.evaluate(()=>window.attachCount),1);await expect(input).toHaveValue('普通文本');
-  await plus.click();await menu.getByRole('option').filter({hasText:'/mcp'}).click();await expect(mcp).toBeVisible();await page.keyboard.press('Escape');await expect(mcp).toHaveCount(0);await expect(input).toHaveValue('普通文本');
+  await input.fill('普通文本');await plus.click();const menu=page.getByRole('dialog',{name:'添加内容或工具',exact:true});await menu.getByRole('menuitem',{name:'本地文件',exact:true}).click();assert.equal(await page.evaluate(()=>window.attachCount),1);await expect(input).toHaveValue('普通文本');
+  await plus.click();await menu.getByRole('menuitem',{name:'MCP 工具',exact:true}).click();await expect(mcp).toBeVisible();await page.keyboard.press('Escape');await expect(mcp).toHaveCount(0);await expect(input).toHaveValue('普通文本');
   await input.fill('/mcp');await input.evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true,isComposing:true})));await expect(mcp).toHaveCount(0);await expect(input).toHaveValue('/mcp');
   await input.fill('/usr/bin');await input.press('Enter');assert.equal(await page.evaluate(()=>window.sent.at(-1).text),'/usr/bin');
   await input.fill('解释 $HOME');await expect(page.getByRole('dialog',{name:'选择 Skill',exact:true})).toContainText('没有匹配');await input.press('Enter');assert.equal(await page.evaluate(()=>window.sent.at(-1).text),'解释 $HOME');
@@ -99,7 +113,7 @@ try {
   await input.fill('/rev'); await expect(page.getByRole('option').filter({hasText:'代码检查'})).toBeVisible(); await input.press('Tab'); await expect(page.getByLabel('已选择能力')).toContainText('代码检查');
   await input.fill('@rev'); await expect(page.getByRole('dialog',{name:'选择 Skill',exact:true})).toBeVisible(); await input.press('Escape');
   await input.fill('/ask'); await input.press('Enter'); await expect(page.getByLabel('选择对话模式')).toContainText('Ask');
-  await input.fill('Cursor 草稿'); await plus.click(); await menu.getByRole('option').filter({hasText:'/mcp'}).click(); await mcp.getByRole('button',{name:'打开设置',exact:true}).click();
+  await input.fill('Cursor 草稿'); await plus.click(); await menu.getByRole('menuitem',{name:'MCP 工具',exact:true}).click(); await mcp.getByRole('button',{name:'打开设置',exact:true}).click();
   const cursorSettings=page.getByRole('dialog',{name:'Cursor 自定义',exact:true}); await expect(cursorSettings).toBeVisible(); await cursorSettings.getByRole('button',{name:'关闭工具设置'}).click(); await expect(input).toHaveValue('Cursor 草稿');
   await page.getByRole('button',{name:'展示计划',exact:true}).click(); const plan=page.getByLabel('实施计划',{exact:true});
   await plan.getByRole('button',{name:'修改计划'}).click(); await plan.getByLabel('修改实施计划').fill('Revised plan'); await plan.getByRole('button',{name:'取消修改'}).click(); await expect(input).toHaveValue('Cursor 草稿');

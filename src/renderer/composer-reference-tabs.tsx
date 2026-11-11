@@ -5,6 +5,7 @@ import type { AgentSession, FilePreview, SourceFile, WorkbenchAPI } from '../sha
 import { resultLabelTitle } from '../shared/result-labels';
 import { composerReferenceLayout, pendingComposerReferences, toggleComposerReference } from './composer-references';
 import { Markdown } from './markdown';
+import { isPathReference } from '../shared/session-context';
 
 export interface ComposerReferenceControls {
   sourceIds: string[];
@@ -64,6 +65,7 @@ export function ComposerReferenceTabs({ session, api, controls, locked, removalL
         {item.removable && <button type="button" className="icon" disabled={removalLocked || disabled} aria-label={`撤销加入：${resultLabelTitle(item.source.name)}`} title={removalLocked ? '当前操作结束后可撤销' : '从此会话移除，下一条消息不会引用'} onClick={() => void detach(item.source)}><X size={13}/></button>}
       </div>)}</div> : selected && <>
         {selection(selected)}
+        {isPathReference(selected.source) && <p className="muted small composer-reference-path">仅关联路径，模型按需读取原文件当前内容。<br/><code>{selected.source.localPath}</code></p>}
         <div className="composer-reference-body">{loading ? <p role="status">正在读取…</p> : preview?.type === 'text' ? /\.md$/i.test(selected.source.localPath) ? <Markdown text={preview.content}/> : <pre>{preview.content}</pre> : preview?.type === 'image' ? <img src={preview.content} alt={preview.name}/> : preview && <p>此格式暂不支持预览。</p>}
           {preview?.truncated && <p className="muted small">仅预览前 512 KB。</p>}</div>
         {selected.removable && <footer><button type="button" className="text-button" aria-label={`撤销加入：${resultLabelTitle(selected.source.name)}`} disabled={removalLocked || disabled} title={removalLocked ? '当前操作结束后可撤销' : undefined} onClick={() => void detach(selected.source)}>{busy ? '正在撤销…' : '撤销加入'}</button></footer>}

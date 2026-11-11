@@ -1,6 +1,6 @@
 import { accountIdentity } from './account-data';
 import { isConclusionSource } from './conclusion-context';
-import { isPersonalHandoffSource, isRecommendationSource, sourceIdentity, sourceWasAccepted } from './session-context';
+import { isPathReference, isPersonalHandoffSource, isRecommendationSource, sourceIdentity, sourceWasAccepted } from './session-context';
 import type { AgentSession, ProjectConclusion, SourceFile } from './types';
 
 export function isLegacyTeamResultSource(session: AgentSession, source: SourceFile) {
@@ -18,7 +18,7 @@ export function isProtectedSessionSource(session: AgentSession, source: SourceFi
 }
 
 export function isRemovableSessionReference(session: AgentSession, source: SourceFile) {
-  return !!(source.contentRef || isRecommendationSource(source) || isConclusionSource(source) || isPersonalHandoffSource(source) || isLegacyTeamResultSource(session, source)) && !isProtectedSessionSource(session, source);
+  return !!(isPathReference(source) || source.contentRef || isRecommendationSource(source) || isConclusionSource(source) || isPersonalHandoffSource(source) || isLegacyTeamResultSource(session, source)) && !isProtectedSessionSource(session, source);
 }
 
 // This is a view, not a deletion: retain frozen files and accepted conversation

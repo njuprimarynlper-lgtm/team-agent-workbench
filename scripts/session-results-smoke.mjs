@@ -13,7 +13,7 @@ import {SessionMaterials} from './src/renderer/session-materials';
 import {SessionSyncFrame} from './src/renderer/session-sync-frame';
 import './src/renderer/styles.css';
 function App(){const[s,set]=useState(window.session);window.patchSession=patch=>{Object.assign(window.session,patch);set({...window.session});};
-return <main style={{padding:'250px 30px 30px'}}><h1>成果关联验收</h1><SessionSyncFrame session={s} api={window.workbench} changed={async()=>{}} references={{sourceIds:[],select:()=>{},detach:async source=>{window.session.sources=window.session.sources.filter(item=>item.id!==source.id);window.patchSession({sources:window.session.sources});}}}><div className="composer"><textarea aria-label="任务输入" defaultValue="继续检查项目边界"/><div className="composer-bottom"><ComposerCapabilities session={s} selected={[]} change={()=>{}} changed={async()=>window.patchSession({sources:window.session.sources})}/>{s.provider==='claude'&&<SessionMaterials session={s} changed={async()=>window.patchSession({sources:window.session.sources})}/>}</div></div></SessionSyncFrame></main>;}
+return <main style={{padding:'250px 30px 30px'}}><h1>成果关联验收</h1><SessionSyncFrame session={s} api={window.workbench} changed={async()=>{}} references={{sourceIds:[],select:()=>{},detach:async source=>{window.session.sources=window.session.sources.filter(item=>item.id!==source.id);window.patchSession({sources:window.session.sources});}}}><div className="composer"><textarea aria-label="任务输入" defaultValue="继续检查项目边界"/><div className="composer-bottom"><ComposerCapabilities session={s} selected={[]} change={()=>{}} changed={async()=>window.patchSession({sources:window.session.sources})}/></div></div></SessionSyncFrame></main>;}
 createRoot(document.getElementById('root')).render(<App/>);` }, bundle: true, format: 'iife', platform: 'browser', outfile: path.join(out, 'ui.js'), logLevel: 'silent' });
 await fs.writeFile(path.join(out, 'index.html'), '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><link rel="stylesheet" href="ui.css"></head><body><div id="root"></div><script src="ui.js"></script></body></html>');
 const browser = await chromium.launch({ channel: 'msedge', headless: true }), page = await browser.newPage({ viewport: { width: 1360, height: 960 } }), errors = [];
@@ -54,7 +54,7 @@ await page.addInitScript(() => {
   } };
 });
 const dialog = page.getByRole('dialog', { name: '关联成果', exact: true });
-const open = async () => { await page.getByRole('button', { name: '添加内容或工具', exact: true }).click(); await page.getByRole('button', { name: '关联成果', exact: true }).click(); await expect(dialog).toBeVisible(); };
+const open = async () => { await page.getByRole('button', { name: '添加内容或工具', exact: true }).click(); await page.getByRole('menuitem', { name: '项目成果', exact: true }).click(); await expect(dialog).toBeVisible(); };
 const choose = title => dialog.getByRole('checkbox', { name: '关联成果：' + title, exact: true });
 try {
   await page.goto(pathToFileURL(path.join(out, 'index.html')).href);
@@ -93,9 +93,9 @@ try {
   await dialog.getByRole('button', { name: '预览', exact: true }).first().click(); await page.screenshot({ path: path.join(out, 'team-preview.png') });
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.patchSession({ provider: 'claude' }));
-  for (let i = 0; i < 2; i++) { await page.getByRole('button', { name: '关联成果', exact: true }).click(); await expect(dialog).toBeVisible(); await choose('权限边界').check(); await expect(dialog.getByRole('button', { name: '关联 1 项成果', exact: true })).toBeEnabled(); await dialog.getByRole('button', { name: '关联 1 项成果', exact: true }).click(); await expect(dialog).toHaveCount(0); await page.evaluate(() => window.patchSession({ sources: [] })); }
+  for (let i = 0; i < 2; i++) { await open(); await choose('权限边界').check(); await expect(dialog.getByRole('button', { name: '关联 1 项成果', exact: true })).toBeEnabled(); await dialog.getByRole('button', { name: '关联 1 项成果', exact: true }).click(); await expect(dialog).toHaveCount(0); await page.evaluate(() => window.patchSession({ sources: [] })); }
   await page.evaluate(() => window.patchSession({ provider: 'codex', codexRemote: {} }));
-  await page.getByRole('button', { name: '添加内容或工具', exact: true }).click(); await expect(page.getByRole('button', { name: '关联成果', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '添加内容或工具', exact: true }).click(); await expect(page.getByRole('menuitem', { name: '项目成果', exact: true })).toBeDisabled();
   expect(errors).toEqual([]);
   console.log(JSON.stringify({ passed: true, checks: ['cross-folder/tab multi-select and equal-title scope isolation', 'cache stays selectable during refresh and transient failure', 'search, preview and version update', 'partial success retry submits failures only', 'running association preserves draft without sending', 'Escape/outside close and reopen', 'Cursor CLI and Claude entry', 'remote mode excluded'], out }));
 } catch (error) { console.error(JSON.stringify({ pageErrors: errors })); await page.screenshot({ path: path.join(out, 'failure.png') }); throw error; }
