@@ -43,7 +43,7 @@ async function fixture() {
   });
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const endpoint='ws://127.0.0.1:'+(server.address() as any).port+route;
-  const options={sourceHome,parent,running:async()=>false,discover:async()=>{discovered++;return{app:'fake-desktop.exe',executable:'fake-native.exe'};},privateDirectory:async(root:string)=>{await fs.mkdir(root,{recursive:true});return fs.mkdtemp(path.join(root,'run-'));},launchWorker:async(file:string,_env:NodeJS.ProcessEnv)=>{
+  const options={sourceHome,parent,running:async()=>false,desktopConnected:async()=>undefined as boolean|undefined,discover:async()=>{discovered++;return{app:'fake-desktop.exe',executable:'fake-native.exe'};},privateDirectory:async(root:string)=>{await fs.mkdir(root,{recursive:true});return fs.mkdtemp(path.join(root,'run-'));},launchWorker:async(file:string,_env:NodeJS.ProcessEnv)=>{
     starts++;inputText=await fs.readFile(file,'utf8');const input=JSON.parse(inputText);
     await new Promise(resolve=>setTimeout(resolve,30));
     await fs.writeFile(path.join(input.stateDirectory,'bridge.json'),JSON.stringify({version:1,endpoint,sourceHome,executable:'fake-native.exe',pid:process.pid,approvalRoutingVersion:1,expiresAt:new Date(Date.now()+60000).toISOString()}));
@@ -78,12 +78,42 @@ test('concurrent windows and sessions share exactly one lazy backend; reconnect 
     f.fail();await assert.rejects(resumed.ensure(),/连接暂时中断/);assert.equal(f.counts().starts,1,'an uncertain backend is never replaced with a second writer');
   }finally{await f.close();}
 });
-test('native open is explicit, targets its own thread, and does not mutate global settings or credentials',async()=>{
-  const f=await fixture(),service=new CodexDesktopService(f.options),before=process.env.CODEX_APP_SERVER_WS_URL;
+test('native open bypasses inherited proxies for the loopback bridge without changing other proxy settings',async()=>{
+  const f=await fixture(),service=new CodexDesktopService(f.options),before=process.env.CODEX_APP_SERVER_WS_URL,priorNoProxy=process.env.NO_PROXY;
   try{
-    const nativeId=randomUUID();await service.open({provider:'codex',purpose:'work',codexDesktop:true,networkRoute:'direct',nativeId} as AgentSession,'ignored',{});
+    const nativeId=randomUUID();await service.open({provider:'codex',purpose:'work',codexDesktop:true,networkRoute:'direct',nativeId} as AgentSession,'ignored',{HTTP_PROXY:'http://proxy.invalid:8080',NODE_USE_ENV_PROXY:'1',NO_PROXY:'internal.example'});
     assert.equal(f.counts().starts,1);assert.equal(f.counts().desktopOpens,1);assert.deepEqual(f.counts().desktopArgs,['codex://threads/'+nativeId]);assert.equal(f.counts().desktopEnv.CODEX_APP_SERVER_WS_URL,f.endpoint);assert.equal(process.env.CODEX_APP_SERVER_WS_URL,before);
+    assert.equal(f.counts().desktopEnv.HTTP_PROXY,'http://proxy.invalid:8080');
+    for(const key of ['NO_PROXY','no_proxy'] as const){const bypass=f.counts().desktopEnv[key]||'';for(const host of ['internal.example','127.0.0.1','localhost','::1'])assert(bypass.split(',').includes(host));}
+    assert.equal(process.env.NO_PROXY,priorNoProxy);
     await assert.rejects(service.storage({provider:'codex',purpose:'work',codexDesktop:true,networkRoute:'management'} as AgentSession,'ignored',{}),/本机网络/);assert.equal(f.counts().starts,1);
+  }finally{await f.close();}
+});
+test('a live desktop process without a bridge socket is detected and reopened once',async()=>{
+  const f=await fixture();let running=false,connected=true;
+  const service=new CodexDesktopService({...f.options,running:async()=>running,desktopConnected:async()=>connected,launchDesktop:async(target,args,env)=>{await f.options.launchDesktop(target,args,env);running=true;connected=true;return process.pid;}});
+  const session={provider:'codex',purpose:'work',codexDesktop:true,networkRoute:'direct',nativeId:randomUUID()} as AgentSession;
+  try{
+    await service.open(session,'ignored',{}, {ifClosed:true});assert.equal(f.counts().desktopOpens,1);
+    connected=false;assert.equal(await service.readyToPrepare(),false,'a PID alone must not authorize native sync');
+    await service.open(session,'ignored',{}, {ifClosed:true});assert.equal(f.counts().desktopOpens,2);
+    assert.equal(await service.readyToPrepare(),true);assert.equal(f.counts().starts,1);
+  }finally{await f.close();}
+});
+test('an unconnected launch keeps the original backend, reports the failure, and avoids repeated automatic windows',async()=>{
+  const f=await fixture();let running=false,connected=false;
+  const service=new CodexDesktopService({...f.options,running:async()=>running,desktopConnected:async()=>connected,desktopConnectionTimeoutMs:20,launchDesktop:async(target,args,env)=>{await f.options.launchDesktop(target,args,env);running=true;return process.pid;}});
+  const session={provider:'codex',purpose:'work',codexDesktop:true,networkRoute:'direct',nativeId:randomUUID()} as AgentSession;
+  try{
+    await assert.rejects(service.open(session,'ignored',{}, {ifClosed:true}),/未连接本机共享后端/);
+    assert.equal(f.counts().starts,1);assert.equal(f.counts().desktopOpens,1);
+    const {file}=JSON.parse(await fs.readFile(path.join(f.parent,'active.json'),'utf8'));
+    const failed=JSON.parse(await fs.readFile(path.join(path.dirname(file),'desktop.json'),'utf8'));
+    assert.equal(failed.pid,process.pid);assert.equal(typeof failed.connectionFailureAt,'number');
+    await assert.rejects(service.open(session,'ignored',{}, {ifClosed:true}),/先退出 Codex 桌面版/);
+    assert.equal(f.counts().desktopOpens,1,'automatic sends must not keep opening windows after a known failure');
+    connected=true;await service.open(session,'ignored',{}, {ifClosed:true});
+    assert.equal(f.counts().desktopOpens,1);assert.equal(f.counts().starts,1);
   }finally{await f.close();}
 });
 test('ordinary desktop already running and invalid bridge records fail without closing it or launching another backend',async()=>{

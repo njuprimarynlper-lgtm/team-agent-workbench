@@ -65,9 +65,20 @@ function bridgeRequest(bridge: CodexDesktopBridge, operation: 'readyz' | 'renew'
 function ready(bridge: CodexDesktopBridge) {
   return bridgeRequest(bridge, 'readyz');
 }
+async function nativeDesktopConnected(bridge: CodexDesktopBridge, pid: number): Promise<boolean | undefined> {
+  if (process.platform !== 'win32') return undefined;
+  const port = Number(new URL(bridge.endpoint).port);
+  // /readyz proves that the shared backend is alive, but not that this desktop
+  // connected. Check which process owns the client side of its loopback socket.
+  const command = `try { $clients = @(Get-NetTCPConnection -State Established -ErrorAction Stop | Where-Object { $_.RemoteAddress -eq '127.0.0.1' -and $_.RemotePort -eq ${port} -and $_.OwningProcess -eq ${pid} }); if ($clients.Count -gt 0) { 'connected' } else { 'disconnected' } } catch { 'unknown' }`;
+  try {
+    const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: 4000 });
+    return stdout.trim() === 'connected' ? true : stdout.trim() === 'disconnected' ? false : undefined;
+  } catch { return undefined; }
+}
 const jobs = new Map<string,Promise<CodexDesktopBridge>>();
 const desktopJobs = new Map<string,Promise<void>>();
-type Options = { sourceHome?: string; parent?: string; workerFile?: string; privateDirectory?: (parent:string) => Promise<string>; discover?: () => Promise<CodexDesktopTarget>; running?: () => Promise<boolean>; launchWorker?: (file:string,env:NodeJS.ProcessEnv) => Promise<void>; launchDesktop?: (target:CodexDesktopTarget,args:string[],env:NodeJS.ProcessEnv) => Promise<number|void> };
+type Options = { sourceHome?: string; parent?: string; workerFile?: string; privateDirectory?: (parent:string) => Promise<string>; discover?: () => Promise<CodexDesktopTarget>; running?: () => Promise<boolean>; launchWorker?: (file:string,env:NodeJS.ProcessEnv) => Promise<void>; launchDesktop?: (target:CodexDesktopTarget,args:string[],env:NodeJS.ProcessEnv) => Promise<number|void>; desktopConnected?: (bridge:CodexDesktopBridge,pid:number) => Promise<boolean|undefined>; desktopConnectionTimeoutMs?: number };
 
 /** Lazy, per-personal-profile service. Ordinary Workbench startup never calls ensure(). */
 export class CodexDesktopService implements CodexDesktopIntegration {
@@ -79,6 +90,34 @@ export class CodexDesktopService implements CodexDesktopIntegration {
     const base = path.join(process.env.LOCALAPPDATA || os.tmpdir(),'TeamAgentWorkbench','codex-desktop-beta');
     // Reuse the already verified legacy Beta backend for the default personal profile.
     this.parent = options.parent || (sameNativePath(this.sourceHome,path.join(os.homedir(),'.codex')) ? base : path.join(base,createHash('sha256').update(this.sourceHome.toLowerCase()).digest('hex').slice(0,24)));
+  }
+  private desktopConnected(bridge: CodexDesktopBridge, pid: number) {
+    return (this.options.desktopConnected || nativeDesktopConnected)(bridge, pid);
+  }
+  private async waitForDesktop(bridge: CodexDesktopBridge, launchedPid: number, attachedPid?: number) {
+    const deadline = Date.now() + (this.options.desktopConnectionTimeoutMs ?? 12000);
+    let checked = false;
+    do {
+      if (processAlive(launchedPid) === true) {
+        const connected = await this.desktopConnected(bridge, launchedPid);
+        if (connected === true) return launchedPid;
+        if (connected === undefined) return undefined;
+        checked = true;
+      }
+      // Electron may forward a deep link to an existing linked window and exit.
+      if (attachedPid && processAlive(attachedPid) === true) {
+        const priorConnection = await this.desktopConnected(bridge, attachedPid);
+        if (priorConnection === true) return attachedPid;
+        if (priorConnection === undefined && processAlive(launchedPid) !== true) return undefined;
+      }
+      if (processAlive(launchedPid) !== true) break;
+      await pause(250);
+    } while (Date.now() < deadline);
+    if (!checked && processAlive(launchedPid) !== true) {
+      if (attachedPid) throw new Error('新的 Codex 窗口已退出，原窗口仍未连接本机共享后端。请退出 Codex 桌面版后重新点击“在 Codex 中打开”；共享会话已保留');
+      throw new Error('Codex 桌面版启动后立即退出。共享会话已保留，请检查桌面版安装与启动日志后重试');
+    }
+    throw new Error('Codex 桌面版已启动，但未连接本机共享后端。请检查本机代理或网络软件对 127.0.0.1 的拦截，退出 Codex 桌面版后重新点击“在 Codex 中打开”；共享会话已保留');
   }
   private async active() {
     const activeFile = path.join(this.parent,'active.json');
@@ -120,7 +159,8 @@ export class CodexDesktopService implements CodexDesktopIntegration {
     if (!existing) return false;
     const record = JSON.parse(await fs.readFile(path.join(this.parent, 'active.json'), 'utf8'));
     const attachment = await fs.readFile(path.join(path.dirname(record.file), 'desktop.json'), 'utf8').then(JSON.parse).catch(() => undefined);
-    return attachment?.endpointHash === createHash('sha256').update(existing.endpoint).digest('hex') && processAlive(attachment.pid) === true;
+    if (attachment?.endpointHash !== createHash('sha256').update(existing.endpoint).digest('hex') || processAlive(attachment.pid) !== true) return false;
+    return await this.desktopConnected(existing, attachment.pid) !== false;
   }
   private async establish(env:NodeJS.ProcessEnv) {
     const existing=await this.active();if(existing)return existing;
@@ -215,16 +255,29 @@ export class CodexDesktopService implements CodexDesktopIntegration {
     const attachedPid=attachment?.endpointHash===createHash('sha256').update(bridge.endpoint).digest('hex')&&processAlive(attachment.pid)===true ? attachment.pid as number : undefined;
     const running=await(this.options.running||codexDesktopRunning)();
     if(record.managed&&running&&!attachedPid)throw new CodexDesktopRestartRequired();
-    // Keep a just-launched window even before OS discovery sees it; background sends never refocus it.
-    if(options.ifClosed&&attachedPid)return;
+    const attachedConnection=attachedPid ? await this.desktopConnected(bridge,attachedPid) : undefined;
+    if(attachedPid&&attachedConnection===false&&attachment?.connectionFailureAt)throw new Error('Codex 桌面版仍在运行，但没有连上本机共享后端。请先退出 Codex 桌面版，再点击“在 Codex 中打开”；共享会话和输入已保留');
+    if(options.ifClosed&&attachedPid&&attachedConnection!==false)return;
     const target=await(this.options.discover||codexDesktopTarget)();
     if(target.archive&&!supportsCodexDesktopBridge(target.archive))throw new Error('当前 Codex 桌面版未检测到联动入口。请更新桌面版后重试；也可在输入框同步标签关闭“与 Codex 桌面版同步”，继续使用本机 Codex CLI');
-    const environment={...process.env,...env,CODEX_APP_SERVER_WS_URL:bridge.endpoint,CODEX_APP_SERVER_FORCE_CLI:undefined,ELECTRON_RUN_AS_NODE:undefined};
+    // The desktop connects to our loopback WebSocket. With NODE_USE_ENV_PROXY,
+    // inherited corporate proxies can intercept that upgrade and return 504.
+    const noProxy=[process.env.NO_PROXY,process.env.no_proxy,env.NO_PROXY,env.no_proxy,'127.0.0.1','localhost','::1'].filter(Boolean).join(',');
+    const environment={...process.env,...env,NO_PROXY:noProxy,no_proxy:noProxy,CODEX_APP_SERVER_WS_URL:bridge.endpoint,CODEX_APP_SERVER_FORCE_CLI:undefined,ELECTRON_RUN_AS_NODE:undefined};
     const args=session.nativeId?['codex://threads/'+session.nativeId]:[];
     let launchedPid:number|void;
     if(this.options.launchDesktop)launchedPid=await this.options.launchDesktop(target,args,environment);
     else {const child=spawn(target.app,args,{detached:true,windowsHide:true,stdio:'ignore',env:environment});await new Promise<void>((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});child.unref();launchedPid=child.pid;}
-    const pid=attachedPid||launchedPid;
+    let pid=attachedPid||launchedPid;
+    if(typeof launchedPid==='number') {
+      let verifiedPid: number | undefined;
+      try { verifiedPid=await this.waitForDesktop(bridge,launchedPid,attachedPid); }
+      catch(error) {
+        await fs.writeFile(path.join(path.dirname(record.file),'desktop.json'),JSON.stringify({pid:launchedPid,endpointHash:createHash('sha256').update(bridge.endpoint).digest('hex'),connectionFailureAt:Date.now()}),{mode:0o600});
+        throw error;
+      }
+      pid=verifiedPid||pid;
+    }
     if(pid)await fs.writeFile(path.join(path.dirname(record.file),'desktop.json'),JSON.stringify({pid,endpointHash:createHash('sha256').update(bridge.endpoint).digest('hex')}),{mode:0o600});
   }
 }
