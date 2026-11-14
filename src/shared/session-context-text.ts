@@ -1,5 +1,6 @@
 import type { AgentSession, Message, SourceFile } from './types';
 import { isPathReference } from './session-context';
+import { withoutLocalResultApiNotice } from './local-result-context';
 import { humanReadableWritingGuide } from './result-reading';
 import { projectJournalPrefix } from './project-journal';
 
@@ -140,7 +141,7 @@ export function workRecordInstructions(s: AgentSession) {
 // Recognize only complete suffixes built from this session's known snapshots.
 // Never remove arbitrary quoted markers, another session's paths, or user prose.
 export function recoverSessionContext(s: AgentSession, text: string) {
-  text = withoutIncomingQuestionNotice(withoutProjectJournal(s, text));
+  text = withoutIncomingQuestionNotice(withoutProjectJournal(s, withoutLocalResultApiNotice(s, text)));
   let userText = text, sources: SourceFile[] = [], workRecord = false;
   const index = text.lastIndexOf(sourceHeader);
   if (index >= 0) {

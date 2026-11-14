@@ -37,7 +37,7 @@ export interface RemoteBinding { connectionId: string; host: string; port: numbe
 export interface SubsessionFork { visibleMessageCount?: number; parentId: string; capturedAt: string; parentMessageId?: string; parentMessageCount: number; snapshotHash: string; sourceId: string; inheritedSourceIds: string[]; workspaceKind: 'git-worktree' | 'directory-copy' | 'shared-directory'; workspaceRoot: string; baseRevision?: string; nativeFork?: boolean; remoteContext?: string; parentWasRunning?: boolean; promotedAt?: string; visibleSnapshotPath?: string }
 export interface SubsessionReport { id: string; version: number; createdAt: string; reviewedAt?: string; title: string; body: string; sourceHash: string; messageCount: number; latestReply: string; changedFiles: string[] }
 export interface SubsessionReportPreview { childId: string; parentId: string; title: string; body: string; latestReply: string; changedFiles: string[]; messageCount: number; sourceHash: string; nextVersion: number }
-export interface SideChat { inheritedMessageCount?: number; pendingReferences?: Pick<SessionInput, 'sourceIds' | 'capabilities'>; id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
+export interface SideChat { input?: SessionInput; inheritedMessageCount?: number; pendingReferences?: Pick<SessionInput, 'sourceIds' | 'capabilities'>; id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
 export type SessionNetworkRoute = 'direct' | 'management';
 export interface AgentSession {
   scheduledRun?: { taskId: string; runId: string; managed: boolean };

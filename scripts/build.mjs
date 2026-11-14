@@ -31,6 +31,10 @@ for (const edition of ['user', 'admin']) {
   if (edition === 'user') files['cursor-network.cjs'] = await readFile('src/core/cursor-network.cjs');
   if (edition === 'user') files['cursor-request-guard.cjs'] = await readFile('src/core/cursor-request-guard.cjs');
   if (edition === 'user') {
+    files['workbench-results-skill.md'] = await readFile('skills/workbench-results/SKILL.md');
+    files['workbench-results-client.mjs'] = await readFile('skills/workbench-results/scripts/client.mjs');
+  }
+  if (edition === 'user') {
     const worker=await build({entryPoints:['src/core/codex-desktop-worker.ts'],outfile:out+'/codex-desktop-worker.cjs',write:false,bundle:true,platform:'node',format:'cjs',target:'node22'});
     files['codex-desktop-worker.cjs']=worker.outputFiles[0].contents;
   }

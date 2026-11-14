@@ -26,6 +26,10 @@ class Rpc extends EventEmitter implements AgentRpc {
     if (method === 'thread/fork') { await this.holdFork?.(); return { thread: { id: 'side-' + ++this.forkCount, ephemeral: this.ephemeral }, model: 'fixture', approvalPolicy: 'on-request', sandbox: { type: 'workspaceWrite' } }; }
     if (method === 'thread/inject_items' && this.failInjection) throw new Error('inject failed');
     if (method === 'turn/start') return { turn: { id: 'turn-' + params.threadId, status: 'inProgress' } };
+    if (method === 'turn/steer') return { turnId: params.expectedTurnId };
+    if (method === 'skills/list') return { data: [{ skills: [{ name: 'caveman', path: 'C:/skills/caveman/SKILL.md', enabled: true }] }] };
+    if (method === 'plugin/installed') return { marketplaces: [{ name: 'test', plugins: [{ id: 'fixture@test', name: 'fixture', installed: true, enabled: true }] }] };
+    if (method === 'collaborationMode/list') return { data: [{ mode: 'plan', model: 'fixture' }] };
     return {};
   }
   notify() {}
@@ -195,5 +199,110 @@ test('closing a parent during creation cannot publish a temporary chat', async (
     await assert.rejects(wb.createSideChat(parent.id), /已改变/);
     assert.equal(wb.snapshot().sideChats?.length, 0); assert.equal(rpc.calls.at(-1)?.method, 'thread/unsubscribe');
     await source.close();
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('side composers resolve real skills and plugins, keep settings and references isolated, and reject model changes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-side-tools-'));
+  const wb = new Workbench(root, () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const parent = await wb.createSession('codex', root, offlineProjectId), rpc = new Rpc(), source = runtime(parent, rpc);
+    parent.nativeId = 'parent'; parent.model = 'fixture'; parent.permissionMode = 'inherit';
+    const originalRuntime = (wb as any).runtime.bind(wb);
+    (wb as any).runtime = (s: AgentSession) => s.id === parent.id ? Promise.resolve(source) : originalRuntime(s);
+    const chat = await wb.createSideChat(parent.id), id = chat.session.id;
+    assert.equal(wb.sideChatParentId(id), parent.id);
+    assert.equal(chat.session.binding?.project.id, parent.binding?.project.id);
+    assert.equal((await wb.capabilities(id, false, 'skill')).skills[0].id, 'skill:caveman');
+    assert.equal((await wb.capabilities(id, false, 'plugin')).plugins[0].id, 'plugin:fixture@test');
+    await wb.changeMode(id, 'plan'); await wb.changePermissions(id, 'review'); await wb.changeReasoningEffort(id, 'high');
+    await assert.rejects(wb.changeModel(id, 'other'), /会话不存在/);
+    assert.equal(parent.mode, undefined); assert.equal(parent.permissionMode, 'inherit'); assert.equal(parent.reasoningEffort, undefined);
+    const file = path.join(root, 'side-only.txt'); await fs.writeFile(file, 'only side');
+    const [linked] = await wb.attachLocal(id, [file]);
+    assert.equal(parent.sources.some(item => item.id === linked.id), false);
+    const references = { sourceIds: [linked.id], capabilities: [{ id: 'skill:caveman', kind: 'skill' as const, name: 'Caveman' }, { id: 'plugin:fixture@test', kind: 'plugin' as const, name: 'Fixture' }] };
+    await assert.rejects(wb.sendSideChat(chat.id, '外来引用', { sourceIds: [randomUUID()] }), /已移除/);
+    await assert.rejects(wb.sendSideChat(chat.id, '无效工具', { sourceIds: [], capabilities: [{ id: 'skill:missing', kind: 'skill', name: 'Missing' }] }), /Skill|不可用|失效|能力/);
+    assert.equal(rpc.calls.filter(call => call.method === 'turn/start').length, 0);
+    await wb.saveInput(id, { text: '使用选定工具', ...references, answers: {} });
+    assert.equal(wb.store.inputs[id], undefined);
+    await wb.sendSideChat(chat.id, '使用选定工具', references);
+    const turn = rpc.calls.filter(call => call.method === 'turn/start').at(-1)!;
+    assert.equal(turn.params.threadId, chat.session.nativeId); assert.equal(turn.params.model, 'fixture'); assert.equal(turn.params.effort, 'high');
+    assert.equal(turn.params.collaborationMode.mode, 'plan'); assert.equal(turn.params.approvalPolicy, 'on-request');
+    assert.equal(turn.params.sandboxPolicy.type, 'workspaceWrite');
+    assert(turn.params.input.some((item: any) => item.type === 'skill' && item.name === 'caveman'));
+    assert(turn.params.input.some((item: any) => item.type === 'mention' && item.name === 'fixture'));
+    assert(turn.params.input[0].text.includes(linked.localPath));
+    await wb.store.save();
+    for (const name of ['sessions.json', 'inputs.json']) assert(!(await fs.readFile(path.join(root, name), 'utf8')).includes('使用选定工具'));
+    assert.equal(parent.messages.length, 0);
+    await wb.closeSideChat(chat.id); assert.equal(rpc.closed, 0);
+    await assert.rejects(wb.capabilities(id), /会话不存在/);
+    await source.close();
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('side chats can attach current-project results and clean temporary indexes when closed', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-side-results-'));
+  const wb = new Workbench(root, () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const parent = await wb.createSession('codex', root, offlineProjectId), rpc = new Rpc(), source = runtime(parent, rpc);
+    parent.nativeId = 'parent'; (wb as any).runtime = async () => source;
+    const result = { id: randomUUID(), projectId: offlineProjectId, title: '侧聊验证基线', category: 'verification' as const, version: 1, updatedAt: new Date().toISOString(), content: '仅关联当前侧聊', sources: [] };
+    wb.store.conclusions.push(result);
+    const chat = await wb.createSideChat(parent.id), id = chat.session.id;
+    const candidates = await wb.resultReferences.candidates(id, 'personal');
+    assert(candidates.items.some(item => item.reference.id === result.id));
+    const file = await wb.attachConclusion(id, result.id, 1);
+    assert(chat.session.sources.some(item => item.id === file.id));
+    assert(!parent.sources.some(item => item.id === file.id));
+    await wb.sendSideChat(chat.id, '解释这份验证基线', { sourceIds: [], capabilities: [] });
+    const turn = rpc.calls.filter(call => call.method === 'turn/start').at(-1)!;
+    assert(turn.params.input[0].text.includes(file.localPath));
+    assert.equal(chat.session.messages.at(-1)?.context?.sourceHashes[file.id], file.sha256);
+    await wb.closeSideChat(chat.id);
+    await assert.rejects(fs.stat(wb.store.sessionDir(id)), { code: 'ENOENT' });
+    assert(wb.store.conclusions.some(item => item.id === result.id));
+    await source.close();
+  } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('side composer queue preserves tools, edits and sends only to its own turn without persisting temporary drafts', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-side-queue-'));
+  const wb = new Workbench(root, () => {}, () => {});
+  try {
+    await wb.store.init(); grantTestWorkspace(wb, root);
+    const parent = await wb.createSession('codex', root, offlineProjectId), rpc = new Rpc(), source = runtime(parent, rpc);
+    parent.nativeId = 'parent'; (wb as any).runtime = async () => source;
+    const chat = await wb.createSideChat(parent.id), id = chat.session.id;
+    const entry = (wb as any).sideChats.get(chat.id);
+    await wb.sendSideChat(chat.id, '第一轮');
+    const turnId = entry.runtime.activeTurnId;
+    assert.equal(wb.snapshot().activeTurns?.[id], turnId);
+    const input = { text: '侧聊排队工具问题', sourceIds: [], capabilities: [{ id: 'skill:caveman', kind: 'skill' as const, name: 'Caveman' }], answers: {} };
+    await wb.enqueueInput(id, input);
+    const item = chat.session.inputQueue!.items[0];
+    const editing = await wb.inputQueue.beginEdit(id, item.id, { text: '原草稿', sourceIds: [], answers: {} });
+    assert.equal(editing.capabilities?.[0].id, 'skill:caveman');
+    await wb.saveInput(id, { ...editing, text: '修改后的侧聊排队问题' });
+    const restored = await wb.inputQueue.finishEdit(id, item.id, { ...editing, text: '修改后的侧聊排队问题' }, false);
+    assert.equal(restored.text, '原草稿'); assert.equal(wb.store.inputs[id], undefined);
+    rpc.event('turn/completed', chat.session.nativeId!, { turn: { id: turnId, status: 'completed' } });
+    await wb.inputQueue.pump(id);
+    assert.equal(chat.session.inputQueue!.items.length, 0);
+    const last = rpc.calls.filter(call => call.method === 'turn/start').at(-1)!;
+    assert.equal(last.params.threadId, chat.session.nativeId); assert(last.params.input[0].text.includes('修改后的侧聊排队问题'));
+    assert(last.params.input.some((item: any) => item.type === 'skill'));
+    await wb.enqueueInput(id, { ...input, text: '本轮补充' }, entry.runtime.activeTurnId);
+    assert.equal(rpc.calls.filter(call => call.method === 'turn/steer').at(-1)!.params.threadId, chat.session.nativeId);
+    assert.equal(parent.messages.length, 0);
+    await wb.stopSideChat(chat.id); assert.equal(chat.session.inputQueue?.paused, true);
+    await wb.store.save();
+    assert(!(await fs.readFile(path.join(root, 'inputs.json'), 'utf8')).includes('原草稿'));
+    await wb.closeSideChat(chat.id); await source.close();
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true }); }
 });

@@ -19,7 +19,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
   const [catalog, setCatalog] = useState<AgentCapabilityCatalog>(), [loading, setLoading] = useState(false), [error, setError] = useState('');
   const [mcp, setMcp] = useState(false), [materials, setMaterials] = useState(false);
   const root = useRef<HTMLDivElement>(null), plus = useRef<HTMLButtonElement>(null), sequence = useRef(0), dismissed = useRef<string | undefined>(undefined);
-  const input = () => root.current?.closest('.composer')?.querySelector<HTMLTextAreaElement>('textarea[aria-label="任务输入"]');
+  const input = () => root.current?.closest('.composer')?.querySelector<HTMLTextAreaElement>('textarea');
   const close = () => { setMenu(undefined); setTrigger(undefined); setQuery(''); dismissed.current = input()?.value; };
   const refresh = async (kind: 'skill' | 'plugin', forceRefresh = false) => {
     const n = ++sequence.current; setLoading(true); setError('');

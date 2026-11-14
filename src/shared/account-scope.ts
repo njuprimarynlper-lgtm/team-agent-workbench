@@ -17,6 +17,8 @@ export function scopeAccountSnapshot(snapshot: Snapshot): Snapshot {
   const owns = (binding?: RemoteBinding) => !snapshot.accountChanging && ownsBinding(profile, binding);
   const sessions = snapshot.sessions.filter(session => owns(session.binding));
   const ids = new Set(sessions.map(session => session.id));
+  const sideChats = (snapshot.sideChats || []).filter(chat => ids.has(chat.parentId));
+  const turnIds = new Set([...ids, ...sideChats.map(chat => chat.session.id)]);
   const owner = profile ? accountIdentity(profile) : '';
   const directoryKeys = new Set(profile?.projects.map(project => projectDirectoryKey(profile, project.id)));
   const settings = { ...snapshot.settings,
@@ -25,9 +27,9 @@ export function scopeAccountSnapshot(snapshot: Snapshot): Snapshot {
     projectDirectories: Object.fromEntries(Object.entries(snapshot.settings.projectDirectories || {}).filter(([key]) => !snapshot.accountChanging && directoryKeys.has(key))),
     ...(snapshot.accountChanging ? { contentAliases: {}, contentSeen: {}, contentUpdates: [], dismissedContentUpdateIds: [] } : {}),
   };
-  return { ...snapshot, settings, sessions, sideChats: (snapshot.sideChats || []).filter(chat => ids.has(chat.parentId)), activity: { jobs: (snapshot.activity?.jobs || []).filter(j => ids.has(j.sessionId) && j.owner === owner), busy: !snapshot.accountChanging && !!snapshot.activity?.busy, error: snapshot.accountChanging ? undefined : snapshot.activity?.error },
+  return { ...snapshot, settings, sessions, sideChats, activity: { jobs: (snapshot.activity?.jobs || []).filter(j => ids.has(j.sessionId) && j.owner === owner), busy: !snapshot.accountChanging && !!snapshot.activity?.busy, error: snapshot.accountChanging ? undefined : snapshot.activity?.error },
     inputs: Object.fromEntries(Object.entries(snapshot.inputs).filter(([id]) => ids.has(id))),
-    activeTurns: Object.fromEntries(Object.entries(snapshot.activeTurns || {}).filter(([id]) => ids.has(id))),
+    activeTurns: Object.fromEntries(Object.entries(snapshot.activeTurns || {}).filter(([id]) => turnIds.has(id))),
     drafts: snapshot.drafts.filter(draft => draft.binding ? owns(draft.binding) : ids.has(draft.sessionId)),
     transfers: snapshot.transfers.filter(transfer => owns(transfer.binding)),
     ...(snapshot.accountChanging ? { projectSync: {}, questions: { items: [], read: {}, jobs: [] }, accountSync: { status: 'pending' as const } } : {}),
