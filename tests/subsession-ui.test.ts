@@ -39,7 +39,8 @@ test('child chat keeps management actions folded, supports frozen history on upw
   assert.match(html, /共用工作目录/); assert.match(html, /继续问/);
   assert.match(html, /data-transcript-scroll/);
   assert.match(html, /aria-label="加入队列"/);
-  assert.match(html, /aria-label="选择模型"/);
+  assert.doesNotMatch(html, /aria-label="选择模型"/);
+  assert.match(html, /aria-label="调整思考强度"/);
   assert.match(html, /aria-label="当前执行权限"/);
 });
 

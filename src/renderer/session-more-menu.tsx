@@ -1,6 +1,7 @@
 import { useDetailsMenu } from './popup-dismiss';
 import React, { useRef } from 'react';
 import { Ellipsis } from 'lucide-react';
+import './more-menus.css';
 
 export function SessionMoreMenu({ label = '更多会话操作', children }: { label?: string; children: React.ReactNode }) {
   const menu = useRef<HTMLDetailsElement>(null);

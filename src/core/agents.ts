@@ -296,6 +296,7 @@ export class AgentRuntime {
       session.resolvedModel = result.model || this.session.resolvedModel;
       const child = new AgentRuntime(session, '', hooks, undefined, {}, borrowed);
       child.initialized = true; child.codexConnected = true;
+      child.mcp = this.mcp;
       child.guardConfig = this.guardConfig;
       child.monitorGuard(this.autoCompaction?.guard);
       child.nativeModel = result.model || this.nativeModel; child.nativeEffort = result.reasoningEffort ?? this.nativeEffort;
@@ -650,7 +651,7 @@ export class AgentRuntime {
     try {
       if (this.session.provider === 'codex') {
         const input: any[] = [{ type: 'text', text: nativeText, text_elements: [] }, ...selected.map(item => item.kind === 'skill' ? { type: 'skill', name: item.invocation, path: item.path } : { type: 'mention', name: item.invocation, path: item.path })];
-        const permissions = this.sharedCodex ? codexTurnPermissionParams(this.session) : {};
+        const permissions = this.sharedCodex || this.rpc instanceof CodexSideRpc ? codexTurnPermissionParams(this.session) : {};
         const selectedMode = this.session.permissionMode;
         const submission: CodexSubmission = { params: { threadId: this.session.nativeId, ...(this.session.directoryChange ? { cwd: this.executionCwd } : {}), ...permissions, ...(this.session.model ? { model: this.session.model } : {}), ...(effort ? { effort } : {}), ...(collaborationMode ? { collaborationMode } : {}), input }, selection: { model: this.session.model, effort: this.session.reasoningEffort }, messageId: promptMessage.id, userText: nativeText, used: new Set([this.session.model || this.nativeModel || '']), attempts: 0, revision: 0, progressed: false, rerouted: false, recovering: false };
         this.codexSubmission = submission;

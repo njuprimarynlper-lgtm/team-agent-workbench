@@ -96,7 +96,8 @@ function actionContext(action: string, raw: any, owner: BrowserWindow, preferPer
   if (action.startsWith('local.')) return personalContext;
   if (raw?.projectId && personalContext.workbench.projectSync.projects().some(project => project.id === raw.projectId)) return personalContext;
   if (Array.isArray(raw?.ids)) { const localIds = new Set([...personalContext.workbench.store.sessions, ...personalContext.workbench.store.drafts].map(item => item.id)); if (raw.ids.some((id: string) => localIds.has(id)) && !raw.ids.every((id: string) => localIds.has(id))) throw new Error('请分别处理未分项目和团队项目中的记录'); if (raw.ids.every((id: string) => localIds.has(id))) return personalContext; }
-  const sessionId = action.startsWith('sidechat.') ? raw?.parentId : raw?.id || raw?.parentId || raw?.sessionId;
+  const requestedId = action.startsWith('sidechat.') ? raw?.parentId : raw?.id || raw?.parentId || raw?.sessionId;
+  const sessionId = team.workbench.sideChatParentId(requestedId) || personalContext.workbench.sideChatParentId(requestedId) || requestedId;
   if (sessionId && /^session\.file/.test(action) && !team.workbench.store.sessions.some(session => session.id === sessionId) && personalContext.workbench.scheduled.ownsSession(sessionId)) return personalContext;
   if (sessionId && !preferPersonal && team.workbench.store.conclusions.some(item => item.id === sessionId)) return team;
   if (sessionId && (personalContext.workbench.store.sessions.some(item => item.id === sessionId) || personalContext.workbench.store.drafts.some(item => item.id === sessionId) || personalContext.workbench.store.conclusions.some(item => item.id === sessionId))) return personalContext;
@@ -115,7 +116,8 @@ async function alignPersonalRelay(team: DataContext, action: string, raw: any) {
   }
   const central = local.store.settings.egress?.viaSharedServer;
   const draft = local.store.drafts.find(item => item.id === raw?.id);
-  const session = action === 'rsi.run' ? local.store.sessions.filter(item => item.purpose === 'work' && !item.closedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : local.store.sessions.find(item => item.id === (draft?.sessionId || (action.startsWith('sidechat.') ? raw?.parentId : raw?.id || raw?.parentId || raw?.sessionId)));
+  const requestedSessionId = draft?.sessionId || (action.startsWith('sidechat.') ? raw?.parentId : raw?.id || raw?.parentId || raw?.sessionId);
+  const session = action === 'rsi.run' ? local.store.sessions.filter(item => item.purpose === 'work' && !item.closedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] : local.store.sessions.find(item => item.id === (local.sideChatParentId(requestedSessionId) || requestedSessionId));
   const route = raw?.networkRoute || session?.networkRoute || (local.store.settings.egress?.enabled ? 'management' : 'direct');
   const executing = /^(session\.(create|send|enqueue|editLast|queue\.(?:sideChat|steer|retry)|retry|mode|model|network|permission|native|codexDesktop|desktopSync)|draft\.(prepare|retry|reorganize)|conclusion\.merge\.prepare|subsession\.create|sidechat\.(create|send)|provider\.(auth|catalog|login$)|rsi\.run|egress\.test)/.test(action);
   if (central && executing && route === 'management') {
@@ -341,8 +343,8 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.codexDesktop.cancel': return workbench.cancelCodexSync(sessionInput.parse(raw).id);
     case 'session.codexDesktop.disable': return workbench.disableCodexDesktop(sessionInput.parse(raw).id);
     case 'sidechat.create': { const p = z.object({ parentId: id, selectedText: z.string().max(128 * 1024).default('') }).parse(raw); return workbench.createSideChat(p.parentId, p.selectedText); }
-    case 'sidechat.draft': { const p = z.object({ id, parentId: id, text: z.string().max(128 * 1024) }).parse(raw); return workbench.sideChatDraft(p.id, p.text); }
-    case 'sidechat.send': { const p = z.object({ id, parentId: id, text: z.string().max(128 * 1024) }).parse(raw); return workbench.sendSideChat(p.id, p.text); }
+    case 'sidechat.draft': { const p = z.object({ id, parentId: id, text: z.string().max(128 * 1024), references: z.object({ sourceIds: z.array(id).max(1000), capabilities: z.array(capability).max(20).optional() }).optional() }).parse(raw); return workbench.sideChatDraft(p.id, p.text, p.references); }
+    case 'sidechat.send': { const p = z.object({ id, parentId: id, text: z.string().max(128 * 1024), references: z.object({ sourceIds: z.array(id).max(1000), capabilities: z.array(capability).max(20).optional() }).optional() }).parse(raw); return workbench.sendSideChat(p.id, p.text, p.references); }
     case 'sidechat.stop': return workbench.stopSideChat(z.object({ id, parentId: id }).parse(raw).id);
     case 'sidechat.close': return workbench.closeSideChat(z.object({ id, parentId: id }).parse(raw).id);
     case 'sidechat.answer': { const p = z.object({ id, parentId: id, requestId: z.string(), option: z.string(), answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional() }).parse(raw); return workbench.answerSideChat(p.id, p.requestId, p.option, p.answers); }
@@ -498,7 +500,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.attachContent': { const p = z.object({ id, contentId: z.string().uuid(), expectedRevision: z.number().int().positive().optional() }).parse(raw); return workbench.attachContent(p.id, p.contentId, p.expectedRevision); }
     case 'session.attachConclusion': { const p = z.object({ id, conclusionId: z.string().uuid(), expectedVersion: z.number().int().positive().optional() }).parse(raw); return workbench.attachConclusion(p.id, p.conclusionId, p.expectedVersion); }
     case 'session.detachPendingSource': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return workbench.detachPendingSource(p.id, p.sourceId); }
-    case 'session.source.preview': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return previewSessionSource(workbench.session(p.id), p.sourceId); }
+    case 'session.source.preview': { const p = z.object({ id, sourceId: z.string().uuid() }).parse(raw); return previewSessionSource(workbench.composerSession(p.id), p.sourceId); }
     case 'session.projectContext': return workbench.refreshProjectContext(sessionInput.parse(raw).id);
     case 'draft.revise': return workbench.reviseDraft(sessionInput.parse(raw).id);
     case 'draft.git': { const p = z.object({ id, include: z.boolean() }).parse(raw); const draft = workbench.draft(p.id); if (draft.submitted) throw new Error('已提交的快照不能修改'); draft.includeGit = p.include; await workbench.store.save(); broadcast(); return true; }
@@ -560,7 +562,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       return workbench.steerOrQueue(p.id, p.expectedTurnId, p.text, p.sourceIds, p.capabilities);
     }
     case 'session.input': { const p = z.object({ id, input: z.object({ editingQueueItemId: id.optional(), nextTurnOnly: z.boolean().optional(), text, sourceIds: z.array(z.string()), answers: z.record(z.string(), z.string()), capabilities: z.array(capability).max(20).optional() }) }).parse(raw); await workbench.saveInput(p.id, p.input); return true; }
-    case 'session.input.flush': { workbench.session(sessionInput.parse(raw).id); await workbench.store.flushInputs(); return true; }
+    case 'session.input.flush': { workbench.composerSession(sessionInput.parse(raw).id); await workbench.store.flushInputs(); return true; }
     case 'session.stop': return workbench.stop(sessionInput.parse(raw).id);
     case 'session.close': return workbench.closeSession(sessionInput.parse(raw).id);
     case 'session.delete': return workbench.deleteSession(sessionInput.parse(raw).id);

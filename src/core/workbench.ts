@@ -108,8 +108,11 @@ import { sessionMessageText, sourceHeader, sourceText, withoutQuestionFillTurns 
 import { SessionInputQueue } from './session-input-queue';
 import { ScheduledTasks } from './scheduled-tasks';
 import type { ScheduledTask, ScheduledRun } from '../shared/scheduled-task';
+import { LocalResultApi } from './local-result-api';
+import { assertLocalResultEtag } from '../shared/local-result-api';
 
 export class Workbench {
+  readonly resultApi: LocalResultApi;
   readonly resultReferences: SessionResults;
   readonly scheduled: ScheduledTasks;
   readonly inputQueue: SessionInputQueue;
@@ -216,19 +219,21 @@ export class Workbench {
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.inputQueue = new SessionInputQueue({
-      setDraft: (id, draft) => { this.store.inputs[id] = draft; },
-      session: id => this.session(id), save: () => this.store.save(), changed: () => this.broadcast(),
+      setDraft: (id, draft) => { const side = [...this.sideChats.values()].find(entry => entry.view.session.id === id); if (side) { side.view.input = draft; side.view.draft = draft.text; side.view.pendingReferences = draft; } else this.store.inputs[id] = draft; },
+      session: id => this.composerSession(id), save: () => this.store.save(), changed: () => this.broadcast(),
       blocked: s => this.closing || this.configuring || !!s.closedAt || s.purpose !== 'work' || !this.ownsLocal(s.binding)
         || this.movingIds.has(s.id) || !!s.directoryMove || !!(s.binding && this.linkingProjects.has(s.binding.project.id))
         || this.sending.has(s.id) || this.steering.has(s.id) || this.stoppingSessions.has(s.id)
         || this.changingSettings.has(s.id) || this.attachingCodex.has(s.id) || !!this.questions.lockedPeer(s.id)
         || !!s.contextCompacting || ['starting', 'running', 'approval', 'error'].includes(s.status),
       send: (id, input, submitted) => this.runAccountOperation('session.send', async () => {
+        const side = [...this.sideChats.values()].find(entry => entry.view.session.id === id);
+        if (side) return this.sendSideChat(side.view.id, input.text, input, submitted);
         const s = this.session(id);
         if (s.title === '新会话') s.title = input.text.trim().slice(0, 40);
         return this.send(id, input.text, input.sourceIds, input.capabilities || [], submitted);
       }),
-      steer: (id, turnId, input) => this.steer(id, turnId, input.text, input.sourceIds, input.capabilities || []),
+      steer: (id, turnId, input) => this.sideChatParentId(id) ? this.steerSideChat(id, turnId, input) : this.steer(id, turnId, input.text, input.sourceIds, input.capabilities || []),
     });
     this.scheduled = new ScheduledTasks(root, {
       resolve: (projectId, taskId) => this.scheduledLocation(projectId, taskId),
@@ -241,16 +246,30 @@ export class Workbench {
     });
     this.resultReferences = new SessionResults({
       store: this.store, remote: this.remote,
-      session: id => { const session = this.session(id); this.assertCanWork(session.binding); return session; },
+      session: id => { const session = this.composerSession(id); this.assertCanWork(session.binding); return session; },
       fileSession: id => this.sessionForFiles(id), personal: (id, archived) => this.conclusions(id, archived),
       directories: id => this.personalResultDirectories(id),
       binding: id => { const binding = this.projectBinding(id); this.assertCanWork(binding); return binding; },
       connected: id => this.projectConnected(id), teamTitle: (id, item) => this.localContentTitle(id, item),
       edit: (id, run) => this.edit(id, run, false), changed: this.broadcast,
       record: (reference, session, title) => {
+        if (this.sideChatParentId(session.id)) return;
         if (reference.scope === 'team') this.recordContentAction(reference.projectId, reference.id, reference.version, { kind: 'attached_session', targetId: session.id, targetTitle: session.title, sourceTitle: title });
         else for (const origin of this.store.conclusions.find(item => item.id === reference.id)?.sources || []) if (origin.kind === 'remote' && origin.revision !== undefined) this.recordContentAction(reference.projectId, origin.id, origin.revision, { kind: 'attached_session', targetId: session.id, targetTitle: session.title });
       },
+    });
+    this.resultApi = new LocalResultApi({
+      store: this.store, epoch: () => this.accountEpoch,
+      binding: id => { const binding = this.projectBinding(id); this.assertCanWork(binding); return binding; },
+      operate: run => this.runAccountOperation('localResultApi.request', run),
+      list: (id, archived) => this.conclusions(id, archived), directories: id => this.personalResultDirectories(id),
+      create: (projectId, title, content, category, status, owner, folderId, id) => this.createConclusion(projectId, title, content, category, status, owner, [], folderId, id),
+      update: (id, title, content, category, status, version, owner, etag) => this.saveConclusion(id, title, content, category, status, version, owner, etag),
+      archive: (id, archived, etag) => this.archiveConclusion(id, archived, etag),
+      remove: (id, version, expectedEtag) => this.deleteConclusions([{ id, version, expectedEtag }]),
+      move: (id, change, etag) => this.movePersonalResults(id, change, etag), directory: (id, change) => this.changePersonalResultDirectory(id, change),
+      addFile: (id, file, etag) => this.addConclusionFiles(id, [file], etag),
+      removeFile: async (id, fileId, etag) => { await this.removeConclusionFile(id, fileId, etag); return this.conclusion(id); },
     });
     this.journal = new ProjectJournal(this.store);
     this.questions = new Questions(this.store, this.remote, {
@@ -314,7 +333,7 @@ export class Workbench {
     await this.questions.init();
     this.inputQueueTimer = setInterval(() => {
       if (this.closing || this.configuring) return;
-      for (const session of this.store.sessions) if (session.inputQueue?.items.length && !session.inputQueue.paused)
+      for (const session of [...this.store.sessions, ...[...this.sideChats.values()].filter(entry => !entry.view.expired).map(entry => entry.view.session)]) if (session.inputQueue?.items.length && !session.inputQueue.paused)
         void this.inputQueue.pump(session.id).catch(() => {});
     }, 200);
     // The former single switch enabled both abilities; preserve that choice on upgrade.
@@ -346,6 +365,7 @@ export class Workbench {
     await this.startCursorNativeSessions();
     await this.scheduled.init();
     await this.resultReferences.restore();
+    await this.resultApi.restore();
     await this.restoreRecommendationReferences();
   }
   async scheduledLocation(projectId: string, taskId?: string) {
@@ -382,6 +402,7 @@ export class Workbench {
   }
   async sessionForFiles(id: string) {
     this.assertAccountReady();
+    if (this.sideChatParentId(id)) return this.composerSession(id);
     const session = this.store.sessions.find(session => session.id === id) || await this.scheduled.sessionForFiles(id);
     if (!this.ownsLocal(session.binding)) throw Error('会话不属于当前账号');
     return session;
@@ -486,12 +507,13 @@ export class Workbench {
       this.broadcast(); return changed;
     }, false);
   }
-  movePersonalResults(projectId: string, raw: ResultDirectoryMove) {
+  movePersonalResults(projectId: string, raw: ResultDirectoryMove, expectedEtag?: string) {
     return this.edit('result-directories:' + projectId, async () => {
       const change = resultDirectoryMoveSchema.parse(raw);
       assertResultFolder(change.folderId, this.personalResultDirectories(projectId));
       const selected = change.items.map(ref => {
         const item = this.conclusion(ref.id);
+        assertLocalResultEtag(item, expectedEtag);
         if (item.projectId !== projectId || item.archived || item.version !== ref.version || (item.folderVersion || 0) !== ref.folderVersion) throw new Error('成果或目录位置已更新，请刷新后再移动');
         return { item, folderId: item.folderId, folderVersion: item.folderVersion };
       });
@@ -510,27 +532,31 @@ export class Workbench {
     return merging ? { contract: 4, categories: [...categories!] } : preparationRuleSnapshot(categories);
   }
   matchConclusions(projectId: string, query: string) { return rankConclusions(this.conclusions(projectId), query); }
-  async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, resultOwner?: string, fileIds: string[] = [], folderId?: string) {
-    if (this.linkingProjects.has(projectId)) throw new Error('项目正在迁移，请稍候');
-    validateResultStatus(category, resultStatus);
-    if (category) title = contributionTitle(category, title);
-    const profile = this.localProfile();
-    const now = new Date().toISOString(), conclusion: ProjectConclusion = { id: randomUUID(), projectId, ...(profile ? { accountOwner: accountIdentity(profile) } : {}), title: title.trim(), content: content.trim(), sources: [], updatedAt: now, version: 1, automatic: false };
-    if (!conclusion.title || !conclusion.content) throw new Error('请填写结论标题和内容');
-    if (category) { conclusion.category = category; const status = resultStatus ?? resultDefaultStatus(category); if (status) conclusion.resultStatus = status; }
-    if (resultOwner !== undefined) conclusion.resultOwner = resultOwner;
-    if (folderId) conclusion.folderId = assertResultFolder(folderId, this.personalResultDirectories(projectId));
-    const staged = fileIds.map(fileId => this.stagedConclusionFiles.find(file => file.id === fileId));
-    if (staged.some(file => !file)) throw new Error('有附件已失效，请重新选择');
-    if (staged.length) conclusion.localFiles = staged.map(file => ({ id: file!.id, name: file!.name, sha256: file!.sha256, size: file!.size, localPath: file!.localPath }));
-    this.stagedConclusionFiles = this.stagedConclusionFiles.filter(file => !fileIds.includes(file.id));
-    this.store.conclusions.unshift(conclusion);
-    try { await this.store.save(); } catch (error) { this.store.conclusions = this.store.conclusions.filter(item => item.id !== conclusion.id); this.stagedConclusionFiles.push(...staged.filter((file): file is SourceFile => !!file)); throw error; }
-    this.broadcast(); return conclusion;
+  async createConclusion(projectId: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, resultOwner?: string, fileIds: string[] = [], folderId?: string, requestedId?: string) {
+    return this.edit('conclusion-create:' + projectId, async () => {
+      if (this.linkingProjects.has(projectId)) throw new Error('项目正在迁移，请稍候');
+      validateResultStatus(category, resultStatus);
+      if (category) title = contributionTitle(category, title);
+      const profile = this.localProfile();
+      if (requestedId && this.store.conclusions.some(item => item.id === requestedId)) throw new Error('成果标识已存在');
+      const now = new Date().toISOString(), conclusion: ProjectConclusion = { id: requestedId || randomUUID(), projectId, ...(profile ? { accountOwner: accountIdentity(profile) } : {}), title: title.trim(), content: content.trim(), sources: [], updatedAt: now, version: 1, automatic: false };
+      if (!conclusion.title || !conclusion.content) throw new Error('请填写结论标题和内容');
+      if (category) { conclusion.category = category; const status = resultStatus ?? resultDefaultStatus(category); if (status) conclusion.resultStatus = status; }
+      if (resultOwner !== undefined) conclusion.resultOwner = resultOwner;
+      if (folderId) conclusion.folderId = assertResultFolder(folderId, this.personalResultDirectories(projectId));
+      const staged = fileIds.map(fileId => this.stagedConclusionFiles.find(file => file.id === fileId));
+      if (staged.some(file => !file)) throw new Error('有附件已失效，请重新选择');
+      if (staged.length) conclusion.localFiles = staged.map(file => ({ id: file!.id, name: file!.name, sha256: file!.sha256, size: file!.size, localPath: file!.localPath }));
+      this.stagedConclusionFiles = this.stagedConclusionFiles.filter(file => !fileIds.includes(file.id));
+      this.store.conclusions.unshift(conclusion);
+      try { await this.store.save(); } catch (error) { this.store.conclusions = this.store.conclusions.filter(item => item.id !== conclusion.id); this.stagedConclusionFiles.push(...staged.filter((file): file is SourceFile => !!file)); throw error; }
+      this.broadcast(); return conclusion;
+    }, false);
   }
-  async saveConclusion(id: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, expectedVersion?: number, resultOwner?: string) {
+  async saveConclusion(id: string, title: string, content: string, category?: ContributionCategory, resultStatus?: ResultStatus, expectedVersion?: number, resultOwner?: string, expectedEtag?: string) {
     return this.edit('conclusion:' + id, async () => {
       const conclusion = this.conclusion(id), before = structuredClone(conclusion);
+      assertLocalResultEtag(conclusion, expectedEtag);
       if (expectedVersion !== undefined && conclusion.version !== expectedVersion) throw new Error('成果已更新，请刷新后重试；本次修改未覆盖新版本');
       if (conclusion.supersededBy) throw new Error('这条成果已被新成果替代，历史原文不可修改');
       const nextCategory = category || conclusion.category;
@@ -603,10 +629,15 @@ export class Workbench {
         : await this.queue.enqueue(local, binding, folder, 'upload', undefined, metadata);
     } finally { this.publishingConclusions.delete(id); this.broadcast(); }
   }
-  async archiveConclusion(id: string, archived: boolean) {
-    const conclusion = this.conclusion(id);
-    if (!archived && conclusion.supersededBy) throw new Error('这条成果已被新成果替代，不能恢复到当前列表；可从历史查看或另建成果');
-    conclusion.archived = archived || undefined; conclusion.updatedAt = new Date().toISOString(); await this.store.save(); this.broadcast(); return conclusion;
+  async archiveConclusion(id: string, archived: boolean, expectedEtag?: string) {
+    return this.edit('conclusion:' + id, async () => {
+      const conclusion = this.conclusion(id), before = structuredClone(conclusion);
+      assertLocalResultEtag(conclusion, expectedEtag);
+      if (!archived && conclusion.supersededBy) throw new Error('这条成果已被新成果替代，不能恢复到当前列表；可从历史查看或另建成果');
+      conclusion.archived = archived || undefined; conclusion.updatedAt = new Date().toISOString();
+      try { await this.store.save(); } catch (error) { Object.keys(conclusion).forEach(key => delete (conclusion as any)[key]); Object.assign(conclusion, before); throw error; }
+      this.broadcast(); return conclusion;
+    }, false);
   }
   async previewConclusionDeletion(selections: { id: string; version: number }[]): Promise<ConclusionDeletePreview[]> {
     const selected = selections.map(selection => { const item = this.conclusion(selection.id); if (item.version !== selection.version) throw new Error('成果已更新，请重新确认删除'); return item; });
@@ -632,11 +663,12 @@ export class Workbench {
   async deleteConclusion(id: string, version: number) {
     return this.deleteConclusions([{ id, version }]);
   }
-  async deleteConclusions(selections: { id: string; version: number }[], syncTeam = false, expectedPublications: ConclusionDeletePreview[] = []) {
+  async deleteConclusions(selections: { id: string; version: number; expectedEtag?: string }[], syncTeam = false, expectedPublications: ConclusionDeletePreview[] = []) {
     return this.edit('conclusion-delete', async () => {
       const conclusions = selections.map(selection => {
         const conclusion = this.store.conclusions.find(item => item.id === selection.id && !item.deletedAt);
         if (!conclusion || !this.conclusions(conclusion.projectId, true).includes(conclusion)) throw new Error('结论不存在，请刷新后重新选择');
+        assertLocalResultEtag(conclusion, selection.expectedEtag);
         if (conclusion.version !== selection.version) throw new Error('结论已更新，请重新查看后再确认删除');
         return conclusion;
       });
@@ -1062,6 +1094,14 @@ export class Workbench {
     return this.contentUpdates();
   }
   saveInput(id: string, input: SessionInput) {
+    const side = [...this.sideChats.values()].find(entry => entry.view.session.id === id);
+    if (side) {
+      this.composerSession(id);
+      if (input.editingQueueItemId !== side.view.session.inputQueue?.editing?.itemId) throw Error('消息编辑状态已变化，请刷新侧聊');
+      if (input.capabilities && input.capabilities.length > 20) throw Error('能力选择无效');
+      this.sideChatDraft(side.view.id, input.text, input);
+      side.view.input = structuredClone(input); return Promise.resolve();
+    }
     const editing = this.session(id).inputQueue?.editing;
     if (input.editingQueueItemId !== editing?.itemId) throw Error('消息编辑状态已变化，请刷新会话');
     if (input.sourceIds.some(sourceId => !this.session(id).sources.some(s => s.id === sourceId))) throw new Error('引用不属于当前会话');
@@ -1070,7 +1110,7 @@ export class Workbench {
     this.store.inputs[id] = { ...structuredClone(input), sourceIds: input.sourceIds.filter(sourceId => available.has(sourceId)) }; return this.store.saveInputs();
   }
   enqueueInput(id: string, input: SessionInput, steerTurnId?: string) {
-    this.assertWorkspace(); const session = this.session(id); this.assertCanWork(session.binding);
+    this.assertWorkspace(); const session = this.composerSession(id); this.assertCanWork(session.binding);
     if (this.closing || this.stoppingSessions.has(id)) throw new Error('正在停止会话，请稍候');
     if (this.questions.lockedPeer(id)) throw new Error('自动对话进行中，暂不能手动排队');
     if (input.editingQueueItemId) throw Error('请先保存或取消正在编辑的排队消息');
@@ -1096,7 +1136,7 @@ export class Workbench {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, { connected: this.projectConnected(p.id), disconnecting: this.disconnectingProjects.has(p.id) }])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, { connected: this.projectConnected(p.id), disconnecting: this.disconnectingProjects.has(p.id) }])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { const profile = !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile && { ...profile, projects: this.projectSync?.projects() || profile.projects }; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -1150,6 +1190,8 @@ export class Workbench {
     } finally { if (this.catalogJobs.get(key) === job) this.catalogJobs.delete(key); }
   }
   private async runtime(s: AgentSession, attaching = false) {
+    const side = [...this.sideChats.values()].find(entry => entry.view.session.id === s.id);
+    if (side) { this.composerSession(s.id); return side.runtime; }
     if (this.attachingCodex.has(s.id) && !attaching) throw new Error('正在同步到 Codex，请稍后重试');
     this.providerEnvironment(s.networkRoute, s);
     const pending = this.runtimeJobs.get(s.id); if (pending) return pending;
@@ -1227,9 +1269,9 @@ export class Workbench {
     return runtime;
   }
   async capabilities(id: string, forceRefresh = false, kind?: 'skill' | 'plugin') {
-    const s = this.session(id); this.assertCanWork(s.binding);
+    const s = this.composerSession(id); this.assertCanWork(s.binding);
     if (s.closedAt || s.purpose !== 'work') throw new Error('此会话不能选择 Skill 或插件');
-    if (!s.cursorNative && !s.codexDesktop && !s.codexRemote) await this.requireAuth(s.provider, s.cwd, s.networkRoute);
+    if (!this.sideChatParentId(id) && !s.cursorNative && !s.codexDesktop && !s.codexRemote) await this.requireAuth(s.provider, s.cwd, s.networkRoute);
     return (await this.runtime(s)).capabilities(forceRefresh, kind);
   }
   async focusCursorNative(id: string) {
@@ -1296,9 +1338,9 @@ export class Workbench {
     } finally { this.broadcast(); }
   }
   private async mcpRuntime(id: string) {
-    const s = this.session(id); this.assertCanWork(s.binding);
+    const s = this.composerSession(id); this.assertCanWork(s.binding);
     if (s.closedAt || s.purpose !== 'work' || s.provider !== 'codex') throw new Error('请在打开的 Codex 工作会话中管理 MCP');
-    if(!s.codexDesktop && !s.codexRemote)await this.requireAuth(s.provider, s.cwd, s.networkRoute);
+    if(!this.sideChatParentId(id) && !s.codexDesktop && !s.codexRemote)await this.requireAuth(s.provider, s.cwd, s.networkRoute);
     return await this.runtime(s) as AgentRuntime;
   }
   private async cursorMcp(id: string) {
@@ -1324,7 +1366,7 @@ export class Workbench {
     return true;
   }
   async mcpCatalog(id: string, refresh = false) {
-    if (this.session(id).provider === 'cursor') {
+    if (this.composerSession(id).provider === 'cursor') {
       const service = await this.cursorMcp(id);
       if (refresh) await this.refreshCursorTools();
       return service.list();
@@ -1540,7 +1582,7 @@ export class Workbench {
       await this.store.save(); this.workspaceReady = !!this.remote.workspaces.length;
       await this.startCursorNativeSessions(); this.broadcast(); return result;
     } catch (error) { this.remote.disconnect(); throw error; }
-    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); await this.restoreRecommendationReferences(); } this.broadcast(); }
+    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); await this.resultApi.restore(); await this.restoreRecommendationReferences(); } this.broadcast(); }
   }
   async initializeProject(name: string, groupName: string, brief: ProjectBrief, contextKey: string) {
     this.assertWorkspace();
@@ -1618,7 +1660,7 @@ export class Workbench {
     this.clearCatalogCache();
   }
   async changePermissions(id: string, mode: PermissionMode, _stop = false) {
-    const s = this.session(id);
+    const s = this.composerSession(id);
     if (s.cursorNative) throw new Error('请在 Cursor 原生窗口修改执行权限');
     if (s.purpose !== 'work') throw new Error('成果整理固定使用完全访问权限');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
@@ -1628,22 +1670,22 @@ export class Workbench {
     return this.updateSessionSettings(s, () => { s.permissionMode = mode; s.permissionIssue = undefined; });
   }
   async modes(id: string) {
-    const s = this.session(id); this.assertCanWork(s.binding);
+    const s = this.composerSession(id); this.assertCanWork(s.binding);
     if (s.cursorNative) throw new Error('请在 Cursor 原生窗口选择模式');
     if (s.closedAt || s.purpose !== 'work' || s.provider === 'claude') throw new Error('此会话不支持模式切换');
     // Cursor's ACP modes are fixed. Choosing a mode must not initialize a native
     // conversation; installed CLI support is validated before the next prompt.
     if (s.provider === 'cursor') return { current: s.mode || 'default', modes: (['default', 'plan', 'ask'] as const).map(modeOption) };
-    if(!s.codexDesktop && !s.codexRemote)await this.requireAuth(s.provider, s.cwd, s.networkRoute);
+    if(!this.sideChatParentId(id) && !s.codexDesktop && !s.codexRemote)await this.requireAuth(s.provider, s.cwd, s.networkRoute);
     return (await this.runtime(s) as AgentRuntime).modes();
   }
   async changeMode(id: string, mode: SessionMode) {
-    const s = this.session(id); this.assertCanWork(s.binding);
+    const s = this.composerSession(id); this.assertCanWork(s.binding);
     if (this.changingSettings.has(id)) throw new Error('正在切换会话设置，请稍后重试');
     if (s.status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     if (!['default', 'plan', 'ask'].includes(mode)) throw new Error('无效会话模式');
     const catalog = await this.modes(id);
-    if (this.session(id).status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
+    if (this.composerSession(id).status === 'starting') throw new Error('CLI 正在启动，请启动完成后重试');
     if (!catalog.modes.some(value => value.id === mode)) throw new Error(catalog.error || '当前 CLI 不支持此模式');
     if (s.provider === 'cursor' && (s.mode || 'default') === mode) return s;
     return this.updateSessionSettings(s, () => { s.mode = mode; });
@@ -1686,6 +1728,13 @@ export class Workbench {
     if (this.changingSettings.has(s.id)) throw new Error('正在切换会话设置，请稍后重试');
     this.changingSettings.add(s.id);
     try {
+      if (this.sideChatParentId(s.id)) {
+        this.composerSession(s.id);
+        update();
+        s.settingsPending = ['running', 'approval'].includes(s.status) || undefined;
+        if (!s.settingsPending) s.permissions = undefined;
+        this.broadcast(); return s;
+      }
       const active = ['running', 'approval'].includes(s.status);
       if (reconnect && !active) { const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
       update();
@@ -1721,7 +1770,7 @@ export class Workbench {
     return this.updateSessionSettings(s, () => { if (s.provider === 'cursor' && s.model !== model) delete s.reasoningEffort; s.model = model; }, s.provider !== 'codex');
   }
   async changeReasoningEffort(id: string, effort: string | null) {
-    const s = this.session(id);
+    const s = this.composerSession(id);
     if (!['codex', 'cursor'].includes(s.provider) || s.cursorNative) throw new Error('此会话不支持在工作台单独设置思考强度');
     if (s.purpose !== 'work') throw new Error('成果整理使用来源会话的思考努力程度');
     if (s.closedAt) throw new Error('此会话已关闭，请先重新打开');
@@ -1767,7 +1816,9 @@ export class Workbench {
       if (profile) (this.store.settings.projectDirectories ||= {})[projectDirectoryKey(profile, binding.project.id)] ??= managed ? '' : cwd;
       if (includeBrief) await this.refreshProjectContext(session.id).catch(e => this.notice('项目资料引用未加入：' + e.message));
     }
-    this.store.settings.lastWorkspace = purpose === 'work' && !managed ? cwd : this.store.settings.lastWorkspace; await this.store.save(); this.broadcast(); return session;
+    this.store.settings.lastWorkspace = purpose === 'work' && !managed ? cwd : this.store.settings.lastWorkspace; await this.store.save();
+    await this.resultApi.prepare(session).catch(error => this.notice('个人成果接口暂不可用：' + error.message));
+    this.broadcast(); return session;
   }
   private personalMoving = false;
   private linkingProjects = new Set<string>();
@@ -2127,6 +2178,8 @@ export class Workbench {
     }
     const resultIndex = await this.resultReferences.prepareContext({ ...available, sources: snapshot.sources.filter(source => ids.has(source.id) || sourceWasAccepted(snapshot, source)) });
     const input = sessionContext(available, userText, sourceIds.filter(id => ids.has(id)), journal, resultIndex);
+    try { input.text += await this.resultApi.context(available); }
+    catch (error: any) { this.notice('个人成果接口暂不可用：' + error.message); }
     if (session.codexRemote && input.sources.length) throw new Error('远程会话暂不支持附带本机参考文件，请移除本机文件引用后发送');
     return input;
   }
@@ -2844,7 +2897,7 @@ export class Workbench {
       try { await this.store.save({ removedSessionIds: [...ids], source: 'session:delete-family' }); }
       catch (error) { this.store.sessions = sessions; this.store.inputs = inputs; this.store.activity.jobs = jobs; throw error; }
       for (const [key, entry] of this.sideChats) if (ids.has(entry.view.parentId)) {
-        this.sideChats.delete(key); await entry.runtime.close();
+        this.sideChats.delete(key); await entry.runtime.close(); await this.clearSideChatFiles(entry.view.session.id);
       }
       for (const session of family) {
         if (session.binding) await this.rsi.forgetSession(session.binding.project.id, session.id);
@@ -2864,7 +2917,8 @@ export class Workbench {
   answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) { this.session(id); const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); return runtime.answer(requestId, option, answers); }
   async attachLocal(id: string, files: string[]) {
     return this.edit('source-attach:' + id, async () => {
-      const s = this.session(id);
+      const s = this.composerSession(id);
+      if (s.codexRemote) throw Error('远程会话暂不支持本机参考文件');
       if (s.closedAt || s.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
       const linked: SourceFile[] = [];
       for (const file of files) {
@@ -2958,11 +3012,12 @@ export class Workbench {
     return this.resultReferences.one(id, 'team', contentId, expectedRevision);
   }
   async attachConclusion(id: string, conclusionId: string, expectedVersion?: number) {
+    this.conclusion(conclusionId);
     return this.resultReferences.one(id, 'personal', conclusionId, expectedVersion);
   }
   async detachPendingSource(id: string, sourceId: string) {
     return this.edit('source-detach:' + id, async () => {
-      const session = this.session(id); this.assertCanWork(session.binding);
+      const session = this.composerSession(id); this.assertCanWork(session.binding);
       if (session.closedAt || session.purpose !== 'work') throw new Error('请选择未关闭的工作会话');
       if (this.sending.has(id) || this.steering.has(id) || session.status === 'starting') throw new Error('消息正在提交，请稍后撤销未发送的引用');
       const source = session.sources.find(item => item.id === sourceId);
@@ -3506,19 +3561,34 @@ export class Workbench {
     this.stagedConclusionFiles.push(...copies);
     return copies.map(file => ({ id: file.id, name: file.name, size: file.size }));
   }
-  async addConclusionFiles(id: string, files: string[]) {
-    const conclusion = this.conclusion(id);
-    if ((conclusion.localFiles?.length || 0) + files.length > 30) throw new Error('每项成果最多附带 30 个文件');
-    const copies = await Promise.all(files.map(file => freezeFile(file, path.join(this.store.root, 'conclusion-files', id))));
-    conclusion.localFiles = [...(conclusion.localFiles || []), ...copies.map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, localPath: file.localPath }))];
-    await this.store.save(); this.broadcast(); return conclusion;
+  async addConclusionFiles(id: string, files: string[], expectedEtag?: string) {
+    assertLocalResultEtag(this.conclusion(id), expectedEtag);
+    const copies: SourceFile[] = []; let committed = false;
+    try {
+      for (const file of files) copies.push(await freezeFile(file, path.join(this.store.root, 'conclusion-files', id)));
+      return await this.edit('conclusion:' + id, async () => {
+        const conclusion = this.conclusion(id); assertLocalResultEtag(conclusion, expectedEtag);
+        if ((conclusion.localFiles?.length || 0) + copies.length > 30) throw new Error('每项成果最多附带 30 个文件');
+        const previous = conclusion.localFiles, updatedAt = conclusion.updatedAt;
+        conclusion.localFiles = [...(previous || []), ...copies.map(file => ({ id: file.id, name: file.name, sha256: file.sha256, size: file.size, localPath: file.localPath }))];
+        conclusion.updatedAt = new Date().toISOString();
+        try { await this.store.save(); committed = true; }
+        catch (error) { conclusion.localFiles = previous; conclusion.updatedAt = updatedAt; throw error; }
+        this.broadcast(); return conclusion;
+      }, false);
+    } finally { if (!committed) for (const file of copies) await fs.rm(file.localPath, { force: true }).catch(() => {}); }
   }
-  async removeConclusionFile(id: string | undefined, fileId: string) {
+  async removeConclusionFile(id: string | undefined, fileId: string, expectedEtag?: string) {
     if (!id) { this.stagedConclusionFiles = this.stagedConclusionFiles.filter(file => file.id !== fileId); return true; }
-    const conclusion = this.conclusion(id);
-    conclusion.localFiles = conclusion.localFiles?.filter(file => file.id !== fileId);
-    if (!conclusion.localFiles?.length) delete conclusion.localFiles;
-    await this.store.save(); this.broadcast(); return conclusion;
+    return this.edit('conclusion:' + id, async () => {
+      const conclusion = this.conclusion(id); assertLocalResultEtag(conclusion, expectedEtag);
+      const previous = conclusion.localFiles, updatedAt = conclusion.updatedAt;
+      conclusion.localFiles = conclusion.localFiles?.filter(file => file.id !== fileId);
+      if (!conclusion.localFiles?.length) delete conclusion.localFiles;
+      conclusion.updatedAt = new Date().toISOString();
+      try { await this.store.save(); } catch (error) { conclusion.localFiles = previous; conclusion.updatedAt = updatedAt; throw error; }
+      this.broadcast(); return conclusion;
+    }, false);
   }
   private async uploadedDraftAttachments(draft: Draft) {
     if (!draft.binding || !draft.attachments?.some(entry => entry.selected)) return [];
@@ -3697,8 +3767,9 @@ export class Workbench {
       capturedAt: new Date().toISOString(), draft: selectedText,
       pendingReferences: queuedInput && { sourceIds: queuedInput.sourceIds, capabilities: queuedInput.capabilities || [] },
       session: { id: randomUUID(), title: '侧边提问', provider: 'codex', cwd: parent.codexRemote?.cwd || parent.cwd,
-        model: parent.model, reasoningEffort: parent.reasoningEffort, purpose: 'work', permissionMode: 'inherit',
-        createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: [], autoUpload: false, handoffPath: '' },
+        model: parent.model, reasoningEffort: parent.reasoningEffort, mode: parent.mode, purpose: 'work', permissionMode: parent.permissionMode || 'inherit',
+        binding: structuredClone(parent.binding), networkRoute: parent.networkRoute, codexRemote: structuredClone(parent.codexRemote),
+        createdAt: new Date().toISOString(), status: 'idle', messages: [], approvals: [], sources: parent.sources.filter(file => queuedInput?.sourceIds.includes(file.id)).map(file => structuredClone(file)), autoUpload: false, handoffPath: '' },
     };
     const parentRuntime = await this.runtime(parent);
     if (!(parentRuntime instanceof AgentRuntime)) throw new Error('Codex 运行环境不可用');
@@ -3726,6 +3797,18 @@ export class Workbench {
     this.session(entry.view.parentId); // Account ownership is checked on every operation.
     return entry;
   }
+  /** Composer operations may use ephemeral sessions; normal session lifecycle APIs may not. */
+  sideChatParentId(sessionId: string) {
+    return [...this.sideChats.values()].find(entry => entry.view.session.id === sessionId)?.view.parentId;
+  }
+  composerSession(id: string) {
+    const side = [...this.sideChats.values()].find(entry => entry.view.session.id === id);
+    if (!side) return this.session(id);
+    this.sideChat(side.view.id);
+    if (side.view.expired) throw Error('侧边提问已失效，请重新创建');
+    this.assertCanWork(this.session(side.view.parentId).binding);
+    return side.view.session;
+  }
   async sideChatHistoryPage(id: string, before: number, limit: number) {
     const { view, history } = this.sideChat(id), parent = this.session(view.parentId);
     const inherited = inheritedMessageCount(parent), end = Math.min(before, inherited + history.length);
@@ -3743,12 +3826,27 @@ export class Workbench {
     const previous = await this.sideChatHistoryPage(id, Math.min(inherited, end), limit - own.length);
     return { messages: [...previous.messages, ...own], before: previous.before };
   }
-  sideChatDraft(id: string, text: string) {
+  sideChatDraft(id: string, text: string, references?: Pick<SessionInput, 'sourceIds' | 'capabilities'>) {
     const entry = this.sideChat(id);
     if (text.length > 128 * 1024) throw new Error('输入过长');
-    entry.view.draft = text; return true;
+    if (references) {
+      if (references.sourceIds.some(sourceId => !entry.view.session.sources.some(source => source.id === sourceId))) throw Error('引用不属于当前侧聊');
+      entry.view.pendingReferences = structuredClone(references);
+    }
+    entry.view.draft = text;
+    if (entry.view.input) entry.view.input = { ...entry.view.input, ...references, text };
+    return true;
   }
-  async sendSideChat(id: string, text: string) {
+  private sideChatSources(session: AgentSession, sourceIds: string[]) {
+    const automatic = session.sources.filter(source => !source.supersededBy && !source.resultUnavailable
+      && (isConclusionSource(source) || source.resultLink) && !sourceWasAccepted(session, source));
+    return [...new Set([...sourceIds, ...automatic.map(source => source.id)])].map(id => {
+      const file = session.sources.find(source => source.id === id);
+      if (!file) throw Error('侧聊所选的参考文件已移除');
+      return file;
+    });
+  }
+  async sendSideChat(id: string, text: string, references?: Pick<SessionInput, 'sourceIds' | 'capabilities'>, submitted?: () => void) {
     const entry = this.sideChat(id);
     this.assertCanWork(this.session(entry.view.parentId).binding);
     if (entry.view.expired) throw new Error('侧边提问已失效，请重新创建');
@@ -3756,36 +3854,62 @@ export class Workbench {
     if (!text.trim() || text.length > 128 * 1024) throw new Error('请输入有效的问题');
     entry.busy = true;
     try {
-      const pending = entry.view.pendingReferences;
+      const pending = references || entry.view.pendingReferences;
       const parent = this.session(entry.view.parentId);
-      const sources = (pending?.sourceIds || []).map(sourceId => {
-        const file = parent.sources.find(source => source.id === sourceId);
-        if (!file) throw Error('侧聊所选的参考文件已移除');
-        return file;
-      });
-      this.assertReferencesAvailable(parent, sources);
+      const sources = this.sideChatSources(entry.view.session, pending?.sourceIds || []);
+      this.assertReferencesAvailable(entry.view.session, sources);
       if (parent.codexRemote && sources.length) throw Error('远程侧聊暂不支持本机参考文件');
       for (const file of sources) await assertSourceReadable(file);
       const capabilities = await entry.runtime.resolveCapabilities(pending?.capabilities || []);
-      const prompt = text + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '');
-      const accepted = await entry.runtime.prompt(prompt, pending ? { userText: text, capabilities, context: { workRecord: false, sourceHashes: Object.fromEntries(sources.map(file => [file.id, file.sha256])) } } : undefined);
+      const attachmentIndex = await this.resultReferences.prepareContext(entry.view.session);
+      let resultApiContext = '';
+      try { resultApiContext = await this.resultApi.context({ ...entry.view.session, messages: entry.history }); }
+      catch (error: any) { this.notice('个人成果接口暂不可用：' + error.message); }
+      const prompt = text + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (attachmentIndex ? '\n\n成果附件按需取件索引：' + attachmentIndex : '') + resultApiContext;
+      if (entry.view.expired || this.sideChats.get(id) !== entry) throw Error('侧边提问已关闭，请重新创建');
+      this.assertCanWork(parent.binding);
+      delete entry.view.session.stoppedAt;
+      const accepted = await entry.runtime.prompt(prompt, { userText: text, capabilities, submitted, context: { workRecord: false, sourceHashes: Object.fromEntries(sources.map(file => [file.id, file.sha256])) } });
       if (!accepted) throw new Error(entry.view.session.error || '消息未确认送达，请核对侧聊记录');
-      delete entry.view.pendingReferences;
+      if (!references || JSON.stringify(entry.view.pendingReferences) === JSON.stringify(pending)) delete entry.view.pendingReferences;
+      entry.view.session.settingsPending = undefined;
       if (entry.view.draft === text) entry.view.draft = '';
       this.broadcast(); return true;
     } finally { entry.busy = false; }
   }
-  async stopSideChat(id: string) { const entry = this.sideChat(id); await entry.runtime.cancel(); this.broadcast(); }
+  private async steerSideChat(sessionId: string, turnId: string, input: SessionInput) {
+    const entry = [...this.sideChats.values()].find(entry => entry.view.session.id === sessionId);
+    if (!entry) throw Error('侧边提问已关闭');
+    this.composerSession(sessionId);
+    if (entry.busy) throw Error('消息正在提交');
+    entry.busy = true;
+    try {
+      const sources = this.sideChatSources(entry.view.session, input.sourceIds);
+      if (entry.view.session.codexRemote && sources.length) throw Error('远程侧聊暂不支持本机参考文件');
+      for (const source of sources) await assertSourceReadable(source);
+      this.assertReferencesAvailable(entry.view.session, sources);
+      const capabilities = await entry.runtime.resolveCapabilities(input.capabilities || []);
+      const attachmentIndex = await this.resultReferences.prepareContext(entry.view.session);
+      this.composerSession(sessionId);
+      return await entry.runtime.steer(turnId, input.text + (sources.length ? sourceHeader + sources.map(sourceText).join('\n\n') : '') + (attachmentIndex ? '\n\n成果附件按需取件索引：' + attachmentIndex : ''), { userText: input.text, capabilities, context: { workRecord: false, sourceHashes: Object.fromEntries(sources.map(file => [file.id, file.sha256])) } });
+    } finally { entry.busy = false; }
+  }
+  async stopSideChat(id: string) { const entry = this.sideChat(id); if (entry.view.session.inputQueue) entry.view.session.inputQueue.paused = true; entry.view.session.stoppedAt = new Date().toISOString(); await entry.runtime.cancel(); this.broadcast(); }
   async answerSideChat(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) {
     return this.sideChat(id).runtime.answer(requestId, option, answers);
   }
   async closeSideChat(id: string) {
     const entry = this.sideChat(id); this.sideChats.delete(id);
-    await entry.runtime.close(); this.broadcast();
+    await entry.runtime.close(); await this.clearSideChatFiles(entry.view.session.id); this.broadcast();
+  }
+  private async clearSideChatFiles(id: string) {
+    const directory = this.store.sessionDir(id);
+    if (localWithin(path.join(this.store.root, 'sessions'), directory)) await fs.rm(directory, { recursive: true, force: true });
+    await this.resultApi.forgetTemporary(id);
   }
   private async clearSideChats() {
     const entries = [...this.sideChats.values()]; this.sideChats.clear();
-    await Promise.all(entries.map(entry => entry.runtime.close()));
+    await Promise.all(entries.map(async entry => { await entry.runtime.close(); await this.clearSideChatFiles(entry.view.session.id); }));
   }
   async forkSubsession(parentId: string, focus: string, selectedText = '') {
     // Freeze renderer-visible output before any asynchronous setup. Never wait for
@@ -4085,5 +4209,5 @@ export class Workbench {
     }
     return this.closeTask;
   }
-  private async closeOnce() { this.closing = true; await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  private async closeOnce() { this.closing = true; await this.resultApi.close(); await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

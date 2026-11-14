@@ -15,11 +15,11 @@ function replacementEffort(session: AgentSession, model?: ModelOption) {
   return model.reasoningEfforts[0]?.id || null;
 }
 
-type ComposerSettingsProps = { session: AgentSession; networkEnabled?: boolean; openConnection?: () => void; authCheckedAt?: string };
+type ComposerSettingsProps = { session: AgentSession; modelLocked?: boolean; networkEnabled?: boolean; openConnection?: () => void; authCheckedAt?: string };
 export function ComposerSettings(props: ComposerSettingsProps) {
   return props.session.cursorNative ? <CursorNativeSettingsControls key={props.session.id} session={props.session}/> : <CliComposerSettings {...props}/>;
 }
-function CliComposerSettings({ session, networkEnabled, openConnection, authCheckedAt }: ComposerSettingsProps) {
+function CliComposerSettings({ session, modelLocked, networkEnabled, openConnection, authCheckedAt }: ComposerSettingsProps) {
   networkEnabled = session.networkRoute ? session.networkRoute === 'management' : networkEnabled;
   const [open, setOpen] = useState<Choice['kind']>(), [catalog, setCatalog] = useState<ProviderCatalog>(), [report, setReport] = useState<PermissionReport>();
   const [loading, setLoading] = useState(false), [saving, setSaving] = useState(false), [error, setError] = useState('');
@@ -39,6 +39,7 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
   usePopupDismiss(!!open, root, reason => { close(); if (reason === 'escape') (open === 'model' ? modelButton : permissionButton).current?.focus(); });
   const apply = async (choice: Choice) => {
     if (disabled) return;
+    if (choice.kind === 'model' && modelLocked) return;
     if ((choice.kind === 'model' ? session.model : session.permissionMode || 'inherit') === choice.value) { close(); return; }
     setSaving(true); setError('');
     try {
@@ -70,11 +71,12 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
   };
   return <div className="composer-settings" ref={root}>
     {openConnection && <button className="composer-setting" aria-label="网络与登录设置" disabled={saving} onClick={() => { close(); openConnection(); }}>{networkEnabled ? '管理端出口' : '本机网络'} · 登录<ChevronDown size={12}/></button>}
-    <button ref={modelButton} className="composer-setting" aria-label="选择模型" aria-expanded={open === 'model'} aria-haspopup="dialog" title={modelName} disabled={saving} onClick={() => toggle('model')}><span>{modelName}</span><ChevronDown size={12}/></button>
+    {modelLocked && <span className="composer-inherited-model" title={'继承创建时的模型：' + (session.model || session.resolvedModel || 'CLI 默认模型')}>{session.model || session.resolvedModel || 'CLI 默认模型'}</span>}
+    <button ref={modelButton} className="composer-setting" aria-label={modelLocked ? '调整思考强度' : '选择模型'} aria-expanded={open === 'model'} aria-haspopup="dialog" title={modelLocked ? '调整当前模型的思考强度' : modelName} disabled={saving} onClick={() => toggle('model')}><span>{modelLocked ? '思考 · ' + (effortLabel(activeEffort) || '默认') : modelName}</span><ChevronDown size={12}/></button>
     <button ref={permissionButton} className="composer-setting" aria-label="当前执行权限" aria-expanded={open === 'permission'} aria-haspopup="dialog" title={session.settingsPending ? '已选择新设置，将在下一轮生效' : sessionPermissionDescription(session)} disabled={saving} onClick={() => toggle('permission')}><ShieldCheck size={13}/><span>{sessionPermissionLabel(session)}</span><ChevronDown size={12}/>{session.permissions?.execution === 'blocked' && <span className="permission-restricted" title="部分命令无法执行">!</span>}</button>
     {session.settingsPending && <span className="composer-setting-pending" role="status">下轮生效</span>}
-    {open && <section className="composer-popover" role="dialog" aria-label={open === 'model' ? '模型与额度' : '执行权限'}>
-      <header><strong>{open === 'model' ? (session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor') + ' · 模型' : '执行权限'}</strong><span className="spacer"/><button className="icon" title="刷新选项" disabled={loading || saving} onClick={() => void refresh(open, true)}><RefreshCw size={13} className={loading ? 'spin' : ''}/></button><button className="icon" title="关闭选项" disabled={saving} onClick={close}><X size={14}/></button></header>
+    {open && <section className="composer-popover" role="dialog" aria-label={open === 'model' ? modelLocked ? '思考强度与额度' : '模型与额度' : '执行权限'}>
+      <header><strong>{open === 'model' ? modelLocked ? '思考强度' : (session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor') + ' · 模型' : '执行权限'}</strong><span className="spacer"/><button className="icon" title="刷新选项" disabled={loading || saving} onClick={() => void refresh(open, true)}><RefreshCw size={13} className={loading ? 'spin' : ''}/></button><button className="icon" title="关闭选项" disabled={saving} onClick={close}><X size={14}/></button></header>
       <div className="composer-options">
         {loading && <p className="muted small" role="status">读取中…</p>}
         {error && <p className="inline-error" role="alert">{error}</p>}
@@ -84,7 +86,7 @@ function CliComposerSettings({ session, networkEnabled, openConnection, authChec
           {selectedModel && !models.some(m => m.id === selectedModel) && <div className="current-model">当前：{selectedModel}</div>}
           {catalog?.modelError && <p className="inline-error" role="alert">{catalog.modelError}</p>}
           {!loading && catalog && !models.length && !catalog.modelError && <p className="muted small">暂未获取可用模型，请刷新重试。</p>}
-          <div role="group" aria-label="可用模型">{models.map(m => <button key={m.id} className="setting-option" aria-pressed={selectedModel === m.id} disabled={disabled || loading && !models.length} onClick={() => void apply({ kind: 'model', value: m.id })}><span>{m.name}{m.isDefault && <small>CLI 推荐</small>}</span>{selectedModel === m.id && <Check size={14}/>}</button>)}</div>
+          {!modelLocked && <div role="group" aria-label="可用模型">{models.map(m => <button key={m.id} className="setting-option" aria-pressed={selectedModel === m.id} disabled={disabled || loading && !models.length} onClick={() => void apply({ kind: 'model', value: m.id })}><span>{m.name}{m.isDefault && <small>CLI 推荐</small>}</span>{selectedModel === m.id && <Check size={14}/>}</button>)}</div>}
           {effortSupported && (efforts.length > 0 || (!loading && (!!selected || !!session.reasoningEffort))) && <div role="group" aria-label="思考努力程度"><p>思考强度</p>{efforts.map(effort => <button key={effort.id} className="setting-option" aria-pressed={activeEffort === effort.id} disabled={disabled || loading} onClick={() => void chooseEffort(effort.id)}><span>{effortLabel(effort.id, effort.name)}{effort.description && <small>{effort.description}</small>}</span>{activeEffort === effort.id && <Check size={14}/>}</button>)}{!efforts.length && <p className="muted small">当前模型没有可选的思考强度。</p>}{session.provider === 'cursor' && session.reasoningEffort && !efforts.some(item => item.id === session.reasoningEffort) && <button className="text-button" disabled={disabled || loading} onClick={() => void chooseEffort(null)}>清除原思考强度设置</button>}</div>}
           <div className="quota-panel"><div className="row"><strong>账号额度</strong><span className="spacer"/><button className="text-button" onClick={() => void window.workbench.call('open.link', session.provider === 'codex' ? 'https://chatgpt.com/codex/settings/usage' : session.provider === 'claude' ? 'https://claude.ai/settings/usage' : 'https://cursor.com/dashboard/spending').catch(() => setError('无法打开浏览器，请稍后重试。'))}><ExternalLink size={12}/>官方额度页</button></div>
             {!catalog?.quota.windows.length && <p className="muted small">{catalog?.quota.detail || (session.provider === 'cursor' ? '请在官方额度页查看' : '额度未读取')}</p>}
