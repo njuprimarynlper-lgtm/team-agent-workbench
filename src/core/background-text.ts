@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { logsFor, accountLogScope, redactLogText } from './logging';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentSession, Message } from '../shared/types';
@@ -23,6 +24,8 @@ export function backgroundTextTask(root: string, providerPath: (s: AgentSession)
   return async (parent, prompt, signal) => {
     if (signal.aborted) throw new Error('后台任务已取消');
     const id = randomUUID(), cwd = path.join(root, 'background', id);
+    const scope = accountLogScope(root, { sessionId: parent.id, projectId: parent.binding?.project.id, operationId: id, origin: 'background', provider: parent.provider, route: parent.networkRoute }), started = performance.now();
+    logsFor(root).record('workflow', 'background.task', scope, { outcome: 'started' });
     await fs.mkdir(cwd, { recursive: true });
     const session: AgentSession = { id, title: '后台资料判断', purpose: 'background', provider: parent.provider,
       model: parent.model, reasoningEffort: parent.reasoningEffort, relayAccount: parent.relayAccount, networkRoute: parent.networkRoute, cwd, createdAt: new Date().toISOString(),
@@ -50,7 +53,8 @@ export function backgroundTextTask(root: string, providerPath: (s: AgentSession)
     const cancel = () => { finished = true; fail(new Error('后台任务已取消')); void runtime?.close(); };
     signal.addEventListener('abort', cancel, { once: true });
     const timeout = setTimeout(() => { finished = true; fail(new Error('后台文本任务超时')); void runtime?.close(); }, 120_000);
-    try { return await result; }
+    try { const answer = await result; logsFor(root).record('workflow', 'background.task', scope, { outcome: 'succeeded', durationMs: performance.now() - started }); return answer; }
+    catch (error) { logsFor(root).record('diagnostic', 'background.task', scope, { level: 'error', outcome: signal.aborted ? 'canceled' : 'failed', detail: redactLogText(error), durationMs: performance.now() - started }); throw error; }
     finally {
       finished = true;
       clearTimeout(timeout); signal.removeEventListener('abort', cancel);

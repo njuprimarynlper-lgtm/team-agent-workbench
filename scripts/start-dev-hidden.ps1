@@ -2,13 +2,17 @@
   [Parameter(Mandatory = $true)]
   [ValidateSet('user', 'admin')]
   [string]$Edition,
-  [switch]$NoDialogs
+  [switch]$NoDialogs,
+  [string]$ExportDiagnostics = ''
 )
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $logRoot = Join-Path $repoRoot '.test-data\launcher'
+. (Join-Path $PSScriptRoot 'startup-logs.ps1')
+$env:WORKBENCH_STARTUP_LOG_DIR = $logRoot
+if ($ExportDiagnostics) { Export-StartupDiagnostics $Edition $ExportDiagnostics $logRoot; exit 0 }
 $stamp = "$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')-$PID"
 $launchLog = Join-Path $logRoot "$Edition-$stamp.log"
 $stderrLog = $launchLog
@@ -103,7 +107,7 @@ function Show-StartupProgress {
   $bar.AccessibleName = '当前步骤正在进行'
   $card.Controls.AddRange(@($accent, $stageLabel, $elapsedLabel, $hintLabel, $bar))
 
-  $script:totalElapsedLabel = New-StartupLabel '' 34 334 235 24 9
+  $script:totalElapsedLabel = New-StartupLabel '' 34 334 210 24 9
   $totalElapsedLabel.ForeColor = $startupColors.Muted
   $logsButton = New-Object System.Windows.Forms.Button
   $logsButton.Text = '查看日志'
@@ -118,6 +122,17 @@ function Show-StartupProgress {
   $logsButton.Cursor = [System.Windows.Forms.Cursors]::Hand
   $logsButton.TabIndex = 0
   $logsButton.Add_Click({ Start-Process -FilePath "$env:SystemRoot\System32\notepad.exe" -ArgumentList @('"' + $launchLog + '"') })
+  $exportButton = New-Object System.Windows.Forms.Button
+  $exportButton.Text = '导出诊断'
+  $exportButton.SetBounds(256, 327, 98, 36)
+  $exportButton.Add_Click({
+    $save = New-Object System.Windows.Forms.SaveFileDialog
+    try {
+      $save.Filter = 'ZIP archive (*.zip)|*.zip'; $save.FileName = 'TeamAgent-startup-diagnostics.zip'
+      if ($save.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Export-StartupDiagnostics $Edition $save.FileName $logRoot }
+    } catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '诊断包导出失败') | Out-Null }
+    finally { $save.Dispose() }
+  })
   $cancelButton = New-Object System.Windows.Forms.Button
   $cancelButton.Text = '取消启动'
   $cancelButton.SetBounds(476, 327, 104, 36)
@@ -133,7 +148,7 @@ function Show-StartupProgress {
   $cancelButton.Add_Click({ $script:cancelStartup = $true })
   $progressWindow.CancelButton = $cancelButton
   $progressWindow.Add_FormClosing({ param($sender, $eventArgs) if (-not $script:closingProgress) { $script:cancelStartup = $true; $eventArgs.Cancel = $true } })
-  $progressWindow.Controls.AddRange(@($heading, $subtitle, $editionBadge, $card, $totalElapsedLabel, $logsButton, $cancelButton))
+  $progressWindow.Controls.AddRange(@($heading, $subtitle, $editionBadge, $card, $totalElapsedLabel, $exportButton, $logsButton, $cancelButton))
   $progressWindow.ResumeLayout($true)
   Update-StartupProgress
   $progressWindow.Show()
@@ -144,6 +159,7 @@ function Close-StartupProgress {
 }
 
 function Update-StartupProgress {
+  if (-not $script:lastLogCleanup -or ((Get-Date) - $script:lastLogCleanup).TotalSeconds -ge 5) { Limit-StartupLogs $logRoot; $script:lastLogCleanup = Get-Date }
   if ($progressWindow) {
     $stageLabel.Text = $stage
     $hintLabel.Text = $stageHint
@@ -412,12 +428,16 @@ try {
     [Console]::Error.WriteLine($message)
   } else {
     Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show(
-      $message,
+    $collect = [System.Windows.Forms.MessageBox]::Show(
+      ($message + "`r`n`r`n是否导出启动诊断包？"),
       '团队工作台',
-      [System.Windows.Forms.MessageBoxButtons]::OK,
+      [System.Windows.Forms.MessageBoxButtons]::YesNo,
       [System.Windows.Forms.MessageBoxIcon]::Error
-    ) | Out-Null
+    )
+    if ($collect -eq [System.Windows.Forms.DialogResult]::Yes) {
+      $save = New-Object System.Windows.Forms.SaveFileDialog
+      try { $save.Filter = 'ZIP archive (*.zip)|*.zip'; $save.FileName = 'TeamAgent-startup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip'; if ($save.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Export-StartupDiagnostics $Edition $save.FileName $logRoot } } finally { $save.Dispose() }
+    }
   }
   exit 1
 } finally {

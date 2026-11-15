@@ -29,7 +29,7 @@ import { TurnTimingTracker } from './turn-timing';
 import { createCodexRequestGuard, type CodexRequestGuard, type GuardRequestSize } from './codex-request-guard';
 import { CodexAutoCompaction } from './codex-auto-compaction';
 import { capacityFallbackModel, isCodexCapacityError, type CodexSubmission } from './codex-capacity';
-export interface AgentHooks { changed: () => void; messageChanged?: (id?: string) => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
+export interface AgentHooks { diagnostic?: (error: unknown) => void; changed: () => void; messageChanged?: (id?: string) => void; event: (value: unknown) => void; done: () => void; authFailed?: (error: unknown) => void; needsApproval?: (kind: 'question' | 'approval') => void; connectionChanged?: (value: CliConnection) => void; }
 const now = () => new Date().toISOString();
 export const nativeRolloutForkError = 'Codex 没有继续写原来的会话文件，已停止，避免变成两份。';
 export function clearStoppedNativeFork(session: AgentSession) {
@@ -40,6 +40,7 @@ export function clearStoppedNativeFork(session: AgentSession) {
 }
 const pretty = (x: unknown) => typeof x === 'string' ? x : JSON.stringify(x, null, 2);
 export class AgentRuntime {
+  pauseLogEvents(paused: boolean) { this.rpc.pauseEvents?.(paused); }
   rpc: AgentRpc;
   private requests = new Map<string, RpcMessage>();
   private answeringPlans = new Set<string>();
@@ -118,7 +119,8 @@ export class AgentRuntime {
     if (storage && (this.authBridge || storage.sharedEndpoint || borrowedConnection)) this.mcp = new CodexMcp(this.rpc, storage, (method, params) => this.authBridge ? this.authBridge.configuration(method, params) : this.rpc.request(method, params), () => this.initialized ? session.nativeId : undefined);
     if (borrowedConnection) this.codexConnected = true;
     this.rpc.on('message', (m: RpcMessage) => this.onMessage(m));
-    this.rpc.on('closed', () => {
+    this.rpc.on('closed', (error: Error) => {
+      if (!this.closing) this.hooks.diagnostic?.(error);
       this.discardEmptyCursorSession(); this.autoCompaction?.close();
       if (this.codexWriterOwner === this) void this.closeWriter().catch(() => {});
       else if (!this.forkOwner) void this.requestGuard?.close();

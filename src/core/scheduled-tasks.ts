@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { logsFor, accountLogScope } from './logging';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentSession } from '../shared/types';
@@ -126,7 +127,9 @@ export class ScheduledTasks {
   private async queue(task: ScheduledTask, manual: boolean, scheduledAt: string) {
     if (this.records.some(run => run.taskId === task.id && activeScheduledRun(run))) throw Error('此任务已有排队、运行或等待处理的记录');
     const run: ScheduledRun = { id: randomUUID(), sessionId: randomUUID(), taskId: task.id, taskName: task.name, projectId: task.projectId, projectName: task.projectName, scheduledAt, manual, createdAt: this.stamp(), status: 'queued' };
-    this.records.unshift(run); await this.save(); return structuredClone(run);
+    this.records.unshift(run); await this.save();
+    logsFor(path.dirname(this.root)).record('workflow', 'scheduled.run.queued', accountLogScope(path.dirname(this.root), { sessionId: run.sessionId, projectId: run.projectId, origin: manual ? 'user' : 'background' }), { outcome: 'queued' });
+    return structuredClone(run);
   }
   async runNow(id: string) { const run = await this.enqueue(() => { if (this.stopped) throw Error('工作台正在退出'); return this.queue(this.task(id), true, this.stamp()); }); this.pump(); return run; }
   async tick() {
@@ -181,6 +184,7 @@ export class ScheduledTasks {
     const prior = structuredClone(run), finished = { ...run };
     finished.status = this.stopped ? 'interrupted' : session?.stoppedAt ? 'stopped' : failure || session?.error ? 'failed' : 'completed';
     finished.finishedAt = this.stamp(); finished.error = failure || session?.error;
+    logsFor(path.dirname(this.root)).record('workflow', 'scheduled.run.completed', accountLogScope(path.dirname(this.root), { sessionId, projectId: run.projectId, origin: 'background' }), { outcome: finished.status, durationMs: Date.parse(finished.finishedAt) - Date.parse(run.createdAt) });
     const replies = session?.messages.filter(message => message.role === 'assistant' && message.text.trim()) || [];
     finished.summary = (replies.filter(message => message.phase === 'final_answer').at(-1) || replies.at(-1))?.text.replace(/\s+/g, ' ').slice(0, 220);
     if (session) await this.snapshot(finished, session);

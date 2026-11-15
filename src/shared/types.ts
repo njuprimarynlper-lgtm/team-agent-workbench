@@ -39,7 +39,7 @@ export interface SubsessionReport { id: string; version: number; createdAt: stri
 export interface SubsessionReportPreview { childId: string; parentId: string; title: string; body: string; latestReply: string; changedFiles: string[]; messageCount: number; sourceHash: string; nextVersion: number }
 export interface SideChat { input?: SessionInput; inheritedMessageCount?: number; pendingReferences?: Pick<SessionInput, 'sourceIds' | 'capabilities'>; id: string; parentId: string; projectId: string; parentTitle: string; capturedAt: string; expired?: boolean; session: AgentSession; draft: string }
 export type SessionNetworkRoute = 'direct' | 'management';
-export interface AgentSession {
+export interface AgentSession { traceIncomplete?: boolean;
   scheduledRun?: { taskId: string; runId: string; managed: boolean };
   /** Monotonic revision for changes stored outside the full session checkpoint. */
   storageRevision?: number;

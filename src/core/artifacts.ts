@@ -5,6 +5,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { ZipArchive } from 'archiver';
+import { traceStream } from './trace-reader';
+import { logsFor } from './logging';
 import type { SubmissionRecord } from '../shared/submission';
 import type { AgentSession, Draft, DraftArtifact, SourceFile } from '../shared/types';
 import { safeFilename, localWithin } from './paths';
@@ -80,13 +82,18 @@ function gitAndSupplement(draft: Draft) {
 export function historyMarkdown(session: AgentSession) {
   return `# ${session.title}\n\n提供方：${session.provider}\n原生会话 ID：${session.nativeId || '尚未创建'}\n项目：${session.binding?.project.name || '本地会话'}\n\n> 这是工作台采集的对话与工具事件，不代表厂商隐藏推理或完整训练轨迹。\n\n` + withoutQuestionFillTurns(session.messages).map(m => `## ${m.role} · ${m.createdAt}\n\n${m.role === 'user' ? withoutIncomingQuestionNotice(m.text) : withoutQuestionControl(m.text)}\n`).join('\n');
 }
-export async function packageHistory(session: AgentSession, sessionDir: string, root: string, frozenEvents?: string) {
+export async function packageHistory(session: AgentSession, sessionDir: string, root: string, frozenEvents?: string, frozenFiles?: string[]) {
   const dir = path.join(root, 'packages', randomUUID()); await fsp.mkdir(dir, { recursive: true });
   const clone = structuredClone(session); clone.approvals = [];
   const entries: { name: string; text?: string; file?: string }[] = [
     { name: 'session.json', text: JSON.stringify({ schemaVersion: 1, captureSource: session.provider === 'codex' ? 'codex-app-server' : session.provider === 'claude' ? 'claude-code-stream-json' : 'cursor-acp', trainingConsent: false, capturedAt: new Date().toISOString(), session: clone }, null, 2) },
     { name: 'conversation.md', text: historyMarkdown(clone) }
   ];
-  try { entries.push({ name: 'events.jsonl', text: frozenEvents ?? await fsp.readFile(path.join(sessionDir, 'events.jsonl'), 'utf8') }); } catch (e: any) { if (e.code !== 'ENOENT') throw e; }
-  const file = path.join(dir, `session-${session.id}-${Date.now()}.zip`); await zipEntries(file, entries); return file;
+  const file = path.join(dir, `session-${session.id}-${Date.now()}.zip`);
+  const snapshot = frozenFiles || (frozenEvents === undefined ? await logsFor(root).traceSnapshot(sessionDir) : undefined);
+  const archive = new ZipArchive({ zlib: { level: 6 } }), output = fs.createWriteStream(file, { flags: 'wx' });
+  const done = pipeline(archive, output);
+  for (const entry of entries) archive.append(entry.text || '', { name: entry.name });
+  archive.append(frozenEvents === undefined ? traceStream(sessionDir, snapshot) : frozenEvents, { name: 'events.jsonl' });
+  await archive.finalize(); await done; return file;
 }

@@ -4,6 +4,7 @@ import type { AgentRpc, RpcMessage } from './rpc';
 
 // Disconnecting a client must never terminate the shared native backend.
 export class WebSocketRpc extends EventEmitter implements AgentRpc {
+  pauseEvents(paused: boolean) { if (paused) this.socket?.pause(); else this.socket?.resume(); }
   private socket?: WebSocket;
   private opening?: Promise<void>;
   private closed = false;

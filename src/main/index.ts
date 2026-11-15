@@ -1,4 +1,6 @@
 import { attachResultsSchema } from '../shared/session-results';
+import { installLogging, handleLogAction, logOperation } from './logging';
+import { logContext } from '../core/logging';
 import { transcriptPageSize } from '../shared/transcript-page';
 import { saveAgentSettings } from '../core/agent-settings';
 import { reusableProjectConnections, connectedProjectSelection, separateProjectWindow, projectCreationInputSchema, projectCreateSchema, type ProjectCreationIntent } from '../shared/project-connection';
@@ -64,6 +66,7 @@ const entry = path.join(__dirname, runtimeAssets, 'index.html');
 app.setName('Team Agent User');
 if (process.platform === 'win32') app.setAppUserModelId('local.teamagent.user');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
+const applicationLogs = installLogging(app.getPath('userData'), 'user');
 const serverIdentities = new ServerIdentityStore(path.join(app.getPath('userData'), 'server-identities.json'));
 const accountWorkspaces = new AccountWorkspacePool<DataContext>(async (profile, seedRoot) => createDataContext(await migrateAccountWorkspace(app.getPath('userData'), profile, seedRoot)), async context => { await context.workbench.close(); await context.egress.stop(); });
 async function syncServerIdentities(clearKey?: string) {
@@ -829,7 +832,7 @@ function syncTaskbar(window: BrowserWindow, workbench: Workbench) {
     const previous = taskbarSeen.get(window);
     taskbarSeen.set(window, next);
     if (taskbarShouldAlert(previous, next) && !window.isFocused()) window.flashFrame(true);
-  } catch (error) { console.error('任务栏提醒未更新', errorMessage(error)); }
+  } catch (error) { applicationLogs.record('diagnostic', 'taskbar.update', {}, { level: 'warning', detail: errorMessage(error) }); }
 }
 async function createDataContext(root: string, personal = false): Promise<DataContext> {
   let workbench: Workbench;
@@ -912,7 +915,7 @@ async function createWindow(preferredSlot?: number, fresh = false, reuse?: { pro
     for (const current of contexts.values()) current.workbench.activity.removeWindow(String(window.id));
     personalWindows.delete(window);
     windows.delete(window); const context = contexts.get(window); contexts.delete(window);
-    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void context.release().finally(broadcastConnections).catch(error => console.error('账号窗口关闭失败', errorMessage(error))); }
+    if (context) { activeSlots.delete(context.slot); if (!quitting && !closingWindows.has(window)) void context.release().finally(broadcastConnections).catch(error => applicationLogs.record('diagnostic', 'account.window.close', {}, { level: 'error', detail: errorMessage(error) })); }
     broadcastConnections();
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -953,14 +956,26 @@ if (ownDataDirectory(latestWindow, queueLauncherWindow)) app.whenReady().then(as
   ipcMain.handle('workbench', async (event, action, payload) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
     if (!owner || !windows.has(owner) || event.senderFrame?.url !== pathToFileURL(entry).href) return { ok: false, error: '不允许的调用来源' };
+    let finishLog: ReturnType<typeof logOperation> | undefined;
     try {
       const requested = z.string().parse(action), preferPersonal = requested.startsWith('personal:'), operation = preferPersonal ? requested.slice(9) : requested, context = contexts.get(owner)!;
       const executing = actionContext(operation, payload, owner, preferPersonal);
+      if (operation.startsWith('logs.')) {
+        const selected = executing.workbench.store.sessions.find(item => item.id === payload?.sessionId);
+        return { ok: true, value: await handleLogAction(operation, payload, owner, app.getPath('userData'), executing.workbench.store.root,
+          id => { const session = executing.workbench.store.sessions.find(item => item.id === id); return !!session && !['starting', 'running', 'approval'].includes(session.status); },
+          { projectId: selected?.binding?.project.id, provider: selected?.provider, route: selected?.networkRoute, traceIncomplete: selected?.traceIncomplete,
+            providers: executing.workbench.providers.map(({ provider, version, path: executable, available }) => ({ provider, version, path: executable.replaceAll(app.getPath('home'), '%USERPROFILE%'), available })) }) };
+      }
+      const observedSession = executing.workbench.store.sessions.find(item => item.id === payload?.sessionId || item.id === payload?.id || item.id === payload?.parentId);
+      const related = [payload?.ids, payload?.results, payload?.selections].flatMap(value => Array.isArray(value) ? value.slice(0, 50).map(item => typeof item === 'string' ? item : item?.id || item?.reference?.id || item?.jobId) : []);
+      finishLog = logOperation(app.getPath('userData'), executing.workbench.store.root, operation, { projectId: observedSession?.binding?.project.id || payload?.projectId, sessionId: observedSession?.id, provider: observedSession?.provider, route: observedSession?.networkRoute, entityId: payload?.contentId || payload?.conclusionId || payload?.recommendationId || payload?.jobId || (!observedSession ? payload?.id : undefined), relatedIds: related });
       if ((switchingWindows.has(owner) || closingWindows.has(owner) || closing) && operation !== 'snapshot') throw new Error('正在登录或关闭窗口，请等待完成');
-      const value = await executing.workbench.runAccountOperation(operation, () => dispatch(operation, payload, owner, preferPersonal));
+      const value = await logContext.run({ operationId: finishLog.operationId }, () => executing.workbench.runAccountOperation(operation, () => dispatch(operation, payload, owner, preferPersonal)));
       if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(operation) && contexts.get(owner) !== context) throw new Error('账号已改变，未返回上一个账号的操作结果，请刷新后重试');
+      finishLog?.();
       return { ok: true, value };
-    } catch (e: any) { return { ok: false, error: errorMessage(e) }; }
+    } catch (e: any) { finishLog?.(e); return { ok: false, error: errorMessage(e) }; }
   });
   const legacySettings = await fs.readFile(path.join(app.getPath('userData'), 'settings.json'), 'utf8').then(value => JSON.parse(value)).catch((error: any) => { if (error.code === 'ENOENT') return {}; throw error; });
   await serverIdentities.init(legacySettings.trustedServerIdentities || {});
@@ -969,13 +984,13 @@ if (ownDataDirectory(latestWindow, queueLauncherWindow)) app.whenReady().then(as
   await routeAccount(() => createWindow());
   windowsReady = true;
   void drainAdditionalWindows();
-}).catch(error => { dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
+}).catch(async error => { applicationLogs.record('diagnostic', 'app.start_failed', {}, { level: 'error', detail: errorMessage(error), stack: error.stack }); await applicationLogs.close(); dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
 app.on('window-all-closed', () => { if (!closing && !taskTray) void finishQuit(); });
 let taskTray: Tray | undefined;
 app.whenReady().then(() => {
   const services = () => [...new Set([personalContext, ...contexts.values()].filter(Boolean).map(context => context!.workbench.scheduled))];
   powerMonitor.on('suspend', () => services().forEach(service => service.suspend()));
-  powerMonitor.on('resume', () => services().forEach(service => void service.resumeAfterSleep().catch(error => console.error('恢复定时任务失败', errorMessage(error)))));
+  powerMonitor.on('resume', () => services().forEach(service => void service.resumeAfterSleep().catch(error => applicationLogs.record('diagnostic', 'scheduled.resume', {}, { level: 'error', detail: errorMessage(error) }))));
 });
 function ensureTaskTray() {
   if (taskTray) return;
@@ -997,6 +1012,7 @@ function dismissWindow(window: BrowserWindow) {
   window.hide();
 }
 function reportCloseFailure(error: unknown) {
+  applicationLogs.record('diagnostic', 'storage.close_failed', {}, { level: 'error', detail: errorMessage(error), stack: error instanceof Error ? error.stack : undefined });
   dialog.showErrorBox('未保存的编辑', '保存失败，窗口已经关闭。\n' + errorMessage(error) + '\n请恢复目录或磁盘空间后重新打开工作台。');
 }
 async function closeWindow(window: BrowserWindow) {
@@ -1022,6 +1038,6 @@ async function finishQuit() {
   for (const [window] of pending) { dismissWindow(window); if (!window.isDestroyed()) window.destroy(); }
   try { await routeAccount(async () => { for (const [, context] of pending) await context.release(); if (personalContext) { await personalContext.workbench.close(); await personalContext.egress.stop(); } }); }
   catch (error) { reportCloseFailure(error); }
-  finally { quitting = true; for (const [window] of pending) closingWindows.delete(window); closing = false; app.quit(); }
+  finally { applicationLogs.record('diagnostic', 'app.stopped'); await applicationLogs.close(); quitting = true; for (const [window] of pending) closingWindows.delete(window); closing = false; app.quit(); }
 }
 app.on('before-quit', event => { if (!quitting && contexts.size) { event.preventDefault(); void finishQuit(); } });

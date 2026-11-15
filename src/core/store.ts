@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { logsFor } from './logging';
 import { isProjectOrganizationDraft } from '../shared/project-organization';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -288,7 +289,6 @@ export class Store {
   }
   sessionDir(id: string) { if (!validSessionId(id)) throw new Error('无效会话 ID'); return path.join(this.root, 'sessions', id); }
   async event(id: string, event: unknown) {
-    const dir = this.sessionDir(id); await fs.mkdir(dir, { recursive: true });
-    await fs.appendFile(path.join(dir, 'events.jsonl'), JSON.stringify({ at: new Date().toISOString(), event }) + '\n', { mode: 0o600 });
+    return logsFor(this.root).trace(this.sessionDir(id), event);
   }
 }

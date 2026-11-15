@@ -1,4 +1,5 @@
 import { clientWindowTitle } from '../shared/client-version';
+import { installLogging, handleLogAction, logOperation } from '../main/logging';
 import { ownDataDirectory } from '../shared/single-instance';
 import { runtimeAssets } from '../shared/runtime-assets';
 import { app, BrowserWindow, ipcMain, dialog, clipboard, safeStorage, utilityProcess, Tray, Menu, nativeImage } from 'electron';
@@ -24,6 +25,7 @@ import { AdminMemberSync } from './member-sync';
 import { memberCommandSchema, memberCreateSchema } from './member-protocol';
 app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
+const applicationLogs = installLogging(app.getPath('userData'), 'admin');
 const entry = path.join(__dirname, runtimeAssets, 'index.html');
 const store = new AdminWindowStore(app.getPath('userData'));
 type AdminContext = { slot: number; window: BrowserWindow; profile(): AdminProfile | undefined; connected(): boolean; dispatch(action: string, payload: unknown): Promise<any>; stop(): Promise<void>; closing?: Promise<void> };
@@ -39,7 +41,7 @@ async function closeWindow(context: AdminContext) {
   if (context.closing) return context.closing;
   context.closing = (async () => {
     try { await context.stop(); }
-    catch (error) { console.error('中央节点关闭失败', errorMessage(error)); }
+    catch (error) { applicationLogs.record('diagnostic', 'central.close', {}, { level: 'error', detail: errorMessage(error) }); }
     finally { contexts.delete(context.window); if (!context.window.isDestroyed()) context.window.destroy(); store.release(context.slot); }
   })();
   return context.closing;
@@ -74,8 +76,13 @@ async function initializeWindow(slot: number): Promise<AdminContext> {
   try { egressConfig = adminEgressConfigSchema.parse(JSON.parse(await fs.readFile(egressConfigFile, 'utf8'))); } catch {}
   try { egressSecret = JSON.parse(unprotect(await fs.readFile(egressSecretFile))); } catch { egressSecret = { accessCode: randomBytes(24).toString('base64url') }; }
   const certificate = await ensureEgressCertificate(path.join(directory, 'egress-tls'));
+  const loggedEgressEvents = new Set<string>();
   egress = new EgressHost(path.join(__dirname, runtimeAssets, 'egress-worker.cjs'), egressConfig, egressSecret, certificate,
     entry => utilityProcess.fork(entry, [], { serviceName: 'Team Agent Network Relay', stdio: 'ignore' })); egress.on('changed', () => {
+      for (const event of egress.snapshot().events.filter(event => event.status === 'error' || event.status === 'rejected')) if (!loggedEgressEvents.has(event.id)) {
+        loggedEgressEvents.add(event.id); if (loggedEgressEvents.size > 200) loggedEgressEvents.delete(loggedEgressEvents.values().next().value!);
+        applicationLogs.record('diagnostic', 'egress.connection', {}, { level: 'warning', outcome: event.status, detail: event.detail });
+      }
       changed(); void reverse.setGateway(egressConfig.enabled && egress.snapshot().running, egressConfig.listenHost, egressConfig.listenPort);
     });
   const saveEgress = async () => { await fs.mkdir(directory, { recursive: true }); await fs.writeFile(egressConfigFile, JSON.stringify(egressConfig, null, 2)); await fs.writeFile(egressSecretFile, protect(JSON.stringify(egressSecret)), { mode: 0o600 }); };
@@ -255,20 +262,24 @@ if (ownDataDirectory(() => [...contexts.keys()].at(-1), queueLauncherWindow)) ap
   ipcMain.handle('admin', async (event, action: string, payload: unknown) => {
     const context = [...contexts.values()].find(item => item.window.webContents === event.sender);
     if (!context || !isAdminWindowSource(event.senderFrame?.url, entry)) return { ok: false, error: '不允许的调用来源' };
+    let finishLog: ((error?: unknown) => void) | undefined;
     try {
+      if (action.startsWith('logs.')) return { ok: true, value: await handleLogAction(action, payload, context.window, app.getPath('userData'), app.getPath('userData'), () => false) };
+      finishLog = logOperation(app.getPath('userData'), app.getPath('userData'), action, {});
       if (quitting || context.closing) throw new Error('此管理窗口正在关闭');
       const value = action === 'connect' ? await routeWindow(() => connectWindow(context, payload))
         : action === 'window.new' ? await routeWindow(async () => { if (context.closing || context.window.isDestroyed()) throw new Error('原窗口已关闭'); await createWindow(undefined, true); return true; })
         : await context.dispatch(action, payload);
       if (context.closing) throw new Error('此管理窗口已关闭');
+      finishLog?.();
       return { ok: true, value };
-    } catch (error) { return { ok: false, error: errorMessage(error) }; }
+    } catch (error) { finishLog?.(error); return { ok: false, error: errorMessage(error) }; }
   });
   await routeWindow(() => createWindow(1)); ready = true; const waiting = pendingLaunches; pendingLaunches = 0; for (let i = 0; i < waiting; i++) queueLauncherWindow();
-}).catch(error => { dialog.showErrorBox('管理员版启动失败', errorMessage(error)); app.quit(); });
+}).catch(async error => { applicationLogs.record('diagnostic', 'app.start_failed', {}, { level: 'error', detail: errorMessage(error), stack: error.stack }); await applicationLogs.close(); dialog.showErrorBox('管理员版启动失败', errorMessage(error)); app.quit(); });
 app.on('window-all-closed', () => { if (!contexts.size) app.quit(); });
 app.on('before-quit', event => {
   if (stopped) return;
   event.preventDefault(); if (quitting) return; quitting = true;
-  void Promise.allSettled([...contexts.values()].map(context => closeWindow(context))).finally(() => { stopped = true; app.quit(); });
+  void Promise.allSettled([...contexts.values()].map(context => closeWindow(context))).finally(async () => { applicationLogs.record('diagnostic', 'app.stopped'); await applicationLogs.close(); stopped = true; app.quit(); });
 });

@@ -1,6 +1,6 @@
 import { build } from 'electron-builder';
 import path from 'node:path';
-import { cp, copyFile } from 'node:fs/promises';
+import { cp, copyFile, mkdir, writeFile } from 'node:fs/promises';
 import { releaseRoot } from './release-paths.mjs';
 const requested = process.argv[2];
 for (const edition of requested ? [requested] : ['admin', 'user']) {
@@ -18,6 +18,9 @@ for (const edition of requested ? [requested] : ['admin', 'user']) {
       // are the CLI's own native dependencies, so copy the official directory verbatim.
       if (edition === 'user') await cp('.tools/cursor/dist-package', path.join(appOutDir, 'resources/providers/cursor'), { recursive: true });
       await copyFile('README.md', path.join(appOutDir, '使用说明.md'));
+      const diagnosticTools = path.join(appOutDir, 'tools'); await mkdir(diagnosticTools, { recursive: true });
+      for (const file of ['collect-diagnostics.ps1', 'startup-logs.ps1']) await copyFile(path.join('scripts', file), path.join(diagnosticTools, file));
+      await writeFile(path.join(diagnosticTools, 'edition.txt'), edition, 'utf8');
       await cp('docs', path.join(appOutDir, 'docs'), { recursive: true, filter: source => !/SHA256SUMS/.test(source) });
       await copyFile('THIRD_PARTY.md', path.join(appOutDir, 'THIRD_PARTY.md'));
     },

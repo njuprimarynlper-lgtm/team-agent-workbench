@@ -31,6 +31,31 @@ test('only user and admin launchers are exposed and both use the unified hidden 
   }
 });
 
+test('startup output remains bounded while a child emits many megabytes, without stopping the child', windows, async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'startup-output-limit-')); t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const script = path.join(directory, 'large-output.mjs'), stdout = path.join(directory, 'stdout.log'), stderr = path.join(directory, 'stderr.log');
+  await fs.writeFile(script, "for(let i=0;i<2048;i++){process.stdout.write('X'.repeat(4096));process.stderr.write('Y'.repeat(4096));}process.stdout.write('FINAL_SUCCESS');");
+  const literal = (value: string) => "'" + value.replace(/'/g, "''") + "'";
+  const command = `. ${literal(path.join(root, 'scripts/startup-process.ps1'))}; $result=Invoke-StartupProcess -File ${literal(process.execPath)} -Arguments @(${literal('"' + script + '"')}) -Directory ${literal(directory)} -Output ${literal(stdout)} -Errors ${literal(stderr)} -TimeoutSeconds 20 -TimeoutMessage 'timeout'; if($result -ne 0){exit 1}`;
+  await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, timeout: 30000 });
+  assert.ok((await fs.stat(stdout)).size < 2 * 1024 ** 2); assert.ok((await fs.stat(stderr)).size < 2 * 1024 ** 2);
+  assert.match(await fs.readFile(stdout, 'utf8'), /FINAL_SUCCESS/); assert.match(await fs.readFile(stdout, 'utf8'), /skipped bytes/);
+});
+
+test('the existing startup entry can export diagnostics without launching or installing the application', windows, async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'startup-offline-export-')); t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const logs = path.join(directory, 'logs', 'startup'); await fs.mkdir(logs, { recursive: true });
+  await fs.writeFile(path.join(logs, 'user-20261115-180000-000-99999999-error.log'), 'password=OFFLINE_SECRET Bearer OFFLINE_TOKEN TAE1.aabbccddeeff error: startup failed');
+  const output = path.join(directory, 'report.zip');
+  await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts/start-dev-hidden.ps1'), 'user', '-ExportDiagnostics', output], { env: { ...process.env, WORKBENCH_DATA_DIR: directory }, windowsHide: true, timeout: 20000 });
+  const reportScript = `Add-Type -AssemblyName System.IO.Compression.FileSystem;$zip=[IO.Compression.ZipFile]::OpenRead('${output.replace(/'/g, "''")}');try {foreach($entry in $zip.Entries){$reader=New-Object IO.StreamReader($entry.Open());try{[Console]::Out.WriteLine($reader.ReadToEnd())}finally{$reader.Dispose()}}}finally{$zip.Dispose()}`;
+  const content = (await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', reportScript], { windowsHide: true, timeout: 10000 })).stdout;
+  assert.match(content, /startup failed/); assert.ok(!content.includes('OFFLINE_SECRET')); assert.ok(!content.includes('OFFLINE_TOKEN')); assert.ok(!content.includes('TAE1.aabb')); assert.match(content, /startup-offline/);
+  const packagedOutput = path.join(directory, 'standalone.zip');
+  await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'scripts/collect-diagnostics.ps1'), '-Edition', 'user', '-DataRoot', directory, '-Output', packagedOutput], { windowsHide: true, timeout: 10000 });
+  assert.ok((await fs.stat(packagedOutput)).size > 100);
+});
+
 async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) {
   // Exercise real PowerShell process startup, including spaces, Chinese and shell metacharacters.
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workbench 启动 & ')));
@@ -49,6 +74,7 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   assert.notEqual(silentFixture, desktopLauncher);
   await fs.writeFile(path.join(dir, 'scripts/launch-desktop.mjs'), silentFixture);
   await fs.copyFile(path.join(root, 'scripts/startup-process.ps1'), path.join(dir, 'scripts/startup-process.ps1'));
+  await fs.copyFile(path.join(root, 'scripts/startup-logs.ps1'), path.join(dir, 'scripts/startup-logs.ps1'));
   await fs.copyFile(path.join(root, 'scripts/startup-dependencies.mjs'), path.join(dir, 'scripts/startup-dependencies.mjs'));
   await fs.copyFile(path.join(root, 'scripts/electron-runtime-cache.mjs'), path.join(dir, 'scripts/electron-runtime-cache.mjs'));
   const dependencies = { electron: '44.3.0', esbuild: '0.28.2', ssh2: '1.17.0' };

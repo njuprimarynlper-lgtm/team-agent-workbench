@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 export type RpcMessage = { id?: number | string; method?: string; params?: any; result?: any; error?: { code: number; message: string; data?: unknown } };
 export interface AgentRpc extends EventEmitter {
+  pauseEvents?(paused: boolean): void;
   request(method: string, params?: unknown, timeout?: number, onWritten?: () => void): Promise<any>;
   notify(method: string, params?: unknown): void;
   respond(id: number | string, result: unknown): void;
@@ -50,6 +51,7 @@ export function spawnCLI(executable: string, args: string[], cwd: string, env: N
   return spawn(executable, args, { cwd, env: childEnv(env), windowsHide: true, stdio: 'pipe' });
 }
 export class JsonRpc extends EventEmitter {
+  pauseEvents(paused: boolean) { if (paused) this.process.stdout.pause(); else this.process.stdout.resume(); }
   private seq = 0;
   private pending = new Map<number, { method: string; resolve: (x: any) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
   readonly process: ChildProcessWithoutNullStreams;

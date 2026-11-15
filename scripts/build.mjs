@@ -27,6 +27,7 @@ for (const edition of ['user', 'admin']) {
   const renderer = await build({ entryPoints: [edition === 'user' ? 'src/renderer/main.tsx' : 'src/admin/renderer.tsx'], outdir: out, entryNames: 'renderer', chunkNames: 'chunk-[hash]', splitting: true, write: false, bundle: true, minify: true, platform: 'browser', format: 'esm', target: 'chrome130', loader: { '.css': 'css', '.woff2': 'file', '.woff': 'file', '.ttf': 'file' }, plugins: [fontSizePlugin] });
   const files = Object.fromEntries([...preload.outputFiles, ...renderer.outputFiles].map(file => [path.basename(file.path), file.contents]));
   files['index.html'] = await readFile('src/renderer/index.html');
+  files['log-storage.cjs'] = await readFile('src/core/log-storage.cjs');
   if (edition === 'user') files['project-journal-worker.cjs'] = await readFile('src/core/project-journal-worker.cjs');
   if (edition === 'user') files['cursor-network.cjs'] = await readFile('src/core/cursor-network.cjs');
   if (edition === 'user') files['cursor-request-guard.cjs'] = await readFile('src/core/cursor-request-guard.cjs');

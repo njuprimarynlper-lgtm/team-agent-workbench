@@ -1,4 +1,5 @@
 import { submissionRecord, submissionRecordSchema } from '../shared/submission';
+import { logsFor, accountLogScope } from './logging';
 import { hashFile } from './artifacts';
 import { contentMetadataSchema, type ContentMetadata } from '../shared/content';
 import path from 'node:path';
@@ -117,6 +118,7 @@ export class TransferQueue {
           try { await this.store.save(); }
           catch (saveError: any) { task.error += '；传输状态保存失败：' + saveError.message + '。请恢复本地存储后重试，将复用原目标。'; }
         }
+        logsFor(this.store.root).record('workflow', 'transfer.completed', accountLogScope(this.store.root, { sessionId: task.sessionId, projectId: task.binding.project.id, operationId: task.id, origin: 'background' }), { outcome: task.status === 'done' ? 'succeeded' : 'failed', durationMs: task.completedAt ? Date.parse(task.completedAt) - Date.parse(task.createdAt) : undefined, code: task.phase });
         this.changed();
       }
     } finally { this.active = false; }

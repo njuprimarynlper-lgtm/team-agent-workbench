@@ -285,6 +285,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-runtim
 
 <a id="troubleshooting"></a>
 
+### 日志与问题收集
+
+用户端通过 **更多 → 日志与分析** 导出故障诊断包或工作流分析包；管理员版入口位于 **连接设置** 弹窗底部。普通日志统一限流、合并、轮转和清理，每端配额最多 50 MiB。完整执行轨迹作为会话资料保留，单独显示占用和管理。收集步骤、离线启动诊断和记录边界见 [日志管理与问题收集](docs/logging.md)。
+
 ### 启动进度与卡住时的日志
 
 双击入口后会显示启动进度：检查 Node/npm → 等待其他入口准备 → 安装依赖 → 准备桌面运行环境 → 构建 → 打开应用。支持“查看日志”和“取消启动”。依赖安装、Electron 下载分别最多等待 10 分钟，构建最多 3 分钟，等待其他启动入口最多 15 分钟；超时会报告失败阶段，不会无限等待或启动旧构建。
@@ -300,7 +304,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-runtim
 | 已进入客户端，但没有工作组或项目 | 请管理员确认账号已分组并开通目录权限，再刷新；这属于团队配置。 |
 | CLI 不存在、未登录或检测失败 | 核对 Agent CLI、个人模型账号和网络配置；Cursor 编辑器的命令不能代替 Cursor Agent CLI。 |
 
-日志统一位于仓库 `.test-data/launcher/`：
+源码启动的早期输出暂存于仓库 `.test-data/launcher/`，完成后由统一日志服务归入客户端数据目录的 `logs/`。启动暂存受保留时间和大小限制，可在进度窗口点击“导出诊断”，或在失败弹窗选择收集：
 
 - `user-日期-时间-进程号.log` / `admin-日期-时间-进程号.log`：实际 Node/npm 路径与版本、启动阶段、等待和错误。
 - 同前缀的 `install-error.log`、`electron-error.log`、`build-error.log`：对应步骤的详细错误；无 `error` 的日志保存正常输出。

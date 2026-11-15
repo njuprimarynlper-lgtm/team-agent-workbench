@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { logsFor, accountLogScope, redactLogText } from './logging';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { atomicJson } from './store';
@@ -77,6 +78,7 @@ export class ProjectSync {
       if (this.closed || !this.host.connected() || owner !== this.owner()) break;
       const entry = entries[project.id] ||= { project, revision: 0, centralRevision: 0 };
       if (entry.localOnly || this.host.projectConnected?.(project.id) === false) continue;
+      const previousRevision = entry.centralRevision, wasPending = entry.pendingCreate, previousConflict = entry.conflict?.token, started = performance.now();
       try {
         if (entry.pendingCreate) {
           if (!entry.creation) { entry.creation = { brief: structuredClone(entry.brief) }; await this.persist(); }
@@ -95,7 +97,7 @@ export class ProjectSync {
           const ai = this.conflicts.view(conflict).ai;
           if (ai?.status === 'ready' && !ai.unresolved?.length && verifiableTextMerge(conflict, ai.fields || [])) {
             merged.value = applyConflictText(conflict, ai.fields || []); await this.conflicts.record(conflict.key, local, remote.brief, merged.value, 'ai-auto', owner);
-          } else { entry.conflict = conflict; entry.error = undefined; continue; }
+          } else { entry.conflict = conflict; entry.error = undefined; if (previousConflict !== conflict.token) logsFor(this.root).record('workflow', 'project.sync', accountLogScope(this.root, { projectId: project.id, origin: 'background' }), { outcome: 'conflict' }); continue; }
         }
         const next = merged.value === undefined ? undefined : projectBriefSchema.parse(merged.value);
         if (canonicalSync(next) !== canonicalSync(remote.brief) && next) await this.host.save(binding, next, remote.revision);
@@ -105,7 +107,8 @@ export class ProjectSync {
         entry.base = after.fields.length ? local : next; entry.centralRevision = remote.revision + (canonicalSync(next) !== canonicalSync(remote.brief) ? 1 : 0);
         if (!after.fields.length && canonicalSync(entry.brief) !== canonicalSync(after.value)) { entry.brief = after.value as ProjectBrief | undefined; entry.revision++; }
         entry.project.briefRevision = entry.revision; entry.conflict = undefined; entry.error = undefined;
-      } catch (error) { entry.error = error instanceof Error ? error.message : '等待恢复连接后自动同步'; }
+        if (wasPending || previousRevision !== entry.centralRevision) logsFor(this.root).record('workflow', 'project.sync', accountLogScope(this.root, { projectId: project.id, origin: 'background' }), { outcome: 'succeeded', durationMs: performance.now() - started });
+      } catch (error) { entry.error = error instanceof Error ? error.message : '等待恢复连接后自动同步'; logsFor(this.root).record('diagnostic', 'project.sync', accountLogScope(this.root, { projectId: entry.project.id, origin: 'background' }), { level: 'warning', detail: redactLogText(error) }); }
       finally { await this.persist(); this.host.changed(); }
     }
     if (owner === this.owner()) this.conflicts.enqueue(Object.values(entries).flatMap(entry => entry.conflict && this.host.projectConnected?.(entry.project.id) !== false ? [entry.conflict] : []));

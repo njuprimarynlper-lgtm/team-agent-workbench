@@ -1,4 +1,6 @@
 import { SessionResults } from './session-results';
+import { logsFor, accountLogScope, logContext } from './logging';
+import { traceHistoryDigest } from './trace-reader';
 import { sourceResultReference, supportsSessionResults } from '../shared/session-results';
 import { teamAccessRevoked } from '../shared/team-cache';
 import { pruneTeamCache, refreshTeamCache } from './team-cache';
@@ -143,6 +145,18 @@ export class Workbench {
   private deletingDrafts = new Set<string>();
   private deletingSharedContent = new Set<string>();
   private timer?: NodeJS.Timeout; private deltaTimer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
+  private logPressure = (paused: boolean) => { for (const runtime of this.runtimes.values()) runtime.pauseLogEvents(paused); for (const entry of this.sideChats.values()) entry.runtime.pauseLogEvents(paused); };
+  private observedTurns = new Map<string, { started: number; first: boolean; operationId?: string }>();
+  private traceMigration?: Promise<void>;
+  private traceIncomplete = (directory: string) => { if (path.dirname(directory) !== path.join(this.store.root, 'sessions')) return; const session = this.store.sessions.find(item => item.id === path.basename(directory)); if (session && !session.traceIncomplete) { session.traceIncomplete = true; this.changedSession(session.id); } };
+  private observedStates = new Map<string, { status: string; at: number; references?: string }>();
+  private observeWorkflow(session: AgentSession) {
+    const previous = this.observedStates.get(session.id), at = performance.now(), scope = accountLogScope(this.store.root, { operationId: this.observedTurns.get(session.id)?.operationId, sessionId: session.id, projectId: session.binding?.project.id, provider: session.provider, origin: session.scheduledRun?.managed || session.purpose !== 'work' ? 'background' : 'ai' });
+    if (previous?.status !== session.status) logsFor(this.store.root).record('workflow', 'session.phase', scope, { outcome: session.status, code: previous?.status, durationMs: previous ? at - previous.at : undefined });
+    const message = session.messages.findLast(item => item.role === 'user' && item.context?.accepted);
+    if (message && previous?.references !== message.id && Object.keys(message.context?.sourceHashes || {}).length) logsFor(this.store.root).record('workflow', 'references.applied', scope, { outcome: 'accepted', count: Object.keys(message.context!.sourceHashes).length });
+    this.observedStates.set(session.id, { status: session.status, at: previous?.status === session.status ? previous.at : at, references: message?.id || previous?.references });
+  }
   private nativeSyncTimer?: NodeJS.Timeout;
   private nativeSyncFlush?: NodeJS.Timeout;
   private nativeSyncQueued = false;
@@ -216,6 +230,8 @@ export class Workbench {
   readonly projectSync: ProjectSync;
   // Keep the legacy argument slot so runtime environment and desktop integrations retain their positions.
   constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, _legacyPreparationTimeoutMs?: number, private providerEnvironment: (route?: SessionNetworkRoute, session?: AgentSession) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void, readonly codexDesktop: CodexDesktopIntegration = new CodexDesktopService(), readonly cursorDesktop: CursorDesktopIntegration = new CursorFileService(), readonly personal = false, private emitSessionDelta?: (session: AgentSession, messageId?: string, sideChatId?: string) => void) {
+    logsFor(root).on('pressure', this.logPressure);
+    logsFor(root).on('trace-incomplete', this.traceIncomplete);
     this.assignmentUploads = new AssignmentUploads(root);
     this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.inputQueue = new SessionInputQueue({
@@ -330,6 +346,7 @@ export class Workbench {
   async init() {
     await recoverPersonalMove(this.store.root);
     await this.store.init();
+    this.traceMigration = logsFor(this.store.root).migrateTraces(this.store.root);
     await this.questions.init();
     this.inputQueueTimer = setInterval(() => {
       if (this.closing || this.configuring) return;
@@ -1225,11 +1242,17 @@ export class Workbench {
     if (this.closing || s.closedAt || epoch !== this.accountRevision) { await remoteRpc?.close(); throw new Error('会话或账号已改变，未启动 CLI'); }
     if (s.codexPrivateFork) await this.store.save();
     const runtimeRoute = s.networkRoute;
-    const hooks = { changed: () => this.changedSession(s.id), messageChanged: (messageId?: string) => this.changedMessage(s.id, messageId), event: (value: unknown) => this.event(s.id, value), done: () => {
+    const hooks = { changed: () => { this.observeWorkflow(s); this.changedSession(s.id); }, messageChanged: (messageId?: string) => { this.observeWorkflow(s); this.changedMessage(s.id, messageId); }, event: (value: unknown) => this.event(s.id, value), diagnostic: (error: unknown) => logsFor(this.store.root).record('diagnostic', 'cli.exited', accountLogScope(this.store.root, { sessionId: s.id, projectId: s.binding?.project.id, provider: s.provider }), { level: 'error', detail: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined }), done: () => {
+      const logger = logsFor(this.store.root), timing = this.observedTurns.get(s.id);
+      logger.record('workflow', 'session.turn.completed', accountLogScope(this.store.root, { operationId: timing?.operationId, sessionId: s.id, projectId: s.binding?.project.id, provider: s.provider, route: runtimeRoute, origin: s.scheduledRun?.managed || s.purpose !== 'work' ? 'background' : 'ai' }), { outcome: s.error ? 'failed' : s.stoppedAt ? 'canceled' : 'succeeded', durationMs: timing ? performance.now() - timing.started : undefined });
+      for (const [phase, durationMs] of Object.entries(s.turnTimings?.at(-1)?.durations || {})) logger.record('workflow', 'session.phase.total', accountLogScope(this.store.root, { operationId: timing?.operationId, sessionId: s.id, projectId: s.binding?.project.id, provider: s.provider, origin: 'ai' }), { code: phase, durationMs, outcome: s.turnTimings?.at(-1)?.partial ? 'partial' : 'observed' });
+      this.observedTurns.delete(s.id);
+      void this.eventWrites.get(s.id)?.then(() => logger.seal(this.store.sessionDir(s.id))).catch(() => {});
       const job = (this.completionJobs.get(s.id) || Promise.resolve()).then(() => this.onDone(s.id)).catch(e => this.sessionNotice(s, '运行结果保存失败：' + e.message)).finally(() => { if (this.completionJobs.get(s.id) === job) this.completionJobs.delete(s.id); });
       this.completionJobs.set(s.id, job);
     }, authFailed: (error: unknown) => { if (!s.codexRemote) this.accounts.failed(s.provider, error, s.cwd, runtimeRoute); }, needsApproval: (kind: 'question' | 'approval') => this.sessionNotice(s, s.scheduledRun?.managed ? `定时任务待处理：${s.title}` : kind === 'question' ? `“${s.title}”有问题需要你回答。` : `待授权：“${s.title}”需要你确认 CLI 操作，请查看待授权提醒。`) };
     Object.assign(hooks, { connectionChanged: (value: import('../shared/cli-connection').CliConnection) => {
+      logsFor(this.store.root).record('diagnostic', 'cli.connection', accountLogScope(this.store.root, { sessionId: s.id, projectId: s.binding?.project.id, provider: s.provider, route: runtimeRoute }), { outcome: value.state, code: value.kind, count: value.attempt, level: value.state === 'failed' ? 'error' : 'info' });
       if (!this.configuring && this.ownsLocal(s.binding)) {
         this.connectionReport?.({ ...s, networkRoute: runtimeRoute }, value);
         if (value.state === 'connected') this.activity.providerRecovered(s.provider, runtimeRoute, s.cwd);
@@ -1254,6 +1277,7 @@ export class Workbench {
     if (this.closing || s.closedAt || epoch !== this.accountRevision) { await runtime?.close(); await remoteRpc?.close(); throw new Error('会话或账号已改变，未启动 CLI'); }
     runtime ||= s.provider === 'claude' ? new ClaudeRuntime(s, executable, hooks, this.providerEnvironment(s.networkRoute, s)) : new AgentRuntime(s, executable, hooks, storage, this.providerEnvironment(s.networkRoute, s), remoteRpc, false, !!this.store.settings.codexRequestGuard, () => this.store.settings.codexCaCertificate || '');
     this.runtimes.set(s.id, runtime);
+    runtime.pauseLogEvents(logsFor(this.store.root).pressured);
     if (runtime instanceof AgentRuntime) {
       const writer = runtime.codexWriterOwner;
       if (writer && !this.codexWriters.has(writer)) {
@@ -1480,7 +1504,7 @@ export class Workbench {
           }
           if (externalBusy) continue;
           this.assertMoveIdle(peers, false);
-          await Promise.all([...ids].map(id => this.eventWrites.get(id)));
+          await this.traceMigration; await Promise.all([...ids].map(id => this.eventWrites.get(id)));
           for (const id of ids) { const runtime = this.runtimes.get(id); if (runtime) { await runtime.close(); this.runtimes.delete(id); } }
           const { mappings, conflicts } = await relocateWorkspace(this.store.root, session, [this.store.root]);
           const draftIds = new Set(this.store.drafts.filter(d => d.sessionId === session.id).map(d => d.id));
@@ -1861,7 +1885,7 @@ export class Workbench {
       this.assertMoveIdle(sessions);
       await this.rsi.pause(); await this.activity.pause();
       for (const session of sessions) { const runtime = this.runtimes.get(session.id); if (runtime) { await runtime.close(); this.runtimes.delete(session.id); } }
-      await Promise.all(sessions.map(session => this.eventWrites.get(session.id)));
+      await this.traceMigration; await Promise.all(sessions.map(session => this.eventWrites.get(session.id)));
       const drafts = this.store.drafts.filter(draft => ids.has(draft.sessionId));
       const origins = new Set([...ids, ...drafts.flatMap(draft => [draft.id, ...(draft.artifacts || []).map(item => item.id)])]);
       const conclusionIds = new Set(drafts.flatMap(draft => [...(draft.personalSavedIds || []), ...(draft.conclusionMergeProjectId ? draft.mergeSources?.map(source => source.id) || [] : [])]));
@@ -2041,7 +2065,7 @@ export class Workbench {
       if (conclusions.some(item => target.store.conclusions.some(existing => existing.id === item.id && (existing.projectId !== projectId || existing.version !== item.version || existing.content !== item.content)))) throw new Error('目标项目存在不同版本的关联成果，请先核对后再迁移');
       if (sessions.some(session => target.store.sessions.some(item => item.id === session.id)) || drafts.some(draft => target.store.drafts.some(item => item.id === draft.id))) throw new Error('目标存在同名会话记录，请刷新核对');
       for (const session of sessions) { const runtime = this.runtimes.get(session.id); if (runtime) { await runtime.close(); this.runtimes.delete(session.id); } }
-      await Promise.all(sessions.map(session => this.eventWrites.get(session.id)));
+      await this.traceMigration; await Promise.all(sessions.map(session => this.eventWrites.get(session.id)));
       const journals = await this.journal.exportSessions(ids);
       for (const record of journals) { record.owner = accountIdentity(binding); record.projectId = projectId; }
       const moved = structuredClone(sessions);
@@ -2158,8 +2182,17 @@ export class Workbench {
     }, false);
   }
   private event(id: string, value: unknown) {
-    const previous = this.eventWrites.get(id) || Promise.resolve();
-    const write = previous.then(() => this.store.event(id, value)).catch(e => this.notice('会话事件保存失败：' + e.message));
+    const logger = logsFor(this.store.root), session = this.store.sessions.find(item => item.id === id);
+    const event = value as any, method = String(event?.method || ''), scope = accountLogScope(this.store.root, { sessionId: id, operationId: this.observedTurns.get(id)?.operationId, projectId: session?.binding?.project.id, turnId: event?.turnId || event?.params?.turnId || event?.params?.turn?.id, provider: session?.provider, route: session?.networkRoute, origin: session?.purpose === 'work' && !session?.scheduledRun?.managed && !session?.messages.findLast(message => message.role === 'user')?.context?.questionRunId ? 'user' : 'background' });
+    if (event?.direction === 'user' && typeof event.text === 'string') {
+      scope.operationId = logContext.getStore()?.operationId || randomUUID();
+      logger.record('workflow', method === 'turn/steer' ? 'session.steer.submitted' : 'session.send.submitted', scope);
+      if (method !== 'turn/steer' || !this.observedTurns.has(id)) this.observedTurns.set(id, { started: performance.now(), first: false, operationId: scope.operationId });
+    }
+    const turn = this.observedTurns.get(id);
+    if (turn && !turn.first && /(?:agentMessage|output_text|text_delta).*delta|session\/update/.test(method)) { turn.first = true; logger.record('workflow', 'session.first_output', scope, { durationMs: performance.now() - turn.started }); }
+    if (/^(turn\/(started|completed)|workbench\/(autoCompact|modelFallback)|subsession\/fork\/failed|error)$/.test(method)) logger.record('diagnostic', method, scope, { outcome: event?.status || event?.params?.turn?.status, level: /error|failed/.test(method) ? 'error' : 'info', code: event?.code ? String(event.code) : undefined });
+    const write = this.store.event(id, value).catch(() => { if (session && !session.traceIncomplete) { session.traceIncomplete = true; this.changedSession(id); } });
     this.eventWrites.set(id, write);
   }
   private async availableSessionContext(session: AgentSession, userText: string, sourceIds: string[], history = session.messages, pendingResults = true) {
@@ -3684,8 +3717,8 @@ export class Workbench {
     }
     const frozen = structuredClone(s);
     await this.eventWrites.get(id);
-    const events = await fs.readFile(path.join(this.store.sessionDir(id), 'events.jsonl'), 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
-    const trajectoryHash = createHash('sha256').update(JSON.stringify([frozen.nativeId, frozen.messages, events])).digest('hex');
+    const traceSnapshot = await logsFor(this.store.root).traceSnapshot(this.store.sessionDir(id));
+    const trajectoryHash = await traceHistoryDigest(frozen, this.store.sessionDir(id), traceSnapshot);
     const prior = this.store.transfers.find(t => t.sessionId === id && t.kind === 'history' && t.trajectoryHash === trajectoryHash);
     if (prior) { if (prior.status === 'error' && !automatic) await this.queue.retry(prior.id); await this.uploadSessionFiles(s); return prior; }
     const remaining = (this.store.settings.autoUploadMinutes || 15) * 60000 - (Date.now() - Date.parse(s.lastTrajectoryQueuedAt || ''));
@@ -3697,7 +3730,7 @@ export class Workbench {
       return;
     }
     clearTimeout(this.trajectoryTimers.get(id)); this.trajectoryTimers.delete(id);
-    const zip = await packageHistory(frozen, this.store.sessionDir(id), this.store.root, events);
+    const zip = await packageHistory(frozen, this.store.sessionDir(id), this.store.root, undefined, traceSnapshot);
     const transfer = await this.queue.enqueue(zip, s.binding, s.binding.project.historyPath, 'history', id, { kind: 'trajectory', title: s.title + ' · 轨迹', description: '对话与工具事件快照；不包含厂商隐藏推理。', sourceSessionId: id, sourceSessionTitle: s.title }, trajectoryHash);
     s.lastTrajectoryQueuedAt = transfer.createdAt; await this.store.save(); this.broadcast();
     await this.uploadSessionFiles(s);
@@ -3787,6 +3820,7 @@ export class Workbench {
       if (this.closing || epoch !== this.accountRevision || parent.closedAt || !this.store.sessions.includes(parent)) throw new Error('原会话或账号已改变，未保留侧聊');
       this.session(parentId);
       this.sideChats.set(view.id, { view, runtime, history });
+      runtime.pauseLogEvents(logsFor(this.store.root).pressured);
       runtime.rpc.once('closed', () => { if (this.sideChats.has(view.id)) { view.expired = true; this.broadcast(); } });
       this.broadcast(); return view;
     } catch (error) { await runtime.close(); throw error; }
@@ -4203,11 +4237,11 @@ export class Workbench {
   saveDirections(directions: unknown) { return this.remote.memberDirections(directions); }
   close() {
     if (!this.closeTask) {
-      const task = this.closeOnce();
+      const task = this.closeOnce().then(() => { logsFor(this.store.root).off('pressure', this.logPressure); logsFor(this.store.root).off('trace-incomplete', this.traceIncomplete); });
       this.closeTask = task;
       void task.catch(() => { if (this.closeTask === task) this.closeTask = undefined; });
     }
     return this.closeTask;
   }
-  private async closeOnce() { this.closing = true; await this.resultApi.close(); await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  private async closeOnce() { this.closing = true; await this.resultApi.close(); await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await this.traceMigration; await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

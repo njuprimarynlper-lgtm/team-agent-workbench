@@ -3,6 +3,7 @@ import type { AgentRpc, RpcMessage } from './rpc';
 
 /** A borrowed subscription. Closing it never closes the owning CLI connection. */
 export class CodexSideRpc extends EventEmitter implements AgentRpc {
+  pauseEvents(paused: boolean) { this.owner.pauseEvents?.(paused); }
   private closed = false;
   private requests = new Set<number | string>();
   private turnId?: string;

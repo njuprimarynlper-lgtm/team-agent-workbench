@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { logsFor, accountLogScope, redactLogText } from './logging';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -118,7 +119,7 @@ export class RsiEngine {
   }
   private async captureSnapshot() {
     try { await this.snapshot.captureIfDue(); return true; }
-    catch (error) { console.error('AI推荐每日快照失败：', error instanceof Error ? error.message : error); return false; }
+    catch (error) { logsFor(this.root).record('diagnostic', 'rsi.snapshot', accountLogScope(this.root), { level: 'error', detail: redactLogText(error) }); return false; }
   }
   private scheduleSnapshot(retry = false) {
     if (this.closed) return;
@@ -282,10 +283,10 @@ export class RsiEngine {
     }
     this.journalEntries++;
     try { this.journalBytes += (await fs.stat(rsiJournalFile(this.root, this.changeSeq))).size; }
-    catch (error) { console.error('AI推荐增量大小读取失败：', error); }
+    catch (error) { logsFor(this.root).record('diagnostic', 'rsi.delta.read', accountLogScope(this.root), { level: 'error', detail: redactLogText(error) }); }
     if (this.journalBytes >= 64 * 1024 * 1024 || this.journalEntries >= 256) {
       try { await this.checkpointJournal(); }
-      catch (error) { console.error('AI推荐增量合并失败：', error); }
+      catch (error) { logsFor(this.root).record('diagnostic', 'rsi.delta.merge', accountLogScope(this.root), { level: 'error', detail: redactLogText(error) }); }
     }
     this.host.changed();
     return result;
@@ -564,6 +565,7 @@ export class RsiEngine {
         else await this.evaluate(projectId, frozenSession, candidateId!, controller.signal);
       } catch (error: any) {
         try { if (this.host.scope(projectId).key !== project.scope.key) return; } catch { return; }
+        logsFor(this.root).record('diagnostic', 'rsi.' + operation, accountLogScope(this.root, { projectId, origin: 'background' }), { level: 'error', detail: redactLogText(error), stack: error.stack });
         await this.edit(projectId, current => {
           current.lastError = error.message;
           for (const run of current.runs) if (run.status === 'running') { run.status = controller.signal.aborted ? 'interrupted' : 'error'; run.error = error.message; run.finishedAt = iso(); run.durationMs = Date.now() - Date.parse(run.at); }

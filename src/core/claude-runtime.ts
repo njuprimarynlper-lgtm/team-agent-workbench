@@ -15,6 +15,8 @@ export const claudeNativeMode = (mode: PermissionMode | undefined, purpose: Agen
 
 /** Claude's stream-json control channel is separate from the team's session record. */
 export class ClaudeRuntime {
+  private logPaused = false;
+  pauseLogEvents(paused: boolean) { this.logPaused = paused; if (paused) this.child?.stdout.pause(); else this.child?.stdout.resume(); }
   private child?: ChildProcessWithoutNullStreams;
   private initialized = false;
   private pending = new Map<string, { requestId: string; input: Record<string, unknown>; toolName: string }>();
@@ -91,6 +93,7 @@ export class ClaudeRuntime {
     try {
       const child = spawnCLI(this.executable, args, this.session.cwd, this.networkEnv);
       this.child = child;
+      if (this.logPaused) child.stdout.pause();
       const lines = readline.createInterface({ input: child.stdout });
       lines.on('line', line => { try { this.onEvent(JSON.parse(line), plannedId); } catch { /* Raw diagnostics may contain credentials. */ } });
       child.stderr.on('data', data => { this.stderr = (this.stderr + String(data)).slice(-4000); if (!this.closed) this.connection.diagnostic(String(data)); });

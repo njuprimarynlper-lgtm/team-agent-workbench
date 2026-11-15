@@ -1,6 +1,5 @@
-import fs from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { traceLines, traceSignature } from './trace-reader';
+import { logsFor } from './logging';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Workbench } from './workbench';
@@ -12,7 +11,7 @@ import type { RsiObservation } from '../shared/rsi';
 import type { AgentSession, RemoteBinding } from '../shared/types';
 
 export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: () => void, notice?: (message: string) => void) {
-  const eventCache = new Map<string, { size: number; mtimeMs: number; ctimeMs: number; versions: Map<string, string> }>();
+  const eventCache = new Map<string, { signature: string; versions: Map<string, string> }>();
   const profile = () => workbench.remote.connected ? workbench.remote.profile : workbench.store.settings.workspaceSnapshot?.profile;
   const binding = (projectId: string): RemoteBinding => {
     workbench.assertAccountReady();
@@ -72,16 +71,15 @@ export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: (
         // Execution logs are streamed completely; no last-N/last-byte truncation. Busy turns wait for completion.
         if (!running) {
           const file = path.join(workbench.store.sessionDir(session.id), 'events.jsonl');
-          const stat = await fs.stat(file).catch(() => undefined);
-          if (stat) {
+          const directory = workbench.store.sessionDir(session.id), snapshot = await logsFor(workbench.store.root).traceSnapshot(directory), signature = await traceSignature(directory);
+          if (signature) {
             const cached = eventCache.get(file);
-            if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && cached.ctimeMs === stat.ctimeMs
+            if (cached && cached.signature === signature
               && [...cached.versions].every(([key, version]) => known?.get(key) === version)) continue;
             let lineNumber = 0;
             const versions = new Map<string, string>();
-            const stream = createReadStream(file, { encoding: 'utf8' });
-            const lines = createInterface({ input: stream, crlfDelay: Infinity });
-            try { for await (const line of lines) {
+            const lines = traceLines(directory, snapshot), artifact = snapshot[0];
+            for await (const line of lines) {
               lineNumber++;
               if (!/command_execution|function_call_output|tool_result|toolCall|command\/exec|item\/completed/.test(line)) continue;
               const version = createHash('sha256').update(line).digest('hex');
@@ -89,9 +87,9 @@ export function workbenchRsi(workbench: Workbench, runText: TextTask, changed: (
               if (known?.get(key) === version) { versions.set(key, version); continue; }
               let parsed: any; try { parsed = JSON.parse(line); } catch { continue; }
               versions.set(key, version);
-              items.push({ source: 'execution', sourceId: `${session.id}/event/${lineNumber}`, factKey: `${session.id}/event/${lineNumber}`, eventAt: parsed.at || session.createdAt, version, actor: session.provider, assertion: 'observed', sessionId: session.id, sessionTitle: session.title, nativeSessionId: session.nativeId, turnId: parsed.event?.params?.turnId, sequence: lineNumber, contentType: 'tool-result', artifact: file, text: line });
-            } } finally { lines.close(); stream.destroy(); }
-            eventCache.set(file, { size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, versions });
+              items.push({ source: 'execution', sourceId: `${session.id}/event/${lineNumber}`, factKey: `${session.id}/event/${lineNumber}`, eventAt: parsed.at || session.createdAt, version, actor: session.provider, assertion: 'observed', sessionId: session.id, sessionTitle: session.title, nativeSessionId: session.nativeId, turnId: parsed.event?.params?.turnId, sequence: lineNumber, contentType: 'tool-result', artifact, text: line });
+            }
+            eventCache.set(file, { signature, versions });
           }
         }
       }

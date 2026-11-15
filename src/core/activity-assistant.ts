@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { logsFor, accountLogScope, redactLogText } from './logging';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AgentSession, ContentUpdate, Provider, SessionNetworkRoute } from '../shared/types';
@@ -129,6 +130,7 @@ export class ActivityAssistant {
     this.connected = connected;
     this.controller = new AbortController();
     const task = this.process(this.controller.signal).catch(error => {
+      logsFor(this.host.store.root).record('diagnostic', 'activity.process', accountLogScope(this.host.store.root, { origin: 'background' }), { level: 'warning', detail: redactLogText(error) });
       if (!this.stopped) this.lastError = error instanceof Error ? error.message : '后台动态匹配失败';
     });
     this.running = task; this.host.changed();
@@ -178,6 +180,7 @@ export class ActivityAssistant {
       const current = await this.readSummary(s);
       if (current === undefined || (s.handoffState?.version || 0) !== currentVersion || textHash(current) !== textHash(before)) return;
       const message = error instanceof Error ? error.message : '摘要更新失败';
+      logsFor(this.host.store.root).record('diagnostic', 'activity.summary', accountLogScope(this.host.store.root, { sessionId: s.id, projectId: s.binding?.project.id, origin: 'background' }), { level: 'error', detail: redactLogText(error), stack: error instanceof Error ? error.stack : undefined });
       s.handoffState = { messageCount: start, hash: textHash(before), version: currentVersion, error: message };
       await this.host.store.saveSession(s.id); this.lastError = message;
     }
