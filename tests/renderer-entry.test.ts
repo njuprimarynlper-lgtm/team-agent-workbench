@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { rendererEntry } from '../src/main/renderer-entry';
+import { isAdminWindowSource } from '../src/admin/window-store';
+import { pathToFileURL } from 'node:url';
+test('a renderer path alias loads and trusts the canonical file without accepting another renderer', async t => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-renderer-entry-')));
+  t.after(async () => { assert.equal(path.dirname(root).toLowerCase(), (await fs.realpath(os.tmpdir())).toLowerCase()); assert(path.basename(root).startsWith('workbench-renderer-entry-')); await fs.rm(root, { recursive: true, force: true }); });
+  const target = path.join(root, 'long application directory'), alias = path.join(root, 'alias');
+  await fs.mkdir(target); await fs.writeFile(path.join(target, 'index.html'), '<div>fixture</div>'); await fs.symlink(target, alias, 'junction');
+  const expected = await fs.realpath(path.join(target, 'index.html'));
+  assert.equal(rendererEntry(alias, '.'), expected);
+  assert(isAdminWindowSource(pathToFileURL(expected).href, expected));
+  assert(!isAdminWindowSource(pathToFileURL(path.join(root, 'other.html')).href, expected));
+  assert(!isAdminWindowSource('https://example.test/index.html', expected));
+  assert.equal(rendererEntry(target, 'missing'), path.join(target, 'missing', 'index.html'));
+});

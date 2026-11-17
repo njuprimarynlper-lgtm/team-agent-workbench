@@ -23,18 +23,18 @@ function taskStatus(draft: Draft, transfers: Transfer[]) {
   const related = relatedTransfers(draft, transfers);
   if (draft.personalSavedIds?.length && !draft.submitted) return `已保存 ${draft.personalSavedIds.length} 项个人成果`;
   if (draftIsPreserved(draft)) {
-    if (related.some(item => item.status === 'error')) return '上传未完成';
+    if (related.some(item => item.status === 'error')) return related.some(item => item.phase === 'awaiting_receipt') ? '上传结果还没查到' : '上传未完成';
     if (related.some(item => item.status === 'running')) return '正在上传';
     if (related.some(item => item.status === 'queued')) return '等待上传';
     if (related.length && related.every(item => item.status === 'done')) return '已上传';
-    return '上传状态待核对';
+    return '上传结果还没查到';
   }
   return contributionStatus(draft);
 }
 
 function statusTone(draft: Draft, transfers: Transfer[]) {
   const status = taskStatus(draft, transfers);
-  if (/失败|未完成/.test(status)) return 'error';
+  if (/失败|未完成|没查到/.test(status)) return 'error';
   if (/正在|整理中|融合中|处理中/.test(status)) return 'running';
   if (/已上传|已保存|已确认/.test(status)) return 'done';
   return 'queued';
@@ -67,12 +67,13 @@ export function DraftTaskList({ drafts, sessions, transfers, open, remove, remov
         <button className="draft-task-open" aria-label={`查看整理任务：${label}`} onClick={() => open(draft)}>
           <span className="draft-task-icon"><FileArchive size={21}/></span>
           <span className="draft-task-body">
-            <span className="draft-task-badges"><span className="content-category-badge">{profile ? '项目整理' : taskKind(draft)}</span><span className={'badge ' + statusTone(draft, transfers)}>{status}</span>{preserved && <span className="draft-preserved">成果已单独保存</span>}</span>
+            <span className="draft-task-badges"><span className="content-category-badge">{profile ? '项目整理' : taskKind(draft)}</span><span className={'badge ' + statusTone(draft, transfers)}>{status}</span>{preserved && <span className="draft-preserved">{draft.mergeCompletedAt || draft.personalSavedIds?.length || relatedTransfers(draft, transfers).some(item => item.status === 'done') ? '成果已单独保存' : '草稿和上传记录仍保留'}</span>}</span>
             <b>{label}</b>
             {profile && fields?.sentence && <span className="draft-task-sentence">{fields.sentence}</span>}
             {profile && <OrganizationTags technologies={fields?.technologies || ''} achievements={fields?.achievements || ''} />}
             <span className="draft-task-meta"><span>来源：{source?.title || '原会话记录'}</span>{!profile && <span>项目：{projectName}</span>}{draft.preparationScope === 'incremental' && draft.snapshot && <span>新增 {draft.snapshot.messageCount} 条消息</span>}{!profile && resultCount > 0 && <span>{resultCount} 项内容</span>}</span>
             <small>创建于 {new Date(draft.createdAt).toLocaleString()}{draft.generationFinishedAt ? ` · 最近完成 ${new Date(draft.generationFinishedAt).toLocaleString()}` : ''}</small>
+            {relatedTransfers(draft, transfers).some(item => item.status === 'error') && <span style={{whiteSpace:'nowrap',marginTop:4,color:'#286e52'}}>查看上传详情 →</span>}
           </span>
           <ChevronRight size={18}/>
         </button>

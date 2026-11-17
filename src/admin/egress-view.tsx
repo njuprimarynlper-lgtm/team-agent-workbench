@@ -1,3 +1,5 @@
+import { ErrorLogLink } from '../renderer/error-notice';
+import { adminErrorMessage } from './failure';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Activity, ArrowRight, CircleCheck, Clipboard, Network, Radio, RefreshCw, Settings2, ShieldCheck, Stethoscope, Users, WifiOff } from 'lucide-react';
 import type { AdminEgressConfig, AdminEgressSnapshot } from '../shared/egress';
@@ -31,7 +33,7 @@ export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgres
   const update = <K extends keyof AdminEgressConfig>(key: K, value: AdminEgressConfig[K]) => setConfig(current => ({ ...current, [key]: value }));
   const run = async (kind: 'save' | 'copy' | 'rotate', fn: () => Promise<void>) => {
     setAction(kind); setError(''); setMessage('');
-    try { await fn(); } catch (e: any) { setError(e.message); } finally { setAction(undefined); }
+    try { await fn(); } catch (e: any) { setError(adminErrorMessage(e, '更新管理端网络出口')); } finally { setAction(undefined); }
   };
   const save = () => run('save', async () => {
     if (!validPort(config.listenPort) || config.upstreamMode !== 'direct' && !validPort(config.upstreamPort)) throw new Error('端口须为 1–65535 的整数');
@@ -42,7 +44,7 @@ export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgres
   const probe = async (provider: EgressService) => {
     setAction('test'); setTesting(provider); setError(''); setMessage(''); setTestResults(current => ({ ...current, [provider]: undefined }));
     try { await window.admin.call('egress.test', { provider }); setTestResults(current => ({ ...current, [provider]: { ok: true, detail: '管理端网络连接通过' } })); }
-    catch (error: any) { setTestResults(current => ({ ...current, [provider]: { ok: false, detail: error.message || '网络连接失败' } })); }
+    catch (error: any) { setTestResults(current => ({ ...current, [provider]: { ok: false, detail: adminErrorMessage(error, '测试管理端到模型服务的网络') } })); }
     finally { setAction(undefined); setTesting(undefined); }
   };
   const panel = (key: Tab) => ({ role: 'tabpanel', id: `${id}-panel-${key}`, 'aria-labelledby': `${id}-tab-${key}`, hidden: tab !== key, tabIndex: 0, className: 'egress-panel' });
@@ -56,9 +58,9 @@ export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgres
     </div>
     <div className="egress-context"><span><Network size={14}/>{upstream(snapshot.config)}</span><span>{savedServices || '未允许成员转发'}</span><span><ShieldCheck size={14}/>加密传输</span></div>
     {snapshot.config.enabled && <p className="egress-footnote">{snapshot.background ? '关闭管理端窗口后，出口和已登录的反向隧道会继续在系统托盘运行。双击托盘图标可重新打开；选择“关闭此节点并停止其转发”才会结束。注销或关机会停止。' : '系统托盘当前不可用，关闭管理端窗口会停止转发。'}</p>}
-    {error && <div className="inline-error" role="alert">{error}</div>}
+    {error && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></div>}
     {message && <div className="admin-success" role="status"><CircleCheck size={17}/>{message}</div>}
-    {snapshot.lastError && <div className="egress-start-error" role="alert"><span>出口启动失败：{snapshot.lastError}</span><button className="text-button" onClick={() => setTab('settings')}>检查出口设置<ArrowRight size={14}/></button></div>}
+    {snapshot.lastError && <div className="egress-start-error" role="alert"><span>{/EADDRINUSE|端口.*占用/.test(snapshot.lastError) ? `这台电脑的端口 ${snapshot.config.listenPort} 被其他程序占用了，网络出口没能启动。请点“检查出口设置”换一个端口。` : adminErrorMessage(snapshot.lastError, '启动本机网络出口')}</span><button className="text-button" onClick={() => setTab('settings')}>检查出口设置<ArrowRight size={14}/></button></div>}
     <div className="egress-tabs" role="tablist" aria-label="网络出口功能">{tabs.map((item, index) => <button
       key={item.id} ref={element => { tabButtons.current[index] = element; }} type="button" role="tab"
       id={`${id}-tab-${item.id}`} aria-label={item.label} aria-controls={`${id}-panel-${item.id}`} aria-selected={tab === item.id} tabIndex={tab === item.id ? 0 : -1}
@@ -70,12 +72,12 @@ export function EgressView({ snapshot, remote, refresh }: { snapshot: AdminEgres
     <div {...panel('monitor')}>
       {!snapshot.running && <div className="egress-hint"><span>启用出口后，在这里查看成员连接、流量和资源占用。</span><button className="text-button" onClick={() => setTab('settings')}>前往出口设置<ArrowRight size={14}/></button></div>}
       {snapshot.reverse?.enabled && <button className={'egress-route-status ' + (reverseReady ? 'online' : '')} onClick={() => { setRoute('shared'); setTab('access'); }}>
-        <Radio size={18}/><span><strong>共享服务器中转</strong><small>{snapshot.reverse.detail}</small></span><span>{snapshot.reverse.activeConnections} 个连接</span><ArrowRight size={16}/>
+        <Radio size={18}/><span><strong>共享服务器中转</strong><small>{adminErrorMessage(snapshot.reverse.detail, '共享服务器中转')}</small></span><span>{snapshot.reverse.activeConnections} 个连接</span><ArrowRight size={16}/>
       </button>}
       <EgressMonitorPanel snapshot={snapshot}/>
       <details className="egress-disclosure egress-history"><summary><span>最近连接 <small>{snapshot.events.length} 条</small></span><span className="egress-summary-note">查看连接记录与失败原因</span></summary>
         <div className="storage-table-scroll"><table><thead><tr><th>时间</th><th>账号标识</th><th>产品</th><th>目标</th><th>状态</th><th>流量</th></tr></thead><tbody>{snapshot.events.length ? snapshot.events.map(event => <tr key={event.id}>
-          <td>{stamp(event.at)}</td><td>{event.username || '未标识'}</td><td>{event.provider === 'codex' ? 'Codex' : event.provider === 'cursor' ? 'Cursor' : event.provider === 'claude' ? 'Claude Code' : '连接检测'}</td><td><code>{event.target || '管理端'}</code></td><td>{event.status === 'connected' ? '连接中' : event.status === 'closed' ? '已结束' : event.status === 'rejected' ? '已拒绝' : '失败'}{event.detail && <small>{event.detail}</small>}</td><td>↑ {traffic(event.bytesUp)} · ↓ {traffic(event.bytesDown)}</td>
+          <td>{stamp(event.at)}</td><td>{event.username || '未标识'}</td><td>{event.provider === 'codex' ? 'Codex' : event.provider === 'cursor' ? 'Cursor' : event.provider === 'claude' ? 'Claude Code' : '连接检测'}</td><td><code>{event.target || '管理端'}</code></td><td>{event.status === 'connected' ? '连接中' : event.status === 'closed' ? '已结束' : event.status === 'rejected' ? '已拒绝' : '失败'}{event.detail && <small>{adminErrorMessage(event.detail, '出口连接')}</small>}</td><td>↑ {traffic(event.bytesUp)} · ↓ {traffic(event.bytesDown)}</td>
         </tr>) : <tr><td className="storage-no-rows" colSpan={6}>还没有连接记录</td></tr>}</tbody></table></div>
         <p className="egress-footnote">仅保留连接信息，不记录提问、回答或模型账号凭据。账号标识由用户端上报，不用于权限认证。</p>
       </details>

@@ -12,6 +12,19 @@ import { preparationSnapshot, prepareReadableInputs } from '../src/core/preparat
 import { applyPreparation } from '../src/core/preparation';
 import { preparationCheckpoint, preparationDelta } from '../src/shared/preparation-progress';
 import { contributionStatus } from '../src/shared/contribution-status';
+import { preparationResultUnconfirmed } from '../src/shared/preparation-error';
+
+test('preparation badges, cards and upload status retain uncertainty and prefer typed outcomes', () => {
+  const interrupted = { generation: 'error', generationError: '普通说明', generationErrorFailure: { version: 1, code: 'PREPARATION_CONNECTION_INTERRUPTED', outcome: 'unknown', message: '整理中断' } } as Draft;
+  assert(preparationResultUnconfirmed(interrupted));assert.equal(contributionStatus(interrupted),'整理结果待核对');
+  const notStarted = { ...interrupted, generationError: '结果尚未确认', generationErrorFailure: { ...interrupted.generationErrorFailure!, outcome: 'not-started' as const } };
+  assert(!preparationResultUnconfirmed(notStarted));assert.equal(contributionStatus(notStarted),'整理失败');
+  assert.equal(contributionStatus({ ...interrupted, generation: 'running' }),'整理中');
+  assert.equal(contributionStatus({ ...interrupted, generationErrorFailure: undefined, generationError: 'turn/start timeout' }),'整理结果待核对');
+  assert.equal(contributionStatus({ submitted: 'upload' } as Draft, { status: 'error', phase: 'awaiting_receipt' } as any),'上传结果待核对');
+  assert.equal(contributionStatus({ submitted: 'upload' } as Draft, { status: 'error', phase: 'verifying' } as any),'上传结果待核对');
+  assert.equal(contributionStatus({ submitted: 'upload' } as Draft, { status: 'error', phase: 'streaming', cacheCleared: true } as any),'上传结果待核对');
+});
 import { needsPreparationConfirmation } from '../src/shared/preparation-review';
 import { PreparationOptionsModal } from '../src/renderer/preparation-options';
 import { EmptyPreparationReview } from '../src/renderer/preparation-empty';

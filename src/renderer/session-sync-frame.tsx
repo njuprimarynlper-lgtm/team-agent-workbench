@@ -1,3 +1,5 @@
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
@@ -55,8 +57,9 @@ export function SessionSyncFrame({ session, api, changed, locked = false, refere
   const perform = async (work: () => Promise<unknown>) => {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError('');
-    try { await work(); await changed(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    let applied = false;
+    try { await work(); applied = true; await changed(); }
+    catch (reason) { setError(applied ? '同步开关已经保存，这里还没显示最新连接情况。先关闭再打开这个面板看看，不用再切一次开关。' : uiErrorMessage(reason, { domain: 'desktop', operation: '更新桌面同步' })); }
     finally { pending.current = false; setBusy(false); }
   };
   const toggle = () => {
@@ -73,7 +76,7 @@ export function SessionSyncFrame({ session, api, changed, locked = false, refere
     <div ref={panel} id={panelId} className="session-sync-options" role="region" aria-label="桌面同步设置" hidden={!open}>
       {localCodex && <div className="session-sync-switch-row"><span>与 Codex 桌面版同步</span><button type="button" className="session-sync-toggle" role="switch" aria-label="与 Codex 桌面版同步" aria-checked={enabled} aria-describedby={noteId} disabled={disabled} onClick={toggle}><span aria-hidden="true"/></button></div>}
       <p id={noteId} className="session-sync-note" role="status">{note}</p>
-      {error && <p className="session-sync-error" role="alert">{error}</p>}
+      {error && <p className="session-sync-error" role="alert">{error} <ErrorLogLink message={error}/></p>}
       {open && <div className="session-sync-actions"><NativeDesktopControls session={session} run={perform} showStatus={false}/></div>}
     </div>
     </div>

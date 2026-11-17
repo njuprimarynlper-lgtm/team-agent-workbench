@@ -1,9 +1,13 @@
+import { collaborationFailure } from './collaboration-failure';
+import { questionWorkSession } from './question-session';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import { usePopupDismiss } from './popup-dismiss';
 import { cachedTeamRead } from './team-cache';
 import { MarkdownEditor } from './markdown-editor';
 import React, { useEffect, useRef, useState } from 'react';
 import { Handshake, Paperclip, Plus, X } from 'lucide-react';
-import type { AgentSession, FilePreview, Project } from '../shared/types';
+import type { AgentSession, FilePreview, Project, Snapshot } from '../shared/types';
 import { type QuestionFile, type QuestionInbox, type QuestionMember, type TeamQuestion } from '../shared/questions';
 import { sessionQuestionDraft } from '../shared/session-context-text';
 import { QUESTION_COMPOSER_DEFAULT, QUESTION_COMPOSER_MAX, QUESTION_COMPOSER_MIN, questionComposerHeightAfterDrag } from './composer-resize';
@@ -23,9 +27,9 @@ function QuestionFileList({ projectId, questionId, files }: { projectId: string;
     try {
       const result = await window.workbench.call<FilePreview | boolean>(download ? 'question.file.download' : 'question.file.preview', { projectId, id: questionId, sha256: file.sha256, name: file.name });
       if (!download && result && typeof result === 'object') setPreview(result);
-    } catch (reason: any) { setError(reason.message); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'central', operation: '处理求助' })); }
   };
-  return <><ul className="team-question-files">{files.map(file => <li key={file.sha256 + file.name}><span>{file.name}</span><small className="muted">{fileSize(file.size)}</small><button type="button" className="text-button" onClick={() => void open(file, false)}>预览</button><button type="button" className="text-button" onClick={() => void open(file, true)}>下载</button></li>)}</ul>{error && <p className="inline-error" role="alert">{error}</p>}{preview && <FilePreviewDialog file={preview} close={() => setPreview(undefined)}/>}</>;
+  return <><ul className="team-question-files">{files.map(file => <li key={file.sha256 + file.name}><span>{file.name}</span><small className="muted">{fileSize(file.size)}</small><button type="button" className="text-button" onClick={() => void open(file, false)}>预览</button><button type="button" className="text-button" onClick={() => void open(file, true)}>下载</button></li>)}</ul>{error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}{preview && <FilePreviewDialog file={preview} close={() => setPreview(undefined)}/>}</>;
 }
 
 const empty: QuestionInbox = { items: [], jobs: [], read: {} };
@@ -39,10 +43,19 @@ export function QuestionCard({ question: q, unread, open }: { question: TeamQues
 }
 export function QuestionFeed({ inbox = empty, projects, open }: { inbox?: QuestionInbox; projects: Project[]; open: (id: string) => void }) {
   const [scope, setScope] = useState('all'), [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false), [refreshError, setRefreshError] = useState('');
+  const failure = refreshError || inbox.error;
+  const readFailure = (reason: unknown) => collaborationFailure(reason === inbox.error && inbox.failure ? {message: reason, failure: inbox.failure} : reason, inbox.items.length ? '最新求助消息没加载出来，下面是之前读到的记录。请点“刷新求助记录”。' : '求助记录没加载出来。请点“刷新求助记录”再试。', { domain: 'central', operation: '读取求助记录' });
+  const refresh = async () => {
+    if (refreshing) return; setRefreshing(true); setRefreshError('');
+    try { await window.workbench.call('question.sync'); }
+    catch (reason) { setRefreshError(readFailure(reason)); }
+    finally { setRefreshing(false); }
+  };
   const items = inbox.items.filter(q => (scope === 'all' || (scope === 'closed' ? !!q.closedAt : !q.closedAt)) && (q.title + q.authorName).includes(search)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return <section className="team-question-feed" aria-label="求助动态"><div className="row"><Handshake size={18}/><h3>求助动态</h3><span className="spacer"/><select aria-label="筛选求助状态" value={scope} onChange={e => setScope(e.target.value)}><option value="open">开放的求助</option><option value="closed">已关闭</option><option value="all">全部</option></select><input aria-label="搜索求助" placeholder="搜索求助或求助人" value={search} onChange={e => setSearch(e.target.value)}/></div>
-    {inbox.error && <p className="inline-error">求助动态暂未同步：{inbox.error}</p>}
-    <div className="team-question-feed-list">{items.map(q => <div key={q.id}><small className="muted">{projects.find(p => p.id === q.projectId)?.name || '项目'}</small><QuestionCard question={q} unread={questionUnread(q, inbox)} open={() => open(q.id)}/></div>)}{!items.length && <p className="muted small">暂无{scope === 'closed' ? '已关闭' : scope === 'open' ? '开放的' : ''}求助</p>}</div>
+    {failure && <p className="inline-error" role="alert">{readFailure(failure)} <ErrorLogLink failure={refreshError ? undefined : inbox.failure} message={failure}/><button className="text-button" style={{marginLeft:10}} disabled={refreshing} onClick={() => void refresh()}>刷新求助记录</button></p>}
+    <div className="team-question-feed-list">{items.map(q => <div key={q.id}><small className="muted">{projects.find(p => p.id === q.projectId)?.name || '项目'}</small><QuestionCard question={q} unread={questionUnread(q, inbox)} open={() => open(q.id)}/></div>)}{!items.length && !failure && <p className="muted small">暂无{scope === 'closed' ? '已关闭' : scope === 'open' ? '开放的' : ''}求助</p>}</div>
   </section>;
 }
 
@@ -56,14 +69,14 @@ function QuestionComposer({ session, sent }: { session: AgentSession; sent: (q: 
   const submitted = useRef<{ payload: string; id: string } | undefined>(undefined), working = useRef(false);
   const draft = sessionQuestionDraft(session);
   const matchingMembers = members.filter(member => `${member.name} ${member.username}`.toLocaleLowerCase().includes(memberSearch.trim().toLocaleLowerCase()));
-  useEffect(() => { let active = true; void cachedTeamRead<QuestionMember[]>(window.workbench, { action: 'question.members', projectId: session.binding!.project.id }, value => { if (active) { setMembers(value || []); if (value) setLoading(false); } }).catch(e => { if (active) setError(e.message); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [session.id]);
+  useEffect(() => { let active = true; void cachedTeamRead<QuestionMember[]>(window.workbench, { action: 'question.members', projectId: session.binding!.project.id }, value => { if (active) { setMembers(value || []); if (value) setLoading(false); } }).catch(e => { if (active) setError(uiErrorMessage(e, { domain: 'central', operation: '处理求助' })); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [session.id]);
   const send = async () => {
     if (working.current || !title.trim() || !selected.length || session.closedAt) return; working.current = true; setBusy(true); setError('');
     const fileIds = files.map(file => file.id);
     const value = { title: title.trim(), body: body.trim(), context: context.trim(), recipients: [...selected].sort(), fileIds }, payload = JSON.stringify(value);
     if (submitted.current?.payload !== payload) submitted.current = { payload, id: crypto.randomUUID() };
     try { const q = await window.workbench.call<TeamQuestion>('question.create', { sessionId: session.id, question: { ...value, id: submitted.current.id } }); setFiles([]); sent(q); }
-    catch (e: any) { setError(e.message); } finally { working.current = false; setBusy(false); }
+    catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '处理求助' })); } finally { working.current = false; setBusy(false); }
   };
   const fillAi = () => {
     if (!draft) return;
@@ -78,12 +91,12 @@ function QuestionComposer({ session, sent }: { session: AgentSession; sent: (q: 
     {choosingMembers && <div className="team-question-member-picker" ref={memberPicker}><input autoFocus aria-label="搜索成员" placeholder="搜索姓名或账号" value={memberSearch} onChange={event => setMemberSearch(event.target.value)}/><div className="team-question-members">{matchingMembers.map(member => <label key={member.username}><input type="checkbox" checked={selected.includes(member.username)} onChange={event => setSelected(current => event.target.checked ? [...current, member.username] : current.filter(name => name !== member.username))}/>{member.name} <small className="muted">{member.username}</small></label>)}{loading ? <small>正在读取成员…</small> : !members.length ? <small>当前组没有可选择的其他成员</small> : !matchingMembers.length && <small>没有匹配的成员</small>}</div><button type="button" className="text-button" onClick={() => setChoosingMembers(false)}>完成选择</button></div>}
     <label>求助标题（必填）<input aria-label="求助标题" required maxLength={200} value={title} onChange={e => setTitle(e.target.value)} placeholder="用一句话概括需要什么帮助"/></label>
     <div className="team-question-main-input"><label>求助内容（选填）<MarkdownEditor aria-label="求助内容（选填）" rows={5} maxLength={12000} value={body} onChange={e => { setBody(e.target.value); setBeforeAi(undefined); }} placeholder="可补充问题详情、背景或希望对方确认的内容"/></label>
-      <div className="team-question-compose-tools"><button type="button" className="team-question-tool" disabled={files.length >= 30} onClick={() => void window.workbench.call<StagedFile[]>('question.files.stage').then(added => setFiles(current => { const next = [...current]; for (const file of added) if (!next.some(item => item.id === file.id) && next.length < 30) next.push(file); return next; }), reason => setError(reason.message))}><Paperclip size={14}/>添加附件</button>{draft && <button type="button" className="team-question-tool" onClick={fillAi}>填入 AI 建议</button>}{beforeAi !== undefined && <button type="button" className="team-question-tool" onClick={() => { setBody(beforeAi); setBeforeAi(undefined); }}>撤销填入</button>}</div>
-      {!!files.length && <div className="team-question-attachments">{files.map(file => <div className="team-question-file-chip" key={file.id}><span>{file.name}</span><small className="muted">{fileSize(file.size)}</small><button type="button" className="text-button" aria-label={`移除附件 ${file.name}`} onClick={() => void window.workbench.call('question.files.remove', { id: file.id }).then(() => setFiles(current => current.filter(item => item.id !== file.id)), reason => setError(reason.message))}><X size={12}/></button></div>)}</div>}
+      <div className="team-question-compose-tools"><button type="button" className="team-question-tool" disabled={files.length >= 30} onClick={() => void window.workbench.call<StagedFile[]>('question.files.stage').then(added => setFiles(current => { const next = [...current]; for (const file of added) if (!next.some(item => item.id === file.id) && next.length < 30) next.push(file); return next; }), reason => setError(uiErrorMessage(reason, { domain: 'central', operation: '处理求助' })))}><Paperclip size={14}/>添加附件</button>{draft && <button type="button" className="team-question-tool" onClick={fillAi}>填入 AI 建议</button>}{beforeAi !== undefined && <button type="button" className="team-question-tool" onClick={() => { setBody(beforeAi); setBeforeAi(undefined); }}>撤销填入</button>}</div>
+      {!!files.length && <div className="team-question-attachments">{files.map(file => <div className="team-question-file-chip" key={file.id}><span>{file.name}</span><small className="muted">{fileSize(file.size)}</small><button type="button" className="text-button" aria-label={`移除附件 ${file.name}`} onClick={() => void window.workbench.call('question.files.remove', { id: file.id }).then(() => setFiles(current => current.filter(item => item.id !== file.id)), reason => setError(uiErrorMessage(reason, { domain: 'central', operation: '处理求助' })))}><X size={12}/></button></div>)}</div>}
     </div>
     <details className="team-question-extra"><summary>补充资料（选填）{context.trim() && <span className="muted"> · 已填写</span>}</summary><MarkdownEditor aria-label="补充资料（选填）" rows={3} maxLength={24000} placeholder="可补充背景、参考资料或链接" value={context} onChange={e => setContext(e.target.value)}/></details>
     <div className="team-question-compose-footer"><button className="primary" disabled={!title.trim() || !selected.length || busy} title={!selected.length ? '请选择接收成员' : !title.trim() ? '请填写求助标题' : undefined} onClick={() => void send()}>{busy ? '发送中…' : `发送求助${selected.length ? `（${selected.length} 人）` : ''}`}</button></div>
-  </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}</section>;
+  </fieldset>{error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}</section>;
 }
 
 function QuestionResizeHandle({ height, resize }: { height: number; resize: (height: number, anchor: HTMLElement) => void }) {
@@ -112,22 +125,45 @@ export function QuestionDetail({ question: q, inbox, username, sessions, session
   const own = q.recipients.find(r => r.username === username), author = q.author === username;
   const [laneText, setLaneText] = useState<Record<string, string>>({}), [laneFiles, setLaneFiles] = useState<Record<string, StagedFile[]>>({}), [laneHeight, setLaneHeight] = useState(QUESTION_COMPOSER_DEFAULT);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [unconfirmedSends, setUnconfirmedSends] = useState<Record<string, { id: string; body: string }>>({});
+  const [sendNotice, setSendNotice] = useState('');
   const [ack, setAck] = useState<{ peer: string; kind: 'send' | 'auto' | 'stop' | 'close'; body?: string }>();
   const followDraft = useRef<Record<string, { payload: string; id: string }>>({});
   const working = useRef(false);
   const linked = sessions.find(s => s.id === (author ? q.sessionId : own?.sessionId));
   const job = [...inbox.jobs].reverse().find(j => j.questionId === q.id && j.mode !== 'import' && j.mode !== 'auto' && j.mode !== 'fill'), active = !!job && ['queued', 'running', 'ready'].includes(job.phase);
   const inDialogue = !!own && (!!own.sessionId || own.answers.length > 0 || own.state !== 'pending');
-  useEffect(() => { if (visible && questionUnread(q, inbox)) void window.workbench.call('question.read', { id: q.id, revision: q.activityRevision }).then(changed).catch(e => setError(e.message)); }, [q.id, q.activityRevision, visible]);
+  useEffect(() => { if (visible && questionUnread(q, inbox)) void window.workbench.call('question.read', { id: q.id, revision: q.activityRevision }).then(changed).catch(e => setError(uiErrorMessage(e, { domain: 'central', operation: '处理求助' }))); }, [q.id, q.activityRevision, visible]);
   const resizeLane = (height: number) => setLaneHeight(height);
-  const run = async (action: string, payload: object) => { if (working.current) return false; working.current = true; setBusy(true); setError(''); try { await window.workbench.call(action, payload); await changed(); return true; } catch (e: any) { setError(e.message); return false; } finally { working.current = false; setBusy(false); } };
+  const run = async (action: string, payload: object) => { if (working.current) return false; working.current = true; setBusy(true); setError(''); let confirmed = false; try { await window.workbench.call(action, payload); confirmed = true; await changed(); return true; } catch (e: any) { setError(collaborationFailure(e, confirmed ? ['question.follow', 'question.answer'].includes(action) ? '消息已发出，求助记录还没更新。请点“刷新求助记录”，不用再发送。' : '已保存这次操作，求助记录还没更新。请点“刷新求助记录”，不用再提交。' : ['question.follow', 'question.answer'].includes(action) ? '消息可能已发出，草稿还在。点“刷新求助记录”：看到这条消息就等对方回复，没看到再发送。' : '没收到这次求助操作的结果。请点“刷新求助记录”查看变化后再操作。', { domain: 'central', operation: ['question.follow', 'question.answer'].includes(action) ? '发送求助消息' : '更新求助', outcome: confirmed ? 'accepted' : 'unknown' })); return confirmed; } finally { working.current = false; setBusy(false); } };
+  const refreshQuestionRecords = async () => {
+    if (busy) return; setBusy(true);
+    try {
+      await window.workbench.call('question.sync');
+      const snapshot = await window.workbench.call<Snapshot>('snapshot'), latest = snapshot.questions;
+      if (!snapshot.connection?.connected || snapshot.projectConnections?.[q.projectId]?.connected === false || !latest || latest.error) throw new Error(latest?.error || 'question refresh unavailable');
+      const question = latest.items.find(item => item.id === q.id);
+      if (!question) throw new Error('question not found after refresh');
+      const pending = Object.entries(unconfirmedSends);
+      let delivered = false;
+      for (const [peer, message] of pending) {
+        const sent = !!question.followUps?.some(item => item.id === message.id) || question.recipients.some(item => item.answers.some(answer => answer.id === message.id));
+        if (sent) { delivered = true; setLaneText(current => current[peer] === message.body ? {...current,[peer]:''} : current); delete followDraft.current[peer]; }
+      }
+      setUnconfirmedSends({});
+      if (delivered) { setError(''); setSendNotice('这条消息已发出，请等对方回复，不用再发送。'); }
+      else { setSendNotice(''); setError(pending.length ? '最新求助记录里还没有这条消息，草稿仍保留。现在可以点“发送”再试。' : ''); }
+      try { await changed(); } catch { if(delivered)setSendNotice('消息已发出，不用再发送。页面列表还没更新，可稍后刷新。'); }
+    } catch (reason) { setError(collaborationFailure(reason, '最新求助消息没加载出来。恢复连接后请再点“刷新求助记录”，草稿仍保留。', { domain: 'central', operation: '刷新求助记录' })); }
+    finally { setBusy(false); }
+  };
   const placeReply = async (sessionId: string, answerId: string) => {
     if (working.current || !onPlace) return;
     working.current = true; setBusy(true); setError('');
     try {
       const text = await window.workbench.call<string>('question.import', { projectId: q.projectId, id: q.id, sessionId, answerId });
       onPlace(sessionId, text);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '处理求助' })); }
     finally { working.current = false; setBusy(false); }
   };
   const pickLane = async (username: string) => {
@@ -135,28 +171,28 @@ export function QuestionDetail({ question: q, inbox, username, sessions, session
     try {
       const added = await window.workbench.call<StagedFile[]>('question.files.stage');
       setLaneFiles(current => { const next = [...(current[username] || [])]; for (const file of added) if (!next.some(item => item.id === file.id) && next.length < 30) next.push(file); return { ...current, [username]: next }; });
-    } catch (reason: any) { setError(reason.message); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'central', operation: '处理求助' })); }
   };
   const lanes = q.recipients.map(r => {
       const peer = author ? r.username : q.author, peerName = author ? r.name : q.authorName;
       const dialogue = author ? inbox.dialogues?.find(item => item.questionId === q.id && item.peer === r.username) : undefined;
       const receiverAuto = !author && !!linked && !linked.closedAt && inbox.replyModes?.[q.id] !== 'manual';
       const automatic = !!dialogue || receiverAuto, suggested = !!r.endSuggestedAt || !!dialogue?.suggested;
-      const current = session && session.binding?.project.id === q.projectId && session.purpose === 'work' && !session.closedAt && !session.cursorNative ? session : undefined;
-      const targetSession = author ? (linked && !linked.closedAt ? linked : undefined) : current || (linked && !linked.closedAt ? linked : undefined);
+      const targetSession = questionWorkSession(session, linked, q.projectId);
       const otherAuto = inbox.dialogues?.find(item => item.sessionId === targetSession?.id && !(item.questionId === q.id && item.peer === peer));
       const autoOn = automatic && !suggested;
       const pendingAuto = ack?.kind === 'auto' && ack.peer === r.username;
       const pendingStop = ack?.kind === 'stop' && ack.peer === r.username;
       const pendingClose = ack?.kind === 'close';
       const pendingSend = ack?.kind === 'send' && ack.peer === r.username ? ack.body || '' : '';
-      const autoNow = pendingStop ? false : (autoOn || pendingAuto);
+      const autoNow = autoOn || pendingAuto;
       const turns = [...(q.followUps || []).filter(item => !item.target || item.target === r.username).map(item => ({ id: item.id, at: item.createdAt, mine: author, who: author ? '我' : q.authorName, body: item.body, files: item.files, answerId: undefined as string | undefined })), ...r.answers.map(item => ({ id: item.id, at: item.createdAt, mine: !author, who: author ? r.name : '我', body: item.body, files: item.files, answerId: item.id }))].sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
       const savedFill = (author ? inbox.fills?.[q.id]?.[r.username] : r.username === username ? inbox.fills?.[q.id]?.[`answer:${username}`] : '')?.trim() || '';
+      const autoBlockedReason = !targetSession ? '请先点页面中央的“新建工作会话”，创建本项目会话后再开启自动对话。' : targetSession.closedAt ? '关联会话已关闭，请重新打开工作会话。' : targetSession.cursorNative ? '此 Cursor 桌面接入暂不支持自动对话，请选择其他工作会话。' : otherAuto ? '该会话已在与另一位成员自动对话，请先停止原自动对话。' : !author && (active || own?.state === 'running') ? '当前求助答复尚未处理完成，请等待后再开启自动对话。' : busy ? '当前求助操作尚未完成，请等待结果。' : '';
       const fillTitle = savedFill ? (author ? '把 AI 生成的追问填进输入框' : '把 AI 生成的回答填进输入框') : (author ? '还没有 AI 生成的追问' : '还没有 AI 生成的回答');
       const lane = laneFiles[r.username] || [];
       const sendMessage = () => {
-        const body = (laneText[r.username] || '').trim(); if (!body || busy || autoNow || q.closedAt || pendingClose) return;
+        const body = (laneText[r.username] || '').trim(); if (!body || busy || unconfirmedSends[r.username] || autoNow || q.closedAt || pendingClose) return;
         const key = r.username, fileIds = author ? lane.map(file => file.id) : [];
         const signature = JSON.stringify({ body, fileIds });
         if (followDraft.current[key]?.payload !== signature) followDraft.current[key] = { payload: signature, id: crypto.randomUUID() };
@@ -166,13 +202,13 @@ export function QuestionDetail({ question: q, inbox, username, sessions, session
         setLaneText(current => ({ ...current, [key]: '' }));
         setAck({ peer: key, kind: 'send', body });
         void run(action, { projectId: q.projectId, id: q.id, body, ...payload }).then(ok => {
-          if (!ok) { setAck(current => current?.kind === 'send' && current.peer === key ? undefined : current); setLaneText(current => current[key]?.trim() ? current : { ...current, [key]: body }); return; }
+          if (!ok) { setUnconfirmedSends(current => ({...current,[key]:{id:draft.id,body}})); setAck(current => current?.kind === 'send' && current.peer === key ? undefined : current); setLaneText(current => current[key]?.trim() ? current : { ...current, [key]: body }); return; }
           if (followDraft.current[key] === draft) delete followDraft.current[key];
           setAck(current => current?.kind === 'send' && current.peer === key ? undefined : current);
           if (author) setLaneFiles(current => ({ ...current, [key]: (current[key] || []).filter(file => !fileIds.includes(file.id)) }));
         });
       };
-      const status = q.closedAt ? '已结束' : automatic ? (suggested ? '建议结束' : '自动对话中') : r.answers.length ? `${r.answers.length} 条答复` : ({ pending: '待回复', linked: '已关联', running: '回答中', replied: '已回复' })[r.state];
+      const status = q.closedAt ? '已结束' : pendingStop ? '正在停止…' : pendingAuto ? '正在开启…' : automatic ? (suggested ? '建议结束' : '自动对话中') : r.answers.length ? `${r.answers.length} 条答复` : ({ pending: '待回复', linked: '已关联', running: '回答中', replied: '已回复' })[r.state];
       const thread = <section className="team-question-replies" key={r.username}>
         <div className="team-question-lane-head"><b>{peerName}</b><small className="muted">{status}</small></div>
         <div className="team-question-thread">{turns.map(turn => {
@@ -182,20 +218,21 @@ export function QuestionDetail({ question: q, inbox, username, sessions, session
       const composer = !q.closedAt && !pendingClose && <div className={'team-question-composer' + (autoNow ? ' is-auto' : '')}>
           {!autoNow && <QuestionResizeHandle height={laneHeight} resize={resizeLane}/>}
           <MarkdownEditor readOnly={autoNow} style={{ height: laneHeight }} maxLength={12000} aria-label={`回复${peerName}`} value={autoNow ? '' : (laneText[r.username] || '')} placeholder={autoNow ? `正在与${peerName}自动往返。新的回复会出现在上面的对话里，这里暂时不能手动发送。` : (author ? '继续求助' : '回复对方')} onChange={e => { if (!autoNow) setLaneText(current => ({ ...current, [r.username]: e.target.value })); }} onKeyDown={e => { if (autoNow) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); if (!e.repeat) sendMessage(); } }}/>
-          {author && !autoNow && !!lane.length && <div className="team-question-file-row">{lane.map(file => <span className="team-question-file-chip" key={file.id}><span>{file.name}</span><button type="button" className="text-button" disabled={busy} onClick={() => void window.workbench.call('question.files.remove', { id: file.id }).then(() => setLaneFiles(current => ({ ...current, [r.username]: (current[r.username] || []).filter(item => item.id !== file.id) })), reason => setError(reason.message))}>移除</button></span>)}</div>}
+          {author && !autoNow && !!lane.length && <div className="team-question-file-row">{lane.map(file => <span className="team-question-file-chip" key={file.id}><span>{file.name}</span><button type="button" className="text-button" disabled={busy} onClick={() => void window.workbench.call('question.files.remove', { id: file.id }).then(() => setLaneFiles(current => ({ ...current, [r.username]: (current[r.username] || []).filter(item => item.id !== file.id) })), reason => setError(uiErrorMessage(reason, { domain: 'central', operation: '处理求助' })))}>移除</button></span>)}</div>}
           <div className="team-question-composer-bar">
             <button type="button" className={'team-question-tool boxed' + (pendingClose ? ' is-ack' : '')} disabled={busy || pendingClose || (!author && !inDialogue)} title={suggested ? '确认结束这条求助' : '结束求助'} onClick={() => { setAck({ peer: '', kind: 'close' }); void run('question.close', { projectId: q.projectId, id: q.id }).then(ok => { if (!ok) setAck(current => current?.kind === 'close' ? undefined : current); }); }}>{pendingClose ? '正在结束…' : suggested ? '确认结束' : '结束'}</button>
-            {!autoNow && (author ? !!r.answers.length : true) && <button type="button" className="team-question-tool boxed" disabled={!targetSession || !!targetSession.closedAt || !!otherAuto || busy || (!author && (active || own?.state === 'running'))} title={!targetSession ? '当前 Session 不能用来自动往返' : otherAuto ? '这条 Session 正在与另一个人自动往返' : author ? `让当前 Session 和${peerName}自动往返：对方回复后会继续追问，期间不能手动发送` : `让当前 Session 自动回复${peerName}，期间不能手动发送`} onClick={() => { if (!targetSession) return; setAck({ peer: r.username, kind: 'auto' }); void run('question.auto', { projectId: q.projectId, id: q.id, sessionId: targetSession.id, peer }).then(ok => { if (!ok) setAck(current => current?.kind === 'auto' && current.peer === r.username ? undefined : current); else setAck(current => current?.kind === 'auto' && current.peer === r.username ? undefined : current); }); }}>自动对话</button>}
-            {autoNow && <button type="button" className={'team-question-tool boxed' + (pendingAuto || pendingStop ? ' is-ack' : '')} disabled={busy} title="停止自动往返，之后可以继续手动发送" onClick={() => { setAck({ peer: r.username, kind: 'stop' }); void run('question.auto.stop', { projectId: q.projectId, id: q.id, peer }).then(ok => { if (!ok) setAck(current => current?.kind === 'stop' && current.peer === r.username ? undefined : current); else setAck(current => current?.kind === 'stop' && current.peer === r.username ? undefined : current); }); }}>{pendingStop ? '已停止自动' : '停止自动'}</button>}
+            {!autoNow && (author ? !!r.answers.length : true) && <button type="button" className="team-question-tool boxed" disabled={!!autoBlockedReason} title={autoBlockedReason || (author ? `让当前会话 和${peerName}自动往返：对方回复后会继续追问，期间不能手动发送` : `让当前会话 自动回复${peerName}，期间不能手动发送`)} onClick={() => { if (!targetSession) return; setAck({ peer: r.username, kind: 'auto' }); void run('question.auto', { projectId: q.projectId, id: q.id, sessionId: targetSession.id, peer }).then(ok => { if (!ok) setAck(current => current?.kind === 'auto' && current.peer === r.username ? undefined : current); else setAck(current => current?.kind === 'auto' && current.peer === r.username ? undefined : current); }); }}>自动对话</button>}
+            {autoNow && <button type="button" className={'team-question-tool boxed' + (pendingAuto || pendingStop ? ' is-ack' : '')} disabled={busy} title="停止自动往返，之后可以继续手动发送" onClick={() => { setAck({ peer: r.username, kind: 'stop' }); void run('question.auto.stop', { projectId: q.projectId, id: q.id, peer }).then(ok => { if (!ok) setAck(current => current?.kind === 'stop' && current.peer === r.username ? undefined : current); else setAck(current => current?.kind === 'stop' && current.peer === r.username ? undefined : current); }); }}>{pendingStop ? '正在停止…' : '停止自动'}</button>}
             {!autoNow && <span className="team-question-composer-actions">
               {author && <button type="button" className="team-question-tool" disabled={busy || lane.length >= 30} title="为这次追问添加附件" onClick={() => void pickLane(r.username)}>附件</button>}
               {(author || r.username === username) && <button type="button" className="team-question-tool" disabled={!savedFill || busy} title={fillTitle} onClick={() => savedFill && setLaneText(current => ({ ...current, [r.username]: savedFill }))}>AI填入</button>}
-              <button type="button" className="primary compact team-question-send" disabled={!laneText[r.username]?.trim() || busy} onClick={sendMessage}>{busy ? '发送中…' : '发送'}</button>
+              <button type="button" className="primary compact team-question-send" disabled={!laneText[r.username]?.trim() || busy || !!unconfirmedSends[r.username]} onClick={sendMessage}>{busy ? '发送中…' : '发送'}</button>
             </span>}
           </div>
-          {pendingAuto && <p className="team-question-ack" role="status">已开启自动对话。对方的新回复会进入当前 Session，这里暂时不能手动发送。</p>}
-          {pendingStop && <p className="team-question-ack" role="status">已停止自动，可以继续手动发送。</p>}
-          {!author && job?.phase === 'error' && <p className="muted small team-question-composer-status">{job.error}</p>}
+          {!autoNow && autoBlockedReason && <p className="muted small" role="status">{autoBlockedReason}</p>}
+          {pendingAuto && <p className="team-question-ack" role="status">正在开启自动对话，请稍候。</p>}
+          {pendingStop && <p className="team-question-ack" role="status">正在停止自动对话。停止后才能手动发送，请稍候。</p>}
+          {!author && job?.phase === 'error' && <p className="muted small team-question-composer-status">{uiErrorMessage(job.error, { domain: 'model', operation: '生成求助答复' })}</p>}
           {!author && job?.phase === 'ready' && job.error && <p className="muted small team-question-composer-status">答复已保留，连接恢复后自动送达。</p>}
         </div>;
       return { username: r.username, peerName, thread, composer };
@@ -212,7 +249,7 @@ export function QuestionDetail({ question: q, inbox, username, sessions, session
     {(docked || (ack?.kind === 'close' && !q.closedAt) || error) && <div className="team-question-dock">
       {ack?.kind === 'close' && !q.closedAt && <p className="team-question-ack" role="status">正在结束这条求助。结束后不再接收新的答复。</p>}
       {lanes.map(lane => lane.composer && <div key={lane.username}>{lanes.length > 1 && <span className="team-question-dock-label">{author ? `继续向${lane.peerName}求助` : `回复${lane.peerName}`}</span>}{lane.composer}</div>)}
-      {error && <p className={error === '这条回复已经引入当前 Session' ? 'team-question-note' : 'inline-error'} role={error === '这条回复已经引入当前 Session' ? 'status' : 'alert'}>{error}</p>}
+      {sendNotice && <p className="team-question-note" role="status">{sendNotice}</p>}{error && <p className={error === '这条回复已经引入当前会话' ? 'team-question-note' : 'inline-error'} role={error === '这条回复已经引入当前会话' ? 'status' : 'alert'}>{error} <ErrorLogLink message={error}/><button className="text-button" disabled={busy} style={{marginLeft:10}} onClick={() => void refreshQuestionRecords()}>刷新求助记录</button></p>}
     </div>}
   </section>;
 }
@@ -221,8 +258,16 @@ export function QuestionPanel({ inbox = empty, selectedId, session, username, se
   const items = inbox.items.filter(q => projectId ? q.projectId === projectId : session && q.projectId === session.binding?.project.id && (q.sessionId === session.id || q.recipients.some(r => r.username === username && (!r.sessionId || r.sessionId === session.id)))).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const q = items.find(item => item.id === selectedId);
   const canCompose = !!session && !session.closedAt && connected;
+  const [syncBusy, setSyncBusy] = useState(false), [syncError, setSyncError] = useState('');
+  const syncFailure = syncError || inbox.error;
+  const refreshInbox = async () => {
+    if (syncBusy) return; setSyncBusy(true); setSyncError('');
+    try { await window.workbench.call('question.sync'); await changed(); }
+    catch (reason) { setSyncError(collaborationFailure(reason, '最新求助消息没加载出来，已有消息仍可查看。请点“刷新求助记录”。', { domain: 'central', operation: '读取求助消息' })); }
+    finally { setSyncBusy(false); }
+  };
   return <aside className="team-question-panel" aria-label="寻求帮助">{!embedded && <header className="row"><Handshake size={18}/><h3>寻求帮助</h3><span className="spacer"/><button className="icon" aria-label="关闭求助窗口" onClick={close}><X size={18}/></button></header>}<div className="team-question-panel-body">
-    {(!connected || inbox.error) && <div className="team-question-panel-note">{!connected && <p className="callout">连接中央节点后，可发送求助和答复。</p>}{inbox.error && <p className="inline-error">{inbox.error}</p>}</div>}
+    {(!connected || syncFailure) && <div className="team-question-panel-note">{!connected && <p className="callout">连接中央节点后，可发送求助和答复。</p>}{syncFailure && <p className="inline-error">{collaborationFailure(!syncError && inbox.failure ? {message: syncFailure, failure: inbox.failure} : syncFailure, '最新求助消息没加载出来，已有消息仍可查看。请点“刷新求助记录”。', { domain: 'central', operation: '读取求助消息' })} <ErrorLogLink failure={syncError ? undefined : inbox.failure} message={syncFailure}/><button className="text-button" disabled={!connected || syncBusy} onClick={() => void refreshInbox()}>刷新求助记录</button></p>}</div>}
     {q ? <QuestionDetail key={q.id} active={active} question={q} inbox={inbox} username={username} sessions={sessions} session={session} changed={changed} onPlace={onPlace} onBack={() => select('session')}/> : <div className="team-question-panel-scroll">{canCompose && <QuestionComposer key={session.id} session={session} sent={item => { select(item.id); void changed(); }}/>} {!!items.length && <h3>{projectId ? '本项目的求助' : '当前会话的求助'}</h3>}{items.map(item => <QuestionCard key={item.id} question={item} unread={questionUnread(item, inbox)} open={() => select(item.id)}/>)}{!items.length && !canCompose && <p className="muted small">暂无求助</p>}</div>}
   </div></aside>;
 }

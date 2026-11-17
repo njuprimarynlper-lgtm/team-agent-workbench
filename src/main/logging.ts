@@ -1,14 +1,15 @@
-import { app, BrowserWindow, dialog, powerMonitor } from 'electron';
+import { app, BrowserWindow, dialog, powerMonitor, shell } from 'electron';
 import path from 'node:path';
 import { z } from 'zod';
-import { configureLogs, accountLogScope, logVersion, redactLogText } from '../core/logging';
+import { configureLogs, accountLogScope, logVersion, redactLogText, logErrorCause } from '../core/logging';
 import { exportLogs } from '../core/log-export';
 import { traceFiles } from '../core/trace-reader';
 import fs from 'node:fs/promises';
-import type { LogScope } from '../shared/logs';
+import type { LogScope, LogRef } from '../shared/logs';
 import { randomUUID } from 'node:crypto';
 
 const filterSchema = z.object({ kind: z.enum(['diagnostic', 'workflow', 'trace']), from: z.string().datetime().optional(), to: z.string().datetime().optional(), projectId: z.string().max(120).optional(), sessionId: z.string().uuid().optional(), description: z.string().max(2000).optional() }).strict();
+const querySchema = z.object({ category: z.enum(['diagnostic', 'workflow']).optional(), from: z.string().datetime().optional(), to: z.string().datetime().optional(), projectId: z.string().max(120).optional(), sessionId: z.string().uuid().optional(), operationId: z.string().regex(/^[\w.:-]{1,128}$/).optional(), id: z.string().uuid().optional(), code: z.string().max(80).optional(), level: z.enum(['info', 'warning', 'error']).optional(), cursor: z.string().max(1024).optional(), limit: z.number().int().min(1).max(100).default(30) }).strict();
 export function installLogging(root: string, edition: 'user' | 'admin') {
   const logger = configureLogs(root);
   logger.record('diagnostic', 'app.started', {}, { code: edition });
@@ -41,8 +42,30 @@ export function installLogging(root: string, edition: 'user' | 'admin') {
   return logger;
 }
 
-export async function handleLogAction(action: string, raw: unknown, owner: BrowserWindow, root: string, scopeRoot: string, validateSession: (id: string) => boolean, context: { projectId?: string; provider?: string; route?: string; traceIncomplete?: boolean; providers?: { provider: string; version: string; path: string; available: boolean }[] } = {}) {
-  const logger = configureLogs(root), scope = accountLogScope(scopeRoot);
+export async function handleLogAction(action: string, raw: unknown, owner: BrowserWindow, root: string, scopeRoot: string, validateSession: (id: string) => boolean, context: { centralId?: string; projectId?: string; provider?: string; route?: string; traceIncomplete?: boolean; providers?: { provider: string; version: string; path: string; available: boolean }[] } = {}) {
+  const logger = configureLogs(root), scope = accountLogScope(scopeRoot, { centralId: context.centralId });
+  if (action === 'logs.query') {
+    const input = querySchema.parse(raw ?? {});
+    if (input.from && input.to && input.from > input.to) throw Error('开始时间不能晚于结束时间');
+    // Filters can only narrow the account/node scope derived by main.
+    return logger.query(input, { account: scope.account!, centralId: scope.centralId });
+  }
+  if (action === 'logs.get') {
+    const input = z.object({ id: z.string().uuid() }).strict().parse(raw);
+    return logger.get(input.id, { account: scope.account!, centralId: scope.centralId });
+  }
+  if (action === 'logs.openDirectory') {
+    z.object({}).strict().parse(raw ?? {});
+    // Only main's fixed application log location can be opened. The renderer
+    // cannot choose a path; a broken logs entry falls back to its parent.
+    const dataDirectory = path.resolve(root), directory = path.join(dataDirectory, 'logs');
+    const info = await fs.lstat(directory).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return; throw error; });
+    if (!info) await fs.mkdir(directory, { recursive: true });
+    const fallback = !!info && (!info.isDirectory() || info.isSymbolicLink());
+    const result = await shell.openPath(fallback ? dataDirectory : directory);
+    if (result) throw Error('未能打开日志目录，请稍后重试或联系维护人员。');
+    return { opened: true, location: fallback ? 'data' : 'logs' };
+  }
   if (action === 'logs.rendererError') {
     const input = z.object({ type: z.enum(['error', 'unhandledrejection']), message: z.string().max(2000), stack: z.string().max(8000).optional() }).strict().parse(raw);
     logger.record('diagnostic', 'renderer.' + input.type, scope, { level: 'error', detail: input.message, stack: input.stack }); return true;
@@ -88,11 +111,15 @@ const ignored = /^(snapshot|logs\.|layout\.|session\.(input|page|messages|file|n
 const readOnly = /^(rsi\.(settings|view|inbox)|question\.(members|sync)|activity\.project|directions\.list|content\.(history|sync|updates)|project\.(brief|directory\.impact)|session\.(resultCandidates|source\.preview|projectContext|history|mcp|capabilities)|journal\.project|egress\.(snapshot|status))$/;
 export function logOperation(root: string, scopeRoot: string, action: string, scope: LogScope, origin: 'user' | 'background' = 'user') {
   const logger = configureLogs(root), started = performance.now(), operationId = randomUUID();
+  const logRef: LogRef = { operationId };
   const observed = !ignored.test(action) && !readOnly.test(action);
   if (observed) logger.record('workflow', action, accountLogScope(scopeRoot, { ...scope, operationId, origin }), { outcome: 'requested' });
   return Object.assign((error?: unknown) => {
     const fields = { outcome: error ? 'failed' : 'succeeded', durationMs: performance.now() - started };
     if (observed) logger.record('workflow', action, accountLogScope(scopeRoot, { ...scope, operationId, origin }), fields);
-    if (error) logger.record('diagnostic', action, accountLogScope(scopeRoot, { ...scope, operationId, origin }), { ...fields, level: 'error', detail: redactLogText(error), stack: error instanceof Error ? error.stack : undefined });
-  }, { operationId });
+    if (error) {
+      const reference = logger.record('diagnostic', action, accountLogScope(scopeRoot, { ...scope, operationId, origin }), { ...fields, level: 'error', code: error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined, detail: redactLogText(error), stack: error instanceof Error ? error.stack : undefined, cause: logErrorCause(error) });
+      if (reference) Object.assign(logRef, reference);
+    }
+  }, { operationId, logRef });
 }

@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $logRoot = Join-Path $repoRoot '.test-data\launcher'
 . (Join-Path $PSScriptRoot 'startup-logs.ps1')
+. (Join-Path $PSScriptRoot 'startup-failure.ps1')
 $env:WORKBENCH_STARTUP_LOG_DIR = $logRoot
 if ($ExportDiagnostics) { Export-StartupDiagnostics $Edition $ExportDiagnostics $logRoot; exit 0 }
 $stamp = "$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')-$PID"
@@ -126,12 +127,7 @@ function Show-StartupProgress {
   $exportButton.Text = '导出诊断'
   $exportButton.SetBounds(256, 327, 98, 36)
   $exportButton.Add_Click({
-    $save = New-Object System.Windows.Forms.SaveFileDialog
-    try {
-      $save.Filter = 'ZIP archive (*.zip)|*.zip'; $save.FileName = 'TeamAgent-startup-diagnostics.zip'
-      if ($save.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Export-StartupDiagnostics $Edition $save.FileName $logRoot }
-    } catch { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, '诊断包导出失败') | Out-Null }
-    finally { $save.Dispose() }
+    [void](Invoke-StartupDiagnosticsExport $Edition $logRoot $launchLog)
   })
   $cancelButton = New-Object System.Windows.Forms.Button
   $cancelButton.Text = '取消启动'
@@ -351,7 +347,7 @@ try {
     $picker = New-Object System.Windows.Forms.FolderBrowserDialog
     $picker.Description = '选择同时包含 node.exe 和 npm.cmd 的目录'
     try {
-      if ($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { throw '已取消选择运行环境。' }
+      if ($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { throw [System.OperationCanceledException]::new('已取消选择运行环境。') }
       $customDirectory = $picker.SelectedPath
     } finally { $picker.Dispose() }
     New-Item -ItemType Directory -Force -Path $portableRoot | Out-Null
@@ -423,20 +419,14 @@ try {
   Add-Content -LiteralPath $launchLog -Encoding UTF8 -Value ("Failed: $stage / " + $_.Exception.Message) -ErrorAction SilentlyContinue
   # An error dialog may stay open indefinitely; it must not hold the other edition's lock.
   if ($preparationLock) { $preparationLock.Dispose(); $preparationLock = $null }
-  $message = "工作台未能启动。`r`n阶段：$stage`r`n$($_.Exception.Message)`r`n`r`n启动日志：$launchLog`r`n详细日志：$stderrLog"
+  $message = Get-StartupFailureMessage $stage $_.Exception.Message
   if ($NoDialogs) {
     [Console]::Error.WriteLine($message)
   } else {
     Add-Type -AssemblyName System.Windows.Forms
-    $collect = [System.Windows.Forms.MessageBox]::Show(
-      ($message + "`r`n`r`n是否导出启动诊断包？"),
-      '团队工作台',
-      [System.Windows.Forms.MessageBoxButtons]::YesNo,
-      [System.Windows.Forms.MessageBoxIcon]::Error
-    )
-    if ($collect -eq [System.Windows.Forms.DialogResult]::Yes) {
-      $save = New-Object System.Windows.Forms.SaveFileDialog
-      try { $save.Filter = 'ZIP archive (*.zip)|*.zip'; $save.FileName = 'TeamAgent-startup-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip'; if ($save.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Export-StartupDiagnostics $Edition $save.FileName $logRoot } } finally { $save.Dispose() }
+    if (-not ('WorkbenchStartupFailureDialog' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'startup-error-dialog.cs') -ReferencedAssemblies System.Windows.Forms,System.Drawing }
+    if ([WorkbenchStartupFailureDialog]::Show($message)) {
+      [void](Invoke-StartupDiagnosticsExport $Edition $logRoot $launchLog)
     }
   }
   exit 1

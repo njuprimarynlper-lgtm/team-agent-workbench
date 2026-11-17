@@ -12,6 +12,7 @@ import { accountIdentity } from '../src/shared/account-data';
 import { accountDirectory } from '../src/core/account-workspaces';
 import type { Snapshot } from '../src/shared/types';
 import { encodeEgressInvite } from '../src/core/egress-config';
+import { fakeElectronBackgroundServices } from './fixtures/fake-electron-background';
 // @ts-expect-error Background-only SSH protocol fixture.
 import { teamServer } from './fixtures/team-server.mjs';
 
@@ -31,8 +32,8 @@ test('production window routing reuses project connections, separates nodes and 
   const oldSettings = JSON.parse(await fs.readFile(path.join(slot2, 'settings.json'), 'utf8')); oldSettings.workspaceSnapshot.profile.username = 'bob';
   await fs.writeFile(path.join(slot2, 'settings.json'), JSON.stringify(oldSettings)); await fs.writeFile(path.join(base, 'sessions.json'), '[]');
   const opened: FakeWindow[] = [], dialogs: string[] = [], app = new EventEmitter() as any, ipc = new Map<string, Function>(), appPaths: Record<string, string> = { appData: root, home: root };
-  let didQuit = false;
-  Object.assign(app, { setName() {}, setAppUserModelId() {}, setPath(name: string, value: string) { appPaths[name] = value; }, getPath(name: string) { return appPaths[name]; }, requestSingleInstanceLock: () => true, whenReady: async () => {}, quit() { didQuit = true; } });
+  let didQuit = false, electronLoads = 0;
+  Object.assign(app, { setName() {}, setAppUserModelId() {}, setPath(name: string, value: string) { appPaths[name] = value; }, getPath(name: string) { return appPaths[name]; }, requestSingleInstanceLock: () => true, whenReady: async () => {}, quit() { didQuit = true; app.emit('will-quit'); } });
   class FakeWindow extends EventEmitter {
     destroyed = false; entry = ''; notices: unknown[] = [];
     webContents = Object.assign(new EventEmitter(), { send: (_name: string, value: unknown) => this.notices.push(value), setWindowOpenHandler() {}, session: { setPermissionRequestHandler() {} } });
@@ -45,21 +46,23 @@ test('production window routing reuses project connections, separates nodes and 
     destroy() { this.destroyed = true; this.emit('closed'); }
     close() { this.emit('close', { preventDefault() {} }); }
   }
-  const electron = { app, BrowserWindow: FakeWindow, ipcMain: { handle(name: string, handler: Function) { ipc.set(name, handler); } }, dialog: { showMessageBox: async () => ({ response: 1 }), showErrorBox: (_title: string, message: string) => dialogs.push(message) }, safeStorage: { isEncryptionAvailable: () => false }, shell: {}, clipboard: {} };
+  const electron = { ...fakeElectronBackgroundServices(), app, BrowserWindow: FakeWindow, ipcMain: { handle(name: string, handler: Function) { ipc.set(name, handler); } }, dialog: { showMessageBox: async () => ({ response: 1 }), showErrorBox: (_title: string, message: string) => dialogs.push(message) }, safeStorage: { isEncryptionAvailable: () => false }, clipboard: {} };
   const loader = (Module as any)._load, detect = Workbench.prototype.detect, oldData = process.env.WORKBENCH_DATA_DIR, oldTest = process.env.WORKBENCH_TEST;
-  (Module as any)._load = function (name: string, ...args: any[]) { return name === 'electron' ? electron : loader.call(this, name, ...args); };
+  (Module as any)._load = function (name: string, ...args: any[]) { if (name === 'electron') { electronLoads++; return electron; } return loader.call(this, name, ...args); };
   Workbench.prototype.detect = async function () { return []; };
   process.env.WORKBENCH_DATA_DIR = base; process.env.WORKBENCH_TEST = '1';
   async function until(check: () => boolean | Promise<boolean>) {
     const end = Date.now() + 10000;
-    while (!(await check())) { if (Date.now() > end) throw new Error('window lifecycle timed out: ' + dialogs.join('; ')); await new Promise(resolve => setTimeout(resolve, 10)); }
+    while (!(await check())) { if (Date.now() > end) throw new Error(`window lifecycle timed out: electronLoads=${electronLoads}, ipc=${ipc.size}, windows=${opened.length}, beforeQuit=${app.listenerCount('before-quit')}; ` + dialogs.join('; ')); await new Promise(resolve => setTimeout(resolve, 10)); }
   }
   t.after(async () => {
-    app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit);
-    (Module as any)._load = loader; Workbench.prototype.detect = detect;
-    if (oldData === undefined) delete process.env.WORKBENCH_DATA_DIR; else process.env.WORKBENCH_DATA_DIR = oldData;
-    if (oldTest === undefined) delete process.env.WORKBENCH_TEST; else process.env.WORKBENCH_TEST = oldTest;
-    await server.close(); assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('workbench-window-routing-')); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 });
+    try { if (opened.some(window => !window.destroyed)) { app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit); } }
+    finally {
+      app.emit('will-quit'); (Module as any)._load = loader; Workbench.prototype.detect = detect;
+      if (oldData === undefined) delete process.env.WORKBENCH_DATA_DIR; else process.env.WORKBENCH_DATA_DIR = oldData;
+      if (oldTest === undefined) delete process.env.WORKBENCH_TEST; else process.env.WORKBENCH_TEST = oldTest;
+      await server.close(); assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('workbench-window-routing-')); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 });
+    }
   });
   await import('../src/main/index');
   await until(() => !!opened[0]?.entry);
@@ -69,12 +72,14 @@ test('production window routing reuses project connections, separates nodes and 
   }
   const snapshot = (window: FakeWindow): Promise<Snapshot> => call(window, 'snapshot');
   const login = (window: FakeWindow, username: string, password = 'test-password') => call(window, 'remote.connect', { profile: server.profile(username), password, localPath: '' });
+  // Closing the production window hides it in the tray. These routing cases
+  // deliberately dispose a window and exercise the real 'closed' cleanup path.
   const first = opened[0]; assert.deepEqual((await snapshot(first)).sessions.map(s => s.id), [session.id]);
   await login(first, 'alice');
   app.emit('second-instance'); await until(() => !!opened[1]?.entry); let second = opened[1];
   assert.equal((await snapshot(second)).settings.workspaceSnapshot?.profile.username, 'bob', 'relaunch restores an unopened account first');
   assert.equal((await snapshot(second)).sessions.length, 0);
-  const originalBob = second; await login(second, 'alice'); second = opened.at(-1)!; assert.notEqual(second, originalBob); assert.equal((await snapshot(originalBob)).settings.workspaceSnapshot?.profile.username, 'bob'); originalBob.close(); await until(() => originalBob.destroyed); assert.deepEqual((await snapshot(second)).sessions.map(s => s.id), [session.id]);
+  const originalBob = second; await login(second, 'alice'); second = opened.at(-1)!; assert.notEqual(second, originalBob); assert.equal((await snapshot(originalBob)).settings.workspaceSnapshot?.profile.username, 'bob'); originalBob.destroy(); await until(() => originalBob.destroyed); assert.deepEqual((await snapshot(second)).sessions.map(s => s.id), [session.id]);
   await call(first, 'layout.sidebar', { height: 320 }); await call(second, 'layout.sidebar', { height: 640 });
   assert.equal((await snapshot(first)).settings.sidebarProjectHeight, 320); assert.equal((await snapshot(second)).settings.sidebarProjectHeight, 640);
   await call(second, 'session.rename', { id: session.id, title: '任意窗口都能看到' });
@@ -100,7 +105,7 @@ test('production window routing reuses project connections, separates nodes and 
   assert.equal((await snapshot(first)).sessions[0].id, session.id); assert.equal((await snapshot(first)).connection?.connected, true);
   await assert.rejects(call(bobView, 'session.rename', { id: session.id, title: '不能修改' }), /不属于当前账号/);
   assert.equal((await snapshot(second)).connection?.profile.username, 'alice');
-  bobView.close(); await until(() => bobView.destroyed);
+  bobView.destroy(); await until(() => bobView.destroyed);
   const otherServer = await teamServer();
   try {
     const seedRemote = new SharedFiles(() => {}); await seedRemote.connect(otherServer.profile('alice'), 'test-password', async () => true); await seedRemote.loadManifest();
@@ -137,11 +142,11 @@ test('production window routing reuses project connections, separates nodes and 
       assert.equal(missingState.connection?.profile.port, otherServer.profile('alice').port);
       assert.equal(missingState.selectedProjectId, undefined, 'a missing project must not silently select another');
       await assert.rejects(call(missingProjectWindow, 'remote.list', { projectId: 'revoked', path: otherProject.remoteRoot }), /项目入口不存在/);
-      missingProjectWindow.close(); await until(() => missingProjectWindow.destroyed);
-      nodeTwo.close(); await until(() => nodeTwo.destroyed);
+      missingProjectWindow.destroy(); await until(() => missingProjectWindow.destroyed);
+      nodeTwo.destroy(); await until(() => nodeTwo.destroyed);
       assert.equal((await snapshot(nodeTwoAlias)).connection?.connected, true);
       assert.equal((await snapshot(first)).connection?.connected, true);
-      nodeTwoAlias.close(); await until(() => nodeTwoAlias.destroyed);
+      nodeTwoAlias.destroy(); await until(() => nodeTwoAlias.destroyed);
       await assert.rejects(call(first, 'project.connection.open', { key: accountIdentity(nodeTwoProfile), projectId: project.id }), /中央节点连接已断开/);
     } finally { SharedFiles.prototype.connect = connectBeforeReuse; }
   } finally { await otherServer.close(); }
@@ -165,9 +170,9 @@ test('production window routing reuses project connections, separates nodes and 
   }
   assert.equal((await snapshot(first)).connection?.profile.username, 'alice');
   assert.equal((await snapshot(second)).connection?.profile.username, 'alice');
-  for (const window of additional) window.close();
+  for (const window of additional) window.destroy();
   await until(() => additional.every(window => window.destroyed));
-  first.close(); await until(() => first.destroyed);
+  first.destroy(); await until(() => first.destroyed);
   assert.equal((await snapshot(second)).connection?.connected, true);
   await call(second, 'session.rename', { id: session.id, title: '原窗口关闭后继续' });
   // Closing during password verification must not attach a context to a dead window.
@@ -177,7 +182,7 @@ test('production window routing reuses project connections, separates nodes and 
   let resumeLogin!: () => void, entered = false;
   SharedFiles.prototype.connect = async function (...args) { entered = true; await new Promise<void>(resolve => { resumeLogin = resolve; }); return connect.apply(this, args); };
   const abandoned = assert.rejects(login(third, 'bob'), /窗口正在关闭/);
-  await until(() => entered); third.close(); await until(() => third.destroyed); resumeLogin(); await abandoned; SharedFiles.prototype.connect = connect;
+  await until(() => entered); third.destroy(); await until(() => third.destroyed); resumeLogin(); await abandoned; SharedFiles.prototype.connect = connect;
   assert.equal((await snapshot(second)).connection?.connected, true);
   const requireAuth = Workbench.prototype.requireAuth;
   try {
@@ -230,9 +235,9 @@ test('production window routing reuses project connections, separates nodes and 
     await call(creationWindow, 'project.creation.dismiss', { id: pending.id });
     assert.equal((await snapshot(creationWindow)).connection!.profile.projects.length, countBeforeCreation + 1, 'cancel never creates remote directories');
   } finally { SharedFiles.prototype.connect = reuseConnect; }
-  creationWindow.close(); await until(() => creationWindow.destroyed);
-  if (creationSource !== creationWindow) { creationSource.close(); await until(() => creationSource.destroyed); }
-  for (const restored of restoredWindows) restored.close();
+  creationWindow.destroy(); await until(() => creationWindow.destroyed);
+  if (creationSource !== creationWindow) { creationSource.destroy(); await until(() => creationSource.destroyed); }
+  for (const restored of restoredWindows) restored.destroy();
   await until(() => restoredWindows.every(window => window.destroyed));
 
   // Repeated launcher invocations must create a window for every request,

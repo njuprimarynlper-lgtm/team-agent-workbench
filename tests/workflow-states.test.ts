@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
 import { TransferQueue } from '../src/core/transfers';
+import { logsFor } from '../src/core/logging';
 import type { SharedFiles } from '../src/core/shared-files';
 import type { Draft, RemoteBinding } from '../src/shared/types';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
@@ -22,7 +23,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': stop dur
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths[provider] = fixture.launcher;
     const s = await wb.createSession(provider, root, offlineProjectId), wait = gate(), original = wb.requireAuth.bind(wb);
     await wb.saveInput(s.id, { text: '保留未发送的问题', sourceIds: [], answers: {} });
     wb.requireAuth = async () => { await wait.promise; };
@@ -59,7 +60,7 @@ test('normal application shutdown records an interrupted work session', async ()
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-state-shutdown-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'hang' });
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = fixture.launcher;
     const s = await wb.createSession('codex', root, offlineProjectId); await wb.send(s.id, '尚未完成'); await until(() => s.status === 'running');
     await wb.close(); const restored = new Store(wb.store.root); await restored.init();
     assert.equal(restored.sessions[0].status, 'error'); assert.match(restored.sessions[0].error!, /中断/); assert.equal(restored.sessions[0].nativeId, s.nativeId);
@@ -87,7 +88,7 @@ test('deleting a running preparation excludes retries and removes helper attempt
 });
 
 const binding: RemoteBinding = { connectionId: 'test', host: 'local', port: 22, username: 'alice', fingerprint: 'test', project: { id: 'p', name: 'P', remoteRoot: '/p', uploadPath: '/p/uploads', historyPath: '/p/history' } };
-for (const failure of ['enqueue', 'running', 'completed'] as const) test('transfer persistence failure at ' + failure + ' remains retryable and never leaves a running queue stuck', async () => {
+for (const failure of ['enqueue', 'running', 'completed'] as const) test('transfer persistence failure at ' + failure + (failure === 'completed' ? ' preserves confirmed completion without retransmission' : ' remains recoverable without leaving the queue stuck'), async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-state-transfer-')), store = new Store(root);
   try {
     await store.init(); const file = path.join(root, 'source.txt'); await fs.writeFile(file, 'payload');
@@ -102,12 +103,22 @@ for (const failure of ['enqueue', 'running', 'completed'] as const) test('transf
     };
     if (failure === 'enqueue') { await assert.rejects(queue.enqueue(file, binding, '/p/uploads', 'upload'), /disk/); assert.equal(uploads, 0); assert.equal(store.transfers.length, 0); }
     else {
-      const item = await queue.enqueue(file, binding, '/p/uploads', 'upload'); await until(() => item.status === 'error' && !(queue as any).active);
-      assert.match(item.error!, /disk/); assert.equal(uploads, failure === 'running' ? 0 : 1);
-      await queue.retry(item.id); await until(() => item.status === 'done' && !(queue as any).active);
+      const item = await queue.enqueue(file, binding, '/p/uploads', 'upload'); await until(() => injected && !(queue as any).active);
+      const target = item.target, requestId = item.requestId;
+      const files = await logsFor(root).files(), records = (await Promise.all(files.filter(file => file.category === 'diagnostic').map(async file => (await fs.readFile(file.file, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line))))).flat();
+      assert(records.some(record => record.name === 'transfer.failed' && record.operationId === item.id && record.detail === 'fixture disk unavailable'), 'the original persistence failure is retained in diagnostic logs');
+      if (failure === 'running') {
+        assert.equal(item.status, 'error'); assert.equal(item.phase, 'queued'); assert.equal(item.bytes, 0); assert.equal(uploads, 0, 'the upload has not started');
+        assert.match(item.error!, /文件还没开始传输/); assert.doesNotMatch(item.error!, /fixture disk unavailable/);
+        await queue.retry(item.id); await until(() => item.status === 'done' && !(queue as any).active);
+      } else { assert.equal(item.status, 'done'); assert.equal(item.phase, 'completed'); assert.equal(item.error, undefined); }
+      assert.equal(uploads, 1, 'only the not-started transfer is sent, and a confirmed transfer is never resent');
+      assert.equal(item.target, target); assert.equal(item.requestId, requestId);
       assert(byteStates.every(bytes => bytes === 0)); assert.equal(new Set(targets).size, 1); assert.equal(store.transfers.length, 1);
       await assert.rejects(queue.retry(item.id), /只能重试/);
+      assert.equal(uploads, 1);
+      const restored = new Store(root); await restored.init(); assert.equal(restored.transfers[0].id, item.id); assert.equal(restored.transfers[0].status, 'done'); assert.equal(restored.transfers[0].phase, 'completed'); assert.equal(restored.transfers[0].target, target); assert.equal(restored.transfers[0].requestId, requestId);
     }
     await queue.enqueue(file, binding, '/p/uploads', 'upload'); await until(() => store.transfers[0].status === 'done' && !(queue as any).active);
-  } finally { await cleanup(root); }
+  } finally { await logsFor(root).close(); await cleanup(root); }
 });

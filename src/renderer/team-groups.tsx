@@ -1,3 +1,5 @@
+import { collaborationFailure } from './collaboration-failure';
+import { uiErrorMessage } from '../shared/user-failure';
 import { cachedTeamRead } from './team-cache';
 import React, { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
@@ -76,13 +78,13 @@ export function AdminGroupOverview({ accounts, enabled, changed }: {accounts:Dir
   const loaded = useRef(false);
   const [groups,setGroups] = useState<TeamGroup[]>([]), [selected,setSelected] = useState<string>(), [creating,setCreating] = useState(false), [trash,setTrash] = useState(false), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const call = (command:GroupCommand) => window.admin.call('group.control',command);
-  const refresh = async()=>{if(!enabled)return;setBusy(true);try{setGroups(await call({action:'list'}));setError('');}catch(e:any){setError(e.message);}finally{setBusy(false);}};
+  const refresh = async()=>{if(!enabled)return;setBusy(true);try{setGroups(await call({action:'list'}));setError('');}catch(e:any){setError(collaborationFailure(e, '项目列表没加载出来。请点“刷新项目”再试。', { domain: 'central', operation: '读取项目列表' }));}finally{setBusy(false);}};
   useEffect(()=>{if(enabled && !loaded.current){loaded.current=true;void refresh();}},[enabled]);
   return <section className="admin-group-overview"><div className="row"><h2>项目管理</h2><span className="spacer"/><button className="secondary" disabled={!enabled||busy} onClick={()=>void refresh()}>刷新项目</button><button className="primary" disabled={!enabled||!accounts.length||busy} onClick={()=>setCreating(true)}>创建项目</button></div>
     <p className="group-permissions-note">查看各项目成员与角色，调整创建者，删除或恢复项目。</p>
     <div className="row group-view-tabs"><button className={!trash?'secondary':'text-button'} onClick={()=>setTrash(false)}>当前项目</button><button className={trash?'secondary':'text-button'} onClick={()=>setTrash(true)}>项目回收站</button></div>{error && <div className="inline-error" role="alert">{error}</div>}
     <table className="group-members-table"><thead><tr><th>项目</th><th>创建者</th><th>成员</th><th>占用空间</th><th>操作</th></tr></thead><tbody>{groups.filter(group=>!!group.deletedAt===trash).map(group=><tr key={group.id}><td>{group.label}{group.provisioning && <small>创建未完成</small>}</td><td>{group.creator||'待指定'}</td><td>{group.members.length}</td><td>{sizeLabel(group.bytes)}</td><td><button className="secondary compact" aria-label={`管理项目：${group.label}`} onClick={()=>setSelected(group.id)}>管理</button></td></tr>)}</tbody></table>
-    {!groups.filter(group=>!!group.deletedAt===trash).length && <p className="muted">{busy?'正在读取…':trash?'回收站为空':'暂无项目'}</p>}
+    {!groups.filter(group=>!!group.deletedAt===trash).length && <p className="muted" role="status">{busy?'正在读取…':error?'项目列表暂未读取成功，当前无法确认是否有项目。请点击“刷新项目”重试。':trash?'回收站为空':'暂无项目'}</p>}
     {(creating||selected) && <TeamGroupDialog key={selected||'create'} system groupId={selected} accounts={accounts} call={call} close={()=>{setCreating(false);setSelected(undefined);}} changed={async()=>{await changed();await refresh();}}/>}
   </section>;
 }

@@ -1,3 +1,4 @@
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useState } from 'react';
 import { Check, Download, RotateCcw } from 'lucide-react';
 import type { ConclusionOrganization, ContentUpdate } from '../shared/types';
@@ -21,7 +22,7 @@ export function ActivityResultActions({ event, item, disabled = false, changed, 
         await window.workbench.call('content.updates.read', { eventIds: [event.eventId], processed: !event.readAt });
       }
       await changed();
-    } catch (reason: any) { setError(reason.message); } finally { setBusy(undefined); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'central', operation: '处理团队动态' })); } finally { setBusy(undefined); }
   };
   return <section className="activity-result-actions" aria-label="处理这条动态">
     <div className="activity-result-status"><span className={'badge ' + (event.readAt ? 'done' : 'running')}>{event.readAt ? '已处理' : '待处理'}</span><span>{event.readAt ? '可设回待处理，之前保存的成果仍会保留。' : '查看不会自动完成处理；存入本地库后会标记为已处理。'}</span></div>

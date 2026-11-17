@@ -12,6 +12,7 @@ import { decodeEgressInvite } from '../src/core/egress-config';
 import type { AdminProfile, AdminSnapshot } from '../src/admin/types';
 import { testTlsIdentity } from './fixtures/tls-identity';
 import { reverseSshFixture } from './fixtures/reverse-ssh';
+import { fakeElectronBackgroundServices } from './fixtures/fake-electron-background';
 
 // Production IPC with in-memory Electron objects; SSH, TCP and TLS use real
 // loopback sockets. No application window or external model request is started.
@@ -35,7 +36,7 @@ test('admin IPC authorizes reverse access, tests TLS, copies the pinned route an
   const app = new EventEmitter() as any, paths: Record<string, string> = { appData: root }, ipc = new Map<string, Function>();
   const opened: FakeWindow[] = [], errors: string[] = [], operations: any[] = [];
   let didQuit = false, copied = '', current: FakeConnection;
-  Object.assign(app, { setName() {}, setPath(name: string, value: string) { paths[name] = value; }, getPath(name: string) { return paths[name]; }, requestSingleInstanceLock: () => true, whenReady: async () => {}, quit() { didQuit = true; } });
+  Object.assign(app, { setName() {}, setPath(name: string, value: string) { paths[name] = value; }, getPath(name: string) { return paths[name]; }, requestSingleInstanceLock: () => true, whenReady: async () => {}, quit() { didQuit = true; app.emit('will-quit'); } });
   class FakeWindow extends EventEmitter {
     destroyed = false;
     entry = '';
@@ -63,11 +64,11 @@ test('admin IPC authorizes reverse access, tests TLS, copies the pinned route an
   class FakeHost extends EventEmitter {
     running = false;
     constructor(_entry: string, _config: unknown, secret: { accessCode: string }) { super(); accessCode = secret.accessCode; }
-    snapshot() { return { running: this.running }; }
+    snapshot() { return { running: this.running, events: [] }; }
     async start() { this.running = true; this.emit('changed'); }
     async stop() { this.running = false; this.emit('changed'); }
   }
-  const electron = { app, BrowserWindow: FakeWindow, ipcMain: { handle(name: string, handler: Function) { ipc.set(name, handler); } }, dialog: { showErrorBox: (_title: string, message: string) => errors.push(message) }, clipboard: { writeText(value: string) { copied = value; } }, safeStorage: { isEncryptionAvailable: () => false }, utilityProcess: { fork() { throw new Error('Unexpected process launch'); } } };
+  const electron = { ...fakeElectronBackgroundServices(), app, BrowserWindow: FakeWindow, ipcMain: { handle(name: string, handler: Function) { ipc.set(name, handler); } }, dialog: { showErrorBox: (_title: string, message: string) => errors.push(message) }, clipboard: { writeText(value: string) { copied = value; } }, safeStorage: { isEncryptionAvailable: () => false }, utilityProcess: { fork() { throw new Error('Unexpected process launch'); } } };
   const loader = (Module as any)._load, oldData = process.env.WORKBENCH_ADMIN_DATA_DIR;
   (Module as any)._load = function (name: string, ...args: any[]) {
     if (name === 'electron') return electron;
@@ -82,12 +83,15 @@ test('admin IPC authorizes reverse access, tests TLS, copies the pinned route an
     while (!check()) { if (Date.now() > deadline) throw new Error('Admin IPC timed out: ' + errors.join('; ')); await new Promise(resolve => setTimeout(resolve, 10)); }
   }
   t.after(async () => {
-    app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit);
-    (Module as any)._load = loader;
-    if (oldData === undefined) delete process.env.WORKBENCH_ADMIN_DATA_DIR; else process.env.WORKBENCH_ADMIN_DATA_DIR = oldData;
-    await shared.close(); for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => gateway.close(() => resolve()));
-    assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('workbench-admin-reverse-'));
-    await fs.rm(root, { recursive: true, force: true, maxRetries: 5 });
+    try { app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit); }
+    finally {
+      app.emit('will-quit'); (Module as any)._load = loader;
+      if (oldData === undefined) delete process.env.WORKBENCH_ADMIN_DATA_DIR; else process.env.WORKBENCH_ADMIN_DATA_DIR = oldData;
+      try { await shared.close(); }
+      finally { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => gateway.close(() => resolve())); }
+      assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('workbench-admin-reverse-'));
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 5 });
+    }
   });
   await import('../src/admin/main'); await until(() => !!opened[0]?.entry);
   const window = opened[0];

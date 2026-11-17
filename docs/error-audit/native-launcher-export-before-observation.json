@@ -1,0 +1,15 @@
+{
+  "title": "诊断包导出失败",
+  "accessibility": {
+    "focused_element": "0 window (对话框) 诊断包导出失败 Secondary Actions: Raise",
+    "tree": "Window: \"诊断包导出失败\", App: LauncherExportFixture.exe.\n\t0 window (对话框) 诊断包导出失败 Secondary Actions: Raise\n\t\t1 button (按钮) 确定 ID: 2\n\t\t2 text (文本) 使用“2”个参数调用“Open”时发生异常:“文件“D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\launcher-export-before\\occupied.zip”已经存在。” ID: 65535\n\t\t3 title bar (标题栏) (settable, string) Value: 诊断包导出失败\n\t\t\t4 button (按钮) 关闭\n\nThe focused UI element is 0 window (对话框) 诊断包导出失败 Secondary Actions: Raise."
+  },
+  "dimensions": [
+    {
+      "width": 602,
+      "height": 228
+    }
+  ],
+  "capturedAt": "2026-11-16T14:02:20.727Z",
+  "fixture": "d4 production MessageBox expression with actual isolated exporter IO error, hosted in GUI EXE"
+}

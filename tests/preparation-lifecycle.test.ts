@@ -52,7 +52,7 @@ for (const deleteRecord of [false, true]) for (const deleteResult of [false, tru
   let wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success', preparationResult: { artifacts: [] } });
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = fixture.launcher;
     const session = await wb.createSession('codex', root, offlineProjectId); session.messages.push(message('old'));
     const draft = await readyDraft(wb, session), conclusion = wb.conclusions(offlineProjectId)[0];
     const attached = await wb.attachConclusion(session.id, conclusion.id), originalText = await fs.readFile(attached.localPath, 'utf8');

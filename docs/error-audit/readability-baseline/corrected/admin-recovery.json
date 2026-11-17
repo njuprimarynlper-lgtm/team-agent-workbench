@@ -1,0 +1,83 @@
+{
+  "conditionChanged": true,
+  "oldCondition": "旧harness混用user_create已建账号与user_import原密码不正确，且未登记provisioning成员，不能作为同一真实故障对照",
+  "newCondition": "user_create已创建专用账号，chpasswd设置初始密码失败，state.users.demo为provisioning成员",
+  "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-readability\\baseline",
+  "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-readability\\baseline",
+  "sourceRootImmutable": true,
+  "beforeVersion": "readability-round2-pre-rewrite",
+  "originalEvidencePreserved": "docs/error-audit/readability-baseline/admin/screenshots/admin-recovery-after.png",
+  "correctedBeforeUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\n创建用户「验收成员」尚未完成\n已完成：专用账号已创建\n未完成原因：chpasswd 执行失败：chpasswd: (user demo) pam_chauthtok() failed, error: Authentication token manipulation error\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n1\n列表中已启用\n0\n项目\n0\n\n待开通或待恢复的服务器账号可能尚未列入已登记成员，请先处理上方待办。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 / 1 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n\n验收成员\ndemo\n\t开通未完成\t\n未分组\t账号创建未完成 · 账号未启用或密码未设置 · 待分配项目组账号开通未完成，请先处理待恢复操作。\n加入项目\n组与角色\n重置密码\n启用\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+  "observation": "冻结旧源真实显示：创建用户验收成员尚未完成，专用账号已创建；未完成原因仍直接出现chpasswd与PAM技术原文。已登记成员为1，列表中的demo显示开通未完成；继续完成按钮没有说明剩下初始密码这一步。",
+  "sha256": "f0fc0f6bcc3dc68f366ca32b39149248c6af2da807a4c41ed2b499be2e0b4b89",
+  "assertions": [
+    {
+      "check": "旧冻结源码实际React管理员页面",
+      "passed": true
+    },
+    {
+      "check": "真实创建步骤仅完成专用账号；初始密码步骤未完成，provisioning成员登记存在",
+      "passed": true
+    },
+    {
+      "check": "原错误夹具PNG完整保留，corrected图另存，不修改d4基线",
+      "passed": true
+    },
+    {
+      "check": "旧UI的PAM技术原文可见是before缺陷证据，未把此项当作after门禁通过",
+      "passed": true
+    }
+  ],
+  "result": {
+    "id": "admin-recovery",
+    "entry": "用户管理／待恢复操作",
+    "condition": "user_create已创建专用账号，chpasswd设置初始密码失败，state.users.demo为provisioning成员",
+    "file": "src/admin/renderer.tsx",
+    "before": "待恢复操作",
+    "after": "未完成原因",
+    "phase": "after",
+    "geometry": {
+      "configuredViewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "layoutViewport": {
+        "width": 1440,
+        "height": 1000,
+        "documentWidth": 1440,
+        "documentHeight": 1000
+      },
+      "screenshotMode": "fullPage"
+    },
+    "sourceSha256": "a8943caa52c85efd9ec1f0372e04ea951be8046be816c4dc9dbe870e776ea2b1",
+    "screenshot": "docs/error-audit/readability-baseline/corrected/admin-recovery.png",
+    "sha256": "f0fc0f6bcc3dc68f366ca32b39149248c6af2da807a4c41ed2b499be2e0b4b89",
+    "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\n创建用户「验收成员」尚未完成\n已完成：专用账号已创建\n未完成原因：chpasswd 执行失败：chpasswd: (user demo) pam_chauthtok() failed, error: Authentication token manipulation error\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n1\n列表中已启用\n0\n项目\n0\n\n待开通或待恢复的服务器账号可能尚未列入已登记成员，请先处理上方待办。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 / 1 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n\n验收成员\ndemo\n\t开通未完成\t\n未分组\t账号创建未完成 · 账号未启用或密码未设置 · 待分配项目组账号开通未完成，请先处理待恢复操作。\n加入项目\n组与角色\n重置密码\n启用\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+    "titles": [],
+    "assertions": [
+      {
+        "check": "旧源实际DOM包含专用账号已创建、未完成原因和chpasswd/PAM技术原文，这是before缺陷证据",
+        "passed": true
+      },
+      {
+        "check": "旧源列表实际显示1位成员及开通未完成，与provisioning夹具一致",
+        "passed": true
+      }
+    ],
+    "pass": true,
+    "renderer": "production-react-components",
+    "fixture": "isolated-failure-IPC",
+    "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+    "source": "src/admin/renderer.tsx",
+    "evidenceRole": "corrected-readability-round2-before",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-readability\\baseline",
+    "ui": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\n创建用户「验收成员」尚未完成\n已完成：专用账号已创建\n未完成原因：chpasswd 执行失败：chpasswd: (user demo) pam_chauthtok() failed, error: Authentication token manipulation error\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n1\n列表中已启用\n0\n项目\n0\n\n待开通或待恢复的服务器账号可能尚未列入已登记成员，请先处理上方待办。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 / 1 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n\n验收成员\ndemo\n\t开通未完成\t\n未分组\t账号创建未完成 · 账号未启用或密码未设置 · 待分配项目组账号开通未完成，请先处理待恢复操作。\n加入项目\n组与角色\n重置密码\n启用\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+    "messages": [
+      "已完成：专用账号已创建",
+      "未完成原因：chpasswd 执行失败"
+    ],
+    "passed": true
+  },
+  "capturePurpose": "corrected-readability-round2-before"
+}

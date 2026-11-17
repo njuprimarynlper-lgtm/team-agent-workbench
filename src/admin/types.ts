@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { UserFailure } from '../shared/user-failure';
 import { groupCommandSchema } from '../shared/team-groups';
 import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
 import { groupLabelMessage, groupLabelPattern } from '../shared/groups';
@@ -22,9 +23,9 @@ export const adminConnectSchema = z.object({
 export type AdminProfile = z.infer<typeof adminProfileSchema>;
 export type ManagedUser = { username: string; revision?: string; accessVersion?: string; systemUsername?: string; name: string; enabled: boolean; mustChangePassword?: boolean; accountId?: string; identity?: string; marker?: string; uid?: number; groups?: string[]; contentAdminGroups?: string[]; missing?: boolean; provisioning?: boolean };
 export type ManagedGroup = AdminState['groups'][string];
-export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string };
+export type AdminJob = { id: string; op: string; request: Record<string, any>; status: 'running' | 'failed' | 'done'; completed: string[]; error?: string; failure?: UserFailure };
 export type AdminState = { initialized: boolean; egressJumpTargets?: { host: string; port: number }[]; bootstrapPending?: boolean; operations?: Record<string, AdminJob>; storageVersion?: number; teamId?: string; loginGroup?: string; sftpConfigured?: boolean; users: Record<string, ManagedUser>; groups: Record<string, { name: string; label: string; adminGroup: string; workspace?: string; provisioning?: boolean; creator?: { username: string; identity: string }; createdBy?: string; createdAt?: string; creationRequestId?: string; deletedAt?: string; deletedBy?: string; recyclePath?: string; purgeStartedAt?: string; purgedAt?: string }> };
-export type AdminSnapshot = { memberSync?: MemberSyncView; profile?: AdminProfile; connectionError?: string; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator'; state?: AdminState; missingCommands?: string[]; setupIssues?: string[]; setupNotes?: string[]; aclBackend?: 'setfacl' | 'libacl' | null; serviceManager?: 'systemd' | 'supervisor' | null; egress?: AdminEgressSnapshot };
+export type AdminSnapshot = { memberSync?: MemberSyncView; profile?: AdminProfile; connectionError?: string; connectionErrorFailure?: UserFailure; connected: boolean; verified: boolean; busy: boolean; actor?: string; role?: 'administrator'; state?: AdminState; missingCommands?: string[]; setupIssues?: string[]; setupNotes?: string[]; aclBackend?: 'setfacl' | 'libacl' | null; serviceManager?: 'systemd' | 'supervisor' | null; egress?: AdminEgressSnapshot };
 export type StorageMetrics = { bytes: number; files: number; directories: number; directBytes: number; modifiedAt?: string };
 export type StorageCategoryKey = 'submissions' | 'trajectories' | 'curated' | 'project' | 'system' | 'unassigned';
 export type StorageCategoryUsage = StorageMetrics & { key: StorageCategoryKey; label: string };

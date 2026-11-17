@@ -64,10 +64,12 @@ test('exports whitelist metadata, isolate accounts/projects, include summaries a
     logger.record('workflow', 'result.attach', { ...mine, projectId: 'project-a', origin: 'user' }, { outcome: 'succeeded', durationMs: 15 });
     logger.record('workflow', 'PRIVATE_OTHER_ACCOUNT', { ...other, projectId: 'project-a' });
     logger.record('workflow', 'OTHER_PROJECT', { ...mine, projectId: 'project-b' });
-    logger.record('diagnostic', 'failed', mine, { level: 'error', detail: 'password=secret' });
+    logger.record('diagnostic', 'failed', { ...mine, centralId: 'fixture-node' }, { level: 'error', detail: 'password=secret', cause: 'ENOSPC token=CAUSE_SECRET' });
     const file = path.join(root, 'workflow.zip'); await exportLogs(logger, file, { kind: 'workflow', projectId: 'project-a', description: 'password=description-secret' }, { account: mine.account });
     const entries = zipContents(await fs.readFile(file)), text = entries.get('workflow.jsonl')!; assert.match(text, /result.attach/); assert.ok(!text.includes('PRIVATE_OTHER_ACCOUNT')); assert.ok(!text.includes('OTHER_PROJECT')); assert.ok(!entries.get('report.json')!.includes('description-secret'));
     const report = JSON.parse(entries.get('report.json')!); assert.equal(report.coverage.emitted, 1); assert.equal(report.summary[0].durationMs, 15); assert.equal(report.traceContainsConversation, false);
+    const diagnostics = path.join(root, 'diagnostic.zip'); await exportLogs(logger, diagnostics, { kind: 'diagnostic' }, { account: mine.account });
+    const diagnostic = zipContents(await fs.readFile(diagnostics)).get('diagnostic.jsonl')!; assert.match(diagnostic, /ENOSPC/); assert.match(diagnostic, /fixture-node/); assert.ok(!diagnostic.includes('CAUSE_SECRET'));
     const directory = path.join(root, 'sessions', randomUUID()); await logger.trace(directory, { text: 'PRIVATE_TRACE_BODY' });
     const full = path.join(root, 'trace.zip'); await exportLogs(logger, full, { kind: 'trace' }, { traceDirectory: directory }); const traces = zipContents(await fs.readFile(full)); assert.match(traces.get('events.jsonl')!, /PRIVATE_TRACE_BODY/); assert.equal(JSON.parse(traces.get('report.json')!).traceContainsConversation, true);
   } finally { await logger.close(); }

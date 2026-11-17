@@ -11,12 +11,8 @@ import { SharedFiles } from './shared-files';
 import { Store } from './store';
 import { attachmentPath } from '../shared/attachments';
 import { linkConclusionPublications } from './conclusion-publications';
+import { transferFailureMessage } from '../shared/transfer-failure';
 export interface TransferInput { conclusionSourceId?: string; id?: string; dependsOn?: string[]; attachment?: boolean; name?: string; local: string; binding: RemoteBinding; folder: string; kind: Transfer['kind']; sessionId?: string; metadata?: ContentMetadata; trajectoryHash?: string }
-function failureMessage(task: Transfer, detail: string) {
-  if (detail.includes('不支持的成果类别')) return '服务器还不支持这个成果类别。请管理员用当前版本的管理端打开用户管理，点击“更新服务端功能”后再重试。已有内容和账号权限没有变化。';
-  const prefix = task.phase === 'awaiting_receipt' ? '服务器可能已接收；重试会先查询原请求回执。' : task.phase === 'streaming' ? '传输中断，可能留有未完成的临时文件；重试会校验后从头传输。' : task.phase === 'verifying' ? '传输已结束但结果尚未通过校验；不会标记为成功。' : task.phase === 'rejected' ? '服务器已拒绝此次请求；重试前会重新核对账号和项目权限。' : '传输尚未开始。';
-  return prefix + ' ' + detail;
-}
 export class TransferQueue {
   private active = false;
   private persisting = new Set<string>();
@@ -43,6 +39,18 @@ export class TransferQueue {
     catch (error) { const ids = new Set(transfers.map(item => item.id)); this.store.transfers = this.store.transfers.filter(item => !ids.has(item.id)); this.changed(); throw error; }
     finally { transfers.forEach(item => this.persisting.delete(item.id)); }
     this.changed(); void this.pump(); return transfers;
+  }
+  async retrySave(id: string) {
+    const task = this.store.transfers.find(item => item.id === id);
+    if (!task || task.status !== 'done' || task.phase !== 'completed' || !task.error || this.persisting.has(id)) throw new Error('这条传输没有等待保存的完成记录');
+    this.persisting.add(id);
+    task.error = undefined;
+    try { await this.store.save(); }
+    catch (error: any) {
+      logsFor(this.store.root).record('diagnostic', 'transfer.state_save_failed', accountLogScope(this.store.root, { operationId: task.id, origin: 'background' }), { level: 'error', detail: error.message, stack: error.stack });
+      task.error = transferFailureMessage(task, error);
+      throw error;
+    } finally { this.persisting.delete(id); this.changed(); }
   }
   async retry(id: string) {
     const item = this.store.transfers.find(t => t.id === id);
@@ -113,10 +121,15 @@ export class TransferQueue {
           await this.store.save();
         }
         catch (e: any) {
-          if (task.phase === 'completed') task.phase = 'verifying';
-          task.status = 'error'; task.error = failureMessage(task, e.message);
+          const completionKnown = task.phase === 'completed';
+          logsFor(this.store.root).record('diagnostic', 'transfer.failed', accountLogScope(this.store.root, { sessionId: task.sessionId, projectId: task.binding.project.id, operationId: task.id, origin: 'background' }), { level: 'error', detail: e.message, stack: e.stack, code: task.phase });
+          task.status = completionKnown ? 'done' : 'error'; task.error = completionKnown ? undefined : transferFailureMessage(task, e);
           try { await this.store.save(); }
-          catch (saveError: any) { task.error += '；传输状态保存失败：' + saveError.message + '。请恢复本地存储后重试，将复用原目标。'; }
+          catch (saveError: any) {
+            logsFor(this.store.root).record('diagnostic', 'transfer.state_save_failed', accountLogScope(this.store.root, { operationId: task.id, origin: 'background' }), { level: 'error', detail: saveError.message, stack: saveError.stack });
+            if (completionKnown) task.error = transferFailureMessage(task, saveError);
+            else task.error += '；本机未能保存传输状态。请恢复本机存储后刷新核对，再重试原记录。';
+          }
         }
         logsFor(this.store.root).record('workflow', 'transfer.completed', accountLogScope(this.store.root, { sessionId: task.sessionId, projectId: task.binding.project.id, operationId: task.id, origin: 'background' }), { outcome: task.status === 'done' ? 'succeeded' : 'failed', durationMs: task.completedAt ? Date.parse(task.completedAt) - Date.parse(task.createdAt) : undefined, code: task.phase });
         this.changed();

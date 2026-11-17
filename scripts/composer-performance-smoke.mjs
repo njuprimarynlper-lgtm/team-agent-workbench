@@ -145,7 +145,7 @@ try {
     await childInput.fill('失败时也不能覆盖的新稿');
     await page.evaluate(() => window.__rejectSend());
     await expect(childInput).toHaveValue('失败时也不能覆盖的新稿');
-    await expect(page.getByRole('button', { name: '恢复未发送消息到输入框', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '核对后恢复这条消息到输入框', exact: true })).toBeVisible();
     await page.locator('.session-row[data-session-id="work-session"]').click();
     await expect(page.getByLabel('任务输入', { exact: true })).toHaveValue('abcdefghijkl');
     await page.locator('.session-row[data-session-id="child-session"]').click();

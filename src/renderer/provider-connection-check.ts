@@ -1,5 +1,6 @@
 import type { Provider, ProviderAuth, ProviderCatalog, SessionNetworkRoute } from '../shared/types';
 import type { UserEgressStatus } from '../shared/egress';
+import { uiErrorMessage } from '../shared/user-failure';
 
 export interface ProviderConnectionCheck { auth: ProviderAuth; catalog?: ProviderCatalog; issues: string[] }
 type Call = <T = unknown>(action: string, payload?: unknown) => Promise<T>;
@@ -25,7 +26,7 @@ export async function checkProviderConnection(call: Call, provider: Provider, cw
   const issues: string[] = [];
   let reachable = true;
   try { const network = await call<UserEgressStatus>('egress.test', { provider, ...(networkRoute ? { networkRoute } : {}) }); reachable = !network.enabled || network.available === true; if (!reachable) issues.push('网络出口检测失败：' + network.detail); }
-  catch (error: any) { reachable = false; issues.push('网络出口检测失败：' + error.message); }
+  catch (error) { reachable = false; issues.push(uiErrorMessage(error, { domain: 'relay', operation: '检测所选网络出口', provider })); }
   current();
   await call('providers.detect');
   current();
@@ -35,7 +36,7 @@ export async function checkProviderConnection(call: Call, provider: Provider, cw
   let catalog: ProviderCatalog | undefined;
   if (reachable && !auth.connectionIssue && ['authenticated', 'configured', 'not-required'].includes(auth.status)) {
     try { catalog = await call<ProviderCatalog>('provider.catalog', { provider, cwd, ...(networkRoute ? { networkRoute } : {}) }); if (catalog.modelError) issues.push('模型读取失败：' + catalog.modelError); }
-    catch (error: any) { issues.push('模型与额度读取失败：' + error.message); }
+    catch (error) { issues.push(uiErrorMessage(error, { domain: 'model', operation: '读取模型与额度', provider })); }
   }
   current();
   return { auth, catalog, issues };

@@ -54,7 +54,7 @@ test('sidebar distinguishes ongoing turns, approvals, completed unread replies a
 
 for (const provider of ['codex', 'cursor'] as const) test(provider + ': completion and read state survive restart; stale reads, failure and stop cannot acknowledge a new reply', () => withWorkbench(async (wb, root) => {
   const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
-  wb.store.settings.providerPaths[provider] = fixture.launcher;
+  wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths[provider] = fixture.launcher;
   const s = await wb.createSession(provider, root, offlineProjectId);
   await wb.send(s.id, 'first'); await until(() => !!s.completion);
   const first = s.completion!.id;

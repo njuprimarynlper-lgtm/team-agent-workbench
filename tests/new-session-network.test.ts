@@ -5,12 +5,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ProviderConnectionSettings } from '../src/renderer/provider-connection';
 import { newSessionBlockedReason } from '../src/renderer/new-session-readiness';
 import type { UserEgressStatus } from '../src/shared/egress';
-import type { ProviderAuth } from '../src/shared/types';
+import type { ProviderAuth, WorkbenchAPI } from '../src/shared/types';
 
 const auth: ProviderAuth = { status: 'authenticated', detail: '已登录', cwd: 'D:/work', checkedAt: '2026-09-28' };
 const direct: UserEgressStatus = { enabled: false, configured: false, running: false, detail: '使用本机网络直连', hasAccessCode: false };
 const ready: UserEgressStatus = { enabled: true, viaSharedServer: true, configured: true, running: true, available: true, detail: '管理端网络出口可用', hasAccessCode: true };
-const render = (egress: UserEgressStatus, routeEditable = true) => renderToStaticMarkup(React.createElement(ProviderConnectionSettings, { provider: 'codex', cwd: 'D:/work', auth, egress, activeTaskCount: 0, routeEditable }));
+const api = { call: async () => { throw Error('SSR must not call the desktop API'); }, subscribe: () => () => {} } as WorkbenchAPI;
+const render = (egress: UserEgressStatus, routeEditable = true) => renderToStaticMarkup(React.createElement(ProviderConnectionSettings, { api, provider: 'codex', cwd: 'D:/work', auth, egress, activeTaskCount: 0, routeEditable }));
 
 test('Cursor saved credentials with a failed online lookup do not unlock management session creation', () => {
   const base = { projectId: 'p1', networkPending: false, networkBusy: false, busy: false, managementRoute: true, provider: 'cursor' as const, cwd: 'D:/work' };
@@ -34,7 +35,7 @@ test('new sessions reuse the selected management route and saved access code wit
 
 test('an existing session can switch to the management route and asks for an access code when one is missing', () => {
   const page = renderToStaticMarkup(React.createElement(ProviderConnectionSettings, {
-    provider: 'codex', cwd: 'D:/work', auth, egress: direct, activeTaskCount: 0, sessionRoute: 'management', savedRoute: 'direct', sessionId: 'session-1',
+    api, provider: 'codex', cwd: 'D:/work', auth, egress: direct, activeTaskCount: 0, sessionRoute: 'management', savedRoute: 'direct', sessionId: 'session-1',
   }));
   assert.match(page, /通过管理端访问模型服务/);
   assert.match(page, /从下一轮开始使用所选出口/);
@@ -44,7 +45,7 @@ test('an existing session can switch to the management route and asks for an acc
 });
 
 test('a direct session remains selectable while another management task runs', () => {
-  const page = renderToStaticMarkup(React.createElement(ProviderConnectionSettings, { provider: 'codex', cwd: 'D:/work', auth, egress: ready, sessionRoute: 'direct', activeTaskCount: 1 }));
+  const page = renderToStaticMarkup(React.createElement(ProviderConnectionSettings, { api, provider: 'codex', cwd: 'D:/work', auth, egress: ready, sessionRoute: 'direct', activeTaskCount: 1 }));
   assert.match(page, /本机网络/);
   assert.match(page, /重新检测连接与登录/);
   assert.doesNotMatch(page, /当前有 1 个任务使用管理端出口/);

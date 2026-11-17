@@ -1,0 +1,29 @@
+[
+  {
+    "id": "native-launcher",
+    "phase": "before",
+    "observed": "工作台未能启动。\r\n阶段：正在检查桌面运行环境\r\nEIO: bad file descriptor C:/audit/runtime.exe\r\n\r\n启动日志：C:\\audit\\startup.log\r\n详细日志：C:\\audit\\stderr.log\r\n\r\n是否导出启动诊断包？",
+    "source": "scripts/start-dev-hidden.ps1 + scripts/startup-failure.ps1",
+    "screenshot": "screenshots/native-launcher-before.jpg",
+    "pass": true,
+    "capture": "production WinForms.MessageBox invocation, text evaluated from actual production PowerShell expression, synthetic IO error"
+  },
+  {
+    "id": "native-launcher",
+    "phase": "after",
+    "observed": "启动文件准备失败，工作台还没打开。请导出故障报告，将生成的文件交给维护人员。\n关闭 / 导出故障报告",
+    "source": "scripts/start-dev-hidden.ps1 + scripts/startup-failure.ps1 + scripts/startup-error-dialog.cs",
+    "screenshot": "screenshots/native-launcher-after.jpg",
+    "pass": true,
+    "capture": "production WinForms dialog, text evaluated from actual production PowerShell expression, synthetic IO error",
+    "readabilityRound": 2,
+    "observation": "native-launcher-round2-observation.json",
+    "dimensions": [
+      {
+        "width": 652,
+        "height": 283
+      }
+    ],
+    "geometryNote": "真实WinForms自动DPI缩放，未裁切或合成截图"
+  }
+]

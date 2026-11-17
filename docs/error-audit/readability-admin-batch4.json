@@ -1,0 +1,52 @@
+[
+  {
+    "id": "admin-ssh-auth",
+    "screenshot": "docs/error-audit/screenshots/admin-ssh-auth-after.png",
+    "sha256": "c65bae7f5603096e2bd380e6c826fecafa856556f6e3777b3176f75914677be6"
+  },
+  {
+    "id": "admin-ssh-check-timeout",
+    "screenshot": "docs/error-audit/screenshots/admin-ssh-check-timeout-after.png",
+    "sha256": "92baa0f767b62ed1196712cc9e3f4cd5c9ce82d598b6d14c48357bfbab371b10"
+  },
+  {
+    "id": "admin-member-blocked",
+    "screenshot": "docs/error-audit/screenshots/admin-member-blocked-after.png",
+    "sha256": "252a01f63760ea997b416fc9889012dccaf8963070ad1d62e5b5900bce37c073"
+  },
+  {
+    "id": "admin-recovery",
+    "screenshot": "docs/error-audit/screenshots/admin-recovery-after.png",
+    "sha256": "63c754da13a0a9a4ebfde8bf4fcd6615d82c1c1a17886a692f9f6db533c5889a"
+  },
+  {
+    "id": "admin-egress-port",
+    "screenshot": "docs/error-audit/screenshots/admin-egress-port-after.png",
+    "sha256": "16bdc6e9a50b1e687c0c45be1be4eea6b890ed97e9950c26d5f17777c25abd22"
+  },
+  {
+    "id": "team-draft-upload-unconfirmed",
+    "screenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-after.png",
+    "sha256": "ca210dc953bab7519806271b7042299b119322695c8f2d75fdf77b890c4b1626"
+  },
+  {
+    "id": "team-draft-delete-partial",
+    "screenshot": "docs/error-audit/screenshots/team-draft-delete-partial-after.png",
+    "sha256": "56f0ff61165e76aae904650e9da712594270a7d7cce8be2f7674e9c97a97125f"
+  },
+  {
+    "id": "team-draft-transfer-cache",
+    "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-after.png",
+    "sha256": "45755e682b07a09668dee49c2bd221da55d2f2af4991d708d8f8734692656838"
+  },
+  {
+    "id": "admin-project-catalog-unreadable",
+    "screenshot": "docs/error-audit/screenshots/admin-project-catalog-unreadable-after.png",
+    "sha256": "551b96d9236821d3f7e9245efdc42f663489600a65ecb4a67741a90afc8d955e"
+  },
+  {
+    "id": "admin-project-index-unreadable",
+    "screenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-after.png",
+    "sha256": "4eadedef16f2188898ec62b890436ca6a4d986909c65deb5cfffe97c2be16334"
+  }
+]

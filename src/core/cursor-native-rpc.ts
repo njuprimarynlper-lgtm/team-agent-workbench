@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import type { AgentRpc } from './rpc';
 import type { AgentSession, Message } from '../shared/types';
+import { failureError } from '../shared/user-failure';
 import { sameNativePath } from './native-transcript';
 import { assertCursorSharedSessionAvailable, isCursorFileSession } from '../shared/cursor-session-consistency';
 import type { CursorNativeSettings } from '../shared/cursor-native-settings';
@@ -54,10 +55,13 @@ export class CursorNativeRpc extends EventEmitter implements AgentRpc {
     // a send with a lost acknowledgement is still never repeated.
     if (this.session.cursorNative?.managed || !this.descriptor) this.descriptor = await cursorNativeDescriptor(this.session);
     if (this.closed) throw new Error('Cursor 原生连接已关闭');
-    if (Date.parse(this.descriptor.expiresAt) <= Date.now()) throw new Error('Cursor 原生连接已过期，请点击“在 Cursor 中打开”');
+    if (Date.parse(this.descriptor.expiresAt) <= Date.now()) throw failureError({ version: 1, code: 'CURSOR_NATIVE_CONNECTION_EXPIRED', outcome: 'not-started', message: '工作台与 Cursor 的连接已失效。点“在 Cursor 中打开”重新连接这个会话。' });
     let response: Response;
     try { response = await fetch(this.descriptor.endpoint + '/' + operation, { method: body === undefined ? 'GET' : 'POST', ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }), signal: AbortSignal.any([AbortSignal.timeout(timeout), this.lifetime.signal]), redirect: 'error' }); }
-    catch { throw new Error(this.closed ? 'Cursor 原生连接已关闭' : operation === 'send' ? 'Cursor 送达状态未确认，请核对原生窗口，避免重复发送' : 'Cursor 原生连接不可用，请点击“在 Cursor 中打开”恢复关联'); }
+    catch (error) {
+      if (operation === 'send' || operation === 'enqueue') throw Object.assign(failureError({ version: 1, code: 'CURSOR_SUBMISSION_UNCONFIRMED', outcome: 'unknown', phase: 'native-enqueue', recovery: 'check-reply', message: '不知道这条消息有没有发到 Cursor。点旁边“在 Cursor 中打开”，查看这个会话的最后一条消息：已有这条消息就等待回复；确实没有，再恢复草稿发送。' }), { cause: error });
+      throw new Error(this.closed ? 'Cursor 原生连接已关闭' : 'Cursor 原生连接不可用，请点击“在 Cursor 中打开”恢复关联');
+    }
     let value: any; try { value = await response.json(); } catch { throw new Error(this.closed ? 'Cursor 原生连接已关闭' : 'Cursor 原生窗口未返回可用结果'); }
     if (this.closed) throw new Error('Cursor 原生连接已关闭');
     if (!response.ok) throw new Error(value.message || 'Cursor 原生窗口暂时不可用');

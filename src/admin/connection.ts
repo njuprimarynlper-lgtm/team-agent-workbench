@@ -72,7 +72,7 @@ export class AdminConnection {
   private simple(command: string) {
     return new Promise<string>((resolve, reject) => {
       let channel: ClientChannel | undefined;
-      const timer = setTimeout(() => { channel?.close(); reject(new Error('管理端需要 Linux root 或 sudo 账号；组内管理请使用用户端')); }, 15000);
+      const timer = setTimeout(() => { channel?.close(); reject(new Error('服务器未及时返回账号检查结果，请重新连接后重试。')); }, 15000);
       this.client!.exec(command, (error, stream) => {
         if (error) { clearTimeout(timer); reject(error); return; }
         channel = stream;

@@ -1,3 +1,5 @@
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import { MarkdownEditor } from './markdown-editor';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -45,7 +47,7 @@ function SideChatConversation({ chat, api, changed, active, closed, openSettings
   const session = chat.session, running = ['starting', 'running', 'approval'].includes(session.status);
   const hasConversation = !!(sessionMessageCount(session) || text.trim() || references.sourceIds.length || references.capabilities?.length || pending || running || session.approvals.length);
   const invoke = <T,>(action: string, data = {}) => api.call<T>(action, { id: chat.id, parentId: chat.parentId, ...data });
-  const action = async (job: () => Promise<unknown>) => { try { setError(''); await job(); await changed(); } catch (reason: any) { setError(reason.message); } };
+  const action = async (job: () => Promise<unknown>) => { try { setError(''); await job(); await changed(); } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'cli' })); } };
   useEffect(() => {
     if (!confirmClose) return;
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !closeLock.current) setConfirmClose(false); };
@@ -61,7 +63,7 @@ function SideChatConversation({ chat, api, changed, active, closed, openSettings
       closed();
       await changed();
     } catch (reason: any) {
-      setError(reason.message);
+      setError(uiErrorMessage(reason, { domain: 'cli' }));
       closeLock.current = false; setClosing(false);
     }
   };
@@ -73,14 +75,14 @@ function SideChatConversation({ chat, api, changed, active, closed, openSettings
   }), [api, chat.id, chat.parentId, chat.inheritedMessageCount, session.messageCount, session.messages.length]);
   const scrolling = useConversationScroll(chat.id, `${sessionMessageCount(session)}:${session.messages.at(-1)?.text}:${pending?.text}`, active);
   const renderMessage = useMemo(() => (message: typeof session.messages[number]) => <ConversationMessage key={message.id} message={message} provider={session.provider} sessionId={session.id} text={message.userText ?? message.text}/>, [session.id, session.provider]);
-  const edit = (value: string, selected = currentReferences.current) => { draftRevision.current++; currentText.current = value; currentReferences.current = selected; setText(value); setReferences(selected); const revision = draftRevision.current; void api.call('session.input', { id: session.id, input: { ...selected, text: value } }).catch(reason => { if (draftRevision.current === revision) setError(reason.message); }); };
+  const edit = (value: string, selected = currentReferences.current) => { draftRevision.current++; currentText.current = value; currentReferences.current = selected; setText(value); setReferences(selected); const revision = draftRevision.current; void api.call('session.input', { id: session.id, input: { ...selected, text: value } }).catch(reason => { if (draftRevision.current === revision) setError(uiErrorMessage(reason, { domain: 'cli' })); }); };
   const replace = (input: SessionInput) => { const { text, ...selected } = input; edit(text, selected); };
   const lockDraft = (value: boolean) => { if (value && lock.current) return false; lock.current = value; setBusy(value); return true; };
   const finishQueueEdit = async (cancel: boolean) => {
     const input = { text: currentText.current, ...currentReferences.current };
     if (!input.editingQueueItemId || !lockDraft(true)) return;
     try { await queueDraftAction(api, session.id, input.editingQueueItemId, input, cancel ? 'cancelEdit' : 'saveEdit', replace); await changed(); }
-    catch (reason: any) { setError(reason.message); }
+    catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'cli' })); }
     finally { lockDraft(false); }
   };
   const send = async (invert = false) => {
@@ -94,24 +96,24 @@ function SideChatConversation({ chat, api, changed, active, closed, openSettings
       setError(''); const accepted = mode === 'queue' || mode === 'steer' ? await api.call('session.enqueue', { id: session.id, ...sent, expectedTurnId: mode === 'steer' ? activeTurnId : undefined }) : await invoke('sidechat.send', { text: sent.text, references: { sourceIds: sent.sourceIds, capabilities: sent.capabilities } });
       if (accepted === false) throw new Error('消息未能送达，请检查后重试');
       setFailed(undefined);
-      await changed().catch(reason => setError('消息已发送，刷新失败：' + reason.message));
-    } catch (reason: any) { setError(reason.message); setFailed(sent); if (draftRevision.current === revision) replace(sent); }
+      await changed().catch(() => setError('消息已提交，但侧聊界面暂未刷新。请先核对已有记录，不要重复发送。'));
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'cli' })); setFailed(sent); if (draftRevision.current === revision) replace(sent); }
     finally { lock.current = false; setBusy(false); setPending(undefined); }
   };
   return <div className="subsession-chat side-chat-conversation">
     <header><div className="subsession-heading"><b>侧边提问</b><button className="text-button" disabled={closing} title="结束并清除这条临时对话" onClick={requestClose}>{closing ? '正在结束…' : '结束侧聊'}</button></div>
       <p className="side-chat-parent" title={chat.parentTitle}>来自：{chat.parentTitle}</p><p className="subsession-context-note">临时对话 · 结束后清除</p>
     </header>
-    {confirmClose && createPortal(<div className="modal-backdrop" onPointerDown={event => { if (event.target === event.currentTarget && !closing) setConfirmClose(false); }}><section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="side-chat-close-title" aria-describedby="side-chat-close-description"><header><h2 id="side-chat-close-title">结束这条侧聊？</h2></header><div className="modal-body"><p id="side-chat-close-description">这段临时对话会被清除，无法恢复。主会话不受影响。</p>{running && <p>当前回答将停止。</p>}{!!text.trim() && <p>未发送的输入也会丢失。</p>}{error && <p className="inline-error" role="alert">{error}</p>}</div><footer><button className="secondary" autoFocus disabled={closing} onClick={() => setConfirmClose(false)}>取消</button><button className="primary" disabled={closing} onClick={() => void close()}>{closing ? '正在结束…' : '结束并清除'}</button></footer></section></div>, document.body)}
+    {confirmClose && createPortal(<div className="modal-backdrop" onPointerDown={event => { if (event.target === event.currentTarget && !closing) setConfirmClose(false); }}><section className="modal" role="alertdialog" aria-modal="true" aria-labelledby="side-chat-close-title" aria-describedby="side-chat-close-description"><header><h2 id="side-chat-close-title">结束这条侧聊？</h2></header><div className="modal-body"><p id="side-chat-close-description">这段临时对话会被清除，无法恢复。主会话不受影响。</p>{running && <p>当前回答将停止。</p>}{!!text.trim() && <p>未发送的输入也会丢失。</p>}{error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}</div><footer><button className="secondary" autoFocus disabled={closing} onClick={() => setConfirmClose(false)}>取消</button><button className="primary" disabled={closing} onClick={() => void close()}>{closing ? '正在结束…' : '结束并清除'}</button></footer></section></div>, document.body)}
     <div className="subsession-messages" data-transcript-scroll tabIndex={0} ref={scrolling.ref} onScroll={scrolling.onScroll}>
       {!sessionMessageCount(session) && <p className="muted small">已继承创建时的上下文，可以直接提问。</p>}
       <SessionTranscript key={session.id} session={session} renderMessage={renderMessage} active={active} inherited={parentHistory} readingEarlier={scrolling.readingEarlier}/>
       {pending && <PendingSessionMessage pending={pending} messages={session.messages} session={session}/>}
       <SessionTurnProgress session={session}/>
-      {!chat.expired && session.approvals.map(request => <RequestCard key={request.id} request={request} onAnswer={(option, answers) => void action(() => invoke('sidechat.answer', { requestId: request.id, option, answers }))}/>)}
+      {!chat.expired && session.approvals.map(request => <RequestCard key={request.id} request={request} disabled={session.status === 'error' || session.status === 'starting'} onAnswer={(option, answers) => void action(() => invoke('sidechat.answer', { requestId: request.id, option, answers }))}/>)}
       {scrolling.away && <button className="scroll-latest" onClick={scrolling.latest}>↓ 回到最新消息</button>}
-      {failed && <button className="text-button" onClick={() => { const latest = { text: currentText.current, ...currentReferences.current, answers: {} }; if ((latest.text.trim() || latest.sourceIds.length || latest.capabilities?.length) && JSON.stringify(latest) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } replace(failed); setFailed(undefined); setError(''); }}>恢复未发送消息到输入框</button>}
-      {(error || session.error || chat.expired) && <p className="inline-error" role="alert">{error || (chat.expired ? '原连接已关闭，此侧聊已失效。已有内容仍可查看，请从原会话重新创建侧聊。' : session.error)}</p>}
+      {failed && <button className="text-button" onClick={() => { const latest = { text: currentText.current, ...currentReferences.current, answers: {} }; if ((latest.text.trim() || latest.sourceIds.length || latest.capabilities?.length) && JSON.stringify(latest) !== JSON.stringify(failed)) { setError('输入框中有新的草稿，请先保存草稿后再恢复上一条消息。'); return; } replace(failed); setFailed(undefined); setError(''); }}>确认此对话没有这条消息，恢复草稿</button>}
+      {(error || session.error || chat.expired) && <p className="inline-error" role="alert">{error || (chat.expired ? '原连接已关闭，此侧聊已失效。已有内容仍可查看，请从原会话重新创建侧聊。' : session.error)} <ErrorLogLink message={error || session.error}/></p>}
     </div>
     <div className="subsession-composer">
       <SessionInputQueue session={session} activeTurnId={activeTurnId} api={api} changed={changed} locked={chat.expired || busy} draft={{ text, ...references }} replace={replace} lockDraft={lockDraft} followUpMode={followUpMode}/>

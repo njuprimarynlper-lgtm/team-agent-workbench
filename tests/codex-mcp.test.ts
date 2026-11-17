@@ -114,6 +114,7 @@ test('workbench MCP management preserves active turns/drafts, refreshes other Co
   const calls = async () => (await fs.readFile(path.join(root, 'rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
   try {
     await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    wb.store.settings.codexRequestGuard = false; // This fake CLI exercises MCP lifecycle, not the Windows model-network guard.
     const a = await wb.createSession('codex', root, offlineProjectId), b = await wb.createSession('codex', root, offlineProjectId);
     await wb.mcpCatalog(a.id); await wb.mcpCatalog(b.id);
     assert.equal((await calls()).filter(value => ['thread/start', 'turn/start'].includes(value.method)).length, 0, 'management must work without starting model threads');

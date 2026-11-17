@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, FileText, RefreshCw, Search, X } from 'lucide-react';
 import type { AgentSession } from '../shared/types';
@@ -27,7 +30,7 @@ export function SessionMaterials({ session, changed, opened, close }: { session:
         const fresh = await window.workbench.call<SessionResultCandidates>('session.resultCandidates', { id: session.id, scope: kind, refresh: true });
         if (current()) setCatalogs(value => ({ ...value, [kind]: fresh }));
       }
-    } catch (error: any) { if (current()) setCatalogs(value => ({ ...value, [kind]: value[kind]?.available && !teamAccessRevoked(error) ? { ...value[kind]!, warning: error.message } : { items: [], directories: [], cached: false, available: false, warning: error.message } })); }
+    } catch (error: any) { if (current()) setCatalogs(value => ({ ...value, [kind]: value[kind]?.available && !teamAccessRevoked(error) ? { ...value[kind]!, warning: uiErrorMessage(error, { domain: kind === 'team' ? 'central' : 'local', operation: '读取可关联成果' }) } : { items: [], directories: [], cached: false, available: false, warning: uiErrorMessage(error, { domain: kind === 'team' ? 'central' : 'local', operation: '读取可关联成果' }) } })); }
     finally { if (current()) setLoading(value => value.filter(item => item !== kind)); }
   };
   useEffect(() => {
@@ -48,13 +51,13 @@ export function SessionMaterials({ session, changed, opened, close }: { session:
     const n = sequence.current; setBusy(true); setErrors([]);
     try {
       const result = await window.workbench.call<AttachResultsResponse>('session.attachResults', { id: session.id, references: selected.map(item => item.reference) });
-      const refreshError = await changed().then(() => undefined, (error: any) => '关联已保存，但界面刷新失败：' + error.message);
+      const refreshError = await changed().then(() => undefined, () => result.added.length ? `已关联 ${result.added.length} 项成果，但界面暂未刷新。请重新打开此窗口核对，不要重复关联。` : '成果列表暂未刷新，未完成的选择已保留。请重新打开此窗口核对。');
       if (sequence.current !== n) return;
       const added = new Set(result.added.map(item => resultVersionKey(item.reference)));
       setSelected(value => value.filter(item => !added.has(resultVersionKey(item.reference))));
       if (!result.failed.length && !refreshError) { if (close) close(); else setLocalOpen(false); }
-      else { setErrors([...(result.added.length && result.failed.length ? [`已关联 ${result.added.length} 项，其余未完成。`] : []), ...result.failed.map(failure => `${selected.find(item => resultVersionKey(item.reference) === resultVersionKey(failure.reference))?.title || '成果'}：${failure.error}`), ...(refreshError ? [refreshError] : [])]); void load('personal', n); void load('team', n); }
-    } catch (error: any) { if (sequence.current === n) setErrors([error.message]); }
+      else { setErrors([...(result.added.length ? [`已关联 ${result.added.length} 项。`] : []), ...result.failed.map(failure => { const title = selected.find(item => resultVersionKey(item.reference) === resultVersionKey(failure.reference))?.title || '这项成果'; return contextualError(failure.error, { domain: failure.reference.scope === 'team' ? 'central' : 'local', operation: `关联“${title}”` }, { UNCLASSIFIED_FAILURE: `“${title}”没有关联，选择已保留。点“关联 ${result.failed.length} 项成果”再试，已关联的不会重复添加。` }); }), ...(refreshError ? [refreshError] : [])]); void load('personal', n); void load('team', n); }
+    } catch (error: any) { if (sequence.current === n) setErrors([uiErrorMessage(error, { domain: 'local', operation: '关联成果' })]); }
     finally { if (sequence.current === n) setBusy(false); }
   };
   return <>{!opened && <button className="text-button" disabled={!session.binding || !supportsSessionResults(session)} title={session.codexRemote || session.cursorNative ? '此接入方式暂不支持本机成果引用' : undefined} onClick={() => setLocalOpen(true)}>关联成果</button>}{open && <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) dismiss(); }} onKeyDown={event => {
@@ -66,14 +69,14 @@ export function SessionMaterials({ session, changed, opened, close }: { session:
     }
   }}><section className="modal wide session-results-dialog" ref={dialog} role="dialog" aria-modal="true" aria-label="关联成果"><header><h2>关联成果 · {session.binding?.project.name}</h2><button className="icon" disabled={busy} aria-label="关闭成果选择" onClick={dismiss}><X size={18}/></button></header>
     <div className="session-results-toolbar"><div className="session-results-tabs" role="tablist" aria-label="成果来源">{(['personal', 'team'] as const).map(kind => <button key={kind} role="tab" aria-selected={scope === kind} onClick={() => { setScope(kind); setPreview(undefined); }}>{kind === 'personal' ? '个人成果' : '团队成果'}</button>)}</div><label className="session-results-search"><Search size={15}/><input type="search" aria-label="搜索关联成果" placeholder="搜索当前来源的标题、内容或作者" value={query} onChange={event => setQuery(event.target.value)}/></label><button className="icon" aria-label="刷新可关联成果" disabled={loading.includes(scope)} onClick={() => void load(scope, sequence.current)}><RefreshCw size={15} className={loading.includes(scope) ? 'spin' : ''}/></button></div>
-    <div className="session-results-notices">{errors.length > 0 && <div className="inline-error" role="alert">{errors.map((error, index) => <div key={index}>{error}</div>)}</div>}{catalog?.warning && <p className="muted small" role="status">{catalog.warning}</p>}{loading.includes(scope) && <p className="muted small" role="status">{catalog?.available ? '正在更新列表，可以继续选择已有成果。' : '正在读取成果…'}</p>}</div>
+    <div className="session-results-notices">{errors.length > 0 && <div className="inline-error" role="alert">{errors.map((error, index) => <div key={index}>{error}</div>)}<ErrorLogLink message={errors.at(-1)}/></div>}{catalog?.warning && <p className="muted small" role="status">{uiErrorMessage(catalog.warning, { domain: scope === 'team' ? 'central' : 'local', operation: '读取可关联成果' })} <ErrorLogLink message={catalog.warning}/></p>}{loading.includes(scope) && <p className="muted small" role="status">{catalog?.available ? '正在更新列表，可以继续选择已有成果。' : '正在读取成果…'}</p>}</div>
     <div className="session-results-layout"><aside className="result-directory-sidebar"><b>目录</b><DirectoryTree directories={directories} value={folder} change={value => { setFolders(old => ({ ...old, [scope]: value })); setPreview(undefined); }} all disabled={!catalog?.available}/></aside><div className="session-results-items" aria-label="可关联成果">
       {visible.map(item => {
         const picked = selected.find(row => resultReferenceKey(row.reference) === resultReferenceKey(item.reference)), used = item.linkedVersion === item.reference.version && !item.needsLinkUpgrade;
         return <article key={resultVersionKey(item.reference)} className={'session-result-option' + (preview && resultVersionKey(preview.reference) === resultVersionKey(item.reference) ? ' is-previewed' : '')}>
           <label><input type="checkbox" aria-label={`关联成果：${item.title}`} checked={used || !!picked} disabled={busy || used || !!item.unavailable} onChange={() => toggle(item)}/><span><b>{item.title}</b><small>{item.author} · v{item.reference.version}{used ? ' · 已关联' : item.linkedVersion ? ` · 已关联 v${item.linkedVersion}` : ''}{item.needsLinkUpgrade ? ' · 可补全附件入口' : ''}{item.attachments.length ? ` · ${item.attachments.length} 个附件入口` : ''}</small>{(query.trim() || folder === 'all') && <small>{resultDirectoryLabel(resultItemFolder(item, directories), directories)}</small>}</span></label>
           <div className="session-result-actions"><button className="text-button" onClick={() => setPreview(item)}><FileText size={13}/>预览</button>{!used && !picked && !!item.linkedVersion && <button className="text-button" disabled={busy || !!item.unavailable} onClick={() => chooseLatest(item)}>{item.needsLinkUpgrade && item.linkedVersion === item.reference.version ? '补全附件入口' : '更新引用'}</button>}{used && <Check size={14}/>}</div>
-          {picked && picked.reference.version !== item.reference.version && <p className="session-result-version-change">已选 v{picked.reference.version}，当前已更新为 v{item.reference.version}。<button className="text-button" disabled={busy} onClick={() => chooseLatest(item)}>改选新版</button></p>}{item.unavailable && <p className="inline-error">{item.unavailable}</p>}
+          {picked && picked.reference.version !== item.reference.version && <p className="session-result-version-change">已选 v{picked.reference.version}，当前已更新为 v{item.reference.version}。<button className="text-button" disabled={busy} onClick={() => chooseLatest(item)}>改选新版</button></p>}{item.unavailable && <p className="inline-error">{uiErrorMessage(item.unavailable, { domain: scope === 'team' ? 'central' : 'local', operation: '读取成果' })}</p>}
         </article>;
       })}{!visible.length && !loading.includes(scope) && <p className="session-results-empty muted">{catalog?.available ? query.trim() ? '没有匹配成果。' : '此目录暂无可关联成果。' : '没有可用的本地成果清单。'}</p>}
     </div>{preview && <aside className="session-result-preview" aria-label="成果预览"><div className="row"><b>{preview.title} · v{preview.reference.version}</b><span className="spacer"/><button className="icon" aria-label="关闭成果预览" onClick={() => setPreview(undefined)}><X size={15}/></button></div><Markdown text={preview.content}/>{preview.attachments.length > 0 && <section><h3>附件（按需读取）</h3>{preview.attachments.map(file => <p key={file.sha256 + file.name}>{file.name} · {file.size} 字节</p>)}<p className="muted small">关联后提供取件链接，不预先下载或读取。</p></section>}</aside>}</div>

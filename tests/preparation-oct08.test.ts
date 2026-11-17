@@ -26,7 +26,7 @@ test('October 8 categories and per-category directions survive generation and ed
       { category: 'exploration', title: '边界复测记录', body: '普通样例通过，长尾仍需复测。' },
       { category: 'todo', title: '补充长尾复测', body: '对公开长尾样例复测并保留证据。' },
     ] } });
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = fixture.launcher;
     const session = await wb.createSession('codex', root, offlineProjectId);
     session.messages.push({ id: 'first', role: 'user', text: '普通样例验证已通过，还需补充长尾测试并记录边界。', createdAt: new Date().toISOString() });
     // A previous project-profile record must not reserve or lock this project.

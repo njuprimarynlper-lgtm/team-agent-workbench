@@ -1,3 +1,4 @@
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { AgentSession, ContentUpdate } from '../shared/types';
 import { activityPending, type ActivityJob, type ActivityChoice, type ActivityActionResult } from '../shared/activity-assistant';
@@ -39,7 +40,7 @@ export const ActivityRecommendations = forwardRef<ActivityPanelHandle, {
   const present = async (ids: string[]) => { if (ids.length) { await window.workbench.call('activity.presented', { id: session.id, jobIds: ids }); await changed(); } };
   const open = () => {
     setDisplayed(pending.map(j => j.id)); setExpanded(true); setError('');
-    void present(pending.map(j => j.id)).catch(e => { if (mounted.current) setError(e.message); });
+    void present(pending.map(j => j.id)).catch(e => { if (mounted.current) setError(uiErrorMessage(e, { domain: 'model', operation: '处理相关动态' })); });
   };
   useImperativeHandle(ref, () => ({ beforeSend: () => {
     if (running) return false;
@@ -60,30 +61,30 @@ export const ActivityRecommendations = forwardRef<ActivityPanelHandle, {
         return [id, { attach: choice.attach && !result?.sourceId, save: choice.save && !result?.conclusionId }];
       })));
       await changed(); if (!mounted.current) return;
-      const errors = results.filter(r => r.error).map(r => r.error).join('\n');
+      const errors = results.filter(r => r.error).map(r => uiErrorMessage(r.error, { domain: 'central', operation: '处理所选动态' })).join('\n');
       if (errors) { setError(errors); return; }
       setExpanded(false);
       if (sendAfter) { setSendAfter(false); await latest.current.send(); }
-    } catch (e: any) { if (mounted.current) setError(e.message); }
+    } catch (e: any) { if (mounted.current) setError(uiErrorMessage(e, { domain: 'model', operation: '处理相关动态' })); }
     finally { if (mounted.current) setBusy(false); }
   };
   const skip = async () => {
     if (busy) return; setBusy(true);
     try { await present(pending.map(j => j.id)); if (!mounted.current) return; setExpanded(false); if (sendAfter) { setSendAfter(false); await latest.current.send(); } }
-    catch (e: any) { if (mounted.current) setError(e.message); }
+    catch (e: any) { if (mounted.current) setError(uiErrorMessage(e, { domain: 'model', operation: '处理相关动态' })); }
     finally { if (mounted.current) setBusy(false); }
   };
   if (session.closedAt || running || !pending.length && !expanded && !failed) return null;
   return <section className="activity-recommendations" aria-label="本会话相关新动态">
-    <div className="activity-recommendations-heading"><span>{fresh.length ? `新增 ${fresh.length} 条可能相关的动态` : pending.length ? `${pending.length} 条相关动态待处理` : failed ? '新动态判断暂未完成' : '相关动态'}{fresh.length > 0 && pending.length > fresh.length && `，另有 ${pending.length - fresh.length} 条待处理`}</span>{(rows.length > 0 || expanded) && <button className="text-button" disabled={busy} onClick={() => expanded ? setExpanded(false) : open()}>{expanded ? '收起' : '查看'}</button>}</div>
-    {failed && <div className="activity-background-error" role="status">有 {failedJobs.length} 条新动态暂未完成判断，将在新动态到达、资料或连接恢复后自动继续。你可以继续对话。</div>}
+    <div className="activity-recommendations-heading"><span>{fresh.length ? `新增 ${fresh.length} 条可能相关的动态` : pending.length ? `${pending.length} 条相关动态待处理` : failed ? '相关动态分析暂未完成' : '相关动态'}{fresh.length > 0 && pending.length > fresh.length && `，另有 ${pending.length - fresh.length} 条待处理`}</span>{(rows.length > 0 || expanded) && <button className="text-button" disabled={busy} onClick={() => expanded ? setExpanded(false) : open()}>{expanded ? '收起' : '查看'}</button>}</div>
+    {failed && <div className="activity-background-error" role="status">有 {failedJobs.length} 条新动态还没分析好，稍后会自动再试。你可以继续对话。<details><summary>查看未完成原因</summary>{[...new Set(failedJobs.map(job => 'AI给出的推荐无法对应到这条动态，已暂缓展示。原动态仍然保留。'))].map(message => <p key={message}>{message}</p>)}</details></div>}
     {expanded && <>
       <div className="activity-bulk"><span>批量选择当前展开条目：</span>{(['attach', 'save'] as const).map(key => {
         const candidates = visible.filter(j => key === 'attach' ? !j.attachedSourceId : !j.availableConclusionId);
         return <label key={key}><input type="checkbox" disabled={busy || !candidates.length} checked={!!candidates.length && candidates.every(j => choices[j.id]?.[key])} onChange={e => candidates.forEach(j => setChoice(j, key, e.target.checked))}/>{key === 'attach' ? '加入当前会话' : '存入个人成果库'}</label>;
       })}</div>
       <div className="activity-recommendation-list">{visible.map(job => <ActivityRecommendationCard key={job.id} job={job} attach={!!choices[job.id]?.attach} save={!!choices[job.id]?.save} busy={busy}
-        choose={(key, value) => setChoice(job, key, value)} view={() => view(job.event)} ignore={() => { setBusy(true); void window.workbench.call('activity.ignore', { id: session.id, jobIds: [job.id] }).then(changed).catch(e => setError(e.message)).finally(() => setBusy(false)); }}/>)}</div>
+        choose={(key, value) => setChoice(job, key, value)} view={() => view(job.event)} ignore={() => { setBusy(true); void window.workbench.call('activity.ignore', { id: session.id, jobIds: [job.id] }).then(changed).catch(e => setError(uiErrorMessage(e, { domain: 'model', operation: '处理相关动态' }))).finally(() => setBusy(false)); }}/>)}</div>
       {rows.length > limit && <button className="text-button" disabled={busy} onClick={() => setLimit(value => value + 20)}>展开其余 {rows.length - limit} 条</button>}
       <div className="activity-recommendations-footer"><span>已选择：加入会话 {chosen.filter(c => c.attach).length} 条，存库 {chosen.filter(c => c.save).length} 条</span><button className="primary" disabled={busy || !chosen.length} onClick={() => void execute()}>{busy ? '正在处理…' : sendAfter ? '执行所选并发送' : '执行所选'}</button><button className="secondary" disabled={busy} onClick={() => void skip()}>{sendAfter ? '本轮跳过，直接发送' : '稍后处理'}</button></div>
     </>}

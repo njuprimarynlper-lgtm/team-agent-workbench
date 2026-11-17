@@ -1,0 +1,70 @@
+[
+  {
+    "id": "native-user-start",
+    "entry": "用户端启动失败",
+    "condition": "隔离运行时模拟本机会话资料读取异常",
+    "source": "src/main/index.ts → src/main/startup-failure.ts",
+    "beforeScreenshot": "screenshots/native-user-start-before.jpg",
+    "afterScreenshot": "screenshots/native-user-start-after.jpg",
+    "beforeUI": "工作台启动失败\n本地会话资料无法读取：C:/audit/sessions.json\nError: EIO: read failed",
+    "afterUI": "读不到这台电脑上的会话记录，工作台无法启动。\n请不要删除工作台数据。点“打开日志文件夹”，将最新日志交给维护人员。\n关闭\n打开日志文件夹\n关闭",
+    "pass": true,
+    "capture": "actual production native Electron dialog captured with computer-use:computer-use",
+    "validation": {
+      "observed": "native-user-start-round2-observation.json",
+      "sha256": "036e299caad0fdbd00a0f043937f389dcdbc4d409ef94f362cd4447e8688d2f8",
+      "recovery": {
+        "action": "打开日志文件夹",
+        "observed": "Explorer breadcrumb .test-data/error-audit/native-user-start-after/logs",
+        "passed": true,
+        "filesDeleted": false
+      },
+      "conditions": "同一隔离合成IO故障；原生系统自动布局会随正文长度调整尺寸，未裁切或合成截图"
+    },
+    "readabilityRound": 2
+  },
+  {
+    "id": "native-admin-start",
+    "entry": "管理员版启动失败",
+    "condition": "隔离运行时模拟本机资料读取异常",
+    "source": "src/admin/main.ts → src/main/startup-failure.ts",
+    "beforeScreenshot": "screenshots/native-admin-start-before.jpg",
+    "afterScreenshot": "screenshots/native-admin-start-after.jpg",
+    "beforeUI": "管理员版启动失败\n本地会话资料无法读取：C:/audit/sessions.json\nError: EIO: read failed",
+    "afterUI": "读不到这台电脑上的管理配置，工作台无法启动。\n请不要删除工作台数据。点“打开日志文件夹”，将最新日志交给维护人员。\n关闭\n打开日志文件夹\n关闭",
+    "pass": true,
+    "capture": "actual production native Electron dialog captured with computer-use:computer-use",
+    "validation": {
+      "observed": "native-admin-start-round2-observation.json",
+      "sha256": "4c59411ced6639672ea9fa3f0810d46eb4c3b802fb7ac66e8cccc3cb75b8fef4",
+      "recovery": {
+        "action": "打开日志文件夹",
+        "sharedHandlerVerifiedBy": "native-user-start-round2-observation.json"
+      },
+      "conditions": "同一隔离合成IO故障；原生系统自动布局会随正文长度调整尺寸，未裁切或合成截图"
+    },
+    "readabilityRound": 2
+  },
+  {
+    "id": "native-close-save",
+    "entry": "关闭后记录保存失败",
+    "condition": "窗口关闭后保存本地记录失败",
+    "source": "src/main/index.ts → src/main/startup-failure.ts",
+    "beforeScreenshot": "screenshots/native-close-save-before.jpg",
+    "afterScreenshot": "screenshots/native-close-save-after.jpg",
+    "beforeUI": "未保存的编辑\n保存失败，窗口已经关闭。\n本地会话资料无法读取：C:/audit/sessions.json\nError: EIO: read failed\n请恢复目录或磁盘空间后重新打开工作台。",
+    "afterUI": "窗口已关闭，但最近的会话记录可能没有保存。\n请不要删除工作台数据。点“打开日志文件夹”，将最新日志交给维护人员排查。\n关闭\n打开日志文件夹\n关闭",
+    "pass": true,
+    "capture": "actual production native Electron dialog captured with computer-use:computer-use",
+    "validation": {
+      "observed": "native-close-save-round2-observation.json",
+      "sha256": "02f70373cbb27e4f95a15a6bf6ec1ccc959171d78357a6d0fcc25adfda53450a",
+      "recovery": {
+        "action": "打开日志文件夹",
+        "sharedHandlerVerifiedBy": "native-user-start-round2-observation.json"
+      },
+      "conditions": "同一隔离合成IO故障；原生系统自动布局会随正文长度调整尺寸，未裁切或合成截图"
+    },
+    "readabilityRound": 2
+  }
+]

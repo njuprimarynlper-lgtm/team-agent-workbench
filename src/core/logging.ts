@@ -6,7 +6,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import { runtimeAssets } from '../shared/runtime-assets';
-import type { LogCategory, LogRecord, LogScope, LogStatus } from '../shared/logs';
+import type { LogCategory, LogRecord, LogScope, LogStatus, LogRef, LogReadScope, LogQueryInput, LogQueryResult, LogDetailResult } from '../shared/logs';
 import packageJson from '../../package.json';
 import { traceFiles } from './trace-reader';
 import fsSync from 'node:fs';
@@ -16,15 +16,37 @@ const MiB = 1024 * 1024;
 export function redactLogText(value: unknown, maximum = 4000): string {
   const text = value instanceof Error ? value.message : String(value ?? '');
   return text.slice(0, 32768)
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
     .replace(/TAE[12]\.[A-Za-z0-9_-]+/g, '[接入码]')
-    .replace(/\bBearer\s+[^\s"',;]+/gi, 'Bearer [凭据]')
+    .replace(/\b(Bearer|Basic)\s+[^\s"',;]+/gi, '$1 [凭据]')
     .replace(/\b(sk-[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g, '[令牌]')
-    .replace(/((?:password|passwd|passphrase|access[_-]?code|api[_-]?key|token|secret|authorization|cookie)["']?\s*[:=]\s*)["']?[^\s,;"'}]+/gi, '$1[凭据]')
+    .replace(/((?:password|passwd|passphrase|access[_-]?code|api[_-]?key|token|secret|authorization|cookie)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/gi, '$1[凭据]')
+    .replace(/((?:password|passwd|passphrase|access[_-]?code|api[_-]?key|token|secret|authorization|cookie)["']?\s*[:=]\s*)[^\s,;"'}]+/gi, '$1[凭据]')
     .replace(/https?:\/\/[^\s)"']+/gi, url => { try { const parsed = new URL(url); return `${parsed.protocol}//${parsed.hostname}${parsed.port ? ':' + parsed.port : ''}/[路径]`; } catch { return '[网址]'; } })
     .replaceAll(os.homedir(), '%USERPROFILE%').slice(0, maximum);
 }
 const opaque = (value?: string) => value ? createHash('sha256').update(value).digest('hex').slice(0, 24) : undefined;
 const identifier = (value: unknown) => typeof value === 'string' && /^[\w.:-]{1,128}$/.test(value) ? value : undefined;
+export function logErrorCause(error: unknown) {
+  const seen = new Set<unknown>(), values: string[] = []; let current = error instanceof Error ? error.cause : undefined;
+  while (current !== undefined && !seen.has(current) && values.length < 4) {
+    seen.add(current);
+    values.push(redactLogText(current instanceof Error ? `${current.name}: ${current.message}${'code' in current ? ` (${String(current.code)})` : ''}` : current, 1500));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return values.length ? values.join('\nCaused by: ') : undefined;
+}
+function safeReadRecord(row: LogRecord, detail: boolean): LogRecord {
+  const text = (value: unknown, maximum: number) => typeof value === 'string' ? redactLogText(value, maximum) : undefined;
+  const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+  // Existing files are untrusted input. Never copy arbitrary fields into IPC.
+  return { schema: 1, id: row.id, at: row.at, version: text(row.version, 40) || '', instance: identifier(row.instance) || '', category: row.category,
+    name: text(row.name, 120) || 'unknown.operation', account: identifier(row.account), centralId: identifier(row.centralId), projectId: identifier(row.projectId), sessionId: identifier(row.sessionId), turnId: identifier(row.turnId), operationId: identifier(row.operationId), entityId: identifier(row.entityId),
+    relatedIds: Array.isArray(row.relatedIds) ? row.relatedIds.filter(item => identifier(item)).slice(0, 50) : undefined, origin: ['user', 'ai', 'background'].includes(row.origin || '') ? row.origin : undefined,
+    provider: identifier(row.provider), route: identifier(row.route), level: ['info', 'warning', 'error'].includes(row.level || '') ? row.level : undefined, outcome: text(row.outcome, 50), code: text(row.code, 80), durationMs: number(row.durationMs), count: number(row.count), suppressed: number(row.suppressed), lastAt: typeof row.lastAt === 'string' && Number.isFinite(Date.parse(row.lastAt)) ? row.lastAt : undefined,
+    ...(detail ? { detail: text(row.detail, 4000), stack: text(row.stack, 8000), cause: text(row.cause, 6000) } : {}) };
+}
 const roots = new Map<string, LogService>();
 export function configureLogs(root: string) { const key = path.resolve(root); let value = roots.get(key); if (!value) { value = new LogService(key); roots.set(key, value); } return value; }
 export function logsFor(root: string) {
@@ -84,21 +106,21 @@ export class LogService extends EventEmitter {
     const id = ++this.sequence; this.worker.ref();
     return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.worker!.postMessage({ ...message, id }); });
   }
-  record(category: LogCategory, name: string, scope: LogScope = {}, fields: Partial<Pick<LogRecord, 'outcome' | 'level' | 'durationMs' | 'code' | 'detail' | 'stack' | 'count'>> = {}) {
+  record(category: LogCategory, name: string, scope: LogScope = {}, fields: Partial<Pick<LogRecord, 'outcome' | 'level' | 'durationMs' | 'code' | 'detail' | 'stack' | 'cause' | 'count'>> = {}): LogRef | undefined {
     if (this.disposed) return;
     scope = { ...logContext.getStore(), ...Object.fromEntries(Object.entries(scope).filter(([, value]) => value !== undefined)) };
     const now = Date.now();
     const record: LogRecord = { schema: 1, id: randomUUID(), at: new Date(now).toISOString(), version: logVersion, instance: this.instance, category, name: /^[A-Za-z][A-Za-z0-9_./:-]{0,119}$/.test(name) ? name : 'invalid.operation',
-      account: identifier(scope.account), projectId: identifier(scope.projectId), sessionId: identifier(scope.sessionId), turnId: identifier(scope.turnId), operationId: identifier(scope.operationId), origin: scope.origin || 'background', provider: identifier(scope.provider), route: identifier(scope.route),
+      account: identifier(scope.account), centralId: identifier(scope.centralId), projectId: identifier(scope.projectId), sessionId: identifier(scope.sessionId), turnId: identifier(scope.turnId), operationId: identifier(scope.operationId), origin: scope.origin || 'background', provider: identifier(scope.provider), route: identifier(scope.route),
       entityId: typeof scope.entityId === 'string' && /^[a-f0-9-]{36}$/i.test(scope.entityId) ? scope.entityId : undefined,
       relatedIds: Array.isArray(scope.relatedIds) ? [...new Set(scope.relatedIds.filter(value => typeof value === 'string' && /^[a-f0-9-]{36}$/i.test(value)))].slice(0, 50) : undefined,
       outcome: fields.outcome?.slice(0, 50), level: fields.level || 'info', durationMs: Number.isFinite(fields.durationMs) ? Math.max(0, Math.round(fields.durationMs!)) : undefined, code: fields.code?.slice(0, 80), count: fields.count,
-      detail: fields.detail ? redactLogText(fields.detail) : undefined, stack: fields.stack ? redactLogText(fields.stack, 8000) : undefined };
+      detail: fields.detail ? redactLogText(fields.detail) : undefined, stack: fields.stack ? redactLogText(fields.stack, 8000) : undefined, cause: fields.cause ? redactLogText(fields.cause, 6000) : undefined };
     if (Buffer.byteLength(JSON.stringify(record)) > 15000) { record.stack = record.stack?.slice(0, 2000); record.detail = record.detail?.slice(0, 1000); }
     if (record.level === 'error' || record.level === 'warning') {
-      const key = JSON.stringify([name, scope.account, scope.projectId, scope.sessionId, record.code, record.detail]);
+      const key = JSON.stringify([name, scope.account, scope.centralId, scope.projectId, scope.sessionId, record.code, record.detail]);
       const prior = this.repeats.get(key);
-      if (prior && now < prior.until) { prior.count++; prior.lastAt = record.at; return; }
+      if (prior && now < prior.until) { prior.count++; prior.lastAt = record.at; return { id: prior.record.id, operationId: prior.record.operationId }; }
       if (this.repeats.size >= 500) { this.drop(); return; }
       this.repeats.set(key, { record, count: 1, lastAt: record.at, until: now + 60000 });
     }
@@ -107,7 +129,8 @@ export class LogService extends EventEmitter {
       if (now - (this.progress.get(key) || 0) < 5000) { this.drop(); return; }
       this.progress.set(key, now); if (this.progress.size > 1000) this.progress.delete(this.progress.keys().next().value!);
     }
-    this.enqueue(record);
+    const before = this.suppressed; this.enqueue(record);
+    return this.suppressed === before ? { id: record.id, operationId: record.operationId } : undefined;
   }
   private drop() { this.suppressed++; this.unreported++; }
   private enqueue(record: LogRecord, exempt = false) {
@@ -223,6 +246,16 @@ export class LogService extends EventEmitter {
   }
   async seal(directory: string) { await this.traceSnapshot(directory); }
   async files(): Promise<{ file: string; name: string; category: LogCategory; at: number; bytes: number }[]> { await this.flush(); return this.request({ action: 'files' }); }
+  async query(input: LogQueryInput, scope: LogReadScope): Promise<LogQueryResult> {
+    await this.flush();
+    const result: LogQueryResult = await this.request({ action: 'query', input, scope });
+    return { ...result, items: result.items.map(row => safeReadRecord(row, false)), coverage: { ...result.coverage, ...(this.error ? { unavailable: true } : {}) } };
+  }
+  async get(id: string, scope: LogReadScope): Promise<LogDetailResult> {
+    await this.flush();
+    const result: LogDetailResult = await this.request({ action: 'get', recordId: id, scope });
+    return { ...result, record: result.record ? safeReadRecord(result.record, true) : undefined, coverage: { ...result.coverage, ...(this.error ? { unavailable: true } : {}) } };
+  }
   async status(traceRoots: string[]): Promise<LogStatus> { const usage = await this.request({ action: 'status', roots: traceRoots }); usage.diagnostic.limit = 30 * MiB; usage.diagnostic.bytes += this.startupBytes; return { ...usage, queued: this.records.length + this.traces.length, queueBytes: this.bytes + this.traceBytes, suppressed: this.suppressed, lastWrite: this.lastWrite, error: this.error, traceError: this.traceError, exporting: this.exporting || this.exportPending }; }
   async cleanup() { await this.flush(); this.records = []; this.bytes = 0; this.repeats.clear(); this.progress.clear(); this.unreported = 0; await this.request({ action: 'cleanup', clear: true }); }
   async close() { this.disposed = true; clearInterval(this.timer); clearInterval(this.cleanupTimer); this.flushRepeats(true); await this.flush(); if (this.worker) { const worker = this.worker; this.worker = undefined; await worker.terminate(); } roots.delete(this.root); }

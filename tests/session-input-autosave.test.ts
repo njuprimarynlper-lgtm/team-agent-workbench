@@ -92,3 +92,14 @@ test('failed input save preserves the old file and latest in-memory text; an exp
     assert.equal(JSON.parse(await fs.readFile(path.join(root, 'inputs.json'), 'utf8')).session.text, '不应丢失的新稿');
   } finally { t.mock.restoreAll(); await fs.rm(root, { recursive: true, force: true }); }
 });
+
+
+test('the global save status follows failed drafts in this account and clears only after a durable retry', async () => {
+  const drafts = new SessionInputDrafts(), otherAccount = new SessionInputDrafts();
+  let notifications = 0; const stop = drafts.subscribeStatus(() => notifications++);
+  drafts.write('s', input('保留草稿'), async () => { throw Object.assign(Error('ENOSPC'), { code: 'ENOSPC' }); }); await tick();
+  assert.equal(drafts.unsavedCount(), 1); assert.equal(otherAccount.unsavedCount(), 0); assert(notifications > 0);
+  await assert.rejects(drafts.flush('s', async () => { throw Object.assign(Error('ENOSPC'), { code: 'ENOSPC' }); }));
+  assert.equal(drafts.unsavedCount(), 1); assert.equal(drafts.read('s').text, '保留草稿');
+  await drafts.flush('s', async () => {}); assert.equal(drafts.unsavedCount(), 0); stop();
+});

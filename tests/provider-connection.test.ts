@@ -93,6 +93,8 @@ test('Cursor checks its own upstream and a cached account cannot mask a failed r
     return (action === 'provider.auth' ? auth : true) as T;
   }, 'cursor', 'D:/work', undefined, undefined, 'management');
   assert.deepEqual(calls[0].payload, { provider: 'cursor', networkRoute: 'management' });
-  assert.match(result.auth.connectionIssue || '', /HTTP 403/);
+  assert.match(result.auth.connectionIssue || '', /管理端.*网络检测/);
+  assert.match(result.auth.connectionIssue || '', /接入码/);
+  assert.doesNotMatch(result.auth.connectionIssue || '', /HTTP 403|账号.*(?:过期|未登录)/);
   assert(!calls.some(x => x.action === 'provider.catalog'));
 });

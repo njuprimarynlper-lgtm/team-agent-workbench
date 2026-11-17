@@ -68,7 +68,7 @@ export function codexAuth(result: any): ProviderAuth {
 }
 export function cursorAuth(output: string, code: number | null, environmentCredential = false): ProviderAuth {
   let result: any;
-  try { result = JSON.parse(output); } catch { return state('error', '无法读取 Cursor 登录状态，请使用支持 status --format json 的 Cursor Agent CLI。'); }
+  try { result = JSON.parse(output); } catch { return state('error', '暂时查不到 Cursor 是否已登录。先点“重新检测”；仍然查不到时，点“查看日志”把故障信息交给维护人员。'); }
   if (code !== 0 || result.status === 'error') return authFailure(result.message || 'Status check failed');
   if (result.status === 'authenticated' && result.isAuthenticated === true) {
     if (/unable to fetch/i.test(result.message || '')) return {
@@ -86,7 +86,7 @@ export function cursorAuth(output: string, code: number | null, environmentCrede
 
 export function claudeAuth(output: string, code: number | null, environmentCredential = false): ProviderAuth {
   let result: any;
-  try { result = JSON.parse(output); } catch { return state('error', '无法读取 Claude Code 登录状态，请更新 CLI 后重试。'); }
+  try { result = JSON.parse(output); } catch { return state('error', '暂时查不到 Claude Code 是否已登录。先点“重新检测”；仍然查不到时，点“查看日志”把故障信息交给维护人员。'); }
   if (code === 0 && result?.loggedIn === true) return { ...state('authenticated', '正在使用本机 Claude Code 已登录的账号。'), identity: identityText(result.email), plan: identityText(result.subscriptionType) };
   if (code === 1 && result?.loggedIn === false) return environmentCredential ? state('configured', '已配置 Claude Code 环境凭据，尚未在线验证。') : state('unauthenticated', '尚未登录 Claude Code，请先登录个人账号。');
   return authFailure(result?.error || 'Claude Code auth status failed');

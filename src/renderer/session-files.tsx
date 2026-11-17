@@ -1,31 +1,35 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import type { FilePreview, SessionFile } from '../shared/types';
 import { Copy, FolderOpen, RefreshCw } from 'lucide-react';
 
-export function SessionFilesDialog({ sessionId, initialPath, close }: { sessionId: string; initialPath?: string; close: () => void }) {
+export function SessionFilesDialog({ sessionId, initialPath, cwd, close }: { sessionId: string; initialPath?: string; cwd?: string; close: () => void }) {
   const [files, setFiles] = useState<SessionFile[]>([]), [preview, setPreview] = useState<FilePreview>(), [error, setError] = useState(''), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
   const request = useRef(0);
   const dialog = useRef<HTMLElement>(null);
+  const [targetPath, setTargetPath] = useState(initialPath);
   useEffect(() => {
     const previous = document.activeElement;
     dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
     return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
   }, []);
   const show = async (target: string) => {
-    const token = ++request.current; setBusy(true); setError(''); setCopied(false); setPreview(undefined);
+    const token = ++request.current; setTargetPath(target); setBusy(true); setError(''); setCopied(false); setPreview(undefined);
     try { const result = await window.workbench.call<FilePreview>('session.file.preview', { id: sessionId, path: target }); if (token === request.current) setPreview(result); }
-    catch (error: any) { if (token === request.current) setError(error.message); } finally { if (token === request.current) setBusy(false); }
+    catch (error: any) { if (token === request.current) setError(contextualError(error, { domain: 'local', operation: '预览会话文件' }, { FILE_ACCESS_DENIED: `无法打开“${target.replaceAll('\\','/').split('/').pop()}”：Windows 拒绝读取这个文件。检查文件的访问权限后，点“重试预览文件”。`, FILE_MISSING: '这个文件已经不在原位置。请点“刷新文件”重新找，或回到会话选择别的文件。', UNCLASSIFIED_FAILURE: '这次没能打开这个文件。点“重试预览文件”再试。' })); } finally { if (token === request.current) setBusy(false); }
   };
   const load = async () => {
-    const token = ++request.current; setBusy(true); setError('');
+    const token = ++request.current; setTargetPath(undefined); setBusy(true); setError('');
     try { const result = await window.workbench.call<SessionFile[]>('session.files', { id: sessionId }); if (token === request.current) setFiles(result); }
-    catch (error: any) { if (token === request.current) setError(error.message); } finally { if (token === request.current) setBusy(false); }
+    catch (error: any) { if (token === request.current) setError(contextualError(error, { domain: 'local', operation: '读取会话文件列表' }, { FILE_ACCESS_DENIED: 'Windows 不允许读取这个工作目录，所以文件列表没有打开。检查上方目录的访问权限后，点“刷新文件”。', UNCLASSIFIED_FAILURE: '这次没读到会话文件列表。点“刷新文件”再试。' })); } finally { if (token === request.current) setBusy(false); }
   };
   useEffect(() => { setFiles([]); setPreview(undefined); if (initialPath) void show(initialPath); else void load(); return () => { request.current++; }; }, [sessionId, initialPath]);
   const act = async (action: 'copy' | 'reveal' | 'open') => {
     if (!preview) return; const token = request.current; setError('');
     try { if (action === 'copy') { await window.workbench.call('copy', preview.path); if (token === request.current) setCopied(true); } else await window.workbench.call('session.file.open', { id: sessionId, path: preview.path, reveal: action === 'reveal' }); }
-    catch (error: any) { if (token === request.current) setError(error.message); }
+    catch (error: any) { if (token === request.current) setError(uiErrorMessage(error, { domain: 'local', operation: action === 'copy' ? '复制文件路径' : action === 'reveal' ? '打开文件所在目录' : '用系统应用打开文件' })); }
   };
   return <div className="modal-backdrop" onKeyDown={event => {
     // A preview can be portalled out of the history dialog. Keep its keyboard
@@ -39,7 +43,8 @@ export function SessionFilesDialog({ sessionId, initialPath, close }: { sessionI
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
   }}><section ref={dialog} className="modal wide session-files-modal" role="dialog" aria-modal="true" aria-labelledby="session-files-title"><header><h2 id="session-files-title">{preview ? preview.name : '会话文件'}</h2><button className="icon" aria-label="关闭窗口" onClick={close}>×</button></header><div className="modal-body">
-    {error && <div className="inline-error" role="alert">{error}</div>}{busy && <p role="status">正在读取文件…</p>}
+    {!preview && (targetPath || cwd) && <p className="muted small">{targetPath ? '当前文件：' : '会话工作目录：'}<code>{targetPath || cwd}</code></p>}
+    {error && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></div>}{busy && <p role="status">正在读取文件…</p>}
     {preview ? <><p className="muted small">完整路径</p><code className="session-file-path">{preview.path}</code><div className="row session-file-actions"><button className="secondary compact" onClick={() => void act('copy')}><Copy size={13}/>{copied ? '路径已复制' : '复制路径'}</button><button className="secondary compact" onClick={() => void act('reveal')}><FolderOpen size={13}/>打开所在文件夹</button>{!/\.(exe|com|bat|cmd|ps1|sh|msi|vbs|vbe|js|jse|wsf|wsh|scr|lnk|url|reg|hta)$/i.test(preview.path) && <button className="secondary compact" onClick={() => void act('open')}>用系统应用打开</button>}</div>{preview.type === 'text' ? <pre className="session-file-preview">{preview.content}</pre> : preview.type === 'image' ? <img className="session-file-image" src={preview.content} alt={preview.name}/> : <p className="muted">此格式暂不支持页面预览，可以使用系统应用打开，或定位到文件夹。</p>}{preview.truncated && <p className="muted small">文件较大，这里显示前 512 KB；完整内容请用系统应用打开。</p>}</> : <><p className="muted small">列出会话中生成、修改或提到且仍在本机的文件。点击名称查看内容与完整路径。</p><div className="session-file-list">{files.map(file => <button className="session-file-entry" key={file.path} onClick={() => void show(file.path)}><b>{file.name}</b><code>{file.path}</code><small>{Math.ceil(file.size / 1024)} KB · {new Date(file.modifiedAt).toLocaleString()}</small></button>)}</div>{!files.length && !busy && !error && <p>尚未找到文件记录。AI 回复中的本地文件链接也可以直接点击查看。</p>}</>}
-  </div><footer>{preview && <button className="secondary" onClick={() => { setPreview(undefined); void load(); }}>查看会话文件列表</button>}{!preview && <button className="secondary" disabled={busy} onClick={() => void load()}><RefreshCw size={13}/>刷新文件</button>}<button className="primary" onClick={close}>关闭</button></footer></section></div>;
+  </div><footer>{error && targetPath && <button className="secondary" disabled={busy} onClick={() => void show(targetPath)}>重试预览文件</button>}{preview && <button className="secondary" onClick={() => { setPreview(undefined); void load(); }}>查看会话文件列表</button>}{!preview && <button className="secondary" disabled={busy} onClick={() => void load()}><RefreshCw size={13}/>刷新文件</button>}<button className="primary" onClick={close}>关闭</button></footer></section></div>;
 }

@@ -1,3 +1,5 @@
+import { collaborationFailure } from './collaboration-failure';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Folder, FolderPlus } from 'lucide-react';
 import { resultDirectoryLabel, resultDirectoryNodes, resultDirectoryPath, resultItemFolder, resolveResultFolder, type ResultDirectory, type ResultDirectoryCommand } from '../shared/result-directories';
@@ -39,16 +41,22 @@ export function useResultDirectories(projectId: string, scope: Scope) {
 }
 type DirectoryState = ReturnType<typeof useResultDirectories>;
 
-export async function moveResultDestinations(projectId: string, scope: Scope, items: { id: string; version: number; folderVersion?: number }[], folders: Record<string, string>) {
+export async function moveResultDestinations(projectId: string, scope: Scope, items: { id: string; title?: string; version: number; folderVersion?: number }[], folders: Record<string, string>, directories: ResultDirectory[] = []) {
   const groups = new Map<string, typeof items>();
   for (const item of items) groups.set(folders[item.id], [...(groups.get(folders[item.id]) || []), item]);
-  let moved = 0;
-  try {
-    for (const [folderId, entries] of groups) {
-      await api.call('result.directory.move', { projectId, scope, change: { folderId, items: entries.map(item => ({ ...item, folderVersion: item.folderVersion || 0 })) } });
-      moved += entries.length;
+  const completed: { description: string; count: number }[] = [];
+  const short = (value: string, limit: number) => value.length > limit ? value.slice(0, limit) + '…' : value;
+  const names = (entries: typeof items) => entries.slice(0, 2).map(item => `“${short(item.title || '所选成果', 30)}”`).join('、') + (entries.length > 2 ? `等${entries.length}条成果` : '');
+  for (const [folderId, entries] of groups) {
+    const destination = short(resultDirectoryLabel(folderId, directories), 40);
+    try {
+      await api.call('result.directory.move', { projectId, scope, change: { folderId, items: entries.map(({ id, version, folderVersion }) => ({ id, version, folderVersion: folderVersion || 0 })) } });
+      completed.push({description:`${names(entries)}已移到“${destination}”`,count:entries.length});
+    } catch (reason: any) {
+      const message = (completed.length ? completed[0].description + '。' + (completed.length > 1 ? `另外${completed.slice(1).reduce((total,item)=>total+item.count,0)}条成果也已移动。` : '') : '') + `${names(entries)}移到“${destination}”的结果还没查到。点“刷新”后打开“${destination}”：已在里面就不用再移。`;
+      throw new Error(collaborationFailure(reason, message, { domain: scope === 'team' ? 'central' : 'local', operation: '移动成果目录', outcome: completed.length ? 'partial' : 'unknown' }));
     }
-  } catch (reason: any) { throw new Error((moved ? `已移动 ${moved} 条，其余未完成。` : '') + reason.message); }
+  }
 }
 
 export function DirectoryTree({ directories, value, change, all, counts = {}, disabled = false }: { directories: ResultDirectory[]; value: string; change: (id: string) => void; all?: boolean; counts?: Record<string, number>; disabled?: boolean }) {

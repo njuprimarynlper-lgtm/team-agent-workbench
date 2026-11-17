@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ErrorLogLink } from './error-notice';
 import { ChevronRight, LoaderCircle, Terminal } from 'lucide-react';
 import type { AgentSession, Message } from '../shared/types';
 import { withoutQuestionFillTurns } from '../shared/session-context-text';
@@ -127,7 +128,7 @@ export const SessionTranscript = React.memo(function SessionTranscript({ session
   const renderHistory = (row: TranscriptRow) => renderRow(row, undefined, true);
   const anchored = (row: DisplayRow, historical: boolean, content: React.ReactNode) =>
     <div key={`${historical ? 'history' : session.id}:${row.id}`} className="transcript-row" data-transcript-anchor={`${historical ? 'history' : session.id}:${row.id}`}>{content}</div>;
-  return <><div ref={pages.marker} className="transcript-boundary">{pages.status || (pages.remaining ? '向上滚动查看更早消息' : '')}</div>
+  return <><div ref={pages.marker} className="transcript-boundary">{pages.status || (pages.remaining ? '向上滚动查看更早消息' : '')}{pages.status && !pages.status.startsWith('正在') && <ErrorLogLink message={pages.status}/>}</div>
     {parentHistory.length > 0 && <><div className="transcript-inherited">{sessionDisplayRows({ messages: parentHistory, status: 'idle' }).map(row => row.kind === 'activity'
       ? anchored(row, true, <TurnActivityGroup messages={row.messages} renderRow={renderHistory}/>) : anchored(row, true, renderHistory(row)))}</div>
       <div className="transcript-divider">{inherited?.label || '以上为创建时的父会话记录'}</div></>}{olderOwn.length > 0 && sessionDisplayRows({ messages: olderOwn, status: 'idle' }).map(row => row.kind === 'activity'

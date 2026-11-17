@@ -1,0 +1,684 @@
+{
+  "round": 2,
+  "scenarioCount": 53,
+  "functionalComplete": true,
+  "independentReadabilityReport": "docs/error-audit/readability-review.json",
+  "independentPrimaryIssues": [],
+  "immutableBackupAltered": [],
+  "correctedRecovery": "docs/error-audit/readability-baseline/corrected/admin-recovery.json",
+  "regression": {
+    "command": "node --import tsx --test --test-concurrency=1 tests/error-audit-admin.test.ts tests/submission.test.ts tests/workflow-states.test.ts tests/assignments.test.ts",
+    "log": ".test-data/error-audit/admin-readability-final-regression.log",
+    "tests": 38,
+    "passed": 38,
+    "failed": 0,
+    "previousLogPreserved": ".test-data/error-audit/admin-final-regression.log"
+  },
+  "scenarios": [
+    {
+      "id": "admin-storage-cancelled",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-storage-cancelled-after.png",
+      "afterSha256": "4964a260e3f3e66622cf42a1476aed67a3c8cb6adf849d5e42affe4b3fdbf325",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-environment-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-environment-failure-after.png",
+      "afterSha256": "81e83bef8e536c1b5a4b71d466abe5d579c9504b0b139135f4ed94ae7f81f93c",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/admin-environment-failure-logs-after.png",
+          "sha256": "3b65029caa2537f3fb28a017253f18550e20d10bfe5a0938c964b0f4f84d9b30",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        }
+      ]
+    },
+    {
+      "id": "admin-import-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-import-failure-after.png",
+      "afterSha256": "3a6e9f3e904d2689d3d788e485b09f36d741da5ef1fdefe86634c65cac7e23db",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/admin-import-failure-logs-after.png",
+          "sha256": "3b65029caa2537f3fb28a017253f18550e20d10bfe5a0938c964b0f4f84d9b30",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        }
+      ]
+    },
+    {
+      "id": "admin-sync-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-sync-failure-after.png",
+      "afterSha256": "f9ca3e9a9a5a97ad2e09fb6a42b0df522328e2365b1e4201f93e29d13b826cb3",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/admin-sync-failure-logs-after.png",
+          "sha256": "2e4f0bd4cad6986dfe71617dab3426cee34bf4ea5b55890a18e01e8ba8f7d829",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        }
+      ]
+    },
+    {
+      "id": "admin-egress-test-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-egress-test-failure-after.png",
+      "afterSha256": "4880c333643641841f66533fd88845933da8d46956e8f7feb378c275a8f46f02",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/admin-egress-test-failure-logs-after.png",
+          "sha256": "bc1c0313500153bf7bf5f10ff506e22d6f2bedda7db8af1e4349b358b5ff52e0",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        }
+      ]
+    },
+    {
+      "id": "admin-egress-jump-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-egress-jump-failure-after.png",
+      "afterSha256": "21a491bf80e6ac2c80d663776766e5e827e89b668775dfca5708db01e2883589",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-personal-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-personal-read-failure-after.png",
+      "afterSha256": "2b6e0cf329933569f22872370d65340a8bbcb50400e82901a87f3d23081b90bf",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-scheduled-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-scheduled-read-failure-after.png",
+      "afterSha256": "68764ee430b05004cc611194d4afc627b9d2f26e021db5c603d0822d302a2c5d",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-scheduled-read-recovered",
+      "afterScreenshot": "docs/error-audit/screenshots/team-scheduled-read-recovered-after.png",
+      "afterSha256": "1eaba86f397abe9290d1b1a208cf0365eaeb0a1708e94249df58e7fb04c78b49",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-context-action-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-context-action-failure-after.png",
+      "afterSha256": "4bba1dff0d4866fc48d94a3ab7279d5d35d0ba8457056ccfd204f098fc9a7613",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-rsi-settings-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-rsi-settings-read-failure-after.png",
+      "afterSha256": "fbb833bf1638ee8b323e4e51b167f24eb71699a5f0b4ba2b39a3814dc3981a07",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-directions-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-directions-read-failure-after.png",
+      "afterSha256": "5b5f7b91fee42e12ea6075baddbee64805bafbf9df5912c01e3b3755142bf6d1",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-account-sync-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-account-sync-failure-after.png",
+      "afterSha256": "59f21a5b2da1cd5086939c76f5a41b3417f93b5e25e51424afb99ee9bfc33bc1",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-projects-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-projects-read-failure-after.png",
+      "afterSha256": "a63a4c2bcef4d6a4bb858523b12a6e4db67f10f17a50d75e87ae929da66e8066",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-project-brief-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-project-brief-read-failure-after.png",
+      "afterSha256": "b86b0cc6547dfc2933555b985440d8bcf71852f34c109c3e90cf2715e8c980b6",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-personal-group-refresh-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-personal-group-refresh-failure-after.png",
+      "afterSha256": "6e44bad66047bef3c8a8e0262414642bc56834d7de3688b9db24a11e435814e7",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-storage-partial",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-storage-partial-after.png",
+      "afterSha256": "9a4ffbb261c6701fc1749f43f479f0aaede7d5fcfc09cf2217a2d7613b3bd8c2",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-storage-cancelled-previous",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-storage-cancelled-previous-after.png",
+      "afterSha256": "ddc3d98e8ffdb5e70dbd140f82ae3a4f30ac89fad229b42a01be17807c232c9d",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-results-personal-read",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-personal-read-after.png",
+      "afterSha256": "f31b4b95a0ea23b37339ac94efab6938c96fa6f515253fda56eeb2bbd44e41dd",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-tasks-read",
+      "afterScreenshot": "docs/error-audit/screenshots/team-tasks-read-after.png",
+      "afterSha256": "88d0f2998dd21445254a7805e46b5cb47c39b2cf97b06ce945882da2f31a190e",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-question-stopping",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-stopping-after.png",
+      "afterSha256": "4be5003e549f0d5fd82c7e4ec619d09e0adcbd3013799ac0339276758b97a056",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-rsi-retry",
+      "afterScreenshot": "docs/error-audit/screenshots/team-rsi-retry-after.png",
+      "afterSha256": "aba16d0dffb5b88cbec05bc96d8d372db7b66ff8fd4f4ad74594f5e117e1f59c",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-activity-failed",
+      "afterScreenshot": "docs/error-audit/screenshots/team-activity-failed-after.png",
+      "afterSha256": "693c42a5326ff6d39357caadad2bca8f635c6417976c64e3c66cb2a8bfe2e990",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-attachment-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-attachment-failure-after.png",
+      "afterSha256": "69edca8d69d86f1e02086f25124e3d035d8083fd34cd7b1baae0dd8901bbcfdf",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-task-create-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-task-create-failure-after.png",
+      "afterSha256": "2810018f3f2d6739fdca38dbf36d9d40063f302761d136fa0f9845e1d5d3f3b2",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-task-create-failure-choices-after.png",
+          "sha256": "1f1b7ec0635e62575bc775cc06396388437d49406473c45b4fb9964217d6b3c3",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        }
+      ]
+    },
+    {
+      "id": "team-task-created-refresh-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-after.png",
+      "afterSha256": "909af34eb34807280030dc627bdb683d1bfabb739ba36b3aa47a0af3a784b8bc",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-logs-after.png",
+          "sha256": "db3fcb47cb494e688e0b86352d2fa8c21b0ad1c9fdb2b411da05d3519a498071",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-recovered-after.png",
+          "sha256": "eee48317d167aeb5240311210459345452fcb07e921876b07004173fc8b137c9",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-read-status-after.png",
+          "sha256": "909af34eb34807280030dc627bdb683d1bfabb739ba36b3aa47a0af3a784b8bc",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-updates-refresh-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-updates-refresh-failure-after.png",
+      "afterSha256": "7f96dd45921f39ff0904b651b378504796032f3dd137008e81c06c4c8130a834",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-results-move-uncertain",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-move-uncertain-after.png",
+      "afterSha256": "23425110ea2f6c34b0e9641428d37be3ea5e4a30e5bbabedbdb76eaf7cdf33e2",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-project-created-refresh-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-project-created-refresh-failure-after.png",
+      "afterSha256": "140df445fdc00447e62c353bb83997acc5ac7884dee740838b5d0e978d738e76",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-ssh-auth",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-ssh-auth-after.png",
+      "afterSha256": "c65bae7f5603096e2bd380e6c826fecafa856556f6e3777b3176f75914677be6",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-ssh-check-timeout",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-ssh-check-timeout-after.png",
+      "afterSha256": "92baa0f767b62ed1196712cc9e3f4cd5c9ce82d598b6d14c48357bfbab371b10",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-member-blocked",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-member-blocked-after.png",
+      "afterSha256": "252a01f63760ea997b416fc9889012dccaf8963070ad1d62e5b5900bce37c073",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-recovery",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-recovery-after.png",
+      "afterSha256": "63c754da13a0a9a4ebfde8bf4fcd6615d82c1c1a17886a692f9f6db533c5889a",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-egress-port",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-egress-port-after.png",
+      "afterSha256": "16bdc6e9a50b1e687c0c45be1be4eea6b890ed97e9950c26d5f17777c25abd22",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-transfer-cache",
+      "afterScreenshot": "docs/error-audit/screenshots/team-transfer-cache-after.png",
+      "afterSha256": "1de981a104bf1c4242043d0a87125cd518c6c964c219b1a435bfb8ce5bb3f2b3",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-results-edit-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-edit-failure-after.png",
+      "afterSha256": "3bf29ae8ff25e8866afcc04402e0bcefa6f26b3d602524ad828fccccbeafe8c6",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-results-edit-failure-checked-after.png",
+          "sha256": "f226361fa79c9c14c1e77560d3dbb832f421fdbf1882c4c12c4cbd70088faaee",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-results-delete-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-delete-failure-after.png",
+      "afterSha256": "e2cca6edd9e49b01677c21a36a547b330ec8ad3083ce8993d49d00c4bfb94f28",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-logs-after.png",
+          "sha256": "178a79e80b6f747fe0b92ebad586d7bc4adc9ad051263fe82dd568445ff55b89",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-checked-after.png",
+          "sha256": "98999bb9016c123455d8e2ff6d2dee99e1baf24e304c230ffa192b4866af14e2",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-draft-delete-partial",
+      "afterScreenshot": "docs/error-audit/screenshots/team-draft-delete-partial-after.png",
+      "afterSha256": "56f0ff61165e76aae904650e9da712594270a7d7cce8be2f7674e9c97a97125f",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "admin-project-catalog-unreadable",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-project-catalog-unreadable-after.png",
+      "afterSha256": "551b96d9236821d3f7e9245efdc42f663489600a65ecb4a67741a90afc8d955e",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-task-status-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-task-status-failure-after.png",
+      "afterSha256": "5d5b3a1ff80b1d5cb3e5566d9e052780622d50275fbb4f2f13e9e8e5dbfa7afe",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-task-status-failure-logs-after.png",
+          "sha256": "7a976c12f60a4aa8cfb387ce2984aa4fe16afccf3029d7cb59946a68244bb373",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-task-status-failure-checked-after.png",
+          "sha256": "ea6be52cddf7ef1353688c21c32bd115ccf6ec2905d192c48f404c112b0aac54",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-question-send-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-send-failure-after.png",
+      "afterSha256": "730448cd8d82b74579225aaa11ac074839ef2bbb369f8df33843be84116792a5",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-send-failure-logs-after.png",
+          "sha256": "ac560d09867085136989f4f082dd7bf24cc036adf65788bb3a29aa10744e2c2d",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-send-failure-checked-after.png",
+          "sha256": "8d3c64fc740a31bf09585fdd2d18a7bcf275263301b5ddfffc9af7cadd9419ef",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-transfer-record-save",
+      "afterScreenshot": "docs/error-audit/screenshots/team-transfer-record-save-after.png",
+      "afterSha256": "af6346e3cff776330c4ace8b182e73473cf1a56a4ddac0b11fdd42864b809ec7",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-transfer-record-save-saved-after.png",
+          "sha256": "1041be268e89a5d1f47306f1e50f0bdfb4fa83b119ce53e2363d1ad3ca45de9c",
+          "independentReadabilityScore": 9,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "admin-project-index-unreadable",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-after.png",
+      "afterSha256": "11157499cab19dd266b238c3abd71df710d8c8a04005eeedd21b59ff6db41a0d",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-account-sync-cache-unreadable",
+      "afterScreenshot": "docs/error-audit/screenshots/team-account-sync-cache-unreadable-after.png",
+      "afterSha256": "f4b642d5097242cebd310d58fe2802695ec9a9f47a9fa14f0faa5fee48ce8c42",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-account-sync-cache-unreadable-logs-after.png",
+          "sha256": "90558c7e8bb84ebd22e45e1d291feffcb4f58766e7cd41c60fc8cdf7d6d2a1d5",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-question-sync-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-sync-failure-after.png",
+      "afterSha256": "1a4ff514c1c38dafacfd6d271a2fece9b4ee5fac4d4fcff2b5a16793069df3e0",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-sync-failure-logs-after.png",
+          "sha256": "fafa3a54ec72a9f1d4bc0d7557c6f02e7d452312c133d167f231c3af9775af95",
+          "reviewCoverage": "functional assertion evidence; not separately scored by independent reviewer"
+        }
+      ]
+    },
+    {
+      "id": "team-results-merge-blocked",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-merge-blocked-after.png",
+      "afterSha256": "e58c5213374d8e617ce993488263eed4cf94f2cd0001f8996e277f5964bf397d",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-transfer-uncertain",
+      "afterScreenshot": "docs/error-audit/screenshots/team-transfer-uncertain-after.png",
+      "afterSha256": "01715aa1fc01d815162f98b83889ecb898f30eef0d4b3b17b18579d655cac01f",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-question-feed-read-failure",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-after.png",
+      "afterSha256": "0d2243cee49df708f954df6dcb04e82327ab69c00f91aa598e7cf0ae3bbb2881",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-recovered-after.png",
+          "sha256": "ae60a9bb5281e6a15adc57e4433e5a011d0612435fbad678835835cff0362eae",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-retained-after.png",
+          "sha256": "d12138dd3cc5cb95a637187035131df66260e875efc3dd2bd9cdaeab7f437b5e",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-question-auto-blocked",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-auto-blocked-after.png",
+      "afterSha256": "1ade2d75c974b4bf81e0484590a76eb98ae6ccf6f6878f28d28334d3ad6aff99",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-ready-after.png",
+          "sha256": "11544ec1001de471afdc2c942521f510eb1402cbb7627bfe7aa1d8f94d62baa8",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-recovered-after.png",
+          "sha256": "82a6da183f2c5fb79dcc7c006df22e8aad6a8eb74ef128ce7a8726b287f703bb",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-results-remote-missing",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-remote-missing-after.png",
+      "afterSha256": "7d88832147ec87a97650adbeb4864b9e4e5ede9f69b0f524fcb4b71e683e77d6",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-refreshed-after.png",
+          "sha256": "5f3e91b36bc6e50663179c8e44b9d05b7f5dd8ff6cb6975b01d964c2881a5f42",
+          "independentReadabilityScore": 9,
+          "independentReviewHashMatches": true
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-logs-after.png",
+          "sha256": "2807723fc1d1eb4e05e90b0be23f6ef49d3c39545850f42c809c1423f2f7998a",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-attachment-remote-missing",
+      "afterScreenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-after.png",
+      "afterSha256": "831b4978bac06df096729b7fd69b28a48257c30ce465d1f2e4aa9916816d1080",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-refreshed-after.png",
+          "sha256": "00277e2c2051a98e116d4e5726783e7975db8692d6d6bb95747a4dca04443e92",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        },
+        {
+          "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-logs-after.png",
+          "sha256": "2438e0361dafc9f8e45a6764b1efdfb741dd5f4d373c0b48469e50d9161e8cbf",
+          "independentReadabilityScore": 9.5,
+          "independentReviewHashMatches": true
+        }
+      ]
+    },
+    {
+      "id": "team-draft-upload-unconfirmed",
+      "afterScreenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-after.png",
+      "afterSha256": "86e1f25606e2f552bb3d4d9c3e186fdaf9274f913b85f4c3e9704d483fd76aeb",
+      "independentReadabilityScore": 9.5,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": []
+    },
+    {
+      "id": "team-draft-transfer-cache",
+      "afterScreenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-after.png",
+      "afterSha256": "85e3fe92892633472688e6cc572c2d7e0f3391a608624351234dafd72507e533",
+      "independentReadabilityScore": 9,
+      "independentReviewHashMatches": true,
+      "independentReleasePass": true,
+      "supplements": [
+        {
+          "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-artifact-after.png",
+          "sha256": "8de0c769bafa313a6ec58383a42bfb6bcf0eb7aaa0cf34beabb9d2c49807ab3d",
+          "independentReadabilityScore": 9,
+          "independentReviewHashMatches": true
+        }
+      ]
+    }
+  ],
+  "immutableBeforeAltered": [],
+  "sharedStatusScope": "docs/error-audit/readability-admin-status-scope.json",
+  "supplementalReviewCoverage": {
+    "actionEvidenceCount": 27,
+    "independentlyScored": 16,
+    "functionalEvidenceNotSeparatelyScored": [
+      "docs/error-audit/screenshots/admin-environment-failure-logs-after.png",
+      "docs/error-audit/screenshots/admin-import-failure-logs-after.png",
+      "docs/error-audit/screenshots/admin-sync-failure-logs-after.png",
+      "docs/error-audit/screenshots/admin-egress-test-failure-logs-after.png",
+      "docs/error-audit/screenshots/team-task-create-failure-choices-after.png",
+      "docs/error-audit/screenshots/team-task-created-refresh-failure-logs-after.png",
+      "docs/error-audit/screenshots/team-task-created-refresh-failure-recovered-after.png",
+      "docs/error-audit/screenshots/team-results-delete-failure-logs-after.png",
+      "docs/error-audit/screenshots/team-task-status-failure-logs-after.png",
+      "docs/error-audit/screenshots/team-question-send-failure-logs-after.png",
+      "docs/error-audit/screenshots/team-question-sync-failure-logs-after.png"
+    ]
+  }
+}

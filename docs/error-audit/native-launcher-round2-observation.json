@@ -1,0 +1,18 @@
+{
+  "title": "工作台未能启动",
+  "accessibility": {
+    "focused_element": "3 button (按钮) 关闭 ID: 1380816",
+    "tree": "Window: \"工作台未能启动\", App: LauncherFailureFixture.exe.\n\t0 window (窗口) 工作台未能启动 Secondary Actions: Raise\n\t\t1 pane (窗格) ID: 10423946\n\t\t2 text (文本) 启动文件准备失败，工作台还没打开。请导出故障报告，将生成的文件交给维护人员。 ID: 594194\n\t\t3 button (按钮) 关闭 ID: 1380816\n\t\t4 button (按钮) 导出故障报告 ID: 725470\n\t\t5 title bar (标题栏) (settable, string) Value: 工作台未能启动\n\t\t\t6 button (按钮) 关闭\n\nThe focused UI element is 3 button (按钮) 关闭 ID: 1380816."
+  },
+  "dimensions": [
+    {
+      "width": 652,
+      "height": 283
+    }
+  ],
+  "capturedAt": "2026-11-16T13:38:40.911Z",
+  "fixture": "actual shared production WinForms class and PowerShell message, synthetic IO failure",
+  "recovery": {
+    "export": "production Export-StartupDiagnostics verified in tests/launcher.test.ts; fixture itself does not export a user archive"
+  }
+}

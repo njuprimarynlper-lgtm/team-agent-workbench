@@ -1,0 +1,4714 @@
+{
+  "before": [
+    {
+      "id": "admin-ssh-auth",
+      "entry": "连接设置",
+      "condition": "SSH服务器不接受管理账号或密码",
+      "file": "src/admin/connection.ts",
+      "before": "All configured authentication methods failed",
+      "after": "未接受此账号",
+      "phase": "before",
+      "sourceSha256": "c115dd0fde872b4d6be67df59ff12c7539efbfe37a3e0c764e4fa9dedee2328c",
+      "screenshot": "docs/error-audit/screenshots/admin-ssh-auth-before.png",
+      "sha256": "945746c68460bbd635e79f11e974f914f3bc0c58b2b321e55c3ac5a31c2dbb38",
+      "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\nAll configured authentication methods failed\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n团队成员\n0\n已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "All configured authentication methods failed",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-ssh-check-timeout",
+      "entry": "连接设置",
+      "condition": "SSH已连接但账号检查未及时返回",
+      "file": "src/admin/connection.ts",
+      "before": "管理端需要 Linux root 或 sudo 账号",
+      "after": "未及时返回",
+      "phase": "before",
+      "sourceSha256": "c115dd0fde872b4d6be67df59ff12c7539efbfe37a3e0c764e4fa9dedee2328c",
+      "screenshot": "docs/error-audit/screenshots/admin-ssh-check-timeout-before.png",
+      "sha256": "ac37fb0624a3bef8fd75ec9f5f0ac2d2e2849ee6d1b478ec2fd131a79de22fa7",
+      "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\n管理端需要 Linux root 或 sudo 账号；组内管理请使用用户端\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n团队成员\n0\n已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "管理端需要 Linux root 或 sudo 账号",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-member-blocked",
+      "entry": "用户管理／按组查看",
+      "condition": "创建者不能从此入口移出项目",
+      "file": "src/admin/people.tsx",
+      "before": "移出本项目",
+      "after": "创建者",
+      "phase": "before",
+      "sourceSha256": "d0c9e3e60c5ccce4204373ee440a54dbecd0b96866de516617574857f2994c84",
+      "screenshot": "docs/error-audit/screenshots/admin-member-blocked-before.png",
+      "sha256": "fc92529e3c2d99623be420d8d0404840ee9609df983348a8760f4acfe9d1ac94",
+      "visibleText": "全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 个项目 · 1 位成员\n报错验收项目\n/projects/audit\n1 位成员 · 1 位管理者\n项目内创建用户\n添加已有用户\n成员 / Linux 账号\t状态\t本项目角色 / 所属项目\t管理操作\n\n验收成员\ndemo\n\t已启用\t\n创建者\n报错验收项目\n创建者\n\t开通完成\n取消管理者\n移出本项目\n重置密码\n停用\n未分组用户\n0 位 · 创建账号后，可在这里分配项目\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。",
+      "titles": [
+        "管理 报错验收项目 成员身份"
+      ],
+      "assertions": [
+        {
+          "expected": "移出本项目",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-recovery",
+      "entry": "用户管理／待恢复操作",
+      "condition": "管理操作部分完成且原密码不正确",
+      "file": "src/admin/renderer.tsx",
+      "before": "待恢复操作",
+      "after": "未完成原因",
+      "phase": "before",
+      "sourceSha256": "2cb9a8512fff1b9285ebbe06d1cbd8853298fab9b8ba5879e7ece4109004021e",
+      "screenshot": "docs/error-audit/screenshots/admin-recovery-before.png",
+      "sha256": "0802e3f84142459eff163091b37a1fc5e43d4654f8c64598e269945b2f9251e0",
+      "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\nuser_create:demo\n已完成：账号已创建\n待完成：[MEMBER_IMPORT] 原密码不正确\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n团队成员\n0\n已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "待恢复操作",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-storage-partial",
+      "entry": "共享空间",
+      "condition": "一个目录没有读取权限",
+      "file": "src/admin/storage-view.tsx",
+      "before": "个路径未能完整统计",
+      "after": "实际占用可能更高",
+      "phase": "before",
+      "sourceSha256": "7491229ff22a2d71fd96df89bd50b86a10705e2434b930521a0f4768b217a8f7",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-partial-before.png",
+      "sha256": "79eb2d85c387dde3dd7cebf833e0dc7f330b1dcd467ebbc917d9351540c392e4",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "个路径未能完整统计",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-storage-cancelled",
+      "entry": "共享空间／取消统计",
+      "condition": "用户主动取消统计",
+      "file": "src/admin/storage-view.tsx",
+      "before": "已取消空间统计",
+      "after": "已取消统计",
+      "phase": "before",
+      "sourceSha256": "7491229ff22a2d71fd96df89bd50b86a10705e2434b930521a0f4768b217a8f7",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-cancelled-before.png",
+      "sha256": "4ba7cbe5bd01acd95cc24a6728068667980548f4803998f41fb656c9d36055ce",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n清理项目\n刷新统计\n已取消空间统计\n还没有空间统计\n开始统计",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已取消空间统计",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-egress-port",
+      "entry": "网络出口",
+      "condition": "本机出口端口已被占用",
+      "file": "src/admin/egress-view.tsx",
+      "before": "出口启动失败",
+      "after": "端口",
+      "phase": "before",
+      "sourceSha256": "f529751266c796962314daf2213c57fd61986544150acd9456012841d0aa5fd7",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-port-before.png",
+      "sha256": "1d6dd7a2ece8b74054134ff18707516aa18858f248cb97f30ac6af3ad24b2a2c",
+      "visibleText": "NETWORK EGRESS\n网络出口\n\n管理本机转发、成员接入与连接状态。\n\n出口未运行\n本机直连\nCodex、Cursor、Claude Code\n加密传输\n\n系统托盘当前不可用，关闭管理端窗口会停止转发。\n\n出口启动失败：listen EADDRINUSE: address already in use 127.0.0.1:9443\n检查出口设置\n运行监控\n成员接入\n出口设置\n连接诊断\n启用出口后，在这里查看成员连接、流量和资源占用。\n前往出口设置\n代理监控\n仅统计本机代理 · 每 2 秒更新\n出口未运行\n在线成员 / 隧道\n—\n成员按账号标识与地址区分\n实时上行\n—\n累计 0 B\n实时下行\n—\n累计 0 B\n代理 CPU\n—\n占整机 CPU 总容量\n代理内存\n—\n独立代理进程驻留内存\n上行 下行 · 最近 2 分钟\n峰值 0 B/s\n2 B/s\n1 B/s\n0 B/s\n—\n—\n成功建立 0 条\n连接失败 0\n接入拒绝 0\n启用出口后开始统计\n用户端 CLI 状态\n\n暂无上报。更新后的用户端会同步重连、HTTP 错误及恢复状态。\n\n流量为隧道内转发字节，不含握手开销；统计随出口重启清零。CLI 状态由用户端上报，连接成功不代表模型请求成功。\n最近连接\n0 条\n查看连接记录与失败原因",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "出口启动失败",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1115
+        }
+      }
+    },
+    {
+      "id": "team-results-personal-read",
+      "entry": "团队成果库",
+      "condition": "团队读取成功但个人库对照读取失败",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "最新团队信息暂未更新",
+      "after": "个人成果对照",
+      "phase": "before",
+      "sourceSha256": "3ba5d5e2e4e20c40f782bf9c1d86e610851efe921a1285e6671ba729c733c3b9",
+      "screenshot": "docs/error-audit/screenshots/team-results-personal-read-before.png",
+      "sha256": "b4534737d0c17948934b2f52a578d1a4a6fab8e50ce01c08e273920e8d63f899",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n最新团队信息暂未更新：EACCES: permission denied, open C:/audit/conclusions.json\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料"
+      ],
+      "assertions": [
+        {
+          "expected": "最新团队信息暂未更新",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-tasks-read",
+      "entry": "项目任务",
+      "condition": "首次读取失败且无缓存",
+      "file": "src/renderer/assignments.tsx",
+      "before": "暂无分配给你的任务",
+      "after": "无法确认",
+      "phase": "before",
+      "sourceSha256": "797913e52ca9285e551d783e82899281ee26760e177c2b32ba82b684b0d289fc",
+      "screenshot": "docs/error-audit/screenshots/team-tasks-read-before.png",
+      "sha256": "3f21a70287d27d3d522d094e2862b70bfc4b15fc60a68e7d362ad54ec74ef4cc",
+      "visibleText": "PROJECT TASKS\n我的任务 · 报错验收项目\n\n查看分配给你的任务，带着任务说明和关联成果开始工作。\n\n刷新任务\nread ECONNRESET\n分配给我的任务\n状态\n待办任务（0）\n全部状态（0）\n暂无分配给你的任务\n\n组管理员派发后会显示在这里，你也可以自行新建工作会话。\n\n选择任务查看详情。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "暂无分配给你的任务",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-stopping",
+      "entry": "寻求帮助／停止自动",
+      "condition": "停止请求尚未返回",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "已停止自动，可以继续手动发送",
+      "after": "正在停止",
+      "phase": "before",
+      "sourceSha256": "04404771a5a9a47d61e053d980dd5f2bc0a1d99b5bf125f48f8947344f1b6f55",
+      "screenshot": "docs/error-audit/screenshots/team-question-stopping-before.png",
+      "sha256": "3a3aa111b9c39ee0fcfad2a0a8d7c5d9cbfcbad909b0a983194d1d7e71fb366e",
+      "visibleText": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n自动对话中\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n自动对话\n附件\nAI填入\n发送中…\n\n已停止自动，可以继续手动发送。",
+      "titles": [
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "让当前 Session 和协作成员自动往返：对方回复后会继续追问，期间不能手动发送",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问"
+      ],
+      "assertions": [
+        {
+          "expected": "已停止自动，可以继续手动发送",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-transfer-cache",
+      "entry": "传输记录",
+      "condition": "失败上传的本机缓存已被清理",
+      "file": "src/renderer/transfer-records.tsx",
+      "before": "本机上传缓存已清理",
+      "after": "重新选择",
+      "phase": "before",
+      "sourceSha256": "33faec91a646cd5638354bbd02e4c169b713ebdd8c3782ed46d6c128633cf408",
+      "screenshot": "docs/error-audit/screenshots/team-transfer-cache-before.png",
+      "sha256": "f3672d6df372a5ebd0d9e1b5e9ccb2107ec8f0bc43d74371230d23a3787e6a16",
+      "visibleText": "轨迹上传 · 验收工作会话轨迹.md\n未完成\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n\n本机上传缓存已清理\n\n服务器可能已接收；重试会先查询原请求回执。 read ECONNRESET",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "本机上传缓存已清理",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-rsi-retry",
+      "entry": "AI推荐",
+      "condition": "上次分析失败并已安排后台重试",
+      "file": "src/renderer/project-interactions.tsx",
+      "before": "已记录项目变化",
+      "after": "上次",
+      "phase": "before",
+      "sourceSha256": "4e614eab5a9658a8c3586e474780750d0b7ce16cd37201558f06cb694b47d1bb",
+      "screenshot": "docs/error-audit/screenshots/team-rsi-retry-before.png",
+      "sha256": "0e47c804a292822a4af8f584381c8b1c189cb3aa8606bcf49e1ba2971da1e09c",
+      "visibleText": "已记录项目变化，稍后在后台分析。\n\n暂无待处理的推荐。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已记录项目变化",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-activity-failed",
+      "entry": "会话／相关动态",
+      "condition": "AI返回的判断未通过来源校验",
+      "file": "src/renderer/activity-recommendations.tsx",
+      "before": "暂未完成判断",
+      "after": "来源",
+      "phase": "before",
+      "sourceSha256": "c907db66a277535a834f2482e0f81428de4823df3092c68974212d5a4e1a11be",
+      "screenshot": "docs/error-audit/screenshots/team-activity-failed-before.png",
+      "sha256": "ef209677c90f523118fa351917b6ca7ab3a095b3c69e26ae87237a9ebd7e0a55",
+      "visibleText": "新动态判断暂未完成\n有 1 条新动态暂未完成判断，将在新动态到达、资料或连接恢复后自动继续。你可以继续对话。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "暂未完成判断",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-environment-failure",
+      "entry": "服务器环境修复",
+      "condition": "远端修复请求返回技术异常",
+      "file": "src/admin/environment-view.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "d8668a1dff3a3124d1321c999a69900d21dab240ba51ca6a82bc0290ab7a52ea",
+      "screenshot": "docs/error-audit/screenshots/admin-environment-failure-before.png",
+      "sha256": "39e25e9ee6291416ca8040b32fe605ce0aadf73cd8ba33408f40f47653eb5e46",
+      "visibleText": "修复远端服务器环境\n操作位置：\naudit.invalid\n\n问题出在远端 Linux 服务器，本机 Windows 无需安装。只有点击“在服务器执行修复”后，管理端才会通过当前 SSH 连接，在服务器上安装缺失组件并重新检查；打开此窗口不会执行安装。\n\n当前服务器检查结果\n\n服务器组件尚未准备完成\n\n服务器安装方式\n在线：由服务器从其软件源下载\n离线：使用已放在服务器上的安装包\n\n确认后，程序通过 SSH 让服务器执行 apt-get，使用服务器已有的软件源和网络配置下载、安装缺失的 ACL / Supervisor 组件及依赖；本机不下载软件包。服务器能访问内网软件源也可以。\n\n自动安装目前支持 Debian / Ubuntu。SSH、Python 或账号管理命令缺失时，需在服务器上手动补齐后点击“重新检查服务器”。容器可能还需在启动流程中接入服务脚本，完成后会显示具体要求。\n\n服务器操作失败：TypeError: isolated backend failure\n取消\n在服务器执行修复",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-import-failure",
+      "entry": "接入已有账号",
+      "condition": "读取已有账号状态返回技术异常",
+      "file": "src/admin/existing-member-dialog.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "34641392d6e78aeabcfae69eef43ee0414d83e3653b29254b933d5aee098da97",
+      "screenshot": "docs/error-audit/screenshots/admin-import-failure-before.png",
+      "sha256": "de52e1681138f8eba9c7650bb86d6dd4fd702526ac88e5a4e6365bcde67336ff",
+      "visibleText": "恢复已有 Linux 账号\nTypeError: isolated backend failure\nroot@audit.invalid · /srv/audit\n\n账号归属当前 Linux 系统，不受团队空间 ID 限制。仅接入本机 Workbench 专用账号：通过原密码验证并核对已有权限，不会重设密码；若属于旧空间，会添加当前空间的登录组，并核对实际 SFTP 目录。\n\nLinux 登录账号\n检测已有账号及权限\n取消\n验证密码并接入",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-sync-failure",
+      "entry": "成员同步状态",
+      "condition": "后台同步失败",
+      "file": "src/admin/member-sync-view.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "fa022642110776790e83f5139c2417ffb55215a5be3d7aa8c815a6c1b0dc6ac2",
+      "screenshot": "docs/error-audit/screenshots/admin-sync-failure-before.png",
+      "sha256": "d720a32b4d31021b5e0db495291042a5bb2d80df6ff6fe7c546fdc4f5fe4060f",
+      "visibleText": "成员自动同步 · 团队 fixture-\n\n成员同步暂未完成：TypeError: isolated backend failure",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-egress-test-failure",
+      "entry": "网络出口／连接诊断",
+      "condition": "网络测试返回技术异常",
+      "file": "src/admin/egress-tests.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "8cf10bc0e078edab129f4155fa52cc381ed60309457f766eb9f3712e22d52c79",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-test-failure-before.png",
+      "sha256": "d7010305be1ca70eda2ceafc2e9425a4a7a0c131f12054fd6afb4dc2b4eb9aed",
+      "visibleText": "管理端网络测试\n无需在本机安装或启动对应 CLI。测试使用已保存的网络设置，不改变成员转发权限。\nCodex\n允许成员转发\n测试 Codex\nTypeError: isolated backend failure\nCursor\n允许成员转发\n测试 Cursor\nClaude Code\n允许成员转发\n测试 Claude Code\n\n检查管理端到服务地址的网络连接；成员的模型登录、配额与实际请求状态在用户端查看。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-egress-jump-failure",
+      "entry": "共享服务器中转",
+      "condition": "启用隧道返回技术异常",
+      "file": "src/admin/egress-jump.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "8ff62bc3fcb8e1293c6f3bfb7368a7cc51fd0b2ceb83257181edd7d07581ca59",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-jump-failure-before.png",
+      "sha256": "a4f0dadf1275a52beb211981ae1653e51984ee0437902b6b1b42fd8ba849fda1",
+      "visibleText": "共享服务器中转\n用户端 → 共享服务器 → 管理端 → 模型服务\n未启用\n\n复用共享服务器的 SSH 端口 22，由本机建立反向隧道，无需新增对外端口。\n\nTypeError: isolated backend failure\n\n启用反向隧道\n高级：服务器直接连接本机",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-edit-failure",
+      "entry": "团队成果／编辑成果",
+      "condition": "保存修改返回技术异常",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "3ba5d5e2e4e20c40f782bf9c1d86e610851efe921a1285e6671ba729c733c3b9",
+      "screenshot": "docs/error-audit/screenshots/team-results-edit-failure-before.png",
+      "sha256": "27b913481d7da5fef911942b95fcdd49bf80ce841eee5f9cc8296cec9c6f66c7",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\nTypeError: isolated backend failure\n验收待办\n待办事项\n进行中\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n取消编辑\n保存修改\n\n成果 ID：result-audit · v1 复制 ID\n\n状态\n待处理\n进行中\n已完成\n已取消\n负责人\n标题\n内容 / 说明\n仓库链接（可选）",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收待办"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1295
+        },
+        "comparisonNote": "原图为 1425×1295，现图为 1425×1313；两次配置视口均为1440×1000并采用fullPage。完整文档高度随文案长度变化，前后PNG不等高，不宣称图像尺寸一致。"
+      }
+    },
+    {
+      "id": "team-results-delete-failure",
+      "entry": "团队成果／删除成果",
+      "condition": "删除请求返回技术异常",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "3ba5d5e2e4e20c40f782bf9c1d86e610851efe921a1285e6671ba729c733c3b9",
+      "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-before.png",
+      "sha256": "c80b3501e177eb8f38d4011b76f774ddabb3547fec4de993f534770eb6e4e481",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\nTypeError: isolated backend failure\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\n确认删除团队成果？\n×\n\n将删除团队成果“验收待办”。同组成员将无法再从团队成果库查看或引用；正文和历史版本无法从库中恢复。\n\n已保存的个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留。这条成果自己的提交文件、会话轨迹和附件会一并删除；仍被其他成果引用的文件会保留。\n\n各成员可在删除动态中自行决定是否删除个人副本。\n\n取消\n确认删除团队成果",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-attachment-failure",
+      "entry": "团队成果／附件预览",
+      "condition": "预览附件返回技术异常",
+      "file": "src/renderer/attachments.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "4370b0e6474b9215fee502f66718340727adeea73fc693bddb305a5c32460aaf",
+      "screenshot": "docs/error-audit/screenshots/team-attachment-failure-before.png",
+      "sha256": "26785de4b37de5f392a1bc256dc401de2e2c302c72efce293db2ab68556aeb28",
+      "visibleText": "附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\nTypeError: isolated backend failure",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-task-create-failure",
+      "entry": "派发任务",
+      "condition": "派发请求返回技术异常",
+      "file": "src/renderer/assignments.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "797913e52ca9285e551d783e82899281ee26760e177c2b32ba82b684b0d289fc",
+      "screenshot": "docs/error-audit/screenshots/team-task-create-failure-before.png",
+      "sha256": "e611172f1131b1654b93e3f2e0529930ad8dd5ac2fb920d25e6527a7841e2c58",
+      "visibleText": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\n我负责的\n0\n我派发的\n0\n全组任务\n0\n状态\n待办任务（0）\n全部状态（0）\n已删除（0）\n暂无分配给你的任务\n\n点击“派发任务”，可选择自己或其他组内成员。\n\n选择任务查看详情。\n\n派发任务\n×\nTypeError: isolated backend failure\n负责人\n请选择本组成员\n验收成员（demo） · 我自己\n分配给自己\n任务标题\n任务目标与工作范围\n验收要求（可选）\n关联共享成果和文件（已选 0/20）\n刷新成员和成果\n\nTypeError: isolated backend failure\n\n填写任务后，会优先显示文字相关的候选成果；勾选的内容将随任务交给成员。勾选成果时会一并带上它的附件，可逐个取消。刷新时保留当前选择，确认派发时会再次核对权限和版本。\n\n【待办事项】 验收待办\nv1 · demo · 与任务相关：标题命中：验收\n阅读成果\n另外附文件\n选择本地文件\n\n确认派发时上传。任务文件只对负责人和本组管理员可见；相同权限下的相同内容只存一份。\n\n共选择 0 个文件，单个任务最多 30 个，每个不超过 2 GB。\n\n取消\n确认派发",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-task-status-failure",
+      "entry": "任务验收",
+      "condition": "确认任务完成返回技术异常",
+      "file": "src/renderer/assignment-lifecycle.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "e03f3dab676b8f5ba4b549f53b173459ed683535b70aec9fd7e97b05b6eab1d6",
+      "screenshot": "docs/error-audit/screenshots/team-task-status-failure-before.png",
+      "sha256": "e77e0420ee410529bc2f298997eff2064bf05981860b958f7be34bb0308f14a9",
+      "visibleText": "验收通过\n退回继续工作\n取消任务\n确认完成？\n验收任务\n\n确认已达到任务目标和验收要求。通过后任务变为“已完成”，记录本次验收人。\n\n验收意见（可选）\n\n已有 Session、对话、项目成果和已带入会话的文件不受影响。\n\nTypeError: isolated backend failure\n\n返回\n确认完成",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-sync-failure",
+      "entry": "寻求帮助",
+      "condition": "后台求助同步返回技术异常",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "04404771a5a9a47d61e053d980dd5f2bc0a1d99b5bf125f48f8947344f1b6f55",
+      "screenshot": "docs/error-audit/screenshots/team-question-sync-failure-before.png",
+      "sha256": "b821fbf59c3f046fdbfb80d8f91f1f951385f9a3dc1e4e4a7c7ec3e8809b5f40",
+      "visibleText": "寻求帮助\n\nTypeError: isolated backend failure\n\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送",
+      "titles": [
+        "填入发起求助的会话，编辑后由你发送",
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "让当前 Session 和协作成员自动往返：对方回复后会继续追问，期间不能手动发送",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-send-failure",
+      "entry": "寻求帮助／继续求助",
+      "condition": "发送请求失败且草稿保留",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "04404771a5a9a47d61e053d980dd5f2bc0a1d99b5bf125f48f8947344f1b6f55",
+      "screenshot": "docs/error-audit/screenshots/team-question-send-failure-before.png",
+      "sha256": "1d89183a8811a955384d299c6dfddb50e62b2c3c7103c4338714420b8e44094b",
+      "visibleText": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送\n\nTypeError: isolated backend failure",
+      "titles": [
+        "填入发起求助的会话，编辑后由你发送",
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "让当前 Session 和协作成员自动往返：对方回复后会继续追问，期间不能手动发送",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-personal-read-failure",
+      "entry": "个人成果库",
+      "condition": "首次读取失败且没有已有列表",
+      "file": "src/renderer/conclusions.tsx",
+      "before": "暂无当前成果",
+      "after": "无法确认",
+      "phase": "before",
+      "sourceSha256": "e82462f77d58954148f124c0f70051001d8821f8c745dac0835992bc045d15f5",
+      "screenshot": "docs/error-audit/screenshots/team-personal-read-failure-before.png",
+      "sha256": "29e1fd7ce3924fb580d4283a51ae4a6c7e7cb3c87f0973fc210518ec0184a5a9",
+      "visibleText": "PERSONAL RESULTS\n个人成果 · 报错验收项目\n\n你在本项目中保存的成果，可供会话引用。仅你可见，由你维护，并随账号同步。\n\nTypeError: isolated backend failure\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n0 条\n成果范围\n全部成果\n历史成果\n当前成果\n批量管理\n新建成果\n暂无当前成果\n\n保存到个人库的成果会显示在这里，也可以手工新建。",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项"
+      ],
+      "assertions": [
+        {
+          "expected": "暂无当前成果",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-draft-upload-unconfirmed",
+      "entry": "成果整理任务列表",
+      "condition": "已有上传记录但上传失败且没有独立个人副本",
+      "file": "src/renderer/draft-list.tsx",
+      "before": "成果已单独保存",
+      "after": "已保留上传记录",
+      "phase": "before",
+      "sourceSha256": "1cd81b39a07bac89fa834b2a19f559903034c382a8ba0b2810d31c01023398ff",
+      "screenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-before.png",
+      "sha256": "2d11dbafc754a800e61956a70b810033c8a67cf5171bf3cb2c8683bb784d467b",
+      "visibleText": "会话成果整理\n上传未完成\n成果已单独保存\n待上传的整理成果\n来源：验收工作会话\n项目：报错验收项目\n1 项内容\n创建于 2026/11/16 10:00:00",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "成果已单独保存",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-updates-refresh-failure",
+      "entry": "团队动态／标记已处理",
+      "condition": "标记已成功但随后列表刷新失败",
+      "file": "src/renderer/content-updates.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "处理状态已保存",
+      "phase": "before",
+      "sourceSha256": "6663e61e63dfd41a478ab51487625a3a2eaa3adf0d24cd4230e3ffa54a48ea18",
+      "screenshot": "docs/error-audit/screenshots/team-updates-refresh-failure-before.png",
+      "sha256": "f156d21e2f5877780b7f9d1ed1fdb468ff6ad717c0712d9105081fb1fed94b38",
+      "visibleText": "TEAM ACTIVITY\n团队动态\n\n先查看成果，再决定是否存入本地库。无需保留的动态可直接标记已处理，之后也能设回待处理。\n\nTypeError: isolated backend failure\n待处理\n1\n已处理\n0\n全部\n1\n类型\n全部类型（1）\n上传成果（1）\n更新成果（0）\n合并成果（0）\n成果被替代（0）\n团队成果已删除（0）\n关联文件缺失（0）\n关联文件恢复（0）\n多选处理\n上传成果\n待办事项\nv1\n待处理\n2026/11/16 10:00:00\ndemo 提交了《验收待办》\n\n来源与历史\n查看结果\n标记已处理",
+      "titles": [
+        "仅改变我的动态状态，不修改共享成果或个人副本"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-scheduled-read-failure",
+      "entry": "定时任务",
+      "condition": "任务和运行记录首次读取失败",
+      "file": "src/renderer/scheduled-tasks.tsx",
+      "before": "还没有定时任务",
+      "after": "无法确认",
+      "phase": "before",
+      "sourceSha256": "5cc4180dd3b968c0db105652b71a444eeab22247c811b68f0dfbd50d841b8569",
+      "screenshot": "docs/error-audit/screenshots/team-scheduled-read-failure-before.png",
+      "sha256": "1b5256d707ad8f2905c006da40ae2f41309118e210837ce1565c19665d032434",
+      "visibleText": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\nTypeError: isolated backend failure\n\n还没有定时任务。先选择项目，再设置任务和执行时间。\n\n运行记录\n共 0 次\n删除所选（0）\n\n暂无运行记录。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "还没有定时任务",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-scheduled-read-recovered",
+      "entry": "定时任务",
+      "condition": "首次失败后下一次刷新成功",
+      "file": "src/renderer/scheduled-tasks.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "本机任务验收",
+      "phase": "before",
+      "sourceSha256": "5cc4180dd3b968c0db105652b71a444eeab22247c811b68f0dfbd50d841b8569",
+      "screenshot": "docs/error-audit/screenshots/team-scheduled-read-recovered-before.png",
+      "sha256": "5846c1384a36659f24e773ac0ecb2c4607a60600d00120511c14638af183be47",
+      "visibleText": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\nTypeError: isolated backend failure\n本机任务验收\n报错验收项目 · 单次 · 2026/11/16 10:00:00 · Asia/Shanghai\n已启用\n\n核对本机任务列表状态。\n\n下次执行：2026/11/16 10:00:00\n\n立即执行\n暂停\n编辑\n运行记录\n运行记录\n共 0 次\n删除所选（0）\n\n暂无运行记录。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-rsi-settings-read-failure",
+      "entry": "AI推荐模型设置",
+      "condition": "项目设置读取成功但主状态读取失败",
+      "file": "src/renderer/rsi-project-settings.tsx",
+      "before": "正在读取设置",
+      "after": "设置暂未读取成功",
+      "phase": "before",
+      "sourceSha256": "36283c0014ae5be2e61526d0683f8936749615b430a13e8755e726a9b0d5c15c",
+      "screenshot": "docs/error-audit/screenshots/team-rsi-settings-read-failure-before.png",
+      "sha256": "845bdad716a5c70e6e9b58b6c7439faeabe5325b4cbb6a05cb598817ad41e5c7",
+      "visibleText": "本项目的后台推荐使用此配置和你的个人账号额度。项目有新进展时自动分析，无需保持某条会话打开。\n\n正在读取设置…",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "正在读取设置",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-directions-read-failure",
+      "entry": "成员名片",
+      "condition": "首次读取失败且无本机缓存",
+      "file": "src/renderer/directions.tsx",
+      "before": "你还没有填写名片",
+      "after": "成员名片暂未读取成功",
+      "phase": "before",
+      "sourceSha256": "64107daa3e0635de905f5f2756a77dd8d6c47aa729a969a479891ce2f6723b5d",
+      "screenshot": "docs/error-audit/screenshots/team-directions-read-failure-before.png",
+      "sha256": "ecc04d301ec43e0f05342b2ff6432e47cfbf24fdaa02b143af7e6e56c46a6449",
+      "visibleText": "MEMBER PROFILES\n成员名片\n\n在名片里介绍你正在做的事和可以交流的经验，方便队友找到你。每张名片可以添加多条内容，只能编辑自己的名片。\n\n我的名片\n0/12\n\n写清你在做什么、有哪些经验可以交流。同一名称不要重复填写。\n\n你还没有填写名片。先添加一条内容，让队友了解你。\n\n添加内容\n保存我的名片\nTypeError: isolated backend failure\n按内容\n按成员\n刷新\n\n0 人 · 0 条内容\n\n还没有人填写名片\n\n先在左侧填写你的名片，介绍正在做的事和可以交流的经验。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "你还没有填写名片",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-account-sync-failure",
+      "entry": "账号资料自动同步",
+      "condition": "网络中断被笼统归因为旧版服务器",
+      "file": "src/renderer/account-sync.tsx",
+      "before": "旧服务器需更新存储服务",
+      "after": "本机内容已保留",
+      "phase": "before",
+      "sourceSha256": "4effd9d93f74401c95c53d82e9583cf375c0ae8885aee4a32cacf87385657403",
+      "screenshot": "docs/error-audit/screenshots/team-account-sync-failure-before.png",
+      "sha256": "beec216ad0237fe745d4bfaab22af0e42a64edebc65640b2e680f27ebbaa7531",
+      "visibleText": "资料等待自动同步\n自动同步\n×\n\n个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。\n\n账号资料尚未同步：read ECONNRESET。本机内容已保留；旧服务器需更新存储服务。",
+      "titles": [
+        "账号资料尚未同步：read ECONNRESET。本机内容已保留；旧服务器需更新存储服务。"
+      ],
+      "assertions": [
+        {
+          "expected": "旧服务器需更新存储服务",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-projects-read-failure",
+      "entry": "管理端／项目管理",
+      "condition": "首次读取项目列表失败",
+      "file": "src/renderer/team-groups.tsx",
+      "before": "暂无项目",
+      "after": "项目列表暂未读取成功",
+      "phase": "before",
+      "sourceSha256": "336f709ef9a5e1fb19b1caec409e26a77edf6f98332501f1e19d2f17a3e0a042",
+      "screenshot": "docs/error-audit/screenshots/admin-projects-read-failure-before.png",
+      "sha256": "3bd245ba14574fbe17f3132327e61ed07c630bddccfbdd4dd47bcb0e481e3a4b",
+      "visibleText": "项目管理\n刷新项目\n创建项目\n\n查看各项目成员与角色，调整创建者，删除或恢复项目。\n\n当前项目\n项目回收站\nTypeError: isolated backend failure\n项目\t创建者\t成员\t占用空间\t操作\n\n暂无项目",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "暂无项目",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-project-brief-read-failure",
+      "entry": "项目资料",
+      "condition": "项目说明读取失败",
+      "file": "src/renderer/project-brief-editor.tsx",
+      "before": "尚未填写",
+      "after": "项目说明暂未读取成功",
+      "phase": "before",
+      "sourceSha256": "4b971b535eefdc33d24e0dde654a1f75c355414d1ad96fcd93f474f0b8c9d350",
+      "screenshot": "docs/error-audit/screenshots/team-project-brief-read-failure-before.png",
+      "sha256": "0b6071e7f590d8f15b5bf6840315bbd160f1becc22cdeedfb5bde3b1126e9765",
+      "visibleText": "MD\n报错验收项目\n这是本项目当前的项目说明，对应共享目录中的“项目说明.md”，由创建者或管理者维护。\nTypeError: isolated backend failure\n\n只读，仅本项目创建者或管理者可修改。\n\n项目背景\n\n尚未填写\n\n项目目标\n\n尚未填写\n\n验收标准\n\n尚未填写",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "尚未填写",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-personal-group-refresh-failure",
+      "entry": "新建个人分组",
+      "condition": "分组已保存但刷新失败",
+      "file": "src/renderer/personal-workspace.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "个人分组已保存",
+      "phase": "before",
+      "sourceSha256": "b8d63ca4ed22ea3b7b969dfd6e3ebaa29a7da6bfbcf7195f073c228303c30c3b",
+      "screenshot": "docs/error-audit/screenshots/team-personal-group-refresh-failure-before.png",
+      "sha256": "c973073a46d94a9d1ce228b2308f61347889aef06b1d0c8f2b2e83495983284b",
+      "visibleText": "未分项目\n0\n未分组\n0\n新建个人分组\n分组名称\nTypeError: isolated backend failure\n取消保存分组",
+      "titles": [
+        "新建个人分组"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-draft-delete-partial",
+      "entry": "批量删除整理记录",
+      "condition": "一条已删除，一条保存状态失败",
+      "file": "src/renderer/draft-delete.tsx",
+      "before": "ENOSPC",
+      "after": "本机磁盘空间不足",
+      "phase": "before",
+      "sourceSha256": "956107400988e9988eb507407ba3dbd052f6368cc0927d1bd1e6b3cfdd323d67",
+      "screenshot": "docs/error-audit/screenshots/team-draft-delete-partial-before.png",
+      "sha256": "3825424b7708f977f2c8bb9814b35bf0acb9f55e2905df905d997c7e99e89a03",
+      "visibleText": "批量删除整理记录？\n×\n\n已删除 1 条记录，剩余 1 条未完成。\n\n将删除以下 1 条整理记录。\n\n验收整理记录 b · 本机项目\n\nENOSPC: no space left on device, write C:/audit/state.json\n\n只删除所选整理记录。已保存的个人成果、已提交的团队成果、原 Session 和增量整理进度都会保留；未保存的草稿内容会删除。已提交的上传不受影响，记录删除会同步到你的其他电脑。\n\n关闭\n重试删除 1 条记录",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "ENOSPC",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-move-uncertain",
+      "entry": "批量移动团队成果",
+      "condition": "第一组移动已确认，第二组等待回执时断线",
+      "file": "src/renderer/result-directories.tsx",
+      "before": "其余未完成",
+      "after": "其余结果未确认",
+      "phase": "before",
+      "sourceSha256": "b6f19fccf04cd76c2bc2dc72d25526da73a0be969b6f812ca7685e2113bf4373",
+      "screenshot": "docs/error-audit/screenshots/team-results-move-uncertain-before.png",
+      "sha256": "e103ff3879521608ef949ae3f9494ab3e1fdfabdc74ed00a7e95329f658e2b18",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n2\n新建目录\n全部目录\n2 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n取消多选\n清理未引用文件\n刷新\n已移动 1 条，其余未完成。read ECONNRESET\n全选当前可删除项（最多 100 项）\n已选择 0 项；切换目录、筛选或刷新后会清空选择\n移动到目录\n删除选中的 0 项\n验收待办\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多\n验收待办B\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "选择删除",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "选择删除",
+        "验收待办B",
+        "",
+        "选择一个或多个会话作为参考资料"
+      ],
+      "assertions": [
+        {
+          "expected": "其余未完成",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-merge-blocked",
+      "entry": "团队成果库／合并整理",
+      "condition": "待办已关联任务，不能合并",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "加入语义合并",
+      "after": "已关联项目任务",
+      "phase": "before",
+      "sourceSha256": "3ba5d5e2e4e20c40f782bf9c1d86e610851efe921a1285e6671ba729c733c3b9",
+      "screenshot": "docs/error-audit/screenshots/team-results-merge-blocked-before.png",
+      "sha256": "0a893096cb21640f8bb81f6d7f8ea06d88e75ce6371194e299139222d49d555e",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n退出多选\n批量管理\n清理未引用文件\n刷新\n已选择 0 条文字成果\n至少选择 2 条同类成果；待办只合并同一事项的重复记录。\n使用模型环境\n验收工作会话 · Codex · audit-model\n开始语义合并\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "加入语义合并",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "加入语义合并",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-auto-blocked",
+      "entry": "寻求帮助／自动对话",
+      "condition": "没有可用工作会话",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "当前 Session 不能用来自动往返",
+      "after": "工作会话",
+      "phase": "before",
+      "sourceSha256": "04404771a5a9a47d61e053d980dd5f2bc0a1d99b5bf125f48f8947344f1b6f55",
+      "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-before.png",
+      "sha256": "336873531cac6ff3d22e0d941401f00c3d1015fccc79f59c0c7a4ace8eea6615",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n0\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n\n没有打开的会话。\n\n已关闭会话\n（0）\nYOUR WORK, CONNECTED.\n个人探索，\n团队共享。\n新建工作会话\n打开 agent管理\n报错验收项目\nAI推荐\n寻求帮助\n1\n子会话\n侧边提问\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n自动对话\n附件\nAI填入\n发送\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "收起侧栏",
+        "查看 AI推荐",
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "当前 Session 不能用来自动往返",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "当前 Session 不能用来自动往返",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-transfer-uncertain",
+      "entry": "传输记录",
+      "condition": "上传后等待回执时断线",
+      "file": "src/renderer/transfer-records.tsx",
+      "before": "服务器可能已接收",
+      "after": "可能已接收",
+      "phase": "before",
+      "sourceSha256": "33faec91a646cd5638354bbd02e4c169b713ebdd8c3782ed46d6c128633cf408",
+      "screenshot": "docs/error-audit/screenshots/team-transfer-uncertain-before.png",
+      "sha256": "27c146a6b0937f3263dabd7bf5e9e703b3fd73a20bbb5a48b7d646e2e6130090",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n未开启同步\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nTRANSFER CENTER\n传输记录\n上传缓存：4.0 KB\n清理成功上传缓存\n轨迹上传 · 验收工作会话轨迹.md\n未完成\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n服务器可能已接收；重试会先查询原请求回执。 read ECONNRESET\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "登录后查看你加入的项目",
+        "请先通过顶部“连接中央节点”登录",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：未开启同步，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "服务器可能已接收",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-context-action-failure",
+      "entry": "操作菜单",
+      "condition": "界面操作函数抛出技术异常",
+      "file": "src/renderer/context-menu.tsx",
+      "before": "TypeError: isolated renderer failure",
+      "after": "未能完成",
+      "phase": "before",
+      "sourceSha256": "e75e3c9fe3fcf3f54706b36f9c9adc67e0d61f6e1d094ede88b9d63887f42c83",
+      "screenshot": "docs/error-audit/screenshots/team-context-action-failure-before.png",
+      "sha256": "143f35ce8c0b8638df3495b8b8489062f417134b84b24efbdeaf10385a9e19b9",
+      "visibleText": "Codex\n2026/11/16 10:00\n\n请复制这条验收回复，核对复制失败时的提示与原文保留。\n\n复制消息\n\nTypeError: isolated renderer failure",
+      "titles": [
+        "2026/11/16 10:00:00",
+        "复制这条回复"
+      ],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated renderer failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-attachment-remote-missing",
+      "entry": "项目成果库／附件下载",
+      "condition": "附件下载收到SFTP code=2；错误原因由指定源码friendlySftp实际生成",
+      "file": "src/renderer/attachments.tsx",
+      "before": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+      "after": "中央节点未找到",
+      "phase": "before",
+      "sourceSha256": "4370b0e6474b9215fee502f66718340727adeea73fc693bddb305a5c32460aaf",
+      "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-before.png",
+      "sha256": "24c72c7ebaf3866ed127c48202c90889bd0a90b431245daed82bdbff30fec9ff",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n验收附件说明\n待办事项\n待处理\ndemo · v1 · 2026/11/16 10:00:00 · 1 个附件\n待办事项\n存入个人成果库\n删除团队成果\n更多\n\n成果 ID：result-audit · v1 复制 ID\n\n检查失败状态与恢复动作。\n\n附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\n远端路径不存在，请核对管理员提供的 SFTP 路径\n\n来源与历史\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收附件说明",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-transfer-record-save",
+      "entry": "传输记录／完成后的本机记录保存",
+      "condition": "实际TransferQueue成功接收并验证回执，最终保存传输状态及随后重试保存均失败",
+      "file": "src/core/transfers.ts",
+      "before": "结果尚未通过校验",
+      "after": "传输结果已确认完成",
+      "phase": "before",
+      "sourceSha256": "d2229c8bb3dc7ff292b8ccdbac656b4db7803aa884ac79de453bbf9a24e426db",
+      "screenshot": "docs/error-audit/screenshots/team-transfer-record-save-before.png",
+      "sha256": "375c250815d2cefd1f167385eb4d208bef6a68310c9ca4d94ecd57dbcc64478a",
+      "visibleText": "轨迹上传 · 已传输的验收轨迹.md\n未完成\n24 B / 24 B · 2026/11/16 10:00:00\n重试\n查看详情\n传输已结束但结果尚未通过校验；不会标记为成功。 ENOSPC: no space left on device, write state.json；传输状态保存失败：ENOSPC: no space left on device, write state.json。请恢复本地存储后重试，将复用原目标。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "结果尚未通过校验",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-storage-cancelled-previous",
+      "entry": "共享空间／已有结果后取消重新统计",
+      "condition": "已有空间统计，取消随后发起的重新统计",
+      "file": "src/admin/storage-view.tsx",
+      "before": "已取消空间统计",
+      "after": "上次统计结果仍可查看",
+      "phase": "before",
+      "sourceSha256": "7491229ff22a2d71fd96df89bd50b86a10705e2434b930521a0f4768b217a8f7",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-cancelled-previous-before.png",
+      "sha256": "8ebb64030979f2e3d55a2fd6a0523ed8964d0a1a451beff78852517eede7fa24",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已取消空间统计\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已取消空间统计",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1013
+        },
+        "comparisonNote": "原图为 1425×1013，现图为 1425×1003；两次配置视口均为1440×1000并采用fullPage。完整文档高度随文案长度变化，前后PNG不等高，不宣称图像尺寸一致。"
+      }
+    },
+    {
+      "id": "team-results-remote-missing",
+      "entry": "项目成果库／文件下载",
+      "condition": "文件下载收到SFTP code=2；错误原因由指定源码friendlySftp实际生成",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+      "after": "中央节点未找到",
+      "phase": "before",
+      "sourceSha256": "3ba5d5e2e4e20c40f782bf9c1d86e610851efe921a1285e6671ba729c733c3b9",
+      "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-before.png",
+      "sha256": "929ded950e629c6ceef43d787c3d8a1aa036dd13e81228cae9ca04937e3d97c9",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n1\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n远端路径不存在，请核对管理员提供的 SFTP 路径\n验收清单.txt\n共享文件\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n项目资料\n存入个人成果库\n删除团队成果\n更多\n移动到目录\n下载\n设置本地别名\n加入会话\n编辑成果\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收清单.txt",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-project-created-refresh-failure",
+      "entry": "完善项目资料／首次初始化",
+      "condition": "中央节点已确认创建项目，随后父界面刷新失败",
+      "file": "src/renderer/project-onboarding.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "已在中央节点创建",
+      "phase": "before",
+      "sourceSha256": "09319a5cc001e710eaac7687c86eb8d42918dfe43403e3119f9689bad2a27874",
+      "screenshot": "docs/error-audit/screenshots/team-project-created-refresh-failure-before.png",
+      "sha256": "16623ae109cf04def24603028d940504a9b9899ac1f83f0b9809b861f42b31a6",
+      "visibleText": "完善项目资料\n报错验收项目 · 项目初始化\n账号：demo\nTypeError: isolated backend failure\n项目名称 *\n项目背景 *\n项目目标 *\n验收标准 *\n补充范围、资料与协作约定（可选）\n稍后填写\n保存项目资料",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-project-catalog-unreadable",
+      "entry": "共享空间／清理项目",
+      "condition": "实际legacy catalogProjects枚举已登记目录收到EACCES，不能完整读取可清理项目",
+      "file": "src/admin/project-purge.ts",
+      "before": "还没有项目",
+      "after": "项目目录暂未完整读取",
+      "phase": "before",
+      "sourceSha256": "eb11e10b19cccc67bc48a642f7f642f1d5be58dec157a97a2eebb6d24a41ef59",
+      "screenshot": "docs/error-audit/screenshots/admin-project-catalog-unreadable-before.png",
+      "sha256": "17d4f25f36c379fc4c760be4f02a43a576b4afc25807dc843c971c4c03b8903c",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目\n清理项目\n\n还没有项目。\n\n取消\n确认清理",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "还没有项目",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-draft-transfer-cache",
+      "entry": "成果整理／已提交草稿",
+      "condition": "原上传回执未确认且本机缓存已清理，成果整理页提供后续操作",
+      "file": "src/renderer/draft-editor.tsx",
+      "before": "重试原上传",
+      "after": "核对前请勿重新提交",
+      "phase": "before",
+      "sourceSha256": "8452d45239e4852b8d7e00872a935c820ae4e40e4ede85be103a9f3b1620dc23",
+      "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-before.png",
+      "sha256": "bc992ad5e44a4be1eb5f54d754267fad9dbc117a752bd2a7b846d338caf80473",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\n返回成果整理\n关闭\n删除整理记录\n上传未完成\n再次整理\n\n来自“验收工作会话”\n\n待核对的验收成果\n修改名称\n\n这份整理内容已有上传记录，仍需核对原提交结果。\n\n附件（已选 0 个）\n上传失败：服务器可能已接收；重试会先查询原请求回执。 read ECONNRESET\n重试原上传\n生成修订草稿\n补充说明（可选）\n上传位置\n报错验收项目 / 项目成果（自动选择）\n返回成果整理\n保存到个人成果库\n部分上传失败，可在对应成果中重试\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "/projects/audit/submissions/demo",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "重试原上传",
+          "pass": true
+        },
+        {
+          "action": "同一失败记录出现在实际PreparationReview子成果中",
+          "expected": "保留基线子成果原UI",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-artifact-before.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-project-index-unreadable",
+      "entry": "共享空间／清理项目／保留轨迹",
+      "condition": "实际legacy purgeProject读取成果索引JSON失败，不能把未知关联作为空索引后执行清理",
+      "file": "src/admin/project-purge.ts",
+      "before": "已清理",
+      "after": "成果索引暂未读取成功",
+      "phase": "before",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1425,
+          "documentHeight": 1006
+        },
+        "screenshotMode": "viewport",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "sourceSha256": "eb11e10b19cccc67bc48a642f7f642f1d5be58dec157a97a2eebb6d24a41ef59",
+      "screenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-before.png",
+      "sha256": "a7ae59ddf6883323bb902ed4edcfb23de8f1a367dedbe4e0bdb542dab1b915e6",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已清理「验收已登记项目」并保留轨迹，删除 1 个文件\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已清理",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline"
+    },
+    {
+      "id": "team-task-created-refresh-failure",
+      "entry": "派发任务／创建已确认后刷新",
+      "condition": "实际assignment.create返回已创建任务，随后真实refresh回调调用assignment.list被拒绝",
+      "file": "src/renderer/assignments.tsx",
+      "before": "TypeError: isolated assignment refresh failure",
+      "after": "已派发，任务列表尚未刷新",
+      "phase": "before",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "sourceSha256": "797913e52ca9285e551d783e82899281ee26760e177c2b32ba82b684b0d289fc",
+      "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-before.png",
+      "sha256": "6ee29f518cb50a01e31024095b7c136529a7641a00715c40ea7b94d5715986f5",
+      "visibleText": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\nTypeError: isolated assignment refresh failure\n我负责的\n0\n我派发的\n0\n全组任务\n0\n状态\n待办任务（0）\n全部状态（0）\n已删除（0）\n当前列表暂无任务\n\n点击“派发任务”，可选择自己或其他组内成员。\n\n选择任务查看详情。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "TypeError: isolated assignment refresh failure",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "legacy-raw-error-boundary",
+      "source": ".test-data/error-audit/baseline"
+    }
+  ],
+  "after": [
+    {
+      "id": "admin-ssh-auth",
+      "entry": "连接设置",
+      "condition": "SSH服务器不接受管理账号或密码",
+      "file": "src/admin/connection.ts",
+      "before": "All configured authentication methods failed",
+      "after": "未接受此账号",
+      "phase": "after",
+      "sourceSha256": "85b989136c59d693719399eec7db228748dbe20ea2348f605a00544e7ba79e7b",
+      "screenshot": "docs/error-audit/screenshots/admin-ssh-auth-after.png",
+      "sha256": "8ad967d993ad6da3a3c4ff22b7a203b3357c23726b7fe7601436d04185c8530b",
+      "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\n中央节点未接受此账号或密码，请检查登录信息后重试。 \n查看日志\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n未读取\n列表中已启用\n未读取\n项目\n未读取\n\n中央节点连接尚未通过验证，成员与项目列表尚未读取。\n\n请先连接并验证中央节点。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n列表尚未读取\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n成员列表尚未读取，请先连接并验证中央节点。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未接受此账号",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-ssh-check-timeout",
+      "entry": "连接设置",
+      "condition": "SSH已连接但账号检查未及时返回",
+      "file": "src/admin/connection.ts",
+      "before": "管理端需要 Linux root 或 sudo 账号",
+      "after": "未及时返回",
+      "phase": "after",
+      "sourceSha256": "85b989136c59d693719399eec7db228748dbe20ea2348f605a00544e7ba79e7b",
+      "screenshot": "docs/error-audit/screenshots/admin-ssh-check-timeout-after.png",
+      "sha256": "85b0583ea93cd7da6459469849432fbe420be9cd4f9198e6fcbf98379c64a932",
+      "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\n服务器未及时返回账号检查结果，请重新连接后重试。 \n查看日志\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n未读取\n列表中已启用\n未读取\n项目\n未读取\n\n中央节点连接尚未通过验证，成员与项目列表尚未读取。\n\n请先连接并验证中央节点。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n列表尚未读取\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n成员列表尚未读取，请先连接并验证中央节点。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未及时返回",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-member-blocked",
+      "entry": "用户管理／按组查看",
+      "condition": "创建者不能从此入口移出项目",
+      "file": "src/admin/people.tsx",
+      "before": "移出本项目",
+      "after": "创建者",
+      "phase": "after",
+      "sourceSha256": "ac32295416878109a6c591eb1adbba30f657550dec9bbbacd289058b0efa9c7b",
+      "screenshot": "docs/error-audit/screenshots/admin-member-blocked-after.png",
+      "sha256": "5aafb14a52411f03c290cb32316b5df870334a21d816378ec3dde01bc1bcb195",
+      "visibleText": "全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 个项目 · 1 位成员\n报错验收项目\n/projects/audit\n1 位成员 · 1 位管理者\n项目内创建用户\n添加已有用户\n成员 / Linux 账号\t状态\t本项目角色 / 所属项目\t管理操作\n\n验收成员\ndemo\n\t已启用\t\n创建者\n报错验收项目\n创建者\n\t开通完成创建者身份不能在此处移除或取消。\n取消管理者\n移出本项目\n重置密码\n停用\n未分组用户\n0 位 · 创建账号后，可在这里分配项目\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。",
+      "titles": [
+        "管理 报错验收项目 成员身份"
+      ],
+      "assertions": [
+        {
+          "expected": "创建者",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-recovery",
+      "entry": "用户管理／待恢复操作",
+      "condition": "管理操作部分完成且原密码不正确",
+      "file": "src/admin/renderer.tsx",
+      "before": "待恢复操作",
+      "after": "未完成原因",
+      "phase": "after",
+      "sourceSha256": "a8943caa52c85efd9ec1f0372e04ea951be8046be816c4dc9dbe870e776ea2b1",
+      "screenshot": "docs/error-audit/screenshots/admin-recovery-after.png",
+      "sha256": "e32e2cf79f2b35a8d28b5ec53f22f121084d0bf36bd528b177c2aef6d7f4d9c4",
+      "visibleText": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\n创建用户「验收成员」尚未完成\n已完成：账号已创建\n未完成原因：原密码不正确\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n0\n列表中已启用\n0\n项目\n0\n\n待开通或待恢复的服务器账号可能尚未列入已登记成员，请先处理上方待办。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n当前列表没有已登记成员；待开通或待恢复的服务器账号可能尚未列入此表。请先处理上方待办。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未完成原因",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-storage-partial",
+      "entry": "共享空间",
+      "condition": "一个目录没有读取权限",
+      "file": "src/admin/storage-view.tsx",
+      "before": "个路径未能完整统计",
+      "after": "实际占用可能更高",
+      "phase": "after",
+      "sourceSha256": "f7b93960d9addcb6e84a409660019f2885fcff2b0c9bde555a08f6bb7bd504d4",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-partial-after.png",
+      "sha256": "41f89cce1a96e823f143737706f6cde077a64452e6897a54b639e869568ca6ad",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已统计文件占用\n4.00 KB\n2 个文件 · 2 个目录\n有 1 个路径未完整统计，实际占用可能更高。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "实际占用可能更高",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-storage-cancelled",
+      "entry": "共享空间／取消统计",
+      "condition": "用户主动取消统计",
+      "file": "src/admin/storage-view.tsx",
+      "before": "已取消空间统计",
+      "after": "已取消统计",
+      "phase": "after",
+      "sourceSha256": "f7b93960d9addcb6e84a409660019f2885fcff2b0c9bde555a08f6bb7bd504d4",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-cancelled-after.png",
+      "sha256": "4964a260e3f3e66622cf42a1476aed67a3c8cb6adf849d5e42affe4b3fdbf325",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n清理项目\n刷新统计\n\n已取消统计，本次没有生成统计结果。\n\n还没有空间统计\n开始统计",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已取消统计",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-storage-cancelled-previous",
+      "entry": "共享空间／已有结果后取消重新统计",
+      "condition": "已有空间统计，取消随后发起的重新统计",
+      "file": "src/admin/storage-view.tsx",
+      "before": "已取消空间统计",
+      "after": "上次统计结果仍可查看",
+      "phase": "after",
+      "sourceSha256": "f7b93960d9addcb6e84a409660019f2885fcff2b0c9bde555a08f6bb7bd504d4",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-cancelled-previous-after.png",
+      "sha256": "ced70cbfdd8ad39a60257bf65da2b3db5c37e697ba1b8ae6b7f3ff1c4b8b5ba8",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n\n已取消统计，上次统计结果仍可查看。\n\n已统计文件占用\n4.00 KB\n2 个文件 · 2 个目录\n有 1 个路径未完整统计，实际占用可能更高。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "上次统计结果仍可查看",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1003
+        },
+        "comparisonNote": "原图为 1425×1013，现图为 1425×1003；两次配置视口均为1440×1000并采用fullPage。完整文档高度随文案长度变化，前后PNG不等高，不宣称图像尺寸一致。"
+      }
+    },
+    {
+      "id": "admin-egress-port",
+      "entry": "网络出口",
+      "condition": "本机出口端口已被占用",
+      "file": "src/admin/egress-view.tsx",
+      "before": "出口启动失败",
+      "after": "端口",
+      "phase": "after",
+      "sourceSha256": "7b317f03767067e1422ab6a6aac872541725bb6e8d429e1e14003991b4c0d7cd",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-port-after.png",
+      "sha256": "953922000297ed2d0a3ffc4537883201e20dde6a61447866d37d8a594ef87042",
+      "visibleText": "NETWORK EGRESS\n网络出口\n\n管理本机转发、成员接入与连接状态。\n\n出口未运行\n本机直连\nCodex、Cursor、Claude Code\n加密传输\n\n系统托盘当前不可用，关闭管理端窗口会停止转发。\n\n出口启动失败：管理端本机的出口端口已被占用，请在出口设置中更换端口后重新应用。\n检查出口设置\n运行监控\n成员接入\n出口设置\n连接诊断\n启用出口后，在这里查看成员连接、流量和资源占用。\n前往出口设置\n代理监控\n仅统计本机代理 · 每 2 秒更新\n出口未运行\n在线成员 / 隧道\n—\n成员按账号标识与地址区分\n实时上行\n—\n累计 0 B\n实时下行\n—\n累计 0 B\n代理 CPU\n—\n占整机 CPU 总容量\n代理内存\n—\n独立代理进程驻留内存\n上行 下行 · 最近 2 分钟\n峰值 0 B/s\n2 B/s\n1 B/s\n0 B/s\n—\n—\n成功建立 0 条\n连接失败 0\n接入拒绝 0\n启用出口后开始统计\n用户端 CLI 状态\n\n暂无上报。更新后的用户端会同步重连、HTTP 错误及恢复状态。\n\n流量为隧道内转发字节，不含握手开销；统计随出口重启清零。CLI 状态由用户端上报，连接成功不代表模型请求成功。\n最近连接\n0 条\n查看连接记录与失败原因",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "端口",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1115
+        }
+      }
+    },
+    {
+      "id": "team-results-personal-read",
+      "entry": "团队成果库",
+      "condition": "团队读取成功但个人库对照读取失败",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "最新团队信息暂未更新",
+      "after": "个人成果对照",
+      "phase": "after",
+      "sourceSha256": "3a39d3fe95085afbeaa8c798cad3e5c854bbabcc5d40f7f1f2c4ad161eb5157c",
+      "screenshot": "docs/error-audit/screenshots/team-results-personal-read-after.png",
+      "sha256": "3c274e8966285eca0c14d7b1bc7e47beb8a10c19574b0947aadb5910cc88675f",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n\n个人成果对照读取失败：执行此操作：无法访问此次操作需要的文件或目录。请查看日志核对文件位置和访问权限。 已读取的内容仍可查看，可点击“刷新”重试。\n\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料"
+      ],
+      "assertions": [
+        {
+          "expected": "个人成果对照",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-merge-blocked",
+      "entry": "团队成果库／合并整理",
+      "condition": "待办已关联任务，不能合并",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "加入语义合并",
+      "after": "已关联项目任务",
+      "phase": "after",
+      "sourceSha256": "3a39d3fe95085afbeaa8c798cad3e5c854bbabcc5d40f7f1f2c4ad161eb5157c",
+      "screenshot": "docs/error-audit/screenshots/team-results-merge-blocked-after.png",
+      "sha256": "413f06f8ad0273e7b489c2e2f6028478e06409c18a622eaaafb6b4076da6ec96",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n退出多选\n批量管理\n清理未引用文件\n刷新\n已选择 0 条文字成果\n至少选择 2 条同类成果；待办只合并同一事项的重复记录。\n使用模型环境\n验收工作会话 · Codex · audit-model\n开始语义合并\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\n\n已关联项目任务，请在项目任务中处理，不能在此合并。\n\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "已关联项目任务，请在项目任务中处理，不能在此合并。",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "已关联项目任务",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实项目任务导航",
+          "expected": "进入任务页",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-tasks-read",
+      "entry": "项目任务",
+      "condition": "首次读取失败且无缓存",
+      "file": "src/renderer/assignments.tsx",
+      "before": "暂无分配给你的任务",
+      "after": "无法确认",
+      "phase": "after",
+      "sourceSha256": "5498ea8debb34b9538c63d618dd401f857d086035632f274ab76e8ddbdad5117",
+      "screenshot": "docs/error-audit/screenshots/team-tasks-read-after.png",
+      "sha256": "d15c4e8b0f52319b254b9a3b025793767f8f378dfbe3bb381444a8677e830147",
+      "visibleText": "PROJECT TASKS\n我的任务 · 报错验收项目\n\n查看分配给你的任务，带着任务说明和关联成果开始工作。\n\n刷新任务\n执行此操作：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。 查看日志\n分配给我的任务\n状态\n待办任务（未读取）\n全部状态（未读取）\n\n任务列表暂未读取成功，当前无法确认是否有任务。请点击“刷新任务”重试。\n\n选择任务查看详情。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "无法确认",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-auto-blocked",
+      "entry": "寻求帮助／自动对话",
+      "condition": "没有可用工作会话",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "当前 Session 不能用来自动往返",
+      "after": "工作会话",
+      "phase": "after",
+      "sourceSha256": "6965c750efec1e48aa05638cb7be891f3c11d2051de2e3f40e2753a1dd604248",
+      "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-after.png",
+      "sha256": "17a9234fc5de2da16f9ba0cf9473580593bce1851b3c4095c0f0a44e5d73e20b",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n0\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n\n没有打开的会话。\n\n已关闭会话\n（0）\nYOUR WORK, CONNECTED.\n个人探索，\n团队共享。\n新建工作会话\n打开 agent管理\n报错验收项目\nAI推荐\n寻求帮助\n1\n子会话\n侧边提问\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n自动对话\n附件\nAI填入\n发送\n\n请先打开本项目的工作会话，再开启自动对话。\n\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "收起侧栏",
+        "查看 AI推荐",
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "请先打开本项目的工作会话，再开启自动对话。",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "工作会话",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实新建会话入口",
+          "expected": "打开创建会话对话框",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-stopping",
+      "entry": "寻求帮助／停止自动",
+      "condition": "停止请求尚未返回",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "已停止自动，可以继续手动发送",
+      "after": "正在停止",
+      "phase": "after",
+      "sourceSha256": "6965c750efec1e48aa05638cb7be891f3c11d2051de2e3f40e2753a1dd604248",
+      "screenshot": "docs/error-audit/screenshots/team-question-stopping-after.png",
+      "sha256": "408df586ba8056241f120b89e20e06d3db5f00b984d394112cfcfd6d6ecfbef7",
+      "visibleText": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n自动对话中\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n正在停止…\n\n正在停止自动对话，请等待服务器确认。",
+      "titles": [
+        "结束求助",
+        "停止自动往返，之后可以继续手动发送"
+      ],
+      "assertions": [
+        {
+          "expected": "正在停止",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-transfer-cache",
+      "entry": "传输记录",
+      "condition": "失败上传的本机缓存已被清理",
+      "file": "src/renderer/transfer-records.tsx",
+      "before": "本机上传缓存已清理",
+      "after": "先核对",
+      "phase": "after",
+      "sourceSha256": "4fc989ae31fd97aef5aeac6939eadb5304102e0b307b8f527cce8ff672bb3ddd",
+      "screenshot": "docs/error-audit/screenshots/team-transfer-cache-after.png",
+      "sha256": "b5bb311172fa4305ad14fe20c69b8964e957513190471722d515e07c51b7bc65",
+      "visibleText": "轨迹上传 · 验收工作会话轨迹.md\n未完成\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n\n这条上传记录的本机缓存已清理，原记录无法重传。请先核对远端是否已有此前内容，再决定是否重新生成或提交。\n\n原传输结果仍需核对。本机缓存缺失不代表服务器未收到，请先在团队成果、项目文件或日志中的原请求回执中确认；核对前请勿重新提交相同内容。 查看日志",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "先核对",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-transfer-uncertain",
+      "entry": "传输记录",
+      "condition": "上传后等待回执时断线",
+      "file": "src/renderer/transfer-records.tsx",
+      "before": "服务器可能已接收",
+      "after": "可能已接收",
+      "phase": "after",
+      "sourceSha256": "4fc989ae31fd97aef5aeac6939eadb5304102e0b307b8f527cce8ff672bb3ddd",
+      "screenshot": "docs/error-audit/screenshots/team-transfer-uncertain-after.png",
+      "sha256": "82239fdfec80639600094fdba16300621f4011749173affbcc6b8fcbea2d38e4",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n未开启同步\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nTRANSFER CENTER\n传输记录\n上传缓存：4.0 KB\n清理成功上传缓存\n轨迹上传 · 验收工作会话轨迹.md\n未完成\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n服务器可能已接收，尚未确认完成；重试会先查询原请求回执。 传输连接未能保持，请恢复中央节点连接后重试。 查看日志\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "登录后查看你加入的项目",
+        "请先通过顶部“连接中央节点”登录",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：未开启同步，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "可能已接收",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实中央节点入口",
+          "expected": "打开登录中央节点",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-rsi-retry",
+      "entry": "AI推荐",
+      "condition": "上次分析失败并已安排后台重试",
+      "file": "src/renderer/project-interactions.tsx",
+      "before": "已记录项目变化",
+      "after": "上次",
+      "phase": "after",
+      "sourceSha256": "35904d1f96861dba8a46a2c0da8076075f7e53b7dce395474dc262ce9480dca4",
+      "screenshot": "docs/error-audit/screenshots/team-rsi-retry-after.png",
+      "sha256": "60d8d0e1cf887cf1da01398b61cae64acccca9e61fdf6f9226f94b61a4246d0c",
+      "visibleText": "已记录项目变化，稍后在后台分析。\n上次 AI 推荐未完成：模型配置已变化，请重新分析 已安排后台重试，你可以继续工作。\n\n暂无待处理的推荐。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "上次",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-activity-failed",
+      "entry": "会话／相关动态",
+      "condition": "AI返回的判断未通过来源校验",
+      "file": "src/renderer/activity-recommendations.tsx",
+      "before": "暂未完成判断",
+      "after": "来源",
+      "phase": "after",
+      "sourceSha256": "46d5c099571ae608312bf733f8d0deef52b1dffa0d6e2adc7a363f1a8da62f4e",
+      "screenshot": "docs/error-audit/screenshots/team-activity-failed-after.png",
+      "sha256": "e4d42576cf588e265a34068e759528213692fd27faa6f6dc2d2703f66675f6d7",
+      "visibleText": "新动态判断暂未完成\n有 1 条新动态暂未完成判断，将在新动态到达、资料或连接恢复后自动继续。你可以继续对话。\n查看未完成原因\n\nAI 返回的动态判断含有非原文片段或无法核对的来源，本次结果未采用，待处理动态已保留。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "来源",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-environment-failure",
+      "entry": "服务器环境修复",
+      "condition": "远端修复请求返回技术异常",
+      "file": "src/admin/environment-view.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "aeb0657b0f156b0487a5073d25b663f535dc16e532d30045c11293ebfe50628d",
+      "screenshot": "docs/error-audit/screenshots/admin-environment-failure-after.png",
+      "sha256": "3feb05f0dfc564526cba990e916be063fb9bbd4443ca06e4b422f3d406b3f6bc",
+      "visibleText": "修复远端服务器环境\n操作位置：\naudit.invalid\n\n问题出在远端 Linux 服务器，本机 Windows 无需安装。只有点击“在服务器执行修复”后，管理端才会通过当前 SSH 连接，在服务器上安装缺失组件并重新检查；打开此窗口不会执行安装。\n\n当前服务器检查结果\n\n服务器组件尚未准备完成\n\n服务器安装方式\n在线：由服务器从其软件源下载\n离线：使用已放在服务器上的安装包\n\n确认后，程序通过 SSH 让服务器执行 apt-get，使用服务器已有的软件源和网络配置下载、安装缺失的 ACL / Supervisor 组件及依赖；本机不下载软件包。服务器能访问内网软件源也可以。\n\n自动安装目前支持 Debian / Ubuntu。SSH、Python 或账号管理命令缺失时，需在服务器上手动补齐后点击“重新检查服务器”。容器可能还需在启动流程中接入服务脚本，完成后会显示具体要求。\n\n服务器操作失败：修复远端服务器环境未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n取消\n在服务器执行修复",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-environment-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-import-failure",
+      "entry": "接入已有账号",
+      "condition": "读取已有账号状态返回技术异常",
+      "file": "src/admin/existing-member-dialog.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "b463b00992fefbbfac6def4e13d365aabfc04e4da3d692ae4240d5673ac50850",
+      "screenshot": "docs/error-audit/screenshots/admin-import-failure-after.png",
+      "sha256": "70b8bd191fa0faa5b27a5ae273e126dcef85145af332c16fc6d40bb9066a06ce",
+      "visibleText": "恢复已有 Linux 账号\n检测已有账号及权限未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\nroot@audit.invalid · /srv/audit\n\n账号归属当前 Linux 系统，不受团队空间 ID 限制。仅接入本机 Workbench 专用账号：通过原密码验证并核对已有权限，不会重设密码；若属于旧空间，会添加当前空间的登录组，并核对实际 SFTP 目录。\n\nLinux 登录账号\n检测已有账号及权限\n取消\n验证密码并接入",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-import-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-sync-failure",
+      "entry": "成员同步状态",
+      "condition": "后台同步失败",
+      "file": "src/admin/member-sync-view.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "2b5d194fc8e39a28a044dcad3e0e3cb79c959dbabe3cf96f3966d457395270c1",
+      "screenshot": "docs/error-audit/screenshots/admin-sync-failure-after.png",
+      "sha256": "e0ed4fe6f70d9eb752080a695d286b863f03dea207125f8c1551ea36a5a541fc",
+      "visibleText": "成员自动同步 · 团队 fixture-\n\n成员同步暂未完成：同步成员：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-sync-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-egress-jump-failure",
+      "entry": "共享服务器中转",
+      "condition": "启用隧道返回技术异常",
+      "file": "src/admin/egress-jump.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "e0b9d06ca203ad418af609184df8983220177a93247ee7eb0b1e05c221402bcb",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-jump-failure-after.png",
+      "sha256": "51e8d2509ecc38aa2ee8ca1273cf1e9769f2f1d2d9e1b58caf0e85dc4a89fb41",
+      "visibleText": "共享服务器中转\n用户端 → 共享服务器 → 管理端 → 模型服务\n未启用\n\n复用共享服务器的 SSH 端口 22，由本机建立反向隧道，无需新增对外端口。\n\n配置共享服务器中转未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n\n启用反向隧道\n高级：服务器直接连接本机",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-edit-failure",
+      "entry": "团队成果／编辑成果",
+      "condition": "保存修改返回技术异常",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "3a39d3fe95085afbeaa8c798cad3e5c854bbabcc5d40f7f1f2c4ad161eb5157c",
+      "screenshot": "docs/error-audit/screenshots/team-results-edit-failure-after.png",
+      "sha256": "17b4f27851761a41223774153f1f60b781623fb7e8a50953f0ad0886446a53e6",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n验收待办\n待办事项\n进行中\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n取消编辑\n保存修改\n\n成果 ID：result-audit · v1 复制 ID\n\n状态\n待处理\n进行中\n已完成\n已取消\n负责人\n标题\n内容 / 说明\n仓库链接（可选）",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收待办"
+      ],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1313
+        },
+        "comparisonNote": "原图为 1425×1295，现图为 1425×1313；两次配置视口均为1440×1000并采用fullPage。完整文档高度随文案长度变化，前后PNG不等高，不宣称图像尺寸一致。"
+      }
+    },
+    {
+      "id": "team-task-status-failure",
+      "entry": "任务验收",
+      "condition": "确认任务完成返回技术异常",
+      "file": "src/renderer/assignment-lifecycle.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "22555b832df86251c4b2a2c4dddeeaec9ff86cd00ce5f4374fa85242cb2d6d1c",
+      "screenshot": "docs/error-audit/screenshots/team-task-status-failure-after.png",
+      "sha256": "2ebb674dd7222e56560475f11f7005eee821db4b9a730983e281e74110157218",
+      "visibleText": "验收通过\n退回继续工作\n取消任务\n确认完成？\n验收任务\n\n确认已达到任务目标和验收要求。通过后任务变为“已完成”，记录本次验收人。\n\n验收意见（可选）\n\n已有 Session、对话、项目成果和已带入会话的文件不受影响。\n\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n\n返回\n确认完成",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-status-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-sync-failure",
+      "entry": "寻求帮助",
+      "condition": "后台求助同步返回技术异常",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "6965c750efec1e48aa05638cb7be891f3c11d2051de2e3f40e2753a1dd604248",
+      "screenshot": "docs/error-audit/screenshots/team-question-sync-failure-after.png",
+      "sha256": "8ef6138ddded11352d2305f504b84cedd333794031919c8d922ad87c568f1844",
+      "visibleText": "寻求帮助\n\n同步求助：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送",
+      "titles": [
+        "填入发起求助的会话，编辑后由你发送",
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "让当前会话 和协作成员自动往返：对方回复后会继续追问，期间不能手动发送",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问"
+      ],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-sync-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-question-send-failure",
+      "entry": "寻求帮助／继续求助",
+      "condition": "发送请求失败且草稿保留",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "6965c750efec1e48aa05638cb7be891f3c11d2051de2e3f40e2753a1dd604248",
+      "screenshot": "docs/error-audit/screenshots/team-question-send-failure-after.png",
+      "sha256": "f39e78ab5c24bc004250d037c8213d557cd31f67149933b38fa31a6c212cb9b1",
+      "visibleText": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送\n\n尚未确认这条消息是否送达。草稿已保留，请先刷新求助记录核对，避免重复发送。执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志刷新求助记录",
+      "titles": [
+        "填入发起求助的会话，编辑后由你发送",
+        "向上拖动加高，向下拖动降低；双击恢复默认",
+        "结束求助",
+        "让当前会话 和协作成员自动往返：对方回复后会继续追问，期间不能手动发送",
+        "为这次追问添加附件",
+        "还没有 AI 生成的追问"
+      ],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-send-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-personal-read-failure",
+      "entry": "个人成果库",
+      "condition": "首次读取失败且没有已有列表",
+      "file": "src/renderer/conclusions.tsx",
+      "before": "暂无当前成果",
+      "after": "无法确认",
+      "phase": "after",
+      "sourceSha256": "a533e4296121cc10a5e3fe62f110a1e8deb6116de9d0f3cdbb30a69fec73a13c",
+      "screenshot": "docs/error-audit/screenshots/team-personal-read-failure-after.png",
+      "sha256": "d7841f794865757dd56df3e4dfb81430fdd8c2ce1a5fe0f4874a1b83d00159e1",
+      "visibleText": "PERSONAL RESULTS\n个人成果 · 报错验收项目\n\n你在本项目中保存的成果，可供会话引用。仅你可见，由你维护，并随账号同步。\n\n个人成果列表暂未读取成功，当前无法确认列表内容。执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 已读取的成果仍可查看，请点击“刷新个人成果”重试。\n\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n数量未确认\n刷新个人成果\n成果范围\n全部成果\n历史成果\n当前成果\n批量管理\n新建成果",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项"
+      ],
+      "assertions": [
+        {
+          "expected": "无法确认",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-draft-upload-unconfirmed",
+      "entry": "成果整理任务列表",
+      "condition": "已有上传记录但上传失败且没有独立个人副本",
+      "file": "src/renderer/draft-list.tsx",
+      "before": "成果已单独保存",
+      "after": "已保留上传记录",
+      "phase": "after",
+      "sourceSha256": "ffe4c4409bb1cf42a66715224f2864f0d135e49a28ed5a4b46e017fefcf5bac6",
+      "screenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-after.png",
+      "sha256": "4e0dd8e2f35f0fbae1b61e83a2733616cfd2ee94878462e1a24caa9b951ba7aa",
+      "visibleText": "会话成果整理\n上传未完成\n已保留上传记录\n待上传的整理成果\n来源：验收工作会话\n项目：报错验收项目\n1 项内容\n创建于 2026/11/16 10:00:00",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已保留上传记录",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-updates-refresh-failure",
+      "entry": "团队动态／标记已处理",
+      "condition": "标记已成功但随后列表刷新失败",
+      "file": "src/renderer/content-updates.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "处理状态已保存",
+      "phase": "after",
+      "sourceSha256": "ef3b370c7f71b62d61fe213064efcd2812bb2f34361e63883de8e78df8f43c5a",
+      "screenshot": "docs/error-audit/screenshots/team-updates-refresh-failure-after.png",
+      "sha256": "3f2232499eb7fc90d5af35f8e5407e04822003b305631470a5d777fee66c278b",
+      "visibleText": "TEAM ACTIVITY\n团队动态\n\n先查看成果，再决定是否存入本地库。无需保留的动态可直接标记已处理，之后也能设回待处理。\n\n刷新团队动态\n\n处理状态已保存，列表暂未刷新。以下可能仍为上次读取的内容，请刷新团队动态后核对。\n\n待处理\n1\n已处理\n0\n全部\n1\n类型\n全部类型（1）\n上传成果（1）\n更新成果（0）\n合并成果（0）\n成果被替代（0）\n团队成果已删除（0）\n关联文件缺失（0）\n关联文件恢复（0）\n多选处理\n上传成果\n待办事项\nv1\n待处理\n2026/11/16 10:00:00\ndemo 提交了《验收待办》\n\n来源与历史\n查看结果\n标记已处理",
+      "titles": [
+        "列表尚未刷新，请先点击“刷新团队动态”"
+      ],
+      "assertions": [
+        {
+          "expected": "处理状态已保存",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-scheduled-read-failure",
+      "entry": "定时任务",
+      "condition": "任务和运行记录首次读取失败",
+      "file": "src/renderer/scheduled-tasks.tsx",
+      "before": "还没有定时任务",
+      "after": "无法确认",
+      "phase": "after",
+      "sourceSha256": "834b6a29abfb3a99d12e30d6a2b4890c48f3576f9a83d590afb3645a3916109e",
+      "screenshot": "docs/error-audit/screenshots/team-scheduled-read-failure-after.png",
+      "sha256": "da0c76acb07b9e3bb477f0b6c19b61150582db30d50dc0f5cf199a6f2d534509",
+      "visibleText": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\n\n定时任务和运行记录暂未读取成功，当前无法确认列表内容。执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 已读取的内容仍可查看。重新读取\n\n运行记录\n记录数量未确认\n删除所选（0）",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "无法确认",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-scheduled-read-recovered",
+      "entry": "定时任务",
+      "condition": "首次失败后下一次刷新成功",
+      "file": "src/renderer/scheduled-tasks.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "本机任务验收",
+      "phase": "after",
+      "sourceSha256": "834b6a29abfb3a99d12e30d6a2b4890c48f3576f9a83d590afb3645a3916109e",
+      "screenshot": "docs/error-audit/screenshots/team-scheduled-read-recovered-after.png",
+      "sha256": "1eaba86f397abe9290d1b1a208cf0365eaeb0a1708e94249df58e7fb04c78b49",
+      "visibleText": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\n本机任务验收\n报错验收项目 · 单次 · 2026/11/16 10:00:00 · Asia/Shanghai\n已启用\n\n核对本机任务列表状态。\n\n下次执行：2026/11/16 10:00:00\n\n立即执行\n暂停\n编辑\n运行记录\n运行记录\n共 0 次\n删除所选（0）\n\n暂无运行记录。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "本机任务验收",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-context-action-failure",
+      "entry": "操作菜单",
+      "condition": "界面操作函数抛出技术异常",
+      "file": "src/renderer/context-menu.tsx",
+      "before": "TypeError: isolated renderer failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "cfe6c5eae2b2b70021489f86a0be144776cad72901140f710481f8165c00cf2d",
+      "screenshot": "docs/error-audit/screenshots/team-context-action-failure-after.png",
+      "sha256": "6d40644ee04796e55de9e76b1ed376bd345e01904f6ee321e639f59979b3085c",
+      "visibleText": "Codex\n2026/11/16 10:00\n\n请复制这条验收回复，核对复制失败时的提示与原文保留。\n\n复制消息\n\n复制消息：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志",
+      "titles": [
+        "2026/11/16 10:00:00",
+        "复制这条回复"
+      ],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-rsi-settings-read-failure",
+      "entry": "AI推荐模型设置",
+      "condition": "项目设置读取成功但主状态读取失败",
+      "file": "src/renderer/rsi-project-settings.tsx",
+      "before": "正在读取设置",
+      "after": "设置暂未读取成功",
+      "phase": "after",
+      "sourceSha256": "316ce0acfb6686559d9870e7bc1f93e1f2a8eb61e5414aa67970ca5234a0934f",
+      "screenshot": "docs/error-audit/screenshots/team-rsi-settings-read-failure-after.png",
+      "sha256": "7c034a18924f6f79144ee1c5b830067dcca1b7232a6d54605d61d50e74cbc342",
+      "visibleText": "本项目的后台推荐使用此配置和你的个人账号额度。项目有新进展时自动分析，无需保持某条会话打开。\n\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。\n\n设置暂未读取成功，请重试；现有推荐配置保持不变。\n\n重试读取设置",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "设置暂未读取成功",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-directions-read-failure",
+      "entry": "成员名片",
+      "condition": "首次读取失败且无本机缓存",
+      "file": "src/renderer/directions.tsx",
+      "before": "你还没有填写名片",
+      "after": "成员名片暂未读取成功",
+      "phase": "after",
+      "sourceSha256": "cd9016cb288c271e5800d0f05b2ef0ee9f9a8edb7a5cb0762ce718832cd6285f",
+      "screenshot": "docs/error-audit/screenshots/team-directions-read-failure-after.png",
+      "sha256": "18705d50b9370749de9767b5101998321e788f861f7ecff6f4009544cc0d11ed",
+      "visibleText": "MEMBER PROFILES\n成员名片\n\n在名片里介绍你正在做的事和可以交流的经验，方便队友找到你。每张名片可以添加多条内容，只能编辑自己的名片。\n\n成员名片暂未读取成功\n\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 当前无法确认已有名片内容，请先重新读取。\n\n重新读取成员名片",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "成员名片暂未读取成功",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-account-sync-failure",
+      "entry": "账号资料自动同步",
+      "condition": "网络中断被笼统归因为旧版服务器",
+      "file": "src/renderer/account-sync.tsx",
+      "before": "旧服务器需更新存储服务",
+      "after": "本机内容已保留",
+      "phase": "after",
+      "sourceSha256": "d2e338704cfea80e4cfc185e940fc53c40ade4c359cc83ff80268cc20e2699aa",
+      "screenshot": "docs/error-audit/screenshots/team-account-sync-failure-after.png",
+      "sha256": "203163cb799c7409f648d35cdffb17e107dd50f5a29cff13024bb23ea838abc6",
+      "visibleText": "资料等待自动同步\n自动同步\n×\n\n个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。\n\n账号资料尚未同步。同步账号资料：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。 本机内容已保留，后台会继续尝试同步，你可以继续本机工作。",
+      "titles": [
+        "账号资料尚未同步。同步账号资料：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。 本机内容已保留，后台会继续尝试同步，你可以继续本机工作。"
+      ],
+      "assertions": [
+        {
+          "expected": "本机内容已保留",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-projects-read-failure",
+      "entry": "管理端／项目管理",
+      "condition": "首次读取项目列表失败",
+      "file": "src/renderer/team-groups.tsx",
+      "before": "暂无项目",
+      "after": "项目列表暂未读取成功",
+      "phase": "after",
+      "sourceSha256": "c5a7a2c2f3a22b40478a86b8b47a6aa083462dc011780d3f4843fbc05098a77c",
+      "screenshot": "docs/error-audit/screenshots/admin-projects-read-failure-after.png",
+      "sha256": "5ee93373956aa695c0b8c49b899039b0a9fd8324503c66aa6349e99e17d4a22e",
+      "visibleText": "项目管理\n刷新项目\n创建项目\n\n查看各项目成员与角色，调整创建者，删除或恢复项目。\n\n当前项目\n项目回收站\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。\n项目\t创建者\t成员\t占用空间\t操作\n\n项目列表暂未读取成功，当前无法确认是否有项目。请点击“刷新项目”重试。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "项目列表暂未读取成功",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-project-brief-read-failure",
+      "entry": "项目资料",
+      "condition": "项目说明读取失败",
+      "file": "src/renderer/project-brief-editor.tsx",
+      "before": "尚未填写",
+      "after": "项目说明暂未读取成功",
+      "phase": "after",
+      "sourceSha256": "a3b9210cb3258ed10c69b7b524d4bf27fcdc262fac0aa5d912ad31185b200f07",
+      "screenshot": "docs/error-audit/screenshots/team-project-brief-read-failure-after.png",
+      "sha256": "11502874bc9eda488d4a99f48916d09df9f2e3833ecee045914aed67de36422a",
+      "visibleText": "MD\n报错验收项目\n这是本项目当前的项目说明，对应共享目录中的“项目说明.md”，由创建者或管理者维护。\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。\n\n只读，仅本项目创建者或管理者可修改。\n\n项目说明暂未读取成功，当前无法确认已有内容。请先重新读取。\n\n重新读取项目说明",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "项目说明暂未读取成功",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-draft-delete-partial",
+      "entry": "批量删除整理记录",
+      "condition": "一条已删除，一条保存状态失败",
+      "file": "src/renderer/draft-delete.tsx",
+      "before": "ENOSPC",
+      "after": "本机磁盘空间不足",
+      "phase": "after",
+      "sourceSha256": "5669cba0b08113c551f54dc549b03c449a983d7633defbebcb7a2e285419bbe7",
+      "screenshot": "docs/error-audit/screenshots/team-draft-delete-partial-after.png",
+      "sha256": "db8f7bef98871081194fd6409fdada97fb40745534d68a86b2f738be4ab282a7",
+      "visibleText": "批量删除整理记录？\n×\n\n已删除 1 条记录，剩余 1 条未完成。\n\n将删除以下 1 条整理记录。\n\n验收整理记录 b · 本机项目\n\n删除该整理记录：本机磁盘空间不足，未能完成保存。请释放空间后重试。\n\n只删除所选整理记录。已保存的个人成果、已提交的团队成果、原 Session 和增量整理进度都会保留；未保存的草稿内容会删除。已提交的上传不受影响，记录删除会同步到你的其他电脑。\n\n关闭\n重试删除 1 条记录",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "本机磁盘空间不足",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-move-uncertain",
+      "entry": "批量移动团队成果",
+      "condition": "第一组移动已确认，第二组等待回执时断线",
+      "file": "src/renderer/result-directories.tsx",
+      "before": "其余未完成",
+      "after": "其余结果未确认",
+      "phase": "after",
+      "sourceSha256": "acbbd37fa15055025b63d3b38b7f148c907d6bbdc90de9005e23b8dca1d33390",
+      "screenshot": "docs/error-audit/screenshots/team-results-move-uncertain-after.png",
+      "sha256": "354985033eca67b2c8f94cbc4a575ca75adec9408f836710084968871e937e86",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n2\n新建目录\n全部目录\n2 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n取消多选\n清理未引用文件\n刷新\n已确认移动 1 条；其余结果未确认，请先刷新目录核对。执行此操作：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。 查看日志\n全选当前可删除项（最多 100 项）\n已选择 0 项；切换目录、筛选或刷新后会清空选择\n移动到目录\n删除选中的 0 项\n验收待办\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多\n验收待办B\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "选择删除",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "选择删除",
+        "验收待办B",
+        "",
+        "选择一个或多个会话作为参考资料"
+      ],
+      "assertions": [
+        {
+          "expected": "其余结果未确认",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-transfer-record-save",
+      "entry": "传输记录／完成后的本机记录保存",
+      "condition": "实际TransferQueue成功接收并验证回执，最终保存传输状态及随后重试保存均失败",
+      "file": "src/core/transfers.ts",
+      "before": "结果尚未通过校验",
+      "after": "传输结果已确认完成",
+      "phase": "after",
+      "sourceSha256": "654ab76b0d87bdfb65f79414205cf3e2db15aa694530fcd348e6cd7f9017c78b",
+      "screenshot": "docs/error-audit/screenshots/team-transfer-record-save-after.png",
+      "sha256": "75ff1388df86422f1be53d19b2ff39b0aa1f63c847f9ff9a336d99893be5fca1",
+      "visibleText": "轨迹上传 · 已传输的验收轨迹.md\n已完成\n24 B / 24 B · 2026/11/16 10:00:00\n查看详情\n传输结果已确认完成，但本机传输记录尚未保存。本机可写空间不足，请释放空间后核对记录。请保持工作台打开；先核对已有文件或成果，避免重新提交。 查看日志",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "传输结果已确认完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-project-created-refresh-failure",
+      "entry": "完善项目资料／首次初始化",
+      "condition": "中央节点已确认创建项目，随后父界面刷新失败",
+      "file": "src/renderer/project-onboarding.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "已在中央节点创建",
+      "phase": "after",
+      "sourceSha256": "10adc6b7abe1850e80541ed19fe5d3e20b1927bf027ad1460e5a025ef65b3fbd",
+      "screenshot": "docs/error-audit/screenshots/team-project-created-refresh-failure-after.png",
+      "sha256": "bbecc95802cfaf002830278fd3d67e71f1608804765ec03f03339de4d5b65d10",
+      "visibleText": "完善项目资料\n报错验收项目 · 项目初始化\n账号：demo\n项目「报错验收项目」已在中央节点创建，项目列表尚未刷新。请点击“刷新项目并继续”，不要重复创建。执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n项目名称 *\n项目背景 *\n项目目标 *\n验收标准 *\n补充范围、资料与协作约定（可选）\n关闭\n刷新项目并继续",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已在中央节点创建",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "刷新已创建项目",
+          "expected": "仅重试父界面刷新，project.initialize仍只调用1次",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-project-catalog-unreadable",
+      "entry": "共享空间／清理项目",
+      "condition": "实际legacy catalogProjects枚举已登记目录收到EACCES，不能完整读取可清理项目",
+      "file": "src/admin/project-purge.ts",
+      "before": "还没有项目",
+      "after": "项目目录暂未完整读取",
+      "phase": "after",
+      "sourceSha256": "5e3692aa885e83f5e2f6249bd5cb5cb4f816f9284e4c8b271a045c98f319857e",
+      "screenshot": "docs/error-audit/screenshots/admin-project-catalog-unreadable-after.png",
+      "sha256": "e2f5e0ac1911f235fd8b3beb701a20f5c2e3a8ce58448326b2a376566b97786a",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已统计文件占用\n4.00 KB\n2 个文件 · 2 个目录\n有 1 个路径未完整统计，实际占用可能更高。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目\n清理项目\n\n项目目录尚未完整读取，暂时不能确认可清理的项目。\n\n重新读取项目\n项目目录暂未完整读取，无法确认可清理的项目。请重新读取；若仍失败，查看日志核对目录访问。 查看日志\n取消\n确认清理",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "项目目录暂未完整读取",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-draft-transfer-cache",
+      "entry": "成果整理／已提交草稿",
+      "condition": "原上传回执未确认且本机缓存已清理，成果整理页提供后续操作",
+      "file": "src/renderer/draft-editor.tsx",
+      "before": "重试原上传",
+      "after": "核对前请勿重新提交",
+      "phase": "after",
+      "sourceSha256": "4dda33e61a0bffaf97ac909d49afff34f0b21be8590adada522f694545ba47a5",
+      "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-after.png",
+      "sha256": "cdcd52bfdd16bbcbaf288c14122fd361eb855c6e1b2c4a5e675bbcc18398fd04",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\n返回成果整理\n关闭\n删除整理记录\n上传未完成\n再次整理\n\n来自“验收工作会话”\n\n待核对的验收成果\n修改名称\n\n这份整理内容已有上传记录，仍需核对原提交结果。\n\n附件（已选 0 个）\n上传结果待核对：原传输结果仍需核对。本机缓存缺失不代表服务器未收到，请先在团队成果、项目文件或日志中的原请求回执中确认；核对前请勿重新提交相同内容。 查看日志\n重试原上传\n生成修订草稿\n补充说明（可选）\n上传位置\n报错验收项目 / 项目成果（自动选择）\n返回成果整理\n保存到个人成果库\n部分上传结果待核对，请先查看对应记录\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "/projects/audit/submissions/demo",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "核对前请勿重新提交",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "同一失败记录出现在实际PreparationReview子成果中",
+          "expected": "子成果保留回执未知并阻止必失败重传",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-artifact-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-egress-test-failure",
+      "entry": "网络出口／连接诊断",
+      "condition": "网络测试返回技术异常",
+      "file": "src/admin/egress-tests.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "3b9cad9352186dc9e5be1f44c113b5d167bc7436ae4b4c41c0438fb0dc03faf8",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-test-failure-after.png",
+      "sha256": "6d5960db915226c66b942180f5aead4eb695159fb1ea9b588aae5ccd97c0439d",
+      "visibleText": "管理端网络测试\n无需在本机安装或启动对应 CLI。测试使用已保存的网络设置，不改变成员转发权限。\nCodex\n允许成员转发\n测试 Codex\n测试管理端网络：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\nCursor\n允许成员转发\n测试 Cursor\nClaude Code\n允许成员转发\n测试 Claude Code\n\n检查管理端到服务地址的网络连接；成员的模型登录、配额与实际请求状态在用户端查看。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-egress-test-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-delete-failure",
+      "entry": "团队成果／删除成果",
+      "condition": "删除请求返回技术异常",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "8f0452b7dd9ee05a79573fc3b8669e4ab3ecadc655aa4ccccc0c37014b1a147a",
+      "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-after.png",
+      "sha256": "78e25fc296a0288a3e5d13aa9263b8a050ef68df12cef5c3646354a5a70daa94",
+      "visibleText": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\n确认删除团队成果？\n×\n\n将删除团队成果“验收待办”。同组成员将无法再从团队成果库查看或引用；正文和历史版本无法从库中恢复。\n\n已保存的个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留。这条成果自己的提交文件、会话轨迹和附件会一并删除；仍被其他成果引用的文件会保留。\n\n各成员可在删除动态中自行决定是否删除个人副本。\n\n执行此操作：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n取消\n确认删除团队成果",
+      "titles": [
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收待办",
+        "",
+        "选择一个或多个会话作为参考资料"
+      ],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-logs-after.png"
+        },
+        {
+          "action": "检查前景删除确认框内的失败提示",
+          "expected": "modal.getByRole(alert)可见且toBeInViewport ratio=1；错误不在被遮挡的背景",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-attachment-failure",
+      "entry": "团队成果／附件预览",
+      "condition": "预览附件返回技术异常",
+      "file": "src/renderer/attachments.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "a6a98391b80ccd1c70561ea3e0172414ef5849e73b231debbdfff30ad1b95854",
+      "screenshot": "docs/error-audit/screenshots/team-attachment-failure-after.png",
+      "sha256": "f895387cbf76e5cdb6102266eb24ed90db1fafc58a1d8284136a840912fde65f",
+      "visibleText": "附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\n预览附件「验收附件.txt」：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-task-create-failure",
+      "entry": "派发任务",
+      "condition": "派发请求返回技术异常",
+      "file": "src/renderer/assignments.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "未能完成",
+      "phase": "after",
+      "sourceSha256": "b4f852599f8e2f390937bcf6839e8c38dff23192b247a4c4a832be31c37d2a95",
+      "screenshot": "docs/error-audit/screenshots/team-task-create-failure-after.png",
+      "sha256": "6d58a5ddb2ac6e3500f82bce16dca3b8c052531965e949223aa65e974a46dfb7",
+      "visibleText": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\n我负责的\n0\n我派发的\n0\n全组任务\n0\n状态\n待办任务（0）\n全部状态（0）\n已删除（0）\n暂无分配给你的任务\n\n点击“派发任务”，可选择自己或其他组内成员。\n\n选择任务查看详情。\n\n派发任务\n×\n派发任务：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n负责人\n请选择本组成员\n验收成员（demo） · 我自己\n分配给自己\n任务标题\n任务目标与工作范围\n验收要求（可选）\n关联共享成果和文件（已选 0/20）\n刷新成员和成果\n\n填写任务后，会优先显示文字相关的候选成果；勾选的内容将随任务交给成员。勾选成果时会一并带上它的附件，可逐个取消。刷新时保留当前选择，确认派发时会再次核对权限和版本。\n\n【待办事项】 验收待办\nv1 · demo · 与任务相关：标题命中：验收\n阅读成果\n另外附文件\n选择本地文件\n\n确认派发时上传。任务文件只对负责人和本组管理员可见；相同权限下的相同内容只存一份。\n\n共选择 0 个文件，单个任务最多 30 个，每个不超过 2 GB。\n\n取消\n确认派发",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "未能完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "派发失败后刷新真实关联成果候选列表",
+          "expected": "派发错误与读取候选错误分别只显示在对应区域，互不冒充",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-create-failure-choices-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-personal-group-refresh-failure",
+      "entry": "新建个人分组",
+      "condition": "分组已保存但刷新失败",
+      "file": "src/renderer/personal-workspace.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "个人分组已保存",
+      "phase": "after",
+      "sourceSha256": "b0df201877e66d50741bdbeaadcb6706d13580f002aa41848cab6dd3c8a3119b",
+      "screenshot": "docs/error-audit/screenshots/team-personal-group-refresh-failure-after.png",
+      "sha256": "f08a5ec67d89a0ad34f66ebe83b6bb5cacff6f057c5110729cec4c931c72e7b6",
+      "visibleText": "未分项目\n0\n未分组\n0\n\n个人分组已保存，分组列表暂未刷新。请点击“刷新分组列表”核对；无需重复保存。刷新分组列表",
+      "titles": [
+        "新建个人分组"
+      ],
+      "assertions": [
+        {
+          "expected": "个人分组已保存",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实刷新分组列表入口",
+          "expected": "仅重新读取父级列表，local.group.save仍只调用1次；再次读取失败时保留已保存事实",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-attachment-remote-missing",
+      "entry": "项目成果库／附件下载",
+      "condition": "附件下载收到SFTP code=2；错误原因由指定源码friendlySftp实际生成",
+      "file": "src/renderer/attachments.tsx",
+      "before": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+      "after": "中央节点未找到",
+      "phase": "after",
+      "sourceSha256": "a6a98391b80ccd1c70561ea3e0172414ef5849e73b231debbdfff30ad1b95854",
+      "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-after.png",
+      "sha256": "0378888db2d56a2b752e5747c35343ed0a3de503593f969c87ded20840ea0f4c",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n验收附件说明\n待办事项\n待处理\ndemo · v1 · 2026/11/16 10:00:00 · 1 个附件\n待办事项\n存入个人成果库\n删除团队成果\n更多\n\n成果 ID：result-audit · v1 复制 ID\n\n检查失败状态与恢复动作。\n\n附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\n下载附件「验收附件.txt」：中央节点未找到要访问的文件或目录。请刷新后重试；若仍缺失，请联系项目管理者核对。 查看日志\n\n来源与历史\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收附件说明",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "中央节点未找到",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-logs-after.png"
+        },
+        {
+          "action": "点击真实团队成果刷新",
+          "expected": "文件状态重新读取并显示关联文件缺失",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-refreshed-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "team-results-remote-missing",
+      "entry": "项目成果库／文件下载",
+      "condition": "文件下载收到SFTP code=2；错误原因由指定源码friendlySftp实际生成",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+      "after": "中央节点未找到",
+      "phase": "after",
+      "sourceSha256": "d1e4763838980473b38eb8d713d30480b0e219af6e49aa6d30fd4c4a686d2e60",
+      "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-after.png",
+      "sha256": "a9f69fd7065789e5ff4ad5d01eac95dff6264b24c5f7fd100603187a413b25a1",
+      "visibleText": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n1\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n下载文件「验收清单.txt」：中央节点未找到要访问的文件或目录。请刷新后重试；若仍缺失，请联系项目管理者核对。 查看日志\n验收清单.txt\n共享文件\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n项目资料\n存入个人成果库\n删除团队成果\n更多\n移动到目录\n下载\n设置本地别名\n加入会话\n编辑成果\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "titles": [
+        "项目任务",
+        "团队动态",
+        "工作会话",
+        "项目成果库",
+        "定时任务",
+        "修改密码",
+        "agent管理",
+        "当前账号",
+        "audit.invalid:22 · demo",
+        "刷新项目和文件",
+        "新建个人分组",
+        "报错验收项目",
+        "未关闭的工作会话（含子会话）",
+        "项目设置：报错验收项目",
+        "项目同步：同步已开启，点击管理同步",
+        "开启本项目的后台分析，使用个人模型额度",
+        "上下拖动调整区域高度；双击恢复默认",
+        "报错验收项目",
+        "接入 Codex 会话",
+        "接入 Cursor 会话",
+        "新建会话",
+        "验收工作会话 · 双击修改名称",
+        "管理会话归属",
+        "关闭会话，可从已关闭会话中恢复",
+        "项目目标",
+        "项目资料",
+        "已有能力",
+        "探索记录",
+        "待办事项",
+        "验收清单.txt",
+        "",
+        "选择一个或多个会话作为参考资料",
+        "展开侧栏",
+        "查看 AI推荐",
+        "查看 AI推荐",
+        "自动同步状态"
+      ],
+      "assertions": [
+        {
+          "expected": "中央节点未找到",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-logs-after.png"
+        },
+        {
+          "action": "点击真实团队成果刷新",
+          "expected": "文件状态重新读取并显示关联文件缺失",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-refreshed-after.png"
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": ".",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      }
+    },
+    {
+      "id": "admin-project-index-unreadable",
+      "entry": "共享空间／清理项目／保留轨迹",
+      "condition": "实际legacy purgeProject读取成果索引JSON失败，不能把未知关联作为空索引后执行清理",
+      "file": "src/admin/project-purge.ts",
+      "before": "已清理",
+      "after": "成果索引暂未读取成功",
+      "phase": "after",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "viewport",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "sourceSha256": "86d493b2099e1d07cfec713c597dc39ef6a13ec33627b3148ac0feae08305535",
+      "screenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-after.png",
+      "sha256": "f46325d3f86ad9058e58d0d6aac12ffa2c2d3e882e829e82ab79894ae378eed8",
+      "visibleText": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已统计文件占用\n4.00 KB\n2 个文件 · 2 个目录\n有 1 个路径未完整统计，实际占用可能更高。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目\n清理项目\n\n清理前的成果索引检查未通过，本次尚未删除文件。修复索引后，请重新读取项目并选择清理方式。\n\n重新读取项目\n成果索引暂未读取成功，本次尚未执行删除。请查看日志核对索引文件；修复后重新读取项目，再选择清理方式。 查看日志\n取消\n确认清理",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "成果索引暂未读取成功",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "实际purgeProject读取损坏索引",
+          "expected": "保留轨迹模式在任何文件删除前停止；隔离原文件仍在",
+          "pass": true
+        },
+        {
+          "action": "检查索引读取失败后的清理对话框",
+          "expected": "错误在前景且完整进入视口；确认清理禁用，重新读取项目可用",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": "."
+    },
+    {
+      "id": "team-task-created-refresh-failure",
+      "entry": "派发任务／创建已确认后刷新",
+      "condition": "实际assignment.create返回已创建任务，随后真实refresh回调调用assignment.list被拒绝",
+      "file": "src/renderer/assignments.tsx",
+      "before": "TypeError: isolated assignment refresh failure",
+      "after": "已派发，任务列表尚未刷新",
+      "phase": "after",
+      "geometry": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "sourceSha256": "b7a5a5292503b91ba1c74fa55b118ab4054d7f9086e74d43fb2f2088da63e3ae",
+      "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-after.png",
+      "sha256": "137e555fe609ead7de1c141e5cb09fc5c89f869c13929c829dcf23f47cdb83c1",
+      "visibleText": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\n\n任务「隔离验收任务」已派发，任务列表尚未刷新。请点击“刷新任务”核对，不要重复派发。 刷新任务列表：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n\n我负责的\n未读取\n我派发的\n未读取\n全组任务\n未读取\n状态\n待办任务（未读取）\n全部状态（未读取）\n已删除（未读取）\n\n任务列表暂未读取成功，暂时无法展示任务。请点击“刷新任务”重试。\n\n选择任务查看详情。",
+      "titles": [],
+      "assertions": [
+        {
+          "expected": "已派发，任务列表尚未刷新",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-logs-after.png"
+        },
+        {
+          "action": "点击真实刷新任务入口并恢复读取",
+          "expected": "assignment.create恰1次，原任务可见，成功刷新后已派发/未刷新提示清除；日志仍定位原刷新失败id",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-recovered-after.png"
+        },
+        {
+          "action": "父级捕获刷新异常并以loadError返回，再使用真实刷新入口恢复",
+          "expected": "保留已派发事实及原日志id，恢复后提示清除且原任务可见，创建恰1次",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-read-status-after.png"
+        },
+        {
+          "action": "未收到创建回执后，从保留的表单再次提交",
+          "expected": "任务内容保留，两次请求使用同一requestId，不生成新的任务身份",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "renderer": "production-react-components",
+      "fixture": "isolated-failure-IPC",
+      "failureBoundary": "actual-publicErrorState-for-admin-App-snapshots; shared-userFailure-envelope-for-rejected-IPC; direct-props-for-leaf-state",
+      "source": "."
+    }
+  ],
+  "complete": true,
+  "errors": []
+}

@@ -16,7 +16,10 @@ import { DraftAttachments, draftLevelArtifact } from './attachments';
 const api = window.workbench;
 export { contributionStatus as draftStatus } from '../shared/contribution-status';
 import { contributionStatus as draftStatus } from '../shared/contribution-status';
-import { preparationErrorMessage } from '../shared/preparation-error';
+import { preparationFailure as classifyPreparationFailure, preparationErrorMessage, preparationResultUnconfirmed } from '../shared/preparation-error';
+import { transferRecordError } from '../shared/transfer-failure';
+import { ConversationMessage } from './conversation-message';
+import { ErrorLogLink } from './error-notice';
 import { preparationCheckpoint } from '../shared/preparation-progress';
 import { isEmptyPreparation } from '../shared/preparation-review';
 import { PreparationOptionsModal } from './preparation-options';
@@ -30,6 +33,8 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
   const uploadLabel = draft.binding ? `提交到 ${projectDestinationLabel(draft.binding.project, projects)}` : '提交到团队';
   const reviewRef = useRef<PreparationReviewHandle>(null);
   const [busy, setBusy] = useState(false), [submitted, setSubmitted] = useState(false), [expanded, setExpanded] = useState(false);
+  const [recoveryChecked, setRecoveryChecked] = useState(false);
+  useEffect(() => setRecoveryChecked(false), [draft.id, draft.generationError]);
   const [editingMerge, setEditingMerge] = useState(false);
   const [confirmDuplicateTodos, setConfirmDuplicateTodos] = useState(false);
   const needsTodoConfirmation = (draft.mergeSources?.length || 0) > 1 && canonicalCategory(draft.resultCategory) === 'todo';
@@ -43,6 +48,10 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
   const [renaming, setRenaming] = useState<{ artifactId?: string; title: string }>();
   const [now, setNow] = useState(Date.now());
   const generating = draft.generation === 'running', ready = draft.generation === 'ready', isMerge = !!draft.mergeSources?.length, isLocalMerge = !!draft.conclusionMergeProjectId;
+  const generationFailure = (draft as Draft & { generationErrorFailure?: import('../shared/user-failure').UserFailure }).generationErrorFailure;
+  const classifiedPreparation = draft.generationError ? classifyPreparationFailure(generationFailure ? { failure: generationFailure, message: draft.generationError } : draft.generationError, session?.provider || sourceSession?.provider) : undefined;
+  const preparationFailure = classifiedPreparation?.message || '';
+  const resultUnconfirmed = preparationResultUnconfirmed(draft, session?.provider || sourceSession?.provider);
   const categories = draft.resultRules?.categories || draft.requestedCategories || materialCategories;
   const artifacts = draft.artifacts || [], selectedArtifacts = artifacts.filter(item => item.selected);
   const selectedIds = artifacts.length ? selectedArtifacts.map(item => item.id) : draft.body.trim() ? [draft.id] : [];
@@ -51,7 +60,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
   const attachmentEntries = artifacts.length ? selectedArtifacts.flatMap(item => item.attachments || []) : draft.attachments || [];
   const attachmentCount = new Set(attachmentEntries.filter(entry => entry.selected).map(entry => draft.files.find(file => file.id === entry.fileId)?.sha256).filter(Boolean)).size;
   const transfer = transfers.find(item => item.id === draft.submitted);
-  const batchStatus = draft.restored && draft.submitted ? '已恢复，共享状态待核对' : transfers.some(item => item.status === 'error') ? '上传未完成' : transfers.length && transfers.every(item => item.status === 'done') ? '上传成功' : transfers.some(item => item.status === 'running') ? '上传中' : '等待上传';
+  const batchStatus = draft.restored && draft.submitted ? '已恢复，共享状态待核对' : transfers.some(item => item.status === 'error') ? transfers.some(item => item.phase === 'awaiting_receipt') ? '上传结果待确认' : '上传未完成' : transfers.length && transfers.every(item => item.status === 'done') ? '上传成功' : transfers.some(item => item.status === 'running') ? '上传中' : '等待上传';
   const uploaded = !!draft.submitted || artifacts.some(item => !!item.submitted), locked = busy || leaving || submitted || uploaded;
   const editor = useAutosave('draft-supplement:' + draft.id, { supplement: draft.supplement || '', repoUrlOverride: draft.repoUrlOverride || '' }, value => api.call('draft.supplement', { id: draft.id, ...value }));
   const mergeEditor = useAutosave('content-merge:' + draft.id + ':' + (draft.generationFinishedAt || 'pending') + ':' + (draft.resultCategory || ''), { title: resultLabelTitle(draft.title), body: draft.body }, value => api.call('content.merge.save', { id: draft.id, ...value }));
@@ -85,14 +94,14 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
   const selectedDestination = draft.destinations?.find(item => item.path === draft.target);
   const destinationLabel = generating ? '识别中…' : ready && draft.target ? selectedDestination?.id === 'default' ? '我的成果（自动选择）' : `${selectedDestination?.description || '项目成果'}（自动选择）` : '尚未确定';
   const visibleBody = draft.body.replace(/^#\s+(.+)\r?\n+/u, (full, heading) => heading.trim() === draft.title.trim() ? '' : full);
-  const status = draft.mergeCompletedAt ? isLocalMerge ? draft.mergeResultPath ? '处理结果已提交团队' : '处理结果已保存到个人成果库' : '语义合并已提交团队' : generating ? session?.approvals.length ? session.approvals.some(isQuestionRequest) ? '有问题需要你回答' : '需要你确认一项操作' : isLocalMerge ? '正在按要求处理…' : isMerge ? '正在进行语义融合…' : '正在整理…' : ready ? empty ? draft.emptyResult?.confirmedAt ? '已确认本次无需保留' : '本次未生成新成果，请核对原因' : isLocalMerge ? '处理草稿已生成，可保存个人或提交团队' : isMerge ? draft.personalSavedIds?.includes(draft.id) ? '已保存个人成果，可继续提交团队' : '融合草稿已生成，可保存个人或提交团队' : draft.personalSavedIds?.length ? '已保存个人成果，可继续提交团队' : '整理草稿已生成，请选择保存位置' : draft.generation === 'error' ? isLocalMerge ? '处理失败，可重试' : isMerge ? '语义融合失败，可重试' : '整理失败，可重试' : '已停止，可重新整理';
+  const status = draft.mergeCompletedAt ? isLocalMerge ? draft.mergeResultPath ? '处理结果已提交团队' : '处理结果已保存到个人成果库' : '语义合并已提交团队' : generating ? session?.approvals.length ? session.approvals.some(isQuestionRequest) ? '有问题需要你回答' : '需要你确认一项操作' : isLocalMerge ? '正在按要求处理…' : isMerge ? '正在进行语义融合…' : '正在整理…' : ready ? empty ? draft.emptyResult?.confirmedAt ? '已确认本次无需保留' : '本次未生成新成果，请核对原因' : isLocalMerge ? '处理草稿已生成，可保存个人或提交团队' : isMerge ? draft.personalSavedIds?.includes(draft.id) ? '已保存个人成果，可继续提交团队' : '融合草稿已生成，可保存个人或提交团队' : draft.personalSavedIds?.length ? '已保存个人成果，可继续提交团队' : '整理草稿已生成，请选择保存位置' : resultUnconfirmed ? '整理结果待核对' : draft.generation === 'error' ? isLocalMerge ? '处理失败，可重试' : isMerge ? '语义融合失败，可重试' : '整理失败，可重试' : '已停止，可重新整理';
   return <div className="draft-editor">
     <div className="draft-editor-heading"><button className="text-button draft-back" title={generating ? '返回不会停止整理' : undefined} disabled={leaving} onClick={back}><ArrowLeft size={15}/><span>{leaving ? '正在返回…' : backLabel}</span></button><span className="spacer"/><button className="secondary compact" disabled={leaving} onClick={back}>关闭</button>{generating && <><span className="muted small">返回后仍会继续整理</span><button className="secondary compact" disabled={leaving} onClick={stop}><Square size={12}/>停止整理</button></>}{<button className="secondary compact danger" disabled={busy || leaving} onClick={() => setConfirmingDelete(true)}><Trash2 size={13}/>删除整理记录</button>}</div>
     {draft.restored && <p className="muted small">已恢复整理结果；原 Session 留在原电脑，不会自动继续运行。</p>}
     <section className="preparation-summary" aria-label="成果整理进度">
-      <div className="preparation-status" aria-live="polite" aria-label="整理状态">{generating && <LoaderCircle size={17} className="spin"/>}<strong>{isLocalMerge && draft.mergeResultPath ? batchStatus : draft.mergeCompletedAt ? status : draft.submitted ? batchStatus : status}</strong>{generating && <span className="muted small" aria-label="整理已用时间">{elapsed < 60 ? `${elapsed} 秒` : `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</span>}{!draft.restored && sourceSession && !generating && !isMerge && ready && <button className="secondary compact" disabled={busy || leaving} onClick={chooseScope}>再次整理</button>}{draft.organizationEdited && !isMerge && <span className="muted small">旧版项目概览；可再次整理为分类成果</span>}{!draft.restored && !locked && !generating && !draft.submitted && !draft.mergeCompletedAt && (isMerge || !ready) && <button className="text-button" onClick={() => void run(() => { notice(''); return api.call('draft.retry', { id: draft.id }); })}>{draft.generation === 'error' ? '重试' : isLocalMerge ? '重新处理' : isMerge ? '重新进行语义融合' : '重新整理'}</button>}</div>
+      <div className="preparation-status" aria-live="polite" aria-label="整理状态">{generating && <LoaderCircle size={17} className="spin"/>}<strong>{isLocalMerge && draft.mergeResultPath ? batchStatus : draft.mergeCompletedAt ? status : draft.submitted ? batchStatus : status}</strong>{generating && <span className="muted small" aria-label="整理已用时间">{elapsed < 60 ? `${elapsed} 秒` : `${Math.floor(elapsed / 60)} 分 ${elapsed % 60} 秒`}</span>}{!draft.restored && sourceSession && !generating && !isMerge && ready && <button className="secondary compact" disabled={busy || leaving} onClick={chooseScope}>再次整理</button>}{draft.organizationEdited && !isMerge && <span className="muted small">旧版项目概览；可再次整理为分类成果</span>}{!draft.restored && !locked && !generating && !draft.submitted && !draft.mergeCompletedAt && (isMerge || !ready) && <button className="text-button" disabled={busy || leaving || resultUnconfirmed && !recoveryChecked} title={resultUnconfirmed && !recoveryChecked ? '先查看已收到的整理内容；没有可用内容再允许重新整理' : undefined} onClick={() => void run(() => { notice(''); return api.call('draft.retry', { id: draft.id }); })}>{draft.generation === 'error' ? '重试' : isLocalMerge ? '重新处理' : isMerge ? '重新进行语义融合' : '重新整理'}</button>}</div>
       <p className="muted small preparation-source">{isMerge ? `${isLocalMerge ? '合并' : '融合'} ${draft.mergeSources!.length} 条${isLocalMerge ? '成果' : '团队成果'}；使用“${sourceTitle || '工作会话'}”完成整理，不会写入原对话` : <>来自“{sourceTitle || '原工作会话'}”{draft.snapshot ? `，${draft.preparationScope === 'incremental' ? `增量整理了 ${draft.snapshot.messageCount} 条新增或续写消息` : draft.snapshot.compact ? '从最近一次 Codex compact 整理' : '整理对话'}，采用截至 ${new Date(draft.snapshot.capturedAt).toLocaleString()} 的内容` : ''}</>}</p>
-      {draft.generationError && <div className="inline-error" role="alert">{preparationErrorMessage(draft.generationError)}</div>}
+      {draft.generationError && <div className="inline-error" role="alert">{preparationFailure} <ErrorLogLink failure={generationFailure} message={draft.generationError}/>{resultUnconfirmed && <><details className="preparation-received-content"><summary>已收到的整理内容</summary>{session?.messages.some(message => message.role === 'assistant' && message.text.trim()) ? session.messages.filter(message => message.role === 'assistant' && message.text.trim()).map(message => <ConversationMessage key={message.id} message={message} provider={session.provider}/>) : <p>这次没有收到可显示的整理内容。</p>}</details><label className="check-row" style={{ marginTop: 10 }}><input type="checkbox" checked={recoveryChecked} onChange={event => setRecoveryChecked(event.target.checked)}/>没有可用内容，允许重新整理</label></>}</div>}
       <CliConnectionNotice value={session?.cliConnection} provider={session?.provider}/>
       {generating && session?.approvals.map(a => <RequestCard key={a.id} request={a} onAnswer={(option, answers) => void run(() => api.call('session.answer', { id: session.id, requestId: a.id, option, answers }))}/>)}
     </section>
@@ -118,7 +127,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
       {(ready || !!draft.attachments?.length) && <DraftAttachments draft={draft} artifact={draftLevelArtifact(draft)} locked={locked || !ready} run={run}/>}
     </section>}
     {!empty && !isMerge && (ready || draft.body) && !locked && <details className="repository-correction" open={showRepo} onToggle={e => setShowRepo(e.currentTarget.open)}><summary>仓库与代码版本（可选）</summary><label className="field">相关 GitHub 仓库<input aria-label="GitHub 仓库链接" placeholder={draft.repoUrl || 'https://github.com/owner/repository'} value={value.repoUrlOverride} onChange={e => change({ repoUrlOverride: e.target.value })}/></label>{draft.git && <><label className="check-row"><input type="checkbox" aria-label="记录当前代码版本" checked={!!draft.includeGit} onChange={e => void run(() => api.call('draft.git', { id: draft.id, include: e.target.checked }))}/>记录当前代码版本（不会上传代码）</label><p className="muted small git-version">{draft.git.branch} · {draft.git.commit?.slice(0, 12) || '无提交'} · {draft.git.dirty ? '有未提交改动' : '无未提交改动'}</p></>}</details>}
-    {!isMerge && !artifacts.length && transfer?.status === 'error' && <div className="inline-error" role="alert">上传失败：{transfer.error}<div className="row"><button className="secondary" onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>重试原上传</button><button className="secondary" onClick={() => void run(async () => { await api.call('draft.revise', { id: draft.id }); notice('修订草稿已创建，可在上方草稿列表选择并补充后上传'); })}>生成修订草稿</button></div></div>}
+    {!isMerge && !artifacts.length && transfer?.status === 'error' && <div className="inline-error" role="alert">{transferRecordError(transfer)} <ErrorLogLink failure={(transfer as any).failure} message={transfer.error}/><details className="submission-details"><summary>查看详情</summary><p>服务器上的文件位置</p><code>{transfer.target}</code></details><div className="row"><button className="secondary" disabled={!!transfer.cacheCleared} onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>{transfer.cacheCleared ? '无法重试上传' : transfer.phase === 'awaiting_receipt' ? '检查上传结果' : '重试原上传'}</button><button className="secondary" onClick={() => void run(async () => { await api.call('draft.revise', { id: draft.id }); notice('修订草稿已创建。提交前请先核对原上传是否已送达，避免重复提交。'); })}>生成修订草稿</button></div></div>}
     {!empty && !isMerge && <label className="field contribution-supplement">补充说明（可选）<MarkdownEditor rows={2} aria-label="补充说明（可选）" placeholder="只有需要补充或更正时填写" disabled={locked} value={value.supplement} onChange={e => change({ supplement: e.target.value })}/></label>}
     {!empty && !isMerge && !locked && editor.status !== '已保存' && <div className="row small muted" role="status"><span>{editor.status}</span>{editor.status.startsWith('保存失败') && <button className="text-button" onClick={editor.retry}>重试保存</button>}</div>}
     {!isPersonalBinding(draft.binding) && !empty && !isMerge && !artifacts.length && <div className="upload-destination" aria-label="上传位置" title={ready ? draft.target : undefined}><span>上传位置</span>{draft.binding ? <b>{draft.binding.project.name} / {destinationLabel}</b> : <b>未绑定项目，无法上传</b>}</div>}
@@ -169,7 +178,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             } finally { setBusy(false); }
           })}><Check size={15}/>{busy ? '正在保存…' : isLocalMerge ? '保存到个人成果库' : uploadLabel}</button>}
       </div>
-      {isLocalMerge && draft.mergeResultPath && transfer?.status === 'error' && <div className="inline-error" role="alert">团队成果上传失败：{transfer.error}<button className="secondary compact" onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>重试上传</button></div>}
+      {isLocalMerge && draft.mergeResultPath && transfer?.status === 'error' && <div className="inline-error" role="alert">{transferRecordError(transfer)} <ErrorLogLink failure={(transfer as any).failure} message={transfer.error}/><button className="secondary compact" disabled={!!transfer.cacheCleared} onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>重试上传</button></div>}
       </>
     ) : (
       <div className="draft-actions">
@@ -194,7 +203,7 @@ export function DraftEditor({ draft, projects = [], session, sourceTitle, source
             notice(`已开始提交 ${selectedIds.length} 项成果到团队`);
           } finally { setBusy(false); }
         })}><Check size={15}/>{busy ? '正在提交…' : `${uploadLabel}${selectedIds.length > 1 ? `（${selectedIds.length} 项）` : ''}`}</button> :
-          <span className="green row"><Check size={17}/>{transfers.some(item => item.status === 'error') ? '部分上传失败，可在对应成果中重试' : transfers.length && transfers.every(item => item.status === 'done') ? '团队提交已完成，可查看团队成果' : '正在提交团队成果'}</span>}
+          <span className={transfers.some(item => item.status === 'error') ? 'row muted' : 'green row'}>{!transfers.some(item => item.status === 'error') && <Check size={17}/>} {transfers.some(item => item.status === 'error') ? '部分上传还没查到结果，请查看对应记录' : transfers.length && transfers.every(item => item.status === 'done') ? '团队提交已完成，可查看团队成果' : '正在提交团队成果'}</span>}
         {!artifacts.length && transfer?.status === 'done' && <button className="primary compact" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看团队成果</button>}
       </div>
     )}

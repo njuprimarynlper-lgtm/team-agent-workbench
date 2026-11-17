@@ -8,13 +8,14 @@ import { EventEmitter } from 'node:events';
 import { pathToFileURL } from 'node:url';
 import type { AdminProfile, AdminSnapshot } from '../src/admin/types';
 import { decodeEgressInvite } from '../src/core/egress-config';
+import { fakeElectronBackgroundServices } from './fixtures/fake-electron-background';
 
 test('production admin IPC isolates nodes, ports, codes, operations and per-window shutdown', { timeout: 15000 }, async t => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'admin-multi-ipc-')));
   const app = new EventEmitter() as any, paths: Record<string, string> = { appData: root }, ipc = new Map<string, Function>();
   const windows: FakeWindow[] = [], hosts: FakeHost[] = [], trays: FakeTray[] = [], errors: string[] = [], operations: string[] = [];
   let didQuit = false;
-  Object.assign(app, { setName() {}, setPath(name: string, value: string) { paths[name] = value; }, getPath: (name: string) => paths[name], requestSingleInstanceLock: () => true, whenReady: async () => {}, quit() { didQuit = true; } });
+  Object.assign(app, { setName() {}, setPath(name: string, value: string) { paths[name] = value; }, getPath: (name: string) => paths[name], requestSingleInstanceLock: () => true, whenReady: async () => {}, quit() { didQuit = true; app.emit('will-quit'); } });
   class FakeWindow extends EventEmitter {
     entry = ''; title = ''; destroyed = false; hidden = false; focused = false;
     webContents = Object.assign(new EventEmitter(), { send() {}, setWindowOpenHandler() {}, session: { setPermissionRequestHandler() {} } });
@@ -50,7 +51,7 @@ test('production admin IPC isolates nodes, ports, codes, operations and per-wind
     async stop() { this.running = false; this.stopped++; }
     async restart(config: any, secret: any) { this.config = config; this.secret = secret; await this.start(); }
   }
-  const electron = { app, BrowserWindow: FakeWindow, ipcMain: { handle(name: string, fn: Function) { ipc.set(name, fn); } }, dialog: { showErrorBox: (_title: string, message: string) => errors.push(message) }, safeStorage: { isEncryptionAvailable: () => false }, utilityProcess: {}, Tray: FakeTray, Menu: { buildFromTemplate: (items: any[]) => items }, nativeImage: { createFromDataURL() {} } };
+  const electron = { ...fakeElectronBackgroundServices(), app, BrowserWindow: FakeWindow, ipcMain: { handle(name: string, fn: Function) { ipc.set(name, fn); } }, dialog: { showErrorBox: (_title: string, message: string) => errors.push(message) }, safeStorage: { isEncryptionAvailable: () => false }, utilityProcess: {}, Tray: FakeTray, Menu: { buildFromTemplate: (items: any[]) => items }, nativeImage: { createFromDataURL() {} } };
   const loader = (Module as any)._load, previousData = process.env.WORKBENCH_ADMIN_DATA_DIR;
   (Module as any)._load = function(name: string, ...args: any[]) {
     if (name === 'electron') return electron;
@@ -62,11 +63,13 @@ test('production admin IPC isolates nodes, ports, codes, operations and per-wind
   process.env.WORKBENCH_ADMIN_DATA_DIR = root;
   async function until(check: () => boolean) { const deadline = Date.now() + 5000; while (!check()) { if (Date.now() > deadline) throw new Error('Timeout: ' + errors.join(';')); await new Promise(resolve => setTimeout(resolve, 10)); } }
   t.after(async () => {
-    app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit);
-    (Module as any)._load = loader;
-    if (previousData === undefined) delete process.env.WORKBENCH_ADMIN_DATA_DIR; else process.env.WORKBENCH_ADMIN_DATA_DIR = previousData;
-    assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('admin-multi-ipc-'));
-    await fs.rm(root, { recursive: true, force: true });
+    try { app.emit('before-quit', { preventDefault() {} }); await until(() => didQuit); }
+    finally {
+      app.emit('will-quit'); (Module as any)._load = loader;
+      if (previousData === undefined) delete process.env.WORKBENCH_ADMIN_DATA_DIR; else process.env.WORKBENCH_ADMIN_DATA_DIR = previousData;
+      assert.equal(path.dirname(root), await fs.realpath(os.tmpdir())); assert(path.basename(root).startsWith('admin-multi-ipc-'));
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
   await import('../src/admin/main'); await until(() => !!windows[0]?.entry);
   const call = async (window: FakeWindow, action: string, payload?: unknown) => {

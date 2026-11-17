@@ -20,7 +20,7 @@ test('session output files resolve Markdown links, paths with spaces, line numbe
     const files = await listSessionFiles(session); assert.equal(files.length, 2); assert(files.some(file => file.path === report));
     const preview = await previewSessionFile(session, pathToFileURL(report).href); assert.equal(preview.type, 'text'); assert.match(preview.content, /直接打开/); assert.equal(preview.path, report);
     await assert.rejects(checkedSessionFile(session, path.join(os.tmpdir(), 'unmentioned.txt')), /不属于/);
-    await assert.rejects(previewSessionFile(session, 'missing.md'), /不存在或已移动/);
+    await assert.rejects(previewSessionFile(session, 'missing.md'), /未找到此文件/);
     for (const target of ['javascript:alert(1)', 'https://example.com/a', '\\\\server\\share\\file.md', 'file://server/share/file.md']) assert.throws(() => sessionFilePath(session, target));
     await fs.unlink(source); assert.equal((await listSessionFiles(session)).length, 1);
   } finally { assert(root.startsWith(path.join(os.tmpdir(), 'wb-files-'))); await fs.rm(root, { recursive: true, force: true }); }

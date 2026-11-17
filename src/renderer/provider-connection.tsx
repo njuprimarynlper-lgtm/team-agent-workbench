@@ -1,3 +1,5 @@
+import { contextualError, toolName } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Network, RefreshCw } from 'lucide-react';
 import type { Provider, ProviderAuth, SessionNetworkRoute } from '../shared/types';
@@ -5,6 +7,7 @@ import type { UserEgressStatus } from '../shared/egress';
 import { ProviderAuthPanel } from './provider-auth';
 import { EgressRouteChoice } from './egress-route';
 import { applySessionConnection, checkProviderConnection, type ProviderConnectionCheck } from './provider-connection-check';
+import { uiErrorMessage } from '../shared/user-failure';
 
 export function ProviderConnectionSettings({ provider, cwd, auth, egress, activeTaskCount, busyChanged, pendingChanged, checked, showCatalog = true, routeEditable = true, sessionRoute, savedRoute, sessionId, routeChanged, scopeLabel, api = window.workbench }: {
   api?: import('../shared/types').WorkbenchAPI; scopeLabel?: string; provider: Provider; cwd: string; auth: ProviderAuth; egress?: UserEgressStatus; activeTaskCount: number; busyChanged?: (busy: boolean) => void;
@@ -18,11 +21,13 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
   const routeDescription = useId();
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [result, setResult] = useState<ProviderConnectionCheck>();
   const [saved, setSaved] = useState(''), [savingRoute, setSavingRoute] = useState(false);
+  const [appliedRoute, setAppliedRoute] = useState(savedRoute), [authUnverified, setAuthUnverified] = useState(false);
+  useEffect(() => { setAppliedRoute(savedRoute); }, [savedRoute]);
   const routeAuth = auth.networkRoute === sessionRoute && auth.cwd === cwd ? auth : undefined;
   const visibleAuth = routeAuth && (!result || ['checking', 'logging-in'].includes(routeAuth.status) || !!routeAuth.checkedAt && routeAuth.checkedAt >= (result.auth.checkedAt || '')) ? routeAuth : result?.auth || auth;
   const sequence = useRef(0), checking = useRef(false);
   const callbacks = useRef({ busyChanged, checked }); callbacks.current = { busyChanged, checked };
-  const routePending = !!sessionId && !!sessionRoute && sessionRoute !== savedRoute;
+  const routePending = !!sessionId && !!sessionRoute && sessionRoute !== appliedRoute;
   const dirty = routeEditable && (sessionRoute ? enabled && (!egress?.enabled || viaSharedServer !== !!egress?.viaSharedServer || !!invite.trim()) : enabled !== !!egress?.enabled || viaSharedServer !== !!egress?.viaSharedServer || !!invite.trim());
   const needsAccessCode = enabled && !invite.trim() && (!egress?.hasAccessCode || changingCode);
   useEffect(() => { pendingChanged?.(dirty); return () => pendingChanged?.(false); }, [dirty]);
@@ -31,33 +36,34 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
   const check = async (apply: boolean) => {
     if (!cwd || checking.current) return;
     if (apply && dirty && activeTaskCount) { setError('当前窗口有任务正在运行，请结束或停止任务后再切换网络出口。'); return; }
-    checking.current = true; const n = ++sequence.current; setBusy(true); setError(''); setSaved(''); setResult(undefined); callbacks.current.busyChanged?.(true);
+    checking.current = true; const n = ++sequence.current; setBusy(true); setError(''); setSaved(''); setResult(undefined); setAuthUnverified(false); callbacks.current.busyChanged?.(true);
     try {
       if (apply && sessionId && sessionRoute && (routePending || dirty)) {
         setSavingRoute(true);
         await applySessionConnection(api.call, sessionId, sessionRoute, dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current);
+        setAppliedRoute(sessionRoute);
         setInvite(''); setChangingCode(false);
         setSaved(`已保存：${sessionRoute === 'management' ? '管理端出口' : '本机网络'}，从下一轮生效。`);
         // Refresh the account display without locking the route controls or the
         // return button behind a potentially slow account/model lookup.
         void api.call<ProviderAuth>('provider.auth', { provider, cwd, networkRoute: sessionRoute })
           .then(auth => { if (n === sequence.current) { const value = { auth, issues: [] }; setResult(value); callbacks.current.checked?.(value); } })
-          .catch((reason: Error) => { if (n === sequence.current) setError(reason.message); });
+          .catch(() => { if (n === sequence.current) { setAuthUnverified(true); setError('网络选项已保存，但这次没测出账号能否连接。请点“重新检测连接与登录”再试。'); } });
         return;
       }
       const result = await checkProviderConnection(api.call, provider, cwd, apply && dirty ? { enabled, viaSharedServer, inviteCode: invite.trim() || undefined } : undefined, () => n === sequence.current, sessionRoute);
       if (n !== sequence.current) return;
       if (apply) { setInvite(''); setChangingCode(false); } setResult(result); setError(result.issues.join('；')); callbacks.current.checked?.(result);
-    } catch (reason: any) { if (n === sequence.current) setError(reason.message); }
+    } catch (reason) { if (n === sequence.current) { setAuthUnverified(true); setError(uiErrorMessage(reason, { domain: 'model', operation: '应用并检测连接方式', provider })); } }
     finally { checking.current = false; if (n === sequence.current) { setBusy(false); setSavingRoute(false); callbacks.current.busyChanged?.(false); } }
   };
   useEffect(() => {
     const n = ++sequence.current;
-    setSaved('');
+    setSaved(''); setAuthUnverified(false);
     // Opening the panel should not lock network controls behind a slow model request.
     if (cwd) void api.call<ProviderAuth>('provider.auth', { provider, cwd, ...(sessionRoute ? { networkRoute: sessionRoute } : {}) })
       .then(auth => { if (n === sequence.current) { const value = { auth, issues: [] }; setResult(value); callbacks.current.checked?.(value); } })
-      .catch((reason: Error) => { if (n === sequence.current) setError(reason.message); });
+      .catch((reason: Error) => { if (n === sequence.current) { setAuthUnverified(true); setError(contextualError(reason, { domain: 'model', operation: `检测 ${toolName(provider)} 登录`, provider }, { OPERATION_TIMEOUT: `${toolName(provider)} 一直没有返回登录检测结果。点“重新检测连接与登录”再试。`, UNCLASSIFIED_FAILURE: `这次没能检测 ${toolName(provider)} 的登录。点“重新检测连接与登录”再试。` })); } });
     return () => { sequence.current++; callbacks.current.busyChanged?.(false); };
   }, [provider, cwd, sessionRoute]);
   return <section className="provider-connection-settings" aria-label="网络与登录设置">
@@ -71,12 +77,12 @@ export function ProviderConnectionSettings({ provider, cwd, auth, egress, active
       </label>
       {enabled && <><EgressRouteChoice value={viaSharedServer} onChange={value => { setViaSharedServer(value); setResult(undefined); setError(''); }}/>{egress?.hasAccessCode && !changingCode ? <div className="row"><span role="status">管理端接入码已保存，本次无需再次输入。</span><button className="text-button" type="button" onClick={() => setChangingCode(true)}>更换接入码</button></div> : <><label className="field">管理端接入码<textarea aria-label="管理端网络出口接入码" rows={3} value={invite} onChange={event => { setInvite(event.target.value); if (event.target.value.trim().startsWith('TAE2.')) setViaSharedServer(true); setResult(undefined); }} placeholder="粘贴管理端“网络出口”页面复制的接入码"/></label>{changingCode && <button className="text-button" type="button" onClick={() => { setChangingCode(false); setInvite(''); }}>取消更换</button>}</>}{!egress?.hasAccessCode && !invite.trim() && <p className="muted small" role="status">缺少管理端接入码，粘贴后才能应用此连接方式。</p>}</>}
     </fieldset>}
-    {enabled && egress?.enabled && <p className="muted small" role="status">{egress.detail}</p>}
+    {enabled && egress?.enabled && <p className="muted small" role="status">{uiErrorMessage(egress.detail, { domain: 'relay', operation: '检测管理端出口' })}</p>}
     {dirty && activeTaskCount > 0 && <p className="muted small">当前有 {activeTaskCount} 个任务使用管理端出口；更换接入信息需等这些任务结束或停止。</p>}
-    {error && <p className="inline-error" role="alert">{error}</p>}
-    {saved && <p className="green small" role="status">{saved}</p>}
+    {error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}
+    {saved && !error && <p className="green small" role="status">{saved}</p>}
     <button className="secondary" disabled={busy || !cwd || dirty && !!activeTaskCount || needsAccessCode && (dirty || routePending || changingCode)} onClick={() => void check(true)}><RefreshCw size={14} className={busy ? 'spin' : ''}/>{busy ? savingRoute ? '正在保存连接方式…' : '正在检测网络、登录和模型…' : dirty || routePending ? sessionId ? '应用连接方式' : '应用并重新检测' : '重新检测连接与登录'}</button>
-    <ProviderAuthPanel api={api} provider={provider} cwd={cwd} auth={visibleAuth} networkRoute={sessionRoute} autoCheck={false} stale={dirty || busy || !!sessionRoute && !result && !routeAuth} disabled={dirty || busy}/>
+    <ProviderAuthPanel api={api} provider={provider} cwd={cwd} auth={visibleAuth} networkRoute={sessionRoute} autoCheck={false} connectionUnverified={authUnverified} checked={auth => { setAuthUnverified(false); const value = { auth, issues: [] }; setResult(value); callbacks.current.checked?.(value); }} stale={dirty || busy || !!sessionRoute && !result && !routeAuth} disabled={dirty || busy}/>
     {showCatalog && result?.catalog && <div className="provider-connection-catalog"><b>可用模型（{result.catalog.models.length}）</b><p>{result.catalog.models.map(model => model.name).join('、') || 'CLI 暂未返回可用模型。'}</p><p className="muted small">{result.catalog.quota.windows.length ? result.catalog.quota.windows.map(window => `${window.name}：剩余 ${Number((100 - window.usedPercent).toFixed(1))}%`).join('；') : result.catalog.quota.detail}</p></div>}
   </section>;
 }

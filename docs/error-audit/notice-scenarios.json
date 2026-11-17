@@ -1,0 +1,1426 @@
+[
+  {
+    "id": "notice-steer-saved",
+    "entry": "补充消息发送后的保存提示",
+    "condition": "补充消息已送达，随后的本机记录保存出现EIO",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-steer-saved-before.png",
+    "afterScreenshot": "screenshots/notice-steer-saved-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n引导已送达，但本地记录保存失败。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n会话记录待保存\n重试保存记录\n查看日志\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n补充已发出，最新聊天记录还没存好。请保持窗口打开，点“重试保存记录”；不用再次发送补充。\n查看日志",
+    "before": {
+      "id": "notice-steer-saved",
+      "phase": "before",
+      "entry": "补充消息发送后的保存提示",
+      "condition": "补充消息已送达，随后的本机记录保存出现EIO",
+      "raw": "引导已送达，但本地记录保存失败：EIO: write failed",
+      "event": {
+        "type": "notice",
+        "message": "引导已送达，但本地记录保存失败。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-steer-saved"
+          },
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "引导已送达，但本地记录保存失败。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n引导已送达，但本地记录保存失败。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+      "screenshot": "screenshots/notice-steer-saved-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-steer-saved",
+      "phase": "after",
+      "entry": "补充消息发送后的保存提示",
+      "condition": "补充消息已送达，随后的本机记录保存出现EIO",
+      "raw": "引导已送达，但本地记录保存失败：EIO: write failed",
+      "event": {
+        "type": "notice",
+        "message": "补充已发出，最新聊天记录还没存好。请保持窗口打开，点“重试保存记录”；不用再次发送补充。",
+        "failure": {
+          "version": 1,
+          "code": "LOCAL_BACKGROUND_RECORD_SAVE_FAILED",
+          "message": "补充已发出，最新聊天记录还没存好。请保持窗口打开，点“重试保存记录”；不用再次发送补充。",
+          "operation": "读取会话状态",
+          "logRef": {
+            "id": "398f05d8-0acd-484c-a298-c0979038473c"
+          },
+          "outcome": "accepted",
+          "phase": "persist-steered-turn"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n会话记录待保存\n重试保存记录\n查看日志\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n补充已发出，最新聊天记录还没存好。请保持窗口打开，点“重试保存记录”；不用再次发送补充。\n查看日志",
+      "screenshot": "screenshots/notice-steer-saved-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留",
+        "真实core生成全局待保存状态，页脚不谎称保存成功",
+        "点击正确保存API一次，恢复后清除警告，不调用session.send"
+      ],
+      "supplements": [
+        "screenshots/notice-steer-saved-recovered-after.png"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-migrated",
+    "entry": "会话迁移后的求助清理提示",
+    "condition": "会话已迁移，旧求助关联清理EIO",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-migrated-before.png",
+    "afterScreenshot": "screenshots/notice-migrated-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话已迁移，提问关联将在后台继续清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话已迁移，原来的求助关联还没清理完。你可以继续这条会话；请把日志交给维护人员处理旧关联。\n查看日志",
+    "before": {
+      "id": "notice-migrated",
+      "phase": "before",
+      "entry": "会话迁移后的求助清理提示",
+      "condition": "会话已迁移，旧求助关联清理EIO",
+      "raw": "会话已迁移，提问关联将在后台继续清理：EIO: old question link cleanup failed",
+      "event": {
+        "type": "notice",
+        "message": "会话已迁移，提问关联将在后台继续清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-migrated"
+          },
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "会话已迁移，提问关联将在后台继续清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话已迁移，提问关联将在后台继续清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+      "screenshot": "screenshots/notice-migrated-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-migrated",
+      "phase": "after",
+      "entry": "会话迁移后的求助清理提示",
+      "condition": "会话已迁移，旧求助关联清理EIO",
+      "raw": "会话已迁移，提问关联将在后台继续清理：EIO: old question link cleanup failed",
+      "event": {
+        "type": "notice",
+        "message": "会话已迁移，原来的求助关联还没清理完。你可以继续这条会话；请把日志交给维护人员处理旧关联。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "会话已迁移，原来的求助关联还没清理完。你可以继续这条会话；请把日志交给维护人员处理旧关联。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-migrated"
+          },
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话已迁移，原来的求助关联还没清理完。你可以继续这条会话；请把日志交给维护人员处理旧关联。\n查看日志",
+      "screenshot": "screenshots/notice-migrated-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-closed",
+    "entry": "关闭会话后的后台停止提示",
+    "condition": "会话已关闭，停止AI进程时结果未知",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-closed-before.png",
+    "afterScreenshot": "screenshots/notice-closed-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n“验收会话”已关闭。停止后台进程时出现问题。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n“验收会话”已关闭，但还没确认 AI 后台是否已停止。请把日志交给维护人员检查。\n查看日志",
+    "before": {
+      "id": "notice-closed",
+      "phase": "before",
+      "entry": "关闭会话后的后台停止提示",
+      "condition": "会话已关闭，停止AI进程时结果未知",
+      "raw": "“验收会话”已关闭。停止后台进程时出现问题：EIO: process close failed",
+      "event": {
+        "type": "notice",
+        "message": "“验收会话”已关闭。停止后台进程时出现问题。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-closed"
+          },
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "“验收会话”已关闭。停止后台进程时出现问题。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n“验收会话”已关闭。停止后台进程时出现问题。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+      "screenshot": "screenshots/notice-closed-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-closed",
+      "phase": "after",
+      "entry": "关闭会话后的后台停止提示",
+      "condition": "会话已关闭，停止AI进程时结果未知",
+      "raw": "“验收会话”已关闭。停止后台进程时出现问题：EIO: process close failed",
+      "event": {
+        "type": "notice",
+        "message": "“验收会话”已关闭，但还没确认 AI 后台是否已停止。请把日志交给维护人员检查。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "“验收会话”已关闭，但还没确认 AI 后台是否已停止。请把日志交给维护人员检查。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-closed"
+          },
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n“验收会话”已关闭，但还没确认 AI 后台是否已停止。请把日志交给维护人员检查。\n查看日志",
+      "screenshot": "screenshots/notice-closed-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-draft-cleanup",
+    "entry": "删除整理记录后的清理提示",
+    "condition": "整理记录已删除，临时文件清理EIO",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-draft-cleanup-before.png",
+    "afterScreenshot": "screenshots/notice-draft-cleanup-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n整理记录已删除，临时文件暂未清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n整理记录已删除，临时文件还没清理完。无需再次删除记录；请把日志交给维护人员清理剩余文件。\n查看日志",
+    "before": {
+      "id": "notice-draft-cleanup",
+      "phase": "before",
+      "entry": "删除整理记录后的清理提示",
+      "condition": "整理记录已删除，临时文件清理EIO",
+      "raw": "整理记录已删除，临时文件暂未清理：EIO: temp cleanup failed",
+      "event": {
+        "type": "notice",
+        "message": "整理记录已删除，临时文件暂未清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-draft-cleanup"
+          },
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "整理记录已删除，临时文件暂未清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n整理记录已删除，临时文件暂未清理。处理会话：未能完成，原因尚未确认。请查看日志了解具体情况。",
+      "screenshot": "screenshots/notice-draft-cleanup-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-draft-cleanup",
+      "phase": "after",
+      "entry": "删除整理记录后的清理提示",
+      "condition": "整理记录已删除，临时文件清理EIO",
+      "raw": "整理记录已删除，临时文件暂未清理：EIO: temp cleanup failed",
+      "event": {
+        "type": "notice",
+        "message": "整理记录已删除，临时文件还没清理完。无需再次删除记录；请把日志交给维护人员清理剩余文件。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "UNCLASSIFIED_FAILURE",
+          "message": "整理记录已删除，临时文件还没清理完。无需再次删除记录；请把日志交给维护人员清理剩余文件。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-draft-cleanup"
+          },
+          "outcome": "partial"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n整理记录已删除，临时文件还没清理完。无需再次删除记录；请把日志交给维护人员清理剩余文件。\n查看日志",
+      "screenshot": "screenshots/notice-draft-cleanup-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-scheduled-background",
+    "entry": "定时任务后台异常",
+    "condition": "后台调度器回传不含错误码的英文故障",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-scheduled-background-before.png",
+    "afterScreenshot": "screenshots/notice-scheduled-background-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务后台：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务的本轮检查没完成。请点左侧“定时任务”查看运行记录，确认哪些任务已经运行；需要帮助时，把日志交给维护人员。\n查看日志",
+    "before": {
+      "id": "notice-scheduled-background",
+      "phase": "before",
+      "entry": "定时任务后台异常",
+      "condition": "后台调度器回传不含错误码的英文故障",
+      "raw": "定时任务后台：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "定时任务后台：disk unavailable"
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务后台：disk unavailable",
+      "screenshot": "screenshots/notice-scheduled-background-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-scheduled-background",
+      "phase": "after",
+      "entry": "定时任务后台异常",
+      "condition": "后台调度器回传不含错误码的英文故障",
+      "raw": "定时任务后台：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "定时任务的本轮检查没完成。请点左侧“定时任务”查看运行记录，确认哪些任务已经运行；需要帮助时，把日志交给维护人员。",
+        "failure": {
+          "version": 1,
+          "operation": "读取定时任务",
+          "phase": "scheduledTask.status",
+          "code": "BUSINESS_RULE",
+          "message": "定时任务的本轮检查没完成。请点左侧“定时任务”查看运行记录，确认哪些任务已经运行；需要帮助时，把日志交给维护人员。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-scheduled-background"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务的本轮检查没完成。请点左侧“定时任务”查看运行记录，确认哪些任务已经运行；需要帮助时，把日志交给维护人员。\n查看日志",
+      "screenshot": "screenshots/notice-scheduled-background-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-local-save",
+    "entry": "后台保存会话记录",
+    "condition": "会话记录保存收到不含错误码的英文故障",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-local-save-before.png",
+    "afterScreenshot": "screenshots/notice-local-save-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\ndisk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n会话记录待保存\n重试保存记录\n查看日志\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n这台电脑还没存好工作台记录。请保持窗口打开，点“重试保存记录”。\n查看日志",
+    "before": {
+      "id": "notice-local-save",
+      "phase": "before",
+      "entry": "后台保存会话记录",
+      "condition": "会话记录保存收到不含错误码的英文故障",
+      "raw": "disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "disk unavailable"
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\ndisk unavailable",
+      "screenshot": "screenshots/notice-local-save-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-local-save",
+      "phase": "after",
+      "entry": "后台保存会话记录",
+      "condition": "会话记录保存收到不含错误码的英文故障",
+      "raw": "会话记录保存失败：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "这台电脑还没存好工作台记录。请保持窗口打开，点“重试保存记录”。",
+        "failure": {
+          "version": 1,
+          "code": "LOCAL_BACKGROUND_RECORD_SAVE_FAILED",
+          "message": "这台电脑还没存好工作台记录。请保持窗口打开，点“重试保存记录”。",
+          "operation": "读取会话状态",
+          "logRef": {
+            "id": "9d1f3e02-122e-4785-9b79-c8c84019bb90"
+          },
+          "outcome": "partial",
+          "phase": "persist-background-records"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n会话记录待保存\n重试保存记录\n查看日志\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n这台电脑还没存好工作台记录。请保持窗口打开，点“重试保存记录”。\n查看日志",
+      "screenshot": "screenshots/notice-local-save-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留",
+        "真实core生成全局待保存状态，页脚不谎称保存成功",
+        "点击正确保存API一次，恢复后清除警告，不调用session.send"
+      ],
+      "supplements": [
+        "screenshots/notice-local-save-recovered-after.png"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-question-ended",
+    "entry": "自动对话结束建议",
+    "condition": "正常通知标题含技术词，标题不应被当作报错",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版把正常通知中的用户标题误当故障。现在完整保留通知含义和标题。",
+    "beforeScreenshot": "screenshots/notice-question-ended-before.png",
+    "afterScreenshot": "screenshots/notice-question-ended-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n处理会话：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n自动对话建议结束：排查 ECONNRESET",
+    "before": {
+      "id": "notice-question-ended",
+      "phase": "before",
+      "entry": "自动对话结束建议",
+      "condition": "正常通知标题含技术词，标题不应被当作报错",
+      "raw": "自动对话建议结束：排查 ECONNRESET",
+      "event": {
+        "type": "notice",
+        "message": "处理会话：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-question-ended"
+          },
+          "code": "CONNECTION_INTERRUPTED",
+          "message": "处理会话：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+          "recovery": "refresh-state"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n处理会话：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+      "screenshot": "screenshots/notice-question-ended-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-question-ended",
+      "phase": "after",
+      "entry": "自动对话结束建议",
+      "condition": "正常通知标题含技术词，标题不应被当作报错",
+      "raw": "自动对话建议结束：排查 ECONNRESET",
+      "event": {
+        "type": "notice",
+        "message": "自动对话建议结束：排查 ECONNRESET"
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n自动对话建议结束：排查 ECONNRESET",
+      "screenshot": "screenshots/notice-question-ended-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-question-follow",
+    "entry": "求助后续通知",
+    "condition": "正常通知标题含技术词，标题不应被当作报错",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版把正常通知中的用户标题误当故障。现在完整保留通知含义和标题。",
+    "beforeScreenshot": "screenshots/notice-question-follow-before.png",
+    "afterScreenshot": "screenshots/notice-question-follow-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n处理会话：无法访问此次操作需要的文件或目录。请查看日志核对文件位置和访问权限。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n求助有后续：修复 EACCES",
+    "before": {
+      "id": "notice-question-follow",
+      "phase": "before",
+      "entry": "求助后续通知",
+      "condition": "正常通知标题含技术词，标题不应被当作报错",
+      "raw": "求助有后续：修复 EACCES",
+      "event": {
+        "type": "notice",
+        "message": "处理会话：无法访问此次操作需要的文件或目录。请查看日志核对文件位置和访问权限。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-question-follow"
+          },
+          "code": "FILE_ACCESS_DENIED",
+          "message": "处理会话：无法访问此次操作需要的文件或目录。请查看日志核对文件位置和访问权限。",
+          "recovery": "open-settings"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n处理会话：无法访问此次操作需要的文件或目录。请查看日志核对文件位置和访问权限。",
+      "screenshot": "screenshots/notice-question-follow-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-question-follow",
+      "phase": "after",
+      "entry": "求助后续通知",
+      "condition": "正常通知标题含技术词，标题不应被当作报错",
+      "raw": "求助有后续：修复 EACCES",
+      "event": {
+        "type": "notice",
+        "message": "求助有后续：修复 EACCES"
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n求助有后续：修复 EACCES",
+      "screenshot": "screenshots/notice-question-follow-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-task-completed",
+    "entry": "定时任务完成通知",
+    "condition": "正常完成通知标题含技术词，标题不应被当作报错",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版把正常通知中的用户标题误当故障。现在完整保留通知含义和标题。",
+    "beforeScreenshot": "screenshots/notice-task-completed-before.png",
+    "afterScreenshot": "screenshots/notice-task-completed-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n处理定时任务：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务完成：调查 ECONNRESET",
+    "before": {
+      "id": "notice-task-completed",
+      "phase": "before",
+      "entry": "定时任务完成通知",
+      "condition": "正常完成通知标题含技术词，标题不应被当作报错",
+      "raw": "定时任务完成：调查 ECONNRESET",
+      "event": {
+        "type": "notice",
+        "message": "处理定时任务：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+        "failure": {
+          "version": 1,
+          "operation": "处理定时任务",
+          "phase": "scheduledTask.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-task-completed"
+          },
+          "code": "CONNECTION_INTERRUPTED",
+          "message": "处理定时任务：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+          "recovery": "refresh-state"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n处理定时任务：连接在处理期间中断，尚未确认操作结果。请先刷新状态或核对已有记录，再决定是否重试。",
+      "screenshot": "screenshots/notice-task-completed-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-task-completed",
+      "phase": "after",
+      "entry": "定时任务完成通知",
+      "condition": "正常完成通知标题含技术词，标题不应被当作报错",
+      "raw": "定时任务完成：调查 ECONNRESET",
+      "event": {
+        "type": "notice",
+        "message": "定时任务完成：调查 ECONNRESET"
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务完成：调查 ECONNRESET",
+      "screenshot": "screenshots/notice-task-completed-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-task-record",
+    "entry": "保存定时任务执行记录",
+    "condition": "实际定时任务运行记录保存异常，不能确认运行结果是否已记录",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-task-record-before.png",
+    "afterScreenshot": "screenshots/notice-task-record-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务执行记录未保存：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务的运行记录没保存好。请点左侧“定时任务”检查已有结果，先别重复运行；需要帮助时，把日志交给维护人员。\n查看日志",
+    "before": {
+      "id": "notice-task-record",
+      "phase": "before",
+      "entry": "保存定时任务执行记录",
+      "condition": "实际定时任务运行记录保存异常，不能确认运行结果是否已记录",
+      "raw": "定时任务执行记录未保存：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "定时任务执行记录未保存：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理定时任务",
+          "phase": "scheduledTask.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-task-record"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "定时任务执行记录未保存：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务执行记录未保存：disk unavailable",
+      "screenshot": "screenshots/notice-task-record-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-task-record",
+      "phase": "after",
+      "entry": "保存定时任务执行记录",
+      "condition": "实际定时任务运行记录保存异常，不能确认运行结果是否已记录",
+      "raw": "定时任务执行记录未保存：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "定时任务的运行记录没保存好。请点左侧“定时任务”检查已有结果，先别重复运行；需要帮助时，把日志交给维护人员。",
+        "failure": {
+          "version": 1,
+          "operation": "读取定时任务",
+          "phase": "scheduledTask.status",
+          "code": "BUSINESS_RULE",
+          "message": "定时任务的运行记录没保存好。请点左侧“定时任务”检查已有结果，先别重复运行；需要帮助时，把日志交给维护人员。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-task-record"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n定时任务的运行记录没保存好。请点左侧“定时任务”检查已有结果，先别重复运行；需要帮助时，把日志交给维护人员。\n查看日志",
+      "screenshot": "screenshots/notice-task-record-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-project-reference",
+    "entry": "创建会话加入项目背景",
+    "condition": "会话仍创建，但加入项目背景资料失败",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-project-reference-before.png",
+    "afterScreenshot": "screenshots/notice-project-reference-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n项目资料引用未加入：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n这条会话没能加入项目资料，AI 可能缺少项目背景。请点“查看日志”，让维护人员检查；继续对话时请自行补充所需背景。\n查看日志",
+    "before": {
+      "id": "notice-project-reference",
+      "phase": "before",
+      "entry": "创建会话加入项目背景",
+      "condition": "会话仍创建，但加入项目背景资料失败",
+      "raw": "项目资料引用未加入：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "项目资料引用未加入：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-project-reference"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "项目资料引用未加入：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n项目资料引用未加入：disk unavailable",
+      "screenshot": "screenshots/notice-project-reference-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-project-reference",
+      "phase": "after",
+      "entry": "创建会话加入项目背景",
+      "condition": "会话仍创建，但加入项目背景资料失败",
+      "raw": "项目资料引用未加入：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "这条会话没能加入项目资料，AI 可能缺少项目背景。请点“查看日志”，让维护人员检查；继续对话时请自行补充所需背景。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "这条会话没能加入项目资料，AI 可能缺少项目背景。请点“查看日志”，让维护人员检查；继续对话时请自行补充所需背景。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-project-reference"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n这条会话没能加入项目资料，AI 可能缺少项目背景。请点“查看日志”，让维护人员检查；继续对话时请自行补充所需背景。\n查看日志",
+      "screenshot": "screenshots/notice-project-reference-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-personal-results",
+    "entry": "AI读写个人成果",
+    "condition": "AI个人成果工具暂不可用，对话仍可继续",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-personal-results-before.png",
+    "afterScreenshot": "screenshots/notice-personal-results-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n个人成果接口暂不可用：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\nAI 暂时无法直接读写个人成果。对话可以继续；你可以先点左侧“个人成果库”查看已有内容，修复此能力请把日志交给维护人员。\n查看日志",
+    "before": {
+      "id": "notice-personal-results",
+      "phase": "before",
+      "entry": "AI读写个人成果",
+      "condition": "AI个人成果工具暂不可用，对话仍可继续",
+      "raw": "个人成果接口暂不可用：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "个人成果接口暂不可用：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-personal-results"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "个人成果接口暂不可用：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n个人成果接口暂不可用：disk unavailable",
+      "screenshot": "screenshots/notice-personal-results-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-personal-results",
+      "phase": "after",
+      "entry": "AI读写个人成果",
+      "condition": "AI个人成果工具暂不可用，对话仍可继续",
+      "raw": "个人成果接口暂不可用：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "AI 暂时无法直接读写个人成果。对话可以继续；你可以先点左侧“个人成果库”查看已有内容，修复此能力请把日志交给维护人员。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "AI 暂时无法直接读写个人成果。对话可以继续；你可以先点左侧“个人成果库”查看已有内容，修复此能力请把日志交给维护人员。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-personal-results"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\nAI 暂时无法直接读写个人成果。对话可以继续；你可以先点左侧“个人成果库”查看已有内容，修复此能力请把日志交给维护人员。\n查看日志",
+      "screenshot": "screenshots/notice-personal-results-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-rsi-reference",
+    "entry": "恢复推荐参考资料",
+    "condition": "可选AI推荐参考恢复失败，不阻止普通对话",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-rsi-reference-before.png",
+    "afterScreenshot": "screenshots/notice-rsi-reference-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\nAI 推荐参考暂未恢复：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\nAI 推荐的参考资料没恢复出来，对话可以继续。需要引用这些资料时，请先在右侧“AI推荐”查看原建议；需要帮助时查看日志。\n查看日志",
+    "before": {
+      "id": "notice-rsi-reference",
+      "phase": "before",
+      "entry": "恢复推荐参考资料",
+      "condition": "可选AI推荐参考恢复失败，不阻止普通对话",
+      "raw": "AI 推荐参考暂未恢复：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "AI 推荐参考暂未恢复：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-rsi-reference"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "AI 推荐参考暂未恢复：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\nAI 推荐参考暂未恢复：disk unavailable",
+      "screenshot": "screenshots/notice-rsi-reference-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-rsi-reference",
+      "phase": "after",
+      "entry": "恢复推荐参考资料",
+      "condition": "可选AI推荐参考恢复失败，不阻止普通对话",
+      "raw": "AI 推荐参考暂未恢复：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "AI 推荐的参考资料没恢复出来，对话可以继续。需要引用这些资料时，请先在右侧“AI推荐”查看原建议；需要帮助时查看日志。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "AI 推荐的参考资料没恢复出来，对话可以继续。需要引用这些资料时，请先在右侧“AI推荐”查看原建议；需要帮助时查看日志。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-rsi-reference"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\nAI 推荐的参考资料没恢复出来，对话可以继续。需要引用这些资料时，请先在右侧“AI推荐”查看原建议；需要帮助时查看日志。\n查看日志",
+      "screenshot": "screenshots/notice-rsi-reference-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-auto-upload",
+    "entry": "会话轨迹自动上传",
+    "condition": "自动上传调度或归档失败，不推断已送达或未送达",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-auto-upload-before.png",
+    "afterScreenshot": "screenshots/notice-auto-upload-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话自动上传未完成：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n这条会话的轨迹自动上传遇到问题，结果还没确认。请点左侧“更多”→“传输记录”核对原上传，先不要再上传一份；需要帮助时查看日志。\n查看日志",
+    "before": {
+      "id": "notice-auto-upload",
+      "phase": "before",
+      "entry": "会话轨迹自动上传",
+      "condition": "自动上传调度或归档失败，不推断已送达或未送达",
+      "raw": "会话自动上传未完成：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "会话自动上传未完成：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-auto-upload"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "会话自动上传未完成：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话自动上传未完成：disk unavailable",
+      "screenshot": "screenshots/notice-auto-upload-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-auto-upload",
+      "phase": "after",
+      "entry": "会话轨迹自动上传",
+      "condition": "自动上传调度或归档失败，不推断已送达或未送达",
+      "raw": "会话自动上传未完成：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "这条会话的轨迹自动上传遇到问题，结果还没确认。请点左侧“更多”→“传输记录”核对原上传，先不要再上传一份；需要帮助时查看日志。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "这条会话的轨迹自动上传遇到问题，结果还没确认。请点左侧“更多”→“传输记录”核对原上传，先不要再上传一份；需要帮助时查看日志。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-auto-upload"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n这条会话的轨迹自动上传遇到问题，结果还没确认。请点左侧“更多”→“传输记录”核对原上传，先不要再上传一份；需要帮助时查看日志。\n查看日志",
+      "screenshot": "screenshots/notice-auto-upload-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-session-file-upload",
+    "entry": "上传会话文件",
+    "condition": "会话文件冻结或入队失败，不能据此称远端已收到",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-session-file-upload-before.png",
+    "afterScreenshot": "screenshots/notice-session-file-upload-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话文件未上传：验收.txt，disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话文件没能加入上传队列。请点左侧“更多”→“传输记录”查看哪些文件已排队；没有这份文件时再重新选择上传。\n查看日志",
+    "before": {
+      "id": "notice-session-file-upload",
+      "phase": "before",
+      "entry": "上传会话文件",
+      "condition": "会话文件冻结或入队失败，不能据此称远端已收到",
+      "raw": "会话文件未上传：验收.txt，disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "会话文件未上传：验收.txt，disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-session-file-upload"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "会话文件未上传：验收.txt，disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话文件未上传：验收.txt，disk unavailable",
+      "screenshot": "screenshots/notice-session-file-upload-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-session-file-upload",
+      "phase": "after",
+      "entry": "上传会话文件",
+      "condition": "会话文件冻结或入队失败，不能据此称远端已收到",
+      "raw": "会话文件未上传：验收.txt，disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "会话文件没能加入上传队列。请点左侧“更多”→“传输记录”查看哪些文件已排队；没有这份文件时再重新选择上传。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "会话文件没能加入上传队列。请点左侧“更多”→“传输记录”查看哪些文件已排队；没有这份文件时再重新选择上传。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-session-file-upload"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n会话文件没能加入上传队列。请点左侧“更多”→“传输记录”查看哪些文件已排队；没有这份文件时再重新选择上传。\n查看日志",
+      "screenshot": "screenshots/notice-session-file-upload-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-project-brief",
+    "entry": "更新当前会话项目说明",
+    "condition": "刷新项目背景失败，旧版可能仍保留",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-project-brief-before.png",
+    "afterScreenshot": "screenshots/notice-project-brief-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n项目说明未更新：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n当前会话没能更新项目说明，可能仍在使用旧版。请先查看日志，让维护人员处理；依赖新版要求前，请核对项目说明的内容。\n查看日志",
+    "before": {
+      "id": "notice-project-brief",
+      "phase": "before",
+      "entry": "更新当前会话项目说明",
+      "condition": "刷新项目背景失败，旧版可能仍保留",
+      "raw": "项目说明未更新：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "项目说明未更新：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-project-brief"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "项目说明未更新：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n项目说明未更新：disk unavailable",
+      "screenshot": "screenshots/notice-project-brief-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-project-brief",
+      "phase": "after",
+      "entry": "更新当前会话项目说明",
+      "condition": "刷新项目背景失败，旧版可能仍保留",
+      "raw": "项目说明未更新：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "当前会话没能更新项目说明，可能仍在使用旧版。请先查看日志，让维护人员处理；依赖新版要求前，请核对项目说明的内容。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "当前会话没能更新项目说明，可能仍在使用旧版。请先查看日志，让维护人员处理；依赖新版要求前，请核对项目说明的内容。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-project-brief"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n当前会话没能更新项目说明，可能仍在使用旧版。请先查看日志，让维护人员处理；依赖新版要求前，请核对项目说明的内容。\n查看日志",
+      "screenshot": "screenshots/notice-project-brief-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-codex-sync",
+    "entry": "后台接入Codex桌面会话",
+    "condition": "等待接入桌面后台的任务出错，本机对话仍保留",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-codex-sync-before.png",
+    "afterScreenshot": "screenshots/notice-codex-sync-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n同步请求暂未完成：disk unavailable",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n与 Codex 桌面版的同步还没接通，本机对话仍保留。请点输入框上方的同步标签查看状态；需要帮助时查看日志。\n查看日志",
+    "before": {
+      "id": "notice-codex-sync",
+      "phase": "before",
+      "entry": "后台接入Codex桌面会话",
+      "condition": "等待接入桌面后台的任务出错，本机对话仍保留",
+      "raw": "同步请求暂未完成：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "同步请求暂未完成：disk unavailable",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-codex-sync"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "同步请求暂未完成：disk unavailable"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n同步请求暂未完成：disk unavailable",
+      "screenshot": "screenshots/notice-codex-sync-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-codex-sync",
+      "phase": "after",
+      "entry": "后台接入Codex桌面会话",
+      "condition": "等待接入桌面后台的任务出错，本机对话仍保留",
+      "raw": "同步请求暂未完成：disk unavailable",
+      "event": {
+        "type": "notice",
+        "message": "与 Codex 桌面版的同步还没接通，本机对话仍保留。请点输入框上方的同步标签查看状态；需要帮助时查看日志。",
+        "failure": {
+          "version": 1,
+          "operation": "读取会话状态",
+          "phase": "session.status",
+          "code": "BUSINESS_RULE",
+          "message": "与 Codex 桌面版的同步还没接通，本机对话仍保留。请点输入框上方的同步标签查看状态；需要帮助时查看日志。",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-codex-sync"
+          }
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n与 Codex 桌面版的同步还没接通，本机对话仍保留。请点输入框上方的同步标签查看状态；需要帮助时查看日志。\n查看日志",
+      "screenshot": "screenshots/notice-codex-sync-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  },
+  {
+    "id": "notice-preparation-interrupted",
+    "entry": "后台成果整理中断通知",
+    "condition": "真实failPreparation收到connection reset，结果尚未确认",
+    "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+    "beforeVersion": "readability-round2-pre-rewrite",
+    "baselineNote": "本轮新增补查：原图从上一轮整改后冻结源码复现，使用相同事件、隔离资料和1440×1000窗口。",
+    "changeReason": "旧版混淆已经完成与尚未完成的部分，或透出英文故障。现在指出具体对象、已完成事实和可执行的下一步。",
+    "beforeScreenshot": "screenshots/notice-preparation-interrupted-before.png",
+    "afterScreenshot": "screenshots/notice-preparation-interrupted-after.png",
+    "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n整理失败\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n成果整理失败：网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。",
+    "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n整理结果待核对\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n“本轮成果整理”的成果整理中断。网络断开了，工作台没拿到完整的整理结果。请点左侧“更多”打开“成果整理”，查看这次收到的内容，先别重新整理。\n查看日志",
+    "before": {
+      "id": "notice-preparation-interrupted",
+      "phase": "before",
+      "entry": "后台成果整理中断通知",
+      "condition": "真实failPreparation收到connection reset，结果尚未确认",
+      "raw": "成果整理失败：网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。",
+      "event": {
+        "type": "notice",
+        "message": "成果整理失败：网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。",
+        "failure": {
+          "version": 1,
+          "operation": "处理会话",
+          "phase": "session.status",
+          "logRef": {
+            "id": "abc123",
+            "operationId": "notice-notice-preparation-interrupted"
+          },
+          "code": "BUSINESS_RULE",
+          "message": "成果整理失败：网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n整理失败\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n成果整理失败：网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。",
+      "screenshot": "screenshots/notice-preparation-interrupted-before.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写"
+      ],
+      "supplements": [],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "after": {
+      "id": "notice-preparation-interrupted",
+      "phase": "after",
+      "entry": "后台成果整理中断通知",
+      "condition": "真实failPreparation收到connection reset，结果尚未确认",
+      "raw": "“本轮成果整理”的成果整理中断。网络断开了，工作台没拿到完整的整理结果。请点左侧“更多”打开“成果整理”，查看这次收到的内容，先别重新整理。",
+      "event": {
+        "type": "notice",
+        "message": "“本轮成果整理”的成果整理中断。网络断开了，工作台没拿到完整的整理结果。请点左侧“更多”打开“成果整理”，查看这次收到的内容，先别重新整理。",
+        "failure": {
+          "version": 1,
+          "code": "PREPARATION_CONNECTION_INTERRUPTED",
+          "message": "“本轮成果整理”的成果整理中断。网络断开了，工作台没拿到完整的整理结果。请点左侧“更多”打开“成果整理”，查看这次收到的内容，先别重新整理。",
+          "operation": "整理成果",
+          "logRef": {
+            "id": "1319c5b4-a3fc-43e3-949d-cd067e254fa7"
+          },
+          "outcome": "unknown"
+        }
+      },
+      "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n错误提示验收会话\nCodex · GPT / 未分项目 / 就绪\n寻求帮助\n整理成果\n整理结果待核对\n开始这次工作\nC:/audit\n非同步会话\nAgent\n本机网络 · 登录\nCLI 默认模型\n沿用 Codex 设置\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络\n“本轮成果整理”的成果整理中断。网络断开了，工作台没拿到完整的整理结果。请点左侧“更多”打开“成果整理”，查看这次收到的内容，先别重新整理。\n查看日志",
+      "screenshot": "screenshots/notice-preparation-interrupted-after.png",
+      "pass": true,
+      "assertions": [
+        "实际生产App显示隔离notice事件",
+        "实际公共事件格式化器，用户/模型正文没有改写",
+        "已知完成事实与具体下一步保留；或正常通知标题逐字保留",
+        "从真实更多菜单打开实际整理任务和已收到内容，不会自动重新整理"
+      ],
+      "supplements": [
+        "screenshots/notice-preparation-interrupted-opened-after.png"
+      ],
+      "source": "src/main/public-failures.ts → src/renderer/main.tsx#toast",
+      "capture": "actual full production App, isolated fixture and controlled backend event",
+      "passed": true
+    },
+    "pass": true,
+    "capture": "actual full production App, isolated fixture and controlled backend event"
+  }
+]

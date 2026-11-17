@@ -7,20 +7,21 @@ import path from 'node:path';
 import { ProviderAccounts, inspectAuth, codexAuth, cursorAuth, authFailure, loginUrl } from '../src/core/provider-auth';
 import { Workbench } from '../src/core/workbench';
 import { Store } from '../src/core/store';
-import type { SessionNetworkRoute } from '../src/shared/types';
+import type { SessionNetworkRoute, WorkbenchAPI } from '../src/shared/types';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ProviderAuthPanel } from '../src/renderer/provider-auth';
 import { inspectCatalog } from '../src/core/provider-catalog';
 // @ts-expect-error JavaScript launcher shared with Electron UI tests.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
+const ssrApi = { call: async () => { throw Error('SSR must not call the desktop API'); }, subscribe: () => () => {} } as WorkbenchAPI;
 async function until(predicate: () => boolean) { const end = Date.now() + 15000; while (!predicate()) { if (Date.now() > end) throw new Error('test timed out'); await new Promise(r => setTimeout(r, 30)); } }
 async function cleanup(root: string) { await new Promise(r => setTimeout(r, 300)); await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); }
 
 test('Cursor failed user lookup is separate from saved credentials; a missing optional email is not a network error', () => {
   const result = cursorAuth(JSON.stringify({ status: 'authenticated', isAuthenticated: true, message: 'Logged in (unable to fetch user details)' }), 0);
   assert.equal(result.status, 'authenticated'); assert.equal(result.verifiedLocally, true); assert(result.connectionIssue);
-  const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { provider: 'cursor', auth: result, autoCheck: false }));
+  const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { api: ssrApi, provider: 'cursor', auth: result, autoCheck: false }));
   assert.match(html, /已保存登录/); assert.match(html, /在线账号查询失败/); assert.doesNotMatch(html, /CLI 未提供账号名称|badge done/);
   const anonymous = cursorAuth(JSON.stringify({ status: 'authenticated', isAuthenticated: true, message: 'Logged in (user details not available)' }), 0);
   assert.equal(anonymous.status, 'authenticated'); assert.equal(anonymous.connectionIssue, undefined);

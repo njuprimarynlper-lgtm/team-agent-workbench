@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, History, RotateCcw, Search, Trash2, X } from 'lucide-react';
 import type { AgentSession, Message, WorkbenchAPI } from '../shared/types';
@@ -34,7 +37,7 @@ export function ClosedSessionsDialog({ sessions, initialId, api, close, reopen, 
     if (opening.current) return;
     opening.current = true; setBusyId(session.id); setError('');
     try { await reopen(session); }
-    catch (reason: any) { setError(reason.message); }
+    catch (reason: any) { setError(contextualError(reason, { domain: 'local', operation: `重新打开会话“${session.title}”` }, { UNCLASSIFIED_FAILURE: `没能重新打开“${session.title}”。记录仍保留在已关闭会话中，点这条记录旁的“重新打开”再试。`, FILE_ACCESS_DENIED: `Windows 不允许读取“${session.title}”的会话记录。记录没有被删除；处理访问权限后再试。` })); }
     finally { opening.current = false; setBusyId(''); }
   };
   const actions = (session: AgentSession) => <div className="closed-session-actions">
@@ -52,7 +55,7 @@ export function ClosedSessionsDialog({ sessions, initialId, api, close, reopen, 
   }}>
     <section ref={dialog} className="modal closed-sessions-dialog" role="dialog" aria-modal="true" aria-labelledby="closed-sessions-title">
       <header><h2 id="closed-sessions-title"><History size={18}/>已关闭会话 <span className="muted small">{closed.length}</span></h2><button className="icon" aria-label="关闭历史会话窗口" onClick={close}><X size={18}/></button></header>
-      {error && <p className="inline-error closed-sessions-error" role="alert">{error}</p>}
+      {error && <p className="inline-error closed-sessions-error" role="alert">{error} <ErrorLogLink message={error}/></p>}
       {selected ? <>
         <div className="closed-session-heading"><button className="icon" aria-label="返回已关闭会话列表" onClick={() => { setSelectedId(''); setError(''); }}><ArrowLeft size={18}/></button><div><h3>{selected.title}</h3><p className="muted small">{providerNames[selected.provider]} · {selected.binding?.project.name || '本地会话'}</p></div>{actions(selected)}</div>
         <ClosedSessionRecord key={selected.id} session={selected} api={api}/>

@@ -14,5 +14,5 @@ test('all network tests are available while forwarding is disabled and display t
   assert.equal((html.match(/未允许成员转发/g) || []).length, 2);
   assert.equal((render(true).match(/disabled=""/g) || []).length, 3);
   assert(render(false, true).includes('当前测试仍使用已保存的设置'));
-  const failure = render(false, false, { cursor: { ok: false, detail: '上游 HTTP 403' } }); assert(failure.includes('role="alert"')); assert(failure.includes('HTTP 403'));
+  const failure = render(false, false, { cursor: { ok: false, detail: '上游 HTTP 403' } }); assert(failure.includes('role="alert"')); assert(failure.includes('网络测试请求被拒绝')); assert(!failure.includes('HTTP 403'));
 });

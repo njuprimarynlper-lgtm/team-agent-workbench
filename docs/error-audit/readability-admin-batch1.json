@@ -1,0 +1,131 @@
+{
+  "round": 2,
+  "facts": [
+    {
+      "id": "admin-storage-partial",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-partial-after.png",
+      "condition": "一个目录没有读取权限",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-storage-cancelled",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-cancelled-after.png",
+      "condition": "用户主动取消统计",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-storage-cancelled-previous",
+      "screenshot": "docs/error-audit/screenshots/admin-storage-cancelled-previous-after.png",
+      "condition": "已有空间统计，取消随后发起的重新统计",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-environment-failure",
+      "screenshot": "docs/error-audit/screenshots/admin-environment-failure-after.png",
+      "condition": "远端修复请求返回技术异常",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-import-failure",
+      "screenshot": "docs/error-audit/screenshots/admin-import-failure-after.png",
+      "condition": "读取已有账号状态返回技术异常",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-sync-failure",
+      "screenshot": "docs/error-audit/screenshots/admin-sync-failure-after.png",
+      "condition": "后台同步失败",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-egress-test-failure",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-test-failure-after.png",
+      "condition": "网络测试返回技术异常",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-egress-jump-failure",
+      "screenshot": "docs/error-audit/screenshots/admin-egress-jump-failure-after.png",
+      "condition": "启用隧道返回技术异常",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-personal-read-failure",
+      "screenshot": "docs/error-audit/screenshots/team-personal-read-failure-after.png",
+      "condition": "首次读取失败且没有已有列表",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-scheduled-read-failure",
+      "screenshot": "docs/error-audit/screenshots/team-scheduled-read-failure-after.png",
+      "condition": "任务和运行记录首次读取失败",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-scheduled-read-recovered",
+      "screenshot": "docs/error-audit/screenshots/team-scheduled-read-recovered-after.png",
+      "condition": "首次失败后下一次刷新成功",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-context-action-failure",
+      "screenshot": "docs/error-audit/screenshots/team-context-action-failure-after.png",
+      "condition": "界面操作函数抛出技术异常",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-rsi-settings-read-failure",
+      "screenshot": "docs/error-audit/screenshots/team-rsi-settings-read-failure-after.png",
+      "condition": "项目设置读取成功但主状态读取失败",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-directions-read-failure",
+      "screenshot": "docs/error-audit/screenshots/team-directions-read-failure-after.png",
+      "condition": "首次读取失败且无本机缓存",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-account-sync-failure",
+      "screenshot": "docs/error-audit/screenshots/team-account-sync-failure-after.png",
+      "condition": "网络中断被笼统归因为旧版服务器",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "admin-projects-read-failure",
+      "screenshot": "docs/error-audit/screenshots/admin-projects-read-failure-after.png",
+      "condition": "首次读取项目列表失败",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-project-brief-read-failure",
+      "screenshot": "docs/error-audit/screenshots/team-project-brief-read-failure-after.png",
+      "condition": "项目说明读取失败",
+      "stateFact": "只读请求失败不改变数据；图中重试/刷新调用原读取接口",
+      "reviewStatus": "pending-independent-review"
+    },
+    {
+      "id": "team-personal-group-refresh-failure",
+      "screenshot": "docs/error-audit/screenshots/team-personal-group-refresh-failure-after.png",
+      "condition": "分组已保存但刷新失败",
+      "stateFact": "沿用该场景实际故障调用与完成边界，详见admin-results.json assertions",
+      "reviewStatus": "pending-independent-review"
+    }
+  ]
+}

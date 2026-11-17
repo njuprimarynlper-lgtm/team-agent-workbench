@@ -8,6 +8,7 @@ import { JsonRpc, type AgentRpc, type RpcMessage } from './rpc';
 import { WebSocketRpc } from './websocket-rpc';
 import { cursorNetworkEnvironment } from './cursor-network';
 import { applyCursorReasoningEffort, cursorClientCapabilities, cursorRequestError } from './cursor-models';
+import { userFailure } from '../shared/user-failure';
 import { mergeSharedThread } from './codex-live-thread';
 import { codexForkError, forkCodexHistory } from './codex-fork';
 import { CodexSideRpc, sideConversationInstructions } from './codex-side-rpc';
@@ -307,7 +308,7 @@ export class AgentRuntime {
   }
   private async startSession() {
     if (this.initialized) return;
-    const s = this.session; s.status = 'starting'; s.error = undefined; this.hooks.changed();
+    const s = this.session; s.status = 'starting'; s.error = undefined; s.failure = undefined; this.hooks.changed();
     if (s.cursorNative || this.sharedCodex) { s.desktopSyncState = 'connecting'; s.desktopSyncError = undefined; }
     if (this.sharedCodex) this.hydratingShared = true;
     this.connection.begin();
@@ -1102,7 +1103,7 @@ export class AgentRuntime {
       }
       if (method === 'turn/started') { if (submission) this.acceptCodexTurnSettings(submission); if (this.turnId !== p.turn?.id) this.sharedRevision++; this.turnId = p.turn?.id; if (this.sharedCodex) { if (!this.turnActive) this.sharedTurnOwned = false; this.turnActive = true; } s.status = 'running'; this.hooks.changed(); }
       if (method === 'turn/completed' && (!this.turnId || !p.turn?.id || p.turn.id === this.turnId)) { if (p.turn?.error) this.connection.error(p.turn.error, false); this.finish(p.turn?.error ? p.turn.error.message || 'CLI 请求失败' : undefined); }
-      if (method === 'error') { this.connection.error(p.error || p, p.willRetry === true); this.message(randomUUID(), 'system', p.error?.message || pretty(p)); if (!p.willRetry) this.finish(p.error?.message || '运行失败'); }
+      if (method === 'error') { this.connection.error(p.error || p, p.willRetry === true); const original = Object.assign(new Error(p.error?.message || '模型服务返回运行异常'), { code: p.error?.code }); this.hooks.diagnostic?.(original); const failure = userFailure(original, { domain: 'model', provider: s.provider, outcome: 'unknown' }); s.failure = failure; this.message(randomUUID(), 'system', failure.message); if (!p.willRetry) this.finish(p.error?.message || '运行失败'); }
     } else if (method === 'session/update') {
       if (p.sessionId && s.nativeId && p.sessionId !== s.nativeId) return;
       const u = p.update || {};

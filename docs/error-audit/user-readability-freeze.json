@@ -1,0 +1,797 @@
+{
+  "round": 2,
+  "authorDoesNotAssignScores": true,
+  "reviewFile": "docs/error-audit/readability-review.json",
+  "threshold": 9,
+  "scenarios": 52,
+  "minimumScore": 9,
+  "unchangedRound2Baseline": "docs/error-audit/readability-baseline/user/snapshot.json",
+  "immutableBaselineChecks": {
+    "round2StartingFiles": 57,
+    "allStartingFileHashesUnchanged": true,
+    "initial127ReviewSha256": "179a281a1e17a4e045569b534c2100fb2aef4e0617290869353292d29c70fa5e",
+    "initialReviewUnchanged": true,
+    "originalBeforeFilesWritten": false
+  },
+  "supplementaryBefore": {
+    "id": "u52",
+    "version": "readability-round2-pre-rewrite",
+    "source": ".test-data/error-readability/baseline",
+    "screenshot": "docs/error-audit/screenshots/u52-before.png"
+  },
+  "independentlyReviewedSubstates": 4,
+  "rows": [
+    {
+      "id": "u01",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u01-after.png",
+      "sha256": "7f8973b80daec93afe86a6fd71a32d8b6ca4a909a56312ada9a17a9b0a856042",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u01-before.png",
+        "sha256": "325e2b03b4c6468d2a7a227ed684d15f801a99f61356c687623ba6bf3b90c76e",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u02",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u02-after.png",
+      "sha256": "95566245d0d91119b71fe5a97bdacc48d7d8d65e1a333cdb40150178a5624e5b",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u02-before.png",
+        "sha256": "1af0cbf61b2f02da999d77920c5597d363d14ce90052a94641d92ae25e6ce910",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u03",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u03-after.png",
+      "sha256": "9c79c08d88c8a7379960162154173ba9fa90a3baf7430b8e0cb706a2f253ba45",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u03-before.png",
+        "sha256": "a677b7d221a0d3a47f76aa3089ad890f04170202b99184d5875e44a55a1bc213",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u04",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u04-after.png",
+      "sha256": "63e345cd6c84598aa45a32643930e488ce072b016a0273e9bc31387530b87f76",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u04-before.png",
+        "sha256": "21e82eaed9044e4b5bd8ed12184019ea5c6d4a13db4f922d20be9b2096450277",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u05",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u05-after.png",
+      "sha256": "00df42d790bf4c08f03c27fe1a55ba1ef0031266a30a1e818a80c529768ab5aa",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u05-before.png",
+        "sha256": "8d6f3d72c806c7a39cf5c17bd43350fe92a8bf0d1bc6b39fd79d743ae5454ab1",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u06",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u06-after.png",
+      "sha256": "37d51ee888167a830b50ac96f206f90a16b29a160447c3d862685d2f40a82006",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u06-before.png",
+        "sha256": "3ea6233690bcd3c8280fb33983180770f673577d781e858e4acb099c4e77a0b2",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u07",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u07-after.png",
+      "sha256": "616a3dcd303737d5ffd717eb0f7b5b4887eba12f720f09af48ecd1e81b68268f",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u07-before.png",
+        "sha256": "4163ea4df1152c42274184ed7240a02185ff63d9d7c5f5d75f3e3c37f64075e7",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u08",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u08-after.png",
+      "sha256": "b7a73eb9d37ff48a008d867a3ced30211090ae0213b6024f4c119eb97b83ddf0",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u08-before.png",
+        "sha256": "9be78c84e85d096e3dddb9aedb5bdd591e5a9360c846f15b4cbf3e30608df05d",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u09",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u09-after.png",
+      "sha256": "d596754dba843fc0ae3c29dc6a432c873783d0148de76fb30a420dd16804da5f",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u09-before.png",
+        "sha256": "db5bdbd6b484592b94fd65dc52cc4b7df036b75d1d356d9e61719e3f588979ce",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u10",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u10-after.png",
+      "sha256": "7021f0941e3df20a520ea57f40569929894086fa6048967d0832d34b691b0fb4",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u10-before.png",
+        "sha256": "8cc8aab30a7e37a6b1a3be3dcdd5db0cbe6d080bfb43815563ca305a045849ff",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u11",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u11-after.png",
+      "sha256": "de6b26c6cb76e977a81bf2abb5b2ffdeb3d965d36ee88c62e07e63c0c6f7d9e1",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u11-before.png",
+        "sha256": "61f431fcbfcee3d5bbcf45b3683705e913d3ec9183f06a27e04a6e15f36bec3c",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u12",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u12-after.png",
+      "sha256": "a3a7cae5c1029094944585a1c7813490de9dc5f70fa8fa0e2d1df41fae0e695c",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u12-before.png",
+        "sha256": "7d044f5111ada99bd280abf389e243cb6f4bda064ad3d0d2a22cd65eabeed8e5",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u13",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核验同一team-attachment-remote-missing源链为SFTP2明确缺附件；仅刷新读取，未扩大结果推断",
+      "screenshot": "docs/error-audit/screenshots/u13-after.png",
+      "sha256": "831b4978bac06df096729b7fd69b28a48257c30ce465d1f2e4aa9916816d1080",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u13-before.png",
+        "sha256": "24c72c7ebaf3866ed127c48202c90889bd0a90b431245daed82bdbff30fec9ff",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u14",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u14-after.png",
+      "sha256": "1530f6e18b3e3a054357b5602fcc50da5a9997804d5a18ab5e659d290d6f477f",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u14-before.png",
+        "sha256": "d64fcf31a33fa60d92250efa43391ca52920ea3d186e90c646553ffa1c65eb64",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u16",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实操作断言",
+      "screenshot": "docs/error-audit/screenshots/u16-after.png",
+      "sha256": "de7195710587fb35dbc69b66d76ae97250b7fd3f2129af5d4f3721fa0e78ddee",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u16-before.png",
+        "sha256": "b50a2f8c92e96975eaed977b7c9b117983e834e80c2c38f04b5ca6c42cf8207e",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u15",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查源码边界及本轮截图harness，与所见界面一致；root消息逐项确认首批10项",
+      "screenshot": "docs/error-audit/screenshots/u15-after.png",
+      "sha256": "0fbffc023efc56e882d64f040ce79827217d8a2bd0b0077f2dd13e0f161484a7",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u15-before.png",
+        "sha256": "15cad8cc5f502fd5c5a69fcd4436c22b724f8b39cb67acf3910acfc3a327a0cf",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u17",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u17-after.png",
+      "sha256": "5049e4bffbf303eb42c0ad791faff6b691969f226dbff1cb91c00b14a3873025",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u17-before.png",
+        "sha256": "602a7d7be915eb41f4d90d24b0597048fc946c87f0a549656f2df50a79922a05",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u18",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u18-after.png",
+      "sha256": "0acd77aad493eceb8d94c846b46e47355f29eff2ab37b8fe0db16c234c01323c",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u18-before.png",
+        "sha256": "3f9e0f08a8a749430d4d996af6c574441a426b8f7c80dfd03ea248edd2945ec0",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u19",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u19-after.png",
+      "sha256": "83f4a970f5721ca4767a19a6958ae8b9b695ec95d430e46e803a6e34adba934a",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u19-before.png",
+        "sha256": "e6ca85b8dd07f48d16fa862acee646e612ff5b13b5445a3291082e78e06a03af",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u20",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u20-after.png",
+      "sha256": "b278f6dd19f6d15c680eee662900ac8e6977fb8ac58eadfff3709bf8c1ff2487",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u20-before.png",
+        "sha256": "0123034c971bdf17e9321d8653c5adedd29343151c392d134b1c0da6b2ce484b",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u21",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u21-after.png",
+      "sha256": "4e102bdc5252b3350ce9a278dd93c780705484d88af19982f9ca05a1584e4dd6",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u21-before.png",
+        "sha256": "6b4e5d520f228cd4b04329c8b0e2f9ab8606b1d833ecc79600e14596ad15c6c3",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u22",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u22-after.png",
+      "sha256": "5ea2d75fae1bc61043be807a6d6862c7ea3422aa4919da6bf8855bc2d0cef571",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u22-before.png",
+        "sha256": "78e40a1d56eaeed5752dd45846e0612816a15cf0c12da7d4a6d7faa6de453b0b",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u23",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u23-after.png",
+      "sha256": "af19ccd9e6e6cdb0c22cc87cfe015a9436cbbe8329a26c778f5885dcd4a3404d",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u23-before.png",
+        "sha256": "a46f895071bae82a6fceb1e3ae1da9298016214f6e77df0ba65fa78afa9ce951",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u24",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u24-after.png",
+      "sha256": "2bf0906a411e9f8c34bb5e5df610fe0a9dba5951e48a2252c55f0b151129e59d",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u24-before.png",
+        "sha256": "a7b858aab382741d29e4dec42d8b20b1a4b556dce7c6e6e666d71b6942e51e89",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u25",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u25-after.png",
+      "sha256": "088557061ad49685d5daef60d52a7247cd8e198547270f9274f96dffde8e455e",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u25-before.png",
+        "sha256": "f1888ec908dbd66ebf2a696e54addf76c4bed7c8db38dbdcbd14c31ba26cf568",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u26",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u26-after.png",
+      "sha256": "15c483e973fa23c2fc76cc29a60791753fafb6610a4397b10e93e5cc652213bb",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u26-before.png",
+        "sha256": "9eddbd5738495d08db48bd06897c9f1447b7a595a99ee3248b3f81074f8c183d",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u27",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u27-after.png",
+      "sha256": "034a4f6cebe537d2ecd00fd061a7ae89beddf310559b1a8fab75f34298753a49",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u27-before.png",
+        "sha256": "cb5a0b017c136f83f4791620244957ca60effe597c34e603d5127b1b006decc2",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u28",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u28-after.png",
+      "sha256": "47e157a78376d1cae71ca340d2997327a44fc6ee306fcdce8cf5cbd646aa1aeb",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u28-before.png",
+        "sha256": "b540b8ec6fa2e1c7675ba96116ffbcd2414e644e8fc264359eae9c9390934ee7",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u29",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u29-after.png",
+      "sha256": "2ad4606f76d9735dd0b38408ca5c60ecda025e7a11ac2a4d601f81b6b7f7e74c",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u29-before.png",
+        "sha256": "49d5f6846105121f22ef6569ec70d3171b8457d830c44c817da30deddb768072",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u30",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u30-after.png",
+      "sha256": "e01c36997ed654410cff4d3e8cfe9285b28779ce2e50498409c134dfcf77844e",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u30-before.png",
+        "sha256": "8e43b8493351dc9c6d62a5197bab3758cec7b066ea998504d2fa26e7f2cfe7fc",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u31",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u31-after.png",
+      "sha256": "d1c51ee7b8453763453db710952c5a8229c68756ba4ccd30d656c8e02d01807a",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u31-before.png",
+        "sha256": "51c34a69cef13fe4acacdb1c2d3c06d17bcc0cc0aeb68cb17349bf53e4032673",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u32",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u32-after.png",
+      "sha256": "4253406df201aa4428395462062eaea439e6d85cded0bcbb1d2f996da6191b06",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u32-before.png",
+        "sha256": "61619298d002311b8013c5a617644e5dbdc14d9c7c6df84d3a2c91505506855a",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u33",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u33-after.png",
+      "sha256": "b6fc2d6ef0ed1f4fbe6d856f0d7198fc75965fe027b1de57beb499ae1d840ea7",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u33-before.png",
+        "sha256": "f25b6740b8219d1c8dd153db078eb6c950d806c234a70a1df8b7f54a8751008b",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u34",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u34-after.png",
+      "sha256": "7d2dda8d167e0158f8045e8a7c6d5e1ee73dbba0b67f9728d299ad0502abb425",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u34-before.png",
+        "sha256": "fd27f14748f42d5d41adbccb1374b79ba7ddb39ba1bb9dfc1d0cfbc3bbbb9aa5",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u35",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核查对应组件/core及截图harness，第二批16项状态和按钮边界一致；含恢复草稿仅写输入不发送",
+      "screenshot": "docs/error-audit/screenshots/u35-after.png",
+      "sha256": "c658a5c51432dd791780140345704daf7ec0986b6921fc635f41d3dae31d0851",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u35-before.png",
+        "sha256": "3cec6118adecc40ffa9459e04b4a1cf3cc965ce891328bfa7c7edf6b1eb2ba12",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u36",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u36-after.png",
+      "sha256": "1e60f815c80e03831bedfc06578abec9e90c20fc5f32a33f121d8090cdee8ca6",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u36-before.png",
+        "sha256": "b483e8a6c4642c25765dff4673300db440ccc4e5dfe49d07b259a487d194e3d7",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": [
+        {
+          "condition": "计划仍待确认，刷新返回会话状态 running",
+          "check": "unrelated active work never confirms this plan or releases its retry lock",
+          "ui": "实施计划\n\n核对资料后生成测试报告。\n\n这个会话有任务正在处理，但还不知道是不是这个计划。请查看本会话的任务和回复；如果是这个计划就等待，没看清之前先别再次执行。 查看日志\n\n刷新执行状态\n确认没有开始，允许重试\n修改计划\n计划提交待确认",
+          "screenshot": "docs/error-audit/screenshots/u36-other-task-running-after.png",
+          "passed": true,
+          "sha256": "e83d8bd290cc6d323c193ab4fb25e157f6cdb0d5eea50fe69ae9c9ae48136a80",
+          "score": 9.5,
+          "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+          "factualVerification": "root此前独立核验仅同plan messageId+accepted才能确认；别的运行任务不会解锁，刷新不提交，确认解锁仅保存。作者该实际补图与此事实相符。"
+        }
+      ]
+    },
+    {
+      "id": "u37",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u37-after.png",
+      "sha256": "eca21f1a816027061d76dff0dd39b83f1c118085f947b06ad0609d68af2c5ecc",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u37-before.png",
+        "sha256": "8ebf18b0cd57095fb29a2200e5c30cc485e35ccd0f4709d6adbf379e93e87b0e",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u38",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核验：rename失败真实回滚且并发保护；预览仅read且明确发送也可能读不到；草稿状态按account实例订阅隔离；编辑未知按钮/Enter均守卫，刷新仅snapshot不解锁/重发",
+      "screenshot": "docs/error-audit/screenshots/u38-after.png",
+      "sha256": "3b3ca3855c20ad2334d71b2903edb8b09071070f0a87bc64fb07227c66178261",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u38-before.png",
+        "sha256": "4db45c995096d6e0ec3ba71f17ee8ecf36fe5dc47dd3d06910cccbaeedf8a272",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u39",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u39-after.png",
+      "sha256": "4047e578a89c0d5ce2da8009a4bbd0cd609049a8caa4db1dc8887d07058219c6",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u39-before.png",
+        "sha256": "ece9ffc715d1cda92c2c2183ee2264391a87dd413e2e185222e0a5609ccc669c",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u40",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核验：rename失败真实回滚且并发保护；预览仅read且明确发送也可能读不到；草稿状态按account实例订阅隔离；编辑未知按钮/Enter均守卫，刷新仅snapshot不解锁/重发",
+      "screenshot": "docs/error-audit/screenshots/u40-after.png",
+      "sha256": "0bdd15610b660798351523c1287429bb2f33448b56712faa49a041f0d665af16",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u40-before.png",
+        "sha256": "780c99a618e13422b6b7687f8ca5ccf8157a683147c3d21bffd2971af0b390c0",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u41",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核验：rename失败真实回滚且并发保护；预览仅read且明确发送也可能读不到；草稿状态按account实例订阅隔离；编辑未知按钮/Enter均守卫，刷新仅snapshot不解锁/重发",
+      "screenshot": "docs/error-audit/screenshots/u41-after.png",
+      "sha256": "04000a2a5da858506da1fbb253610b5a02cb08af729ab689f30880d04d6a2218",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u41-before.png",
+        "sha256": "4b4f76d80b3fead1ac7c1f984e0edb0bfd83c90d17fc3bbe2652c820d7117510",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u42",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核验：rename失败真实回滚且并发保护；预览仅read且明确发送也可能读不到；草稿状态按account实例订阅隔离；编辑未知按钮/Enter均守卫，刷新仅snapshot不解锁/重发",
+      "screenshot": "docs/error-audit/screenshots/u42-after.png",
+      "sha256": "c46a448fa98b81f3d79ffdfce95cb738c3553a61d998bbd29a825da8d1fa3a57",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u42-before.png",
+        "sha256": "2d6b27e1e3dc88fdc62907f833ded7ee5b87210067173ca2758526877e5c7e5d",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u43",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u43-after.png",
+      "sha256": "f44a2d4d227df795566b9c6ff4184c02cef7a2363a1d0104fe0fc8e50471b933",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u43-before.png",
+        "sha256": "cdad720684fc9b62a1d607a3f5aa39acfa2308b80a68c0f87bff167904dcc859",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u44",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u44-after.png",
+      "sha256": "10e1c14b5fe9cb6b82a06529c5676b6183886376a92f6b028960618d95db74b3",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u44-before.png",
+        "sha256": "b5bcade5ab33fce8f6d941f0e58adbecf66a53bde9947d0988f4cb2695f01674",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u45",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u45-after.png",
+      "sha256": "5fbb54cd9f37bc043756793bb07e501b3d504902007ab0f826de274debbd4023",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u45-before.png",
+        "sha256": "f7c7f9833dbd8c1df1a1de36c92f2f7449fd7cc8d13018ba02d9b803e4ed225b",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u46",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u46-after.png",
+      "sha256": "6cd610ff5a2e1ec523d9f205d3653d68f58a189518919a87db1339b6b6d51d03",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u46-before.png",
+        "sha256": "1e78d36fbb65042efc0198795f78a147936ec560f978bd51cd4117861f701973",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u47",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u47-after.png",
+      "sha256": "3ecfee37d246a3e264fb5a24e4d58b15a1a46136660ca161d0246944c5b5b6c0",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u47-before.png",
+        "sha256": "4a1a7052e2cbee03636091ba492a82e780bbe1379dc8f7fd95a94b8f14608437",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u48",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u48-after.png",
+      "sha256": "491200d2973153b8fca28e5047275f11409e432d6837085cfe760556b1308107",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u48-before.png",
+        "sha256": "5520297a2097a4c503d156b58ef62e3dda560b80c4bd3c8b3f7e34d677f50346",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u49",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实harness/行为断言，事实与本图一致",
+      "screenshot": "docs/error-audit/screenshots/u49-after.png",
+      "sha256": "4790945e411abd462b69b9f4a286e75e4bd3b84c830a67019765f00b4b2dde9b",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u49-before.png",
+        "sha256": "a56eb2d374f88a90ce22b02f2df35ff08af74c10c9c2d1badff9a6515430d1f7",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": []
+    },
+    {
+      "id": "u50",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实操作断言",
+      "screenshot": "docs/error-audit/screenshots/u50-after.png",
+      "sha256": "2183b5dc7e15c72e10dc78af28ad444a19dc40751d6803e4d087c493325065c9",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u50-before.png",
+        "sha256": "352161e26139b235a5f2787beffe077e7ef88a5cd96143a7ef4b2f225bca5488",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": [
+        {
+          "condition": "从失败提示点击实际日志入口并展开技术详情",
+          "check": "production log viewer displays the original diagnostic only after opening logs",
+          "screenshot": "docs/error-audit/screenshots/u50-logs-after.png",
+          "passed": true,
+          "sha256": "e0ba4e24e6eeb05430c7a5c95fc6ba9a79e72650fa4b11ba7df2e65687e5a8af",
+          "score": 9.5,
+          "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+          "factualVerification": "root核验本次helper内容只读展示/复制，重整需显式确认再点；进程退出9与实际harness一致"
+        },
+        {
+          "condition": "相同中断另有已收到的助手内容，展开并复制保留",
+          "check": "the real helper messages and Copy button provide an actionable content recovery path",
+          "screenshot": "docs/error-audit/screenshots/u50-received-content-after.png",
+          "passed": true,
+          "sha256": "a62a4f0caa8b048f9472a4bebc2fd483fc78e098dce1996acfc84a3c7cc2b244",
+          "score": 9.5,
+          "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+          "factualVerification": "root核验本次helper内容只读展示/复制，重整需显式确认再点；进程退出9与实际harness一致"
+        }
+      ]
+    },
+    {
+      "id": "u51",
+      "score": 9,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root已独立核查源码状态边界与真实操作断言",
+      "screenshot": "docs/error-audit/screenshots/u51-after.png",
+      "sha256": "43815b3cb3db55cf25582ece2dd03442d978c04030061bd28eae30e76476e830",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u51-before.png",
+        "sha256": "c7e7c1e5dac3984d904746d12a894934b723430116050a75d365ab711b006a4f",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline"
+      },
+      "substates": [
+        {
+          "condition": "从失败提示点击实际日志入口并展开技术详情",
+          "check": "production log viewer displays the original diagnostic only after opening logs",
+          "screenshot": "docs/error-audit/screenshots/u51-logs-after.png",
+          "passed": true,
+          "sha256": "9bb9ba997cbc3f69ac8fff5708dbb6c4eb6e943c125a7e429a5920977a3c9ea5",
+          "score": 9,
+          "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+          "factualVerification": "root核验本次helper内容只读展示/复制，重整需显式确认再点；进程退出9与实际harness一致"
+        }
+      ]
+    },
+    {
+      "id": "u52",
+      "score": 9.5,
+      "reviewer": "独立中文产品文案与可用性评审 agent /root/readability_judge",
+      "factualVerification": "root独立核验WebSocketRpc mcpServerStatus/list超时旧legacy串仅在read context转换OPERATION_TIMEOUT，保留元数据，write不变；McpPanel刷新仅session.mcp，无发送或配置修改",
+      "screenshot": "docs/error-audit/screenshots/u52-after.png",
+      "sha256": "d1c51ee7b8453763453db710952c5a8229c68756ba4ccd30d656c8e02d01807a",
+      "before": {
+        "screenshot": "docs/error-audit/screenshots/u52-before.png",
+        "sha256": "85cc6e25db64670a4e35386341ae382c91deef40292075f2b131f05b18489a1d",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-readability\\baseline"
+      },
+      "substates": []
+    }
+  ]
+}

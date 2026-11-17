@@ -1,0 +1,4082 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "admin-ssh-auth",
+      "entry": "连接设置",
+      "condition": "SSH服务器不接受管理账号或密码",
+      "file": "src/admin/connection.ts",
+      "before": "All configured authentication methods failed",
+      "after": "账号或密码没通过验证",
+      "changeReason": "原图把登录失败和多处未读取提示叠在一起，还没有指到具体入口。现保留账号或密码未通过验证的事实，明确点左下角连接设置重连，成员数量继续保持未读取。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/connection.ts",
+          "line": 35,
+          "source": "        client.on('error', reject); client.on('ready', resolve);"
+        },
+        "after": {
+          "file": "src/admin/connection.ts",
+          "line": 35,
+          "source": "        client.on('error', reject); client.on('ready', resolve);"
+        }
+      },
+      "beforeUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\nAll configured authentication methods failed\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n团队成员\n0\n已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-ssh-auth-before.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "beforeAssertions": [
+        {
+          "expected": "All configured authentication methods failed",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "账号或密码没通过验证",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "afterUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\n没能登录中央节点，账号或密码没通过验证。请点左下角“连接设置”检查后重新连接。 \n查看日志\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n未读取\n列表中已启用\n未读取\n项目\n未读取\n\n请先连接并验证中央节点。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n列表尚未读取\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n连接后将显示成员列表。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-ssh-auth-after.png",
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-ssh-auth-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      }
+    },
+    {
+      "id": "admin-ssh-check-timeout",
+      "entry": "连接设置",
+      "condition": "SSH已连接但账号检查未及时返回",
+      "file": "src/admin/connection.ts",
+      "before": "管理端需要 Linux root 或 sudo 账号",
+      "after": "中央节点迟迟没有返回账号检查结果",
+      "changeReason": "原图虽修掉误判无root权限，但仍重复提示未验证、未读取。现只说明中央节点未返回账号检查结果，指向真实连接设置与刷新，不从超时推断权限。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/connection.ts",
+          "line": 75,
+          "source": "      const timer = setTimeout(() => { channel?.close(); reject(new Error('管理端需要 Linux root 或 sudo 账号；组内管理请使用用户端')); }, 15000);"
+        },
+        "after": {
+          "file": "src/admin/connection.ts",
+          "line": 35,
+          "source": "        client.on('error', reject); client.on('ready', resolve);"
+        }
+      },
+      "beforeUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\n管理端需要 Linux root 或 sudo 账号；组内管理请使用用户端\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n团队成员\n0\n已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "afterUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n等待身份验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\naudit.invalid:22 · 未连接\n中央节点迟迟没有返回账号检查结果。请点左下角“连接设置”重新连接，再刷新用户列表。 \n查看日志\n\n离线查看 · 新成员联网后开通 · 团队 fixture-\n\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n未读取\n列表中已启用\n未读取\n项目\n未读取\n\n请先连接并验证中央节点。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n列表尚未读取\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n连接后将显示成员列表。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-ssh-check-timeout-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-ssh-check-timeout-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "管理端需要 Linux root 或 sudo 账号",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "中央节点迟迟没有返回账号检查结果",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-ssh-check-timeout-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-member-blocked",
+      "entry": "用户管理／按组查看",
+      "condition": "创建者不能从此入口移出项目",
+      "file": "src/admin/people.tsx",
+      "before": "移出本项目",
+      "after": "不能移出项目或取消管理者身份",
+      "changeReason": "原图把开通状态与创建者禁用原因挤在同一行，看不出哪个身份不能改。现把理由单列，说明该成员是项目创建者，不能移出项目或取消管理者。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/people.tsx",
+          "line": 30,
+          "source": "      {group ? <><button className=\"text-button\" disabled={!ready || user.missing || user.provisioning || group.provisioning || memberRole(user,group)==='创建者'} onClick={() => open({ kind: 'membership', user, group, role: user.contentAdminGroups?.includes(group.name) ? 'member' : 'admin' })}>{user.contentAdminGroups?.includes(group.name) ? '取消管理者' : '设为管理者'}</button><button className=\"text-button danger\" disabled={!ready || user.missing || user.provisioning || group.provisioning || memberRole(user,group)==='创建者'} onClick={() => open({ kind: 'membership', user, group, role: 'remove' })}>移出本项目</button></> : <><button className=\"text-button\" disabled={!ready || user.missing || user.provisioning} onClick={() => open({ kind: 'membership', user })}>加入项目</button><button className=\"text-button\" disabled={!ready || user.missing || user.provisioning} onClick={() => open({ kind: 'groups', user })}>组与角色</button></>}"
+        },
+        "after": {
+          "file": "src/admin/people.tsx",
+          "line": 27,
+          "source": "  const blockedReason = (user: ManagedUser, group?: ManagedGroup) => !ready ? unavailableReason || '请先连接并验证中央节点，或等待当前管理操作完成。' : user.missing ? '账号身份已变化，请刷新并核对已有账号。' : user.provisioning ? '账号开通未完成，请先处理待恢复操作。' : group?.provisioning ? '项目准备未完成，请先处理待恢复操作。' : group && memberRole(user, group) === '创建者' ? '此成员是项目创建者，不能移出项目或取消管理者身份。' : '';"
+        }
+      },
+      "beforeUI": "全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 个项目 · 1 位成员\n报错验收项目\n/projects/audit\n1 位成员 · 1 位管理者\n项目内创建用户\n添加已有用户\n成员 / Linux 账号\t状态\t本项目角色 / 所属项目\t管理操作\n\n验收成员\ndemo\n\t已启用\t\n创建者\n报错验收项目\n创建者\n\t开通完成\n取消管理者\n移出本项目\n重置密码\n停用\n未分组用户\n0 位 · 创建账号后，可在这里分配项目\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。",
+      "afterUI": "全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 个项目 · 1 位成员\n报错验收项目\n/projects/audit\n1 位成员 · 1 位管理者\n项目内创建用户\n添加已有用户\n成员 / Linux 账号\t状态\t本项目角色 / 所属项目\t管理操作\n\n验收成员\ndemo\n\t已启用\t\n创建者\n报错验收项目\n创建者\n\t开通完成\n\n此成员是项目创建者，不能移出项目或取消管理者身份。\n\n取消管理者\n移出本项目\n重置密码\n停用\n未分组用户\n0 位 · 创建账号后，可在这里分配项目\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-member-blocked-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-member-blocked-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "移出本项目",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "不能移出项目或取消管理者身份",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-member-blocked-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-recovery",
+      "entry": "用户管理／待恢复操作",
+      "condition": "实际user_create已记录专用账号已创建，随后chpasswd设置初始密码失败；provisioning成员已登记",
+      "file": "src/admin/renderer.tsx",
+      "before": "待恢复操作",
+      "after": "初始登录密码还没设置",
+      "changeReason": "上一轮夹具把创建账号的检查点和接入账号的原密码错误混在一起，本轮改为真实chpasswd失败边界并补拍旧源同条件图。现按服务器已写入的检查点说明账号已创建、初始密码未设置，继续配置从该处完成开通。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/renderer.tsx",
+          "line": 64,
+          "source": "    {!!pending.length && <section className=\"admin-table-card\"><header><h3>待恢复操作</h3></header>{pending.map(job => <div className=\"callout\" key={job.id}><div><b>{job.id}</b><small>已完成：{job.completed.join('；') || '尚无完成步骤'}</small><small>待完成：{job.error || '连接中断，需核对并继续'}</small></div><button className=\"secondary\" disabled={snapshot.busy} onClick={() => setForm({ kind: 'recover', job })}>继续完成</button></div>)}</section>}"
+        },
+        "after": {
+          "file": "src/admin/renderer.tsx",
+          "line": 47,
+          "source": "  useEffect(() => { void api.call<AdminSnapshot>('snapshot').then(s => { setSnapshot(s); setConnection(!s.connected && !s.state?.initialized); setError(s.connectionError ? adminErrorMessage(s.connectionErrorFailure ? {message:s.connectionError,failure:s.connectionErrorFailure} : s.connectionError, '连接中央节点') : ''); }); return api.subscribe(() => void refresh()); }, []);"
+        }
+      },
+      "beforeUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\nuser_create:demo\n已完成：账号已创建\n待完成：[MEMBER_IMPORT] 原密码不正确\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n团队成员\n0\n已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n0 / 0 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n暂无成员，可独立创建用户，稍后再分配项目。\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "afterUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\n创建用户「验收成员」\n\n账号「demo」已创建，初始登录密码还没设置。点“继续配置”设置密码，完成开通。 查看日志\n\n查看已完成的步骤\n继续配置\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n1\n列表中已启用\n0\n项目\n0\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 / 1 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n\n验收成员\ndemo\n\t开通未完成\t\n未分组\t账号创建未完成 · 账号未启用或密码未设置 · 待分配项目组\n\n账号开通未完成，请先处理待恢复操作。\n\n加入项目\n组与角色\n重置密码\n启用\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-recovery-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-recovery-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "待恢复操作",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "初始登录密码还没设置",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/corrected/admin-recovery.png",
+      "readabilityApproval": "pending-independent-review",
+      "conditionChanged": true,
+      "oldCondition": "上一轮夹具混用user_create已建账号与user_import原密码不正确，且没有登记provisioning成员",
+      "newCondition": "user_create检查点专用账号已创建；chpasswd设置初始密码失败；state.users.demo.provisioning=true",
+      "readabilityOriginalScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-recovery-after.png",
+      "readabilityBaselineSource": ".test-data/error-readability/baseline",
+      "correctedBeforeUI": "团队工作台\n管理员版 · v2.3.46\n管理控制台\n用户管理\n项目管理\n共享空间\n网络出口\n远端权限已验证\nLinux root / sudo\n连接设置\n团队管理 / 用户与访问\n连接其他中央节点\nroot@audit.invalid:22\n\n成员自动同步 · 团队 fixture-\n\n待恢复操作\n创建用户「验收成员」尚未完成\n已完成：专用账号已创建\n未完成原因：chpasswd 执行失败：chpasswd: (user demo) pam_chauthtok() failed, error: Authentication token manipulation error\n继续完成\nPEOPLE & ACCESS\n用户管理\n更新服务端功能\n创建用户\n创建项目\n已登记成员\n1\n列表中已启用\n0\n项目\n0\n\n待开通或待恢复的服务器账号可能尚未列入已登记成员，请先处理上方待办。\n\n全部用户\n按组查看\n接入已有账号\n刷新\n所有成员\n未分组\n项目管理者\n已启用\n已停用\n1 / 1 位成员\n成员 / Linux 账号\t状态\t所属项目与角色\t管理操作\n\n验收成员\ndemo\n\t开通未完成\t\n未分组\t账号创建未完成 · 账号未启用或密码未设置 · 待分配项目组账号开通未完成，请先处理待恢复操作。\n加入项目\n组与角色\n重置密码\n启用\n远端命令执行 · 密码不落盘\n当前窗口 · 独立中央节点"
+    },
+    {
+      "id": "admin-storage-partial",
+      "entry": "共享空间",
+      "condition": "一个目录没有读取权限",
+      "file": "src/admin/storage-view.tsx",
+      "before": "个路径未能完整统计",
+      "after": "已统计的部分",
+      "changeReason": "原图把4 KB放在完整总量的位置，只在旁边说路径漏算。现把主数字和饼图标为已统计的部分，说明实际占用可能更多，并给出查看未统计位置的展开入口。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/storage-view.tsx",
+          "line": 70,
+          "source": "        <section className=\"storage-card storage-volume-card\"><header><div><h3>磁盘容量</h3><small>共享空间所在磁盘或分区</small></div></header>{root.volume.totalBytes ? <><div className=\"capacity-number\"><strong>{percent(volumeUsed, root.volume.totalBytes).toFixed(1)}%</strong><span>已使用</span></div><div className=\"capacity-track\"><i style={{ width: `${percent(volumeUsed, root.volume.totalBytes)}%` }}/></div><div className=\"capacity-labels\"><span>已用 {formatBytes(volumeUsed)}</span><span>剩余 {formatBytes(root.volume.freeBytes)}</span></div></> : <div className=\"capacity-unavailable\">当前环境无法读取磁盘容量，目录占用统计不受影响。</div>}{root.warningCount > 0 && <div className=\"storage-warning\"><AlertTriangle size={16}/><span>{root.warningCount} 个路径未能完整统计</span><details><summary>查看</summary>{root.warnings.map((warning, index) => <p key={index}><code>{warning.path || '/'}</code>{warning.message}</p>)}</details></div>}</section>"
+        },
+        "after": {
+          "file": "src/admin/storage-view.tsx",
+          "line": 67,
+          "source": "        <div className=\"storage-stat primary-stat\"><span>{root.warningCount ? '已统计的部分' : '共享文件总量'}</span><strong>{formatBytes(root.total.bytes)}</strong><small>{root.total.files.toLocaleString()} 个文件 · {root.total.directories.toLocaleString()} 个目录</small>{root.warningCount > 0 && <small>另有 {root.warningCount} 个位置没统计完整，实际占用可能更多。</small>}</div>"
+        }
+      },
+      "beforeUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "afterUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已统计的部分\n4.00 KB\n2 个文件 · 2 个目录\n另有 1 个位置没统计完整，实际占用可能更多。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n已统计的部分\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看未统计的位置\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-storage-partial-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-storage-partial-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "个路径未能完整统计",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "已统计的部分",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-storage-partial-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-storage-cancelled",
+      "entry": "共享空间／取消统计",
+      "condition": "用户主动取消统计",
+      "file": "src/admin/storage-view.tsx",
+      "before": "已取消空间统计",
+      "after": "已取消统计",
+      "changeReason": "保留明确的主动取消状态与无本次统计结果，不再把取消当故障；本轮独立审阅重新看实际图。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/storage-view.tsx",
+          "line": 25,
+          "source": "  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setPurgeNotice(''); setPurgeOpen(false); setAutoScanned(false); setBusy(false); }, [identity]);"
+        },
+        "after": {
+          "file": "src/admin/storage-view.tsx",
+          "line": 38,
+          "source": "    } catch (reason: any) { if (current()) { if (/已取消|操作已取消/.test(reason.message || '')) setScanNotice(summary || folder ? '已取消统计，上次统计结果仍可查看。' : '已取消统计，本次没有生成统计结果。'); else setError(adminErrorMessage(reason, '统计共享空间')); } }"
+        }
+      },
+      "beforeUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n清理项目\n刷新统计\n已取消空间统计\n还没有空间统计\n开始统计",
+      "afterUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n清理项目\n刷新统计\n\n已取消统计，本次没有生成统计结果。\n\n还没有空间统计\n开始统计",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-storage-cancelled-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-storage-cancelled-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "已取消空间统计",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "已取消统计",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-storage-cancelled-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-storage-cancelled-previous",
+      "entry": "共享空间／已有结果后取消重新统计",
+      "condition": "已有空间统计，取消随后发起的重新统计",
+      "file": "src/admin/storage-view.tsx",
+      "before": "已取消空间统计",
+      "after": "上次统计结果仍可查看",
+      "changeReason": "原图取消提示下仍把部分数字当作普通总量展示。现保留上次统计的事实，同时把漏算数字标为已统计部分，不断言未读位置必有内容。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/storage-view.tsx",
+          "line": 25,
+          "source": "  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setPurgeNotice(''); setPurgeOpen(false); setAutoScanned(false); setBusy(false); }, [identity]);"
+        },
+        "after": {
+          "file": "src/admin/storage-view.tsx",
+          "line": 38,
+          "source": "    } catch (reason: any) { if (current()) { if (/已取消|操作已取消/.test(reason.message || '')) setScanNotice(summary || folder ? '已取消统计，上次统计结果仍可查看。' : '已取消统计，本次没有生成统计结果。'); else setError(adminErrorMessage(reason, '统计共享空间')); } }"
+        }
+      },
+      "beforeUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已取消空间统计\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "afterUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n\n已取消统计，上次统计结果仍可查看。\n\n已统计的部分\n4.00 KB\n2 个文件 · 2 个目录\n另有 1 个位置没统计完整，实际占用可能更多。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n已统计的部分\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看未统计的位置\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-storage-cancelled-previous-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-storage-cancelled-previous-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1013
+        },
+        "comparisonNote": "原图为 1425×1013，现图为 1425×1003；两次配置视口均为1440×1000并采用fullPage。完整文档高度随文案长度变化，前后PNG不等高，不宣称图像尺寸一致。"
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1425,
+          "documentHeight": 1018
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "已取消空间统计",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "上次统计结果仍可查看",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-storage-cancelled-previous-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-egress-port",
+      "entry": "网络出口",
+      "condition": "本机出口端口已被占用",
+      "file": "src/admin/egress-view.tsx",
+      "before": "出口启动失败",
+      "after": "端口 9443",
+      "changeReason": "原图只说出口启动失败、端口占用，没有指明是哪台电脑哪个端口。现点名这台管理电脑的9443端口和真实检查出口设置入口。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/egress-view.tsx",
+          "line": 61,
+          "source": "    {snapshot.lastError && <div className=\"egress-start-error\" role=\"alert\"><span>出口启动失败：{snapshot.lastError}</span><button className=\"text-button\" onClick={() => setTab('settings')}>检查出口设置<ArrowRight size={14}/></button></div>}"
+        },
+        "after": {
+          "file": "src/admin/egress-view.tsx",
+          "line": 35,
+          "source": "    setAction(kind); setError(''); setMessage('');"
+        }
+      },
+      "beforeUI": "NETWORK EGRESS\n网络出口\n\n管理本机转发、成员接入与连接状态。\n\n出口未运行\n本机直连\nCodex、Cursor、Claude Code\n加密传输\n\n系统托盘当前不可用，关闭管理端窗口会停止转发。\n\n出口启动失败：listen EADDRINUSE: address already in use 127.0.0.1:9443\n检查出口设置\n运行监控\n成员接入\n出口设置\n连接诊断\n启用出口后，在这里查看成员连接、流量和资源占用。\n前往出口设置\n代理监控\n仅统计本机代理 · 每 2 秒更新\n出口未运行\n在线成员 / 隧道\n—\n成员按账号标识与地址区分\n实时上行\n—\n累计 0 B\n实时下行\n—\n累计 0 B\n代理 CPU\n—\n占整机 CPU 总容量\n代理内存\n—\n独立代理进程驻留内存\n上行 下行 · 最近 2 分钟\n峰值 0 B/s\n2 B/s\n1 B/s\n0 B/s\n—\n—\n成功建立 0 条\n连接失败 0\n接入拒绝 0\n启用出口后开始统计\n用户端 CLI 状态\n\n暂无上报。更新后的用户端会同步重连、HTTP 错误及恢复状态。\n\n流量为隧道内转发字节，不含握手开销；统计随出口重启清零。CLI 状态由用户端上报，连接成功不代表模型请求成功。\n最近连接\n0 条\n查看连接记录与失败原因",
+      "afterUI": "NETWORK EGRESS\n网络出口\n\n管理本机转发、成员接入与连接状态。\n\n出口未运行\n本机直连\nCodex、Cursor、Claude Code\n加密传输\n\n系统托盘当前不可用，关闭管理端窗口会停止转发。\n\n这台电脑的端口 9443 被其他程序占用了，网络出口没能启动。请点“检查出口设置”换一个端口。\n检查出口设置\n运行监控\n成员接入\n出口设置\n连接诊断\n启用出口后，在这里查看成员连接、流量和资源占用。\n前往出口设置\n代理监控\n仅统计本机代理 · 每 2 秒更新\n出口未运行\n在线成员 / 隧道\n—\n成员按账号标识与地址区分\n实时上行\n—\n累计 0 B\n实时下行\n—\n累计 0 B\n代理 CPU\n—\n占整机 CPU 总容量\n代理内存\n—\n独立代理进程驻留内存\n上行 下行 · 最近 2 分钟\n峰值 0 B/s\n2 B/s\n1 B/s\n0 B/s\n—\n—\n成功建立 0 条\n连接失败 0\n接入拒绝 0\n启用出口后开始统计\n用户端 CLI 状态\n\n暂无上报。更新后的用户端会同步重连、HTTP 错误及恢复状态。\n\n流量为隧道内转发字节，不含握手开销；统计随出口重启清零。CLI 状态由用户端上报，连接成功不代表模型请求成功。\n最近连接\n0 条\n查看连接记录与失败原因",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-egress-port-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-egress-port-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1115
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1425,
+          "documentHeight": 1115
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "出口启动失败",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "端口 9443",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-port-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-results-personal-read",
+      "entry": "团队成果库",
+      "condition": "团队读取成功但个人库对照读取失败",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "最新团队信息暂未更新",
+      "after": "个人成果暂时读不到",
+      "changeReason": "原图把个人成果对照读取失败与通用操作失败重复拼接，容易误以为团队库也坏了。现说明个人库暂时读不到、无法比较差异，团队成果仍可查看，并对应刷新入口。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 65,
+          "source": "      setError(failed?.status === 'rejected' ? '最新团队信息暂未更新：' + failed.reason.message : ''); return !failed;"
+        },
+        "after": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 70,
+          "source": "        ? [collaborationFailure(result.reason, ['团队成果没加载出来。请点“刷新”再试。', '团队历史没加载出来。请点“刷新”再试。', '个人成果暂时读不到，无法比较个人库与团队库的差异。团队成果仍可查看，点“刷新”再试。'][index], { domain: index === 2 ? 'local' : 'central', operation: index === 2 ? '读取个人成果对照' : '刷新团队成果' })] : []);"
+        }
+      },
+      "beforeUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n最新团队信息暂未更新：EACCES: permission denied, open C:/audit/conclusions.json\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多",
+      "afterUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n\n个人成果暂时读不到，无法比较个人库与团队库的差异。团队成果仍可查看，点“刷新”再试。\n\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-results-personal-read-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-personal-read-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "最新团队信息暂未更新",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "个人成果暂时读不到",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-results-personal-read-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-results-merge-blocked",
+      "entry": "团队成果库／合并整理",
+      "condition": "待办已关联任务，不能合并",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "加入语义合并",
+      "after": "已用于项目任务，不能合并",
+      "changeReason": "原图只泛说已关联项目任务，读者难找处理对象。现点名当前成果，说明它已用于任务而不能合并，指向实际左侧任务入口。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 276,
+          "source": "        selection={selectingDelete ? <label className=\"content-card-select check-row\" title={canDeleteSharedContent(value, username, admin) ? '选择删除' : '无删除权限'}><input type=\"checkbox\" aria-label={`选择删除团队成果：${displayTitle(value)}`} checked={deletion.selected.some(item => item.id === value.id)} disabled={busy || !canDeleteSharedContent(value, username, admin) || !deleteSelection.includes(value.id) && deletion.selected.length >= 100} onChange={event => setDeleteSelection(current => event.target.checked ? [...new Set([...current, value.id])] : current.filter(id => id !== value.id))}/></label> : selectingMerge && value.kind === 'contribution' ? <label className=\"content-card-select check-row\" title=\"加入语义合并\"><input type=\"checkbox\" aria-label={`选择合并：${value.title}`} checked={mergeSelection.includes(value.id)} disabled={busy || !!value.files && (value.files.body !== 'ok' || Object.values(value.files.attachments).some(status => status !== 'ok')) || !!value.linkedAssignments?.length || !!mergeSelection.length && resultCategory(value) !== mergeCategory} onChange={event => toggleMerge(value.id, event.target.checked)}/></label> : undefined}"
+        },
+        "after": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 186,
+          "source": "  const mergeBlockedReason = (value: SharedContent) => busy ? '成果列表或操作正在更新，请等待完成。' : value.files && (value.files.body !== 'ok' || Object.values(value.files.attachments).some(status => status !== 'ok')) ? '正文或附件暂不可读，请检查文件后再合并。' : value.linkedAssignments?.length ? `“${displayTitle(value)}”已用于项目任务，不能合并。请点左侧“项目任务”查看关联任务。` : mergeSelection.length && resultCategory(value) !== mergeCategory ? '只能选择与当前所选相同分类的成果。' : '';"
+        }
+      },
+      "beforeUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n退出多选\n批量管理\n清理未引用文件\n刷新\n已选择 0 条文字成果\n至少选择 2 条同类成果；待办只合并同一事项的重复记录。\n使用模型环境\n验收工作会话 · Codex · audit-model\n开始语义合并\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n退出多选\n批量管理\n清理未引用文件\n刷新\n已选择 0 条文字成果\n至少选择 2 条同类成果；待办只合并同一事项的重复记录。\n使用模型环境\n验收工作会话 · Codex · audit-model\n开始语义合并\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\n\n“验收待办”已用于项目任务，不能合并。请点左侧“项目任务”查看关联任务。\n\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-results-merge-blocked-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-merge-blocked-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "加入语义合并",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "已用于项目任务，不能合并",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实项目任务导航",
+          "expected": "进入任务页",
+          "pass": true
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-results-merge-blocked-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      }
+    },
+    {
+      "id": "team-tasks-read",
+      "entry": "项目任务",
+      "condition": "首次读取失败且无缓存",
+      "file": "src/renderer/assignments.tsx",
+      "before": "暂无分配给你的任务",
+      "after": "任务列表没加载出来",
+      "changeReason": "原图把读取任务当成未知写入，要求查看操作结果，并重复解释空列表。现只说任务列表没加载出来、点击刷新任务，计数用破折号保持未知。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/assignments.tsx",
+          "line": 78,
+          "source": "    <div className=\"content-library assignment-library\"><div className=\"content-cards\">{visible.map(item => <article key={item.id} className={'content-card ' + (task?.id === item.id ? 'selected' : '')}><button className=\"content-card-summary\" onClick={() => setSelected(item.id)}><span className={'badge ' + (item.status === 'completed' ? 'done' : item.status === 'in_progress' ? 'running' : '')}>{assignmentStatuses[item.status]}</span><b>{item.title}</b><small>负责人：{item.assigneeName} · 派发人：{item.createdBy}</small><p>{item.description.slice(0, 120)}</p><small>{item.references.length} 条关联成果 · {item.files?.length || 0} 个文件 · {new Date(item.createdAt).toLocaleString()}</small></button></article>)}{!visible.length && !loading && <div className=\"page-empty\"><ClipboardList size={36}/><h2>{scope === 'deleted' ? '暂无已删除任务' : admin && view !== 'mine' ? '当前列表暂无任务' : '暂无分配给你的任务'}</h2><p>{scope === 'deleted' ? '删除后的任务可在这里恢复；查看历史任务无需删除。' : admin ? '点击“派发任务”，可选择自己或其他组内成员。' : '组管理员派发后会显示在这里，你也可以自行新建工作会话。'}</p></div>}</div>"
+        },
+        "after": {
+          "file": "src/renderer/assignments.tsx",
+          "line": 39,
+          "source": "    setBusy(true); setError(''); try { const files = await api.call<AssignmentUpload[]>('assignment.files.pick', { projectId: project.id, taskId: requestId }); setUploads(files); setUploadIds(current => [...new Set([...current, ...files.filter(file => !uploads.some(previous => previous.id === file.id)).map(file => file.id)])]); } catch (error: any) { setError(uiErrorMessage(error, { domain: 'central', operation: '操作项目任务' })); } finally { setBusy(false); }"
+        }
+      },
+      "beforeUI": "PROJECT TASKS\n我的任务 · 报错验收项目\n\n查看分配给你的任务，带着任务说明和关联成果开始工作。\n\n刷新任务\nread ECONNRESET\n分配给我的任务\n状态\n待办任务（0）\n全部状态（0）\n暂无分配给你的任务\n\n组管理员派发后会显示在这里，你也可以自行新建工作会话。\n\n选择任务查看详情。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-tasks-read-before.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "beforeAssertions": [
+        {
+          "expected": "暂无分配给你的任务",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "任务列表没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "afterUI": "PROJECT TASKS\n我的任务 · 报错验收项目\n\n查看分配给你的任务，带着任务说明和关联成果开始工作。\n\n刷新任务\n任务列表没加载出来。请点“刷新任务”再试。 查看日志\n分配给我的任务\n状态\n待办任务（—）\n全部状态（—）\n\n列表内容暂时无法显示。\n\n选择任务查看详情。",
+      "afterScreenshot": "docs/error-audit/screenshots/team-tasks-read-after.png",
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-tasks-read-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      }
+    },
+    {
+      "id": "team-question-auto-blocked",
+      "entry": "寻求帮助／自动对话",
+      "condition": "没有可用工作会话",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "当前 Session 不能用来自动往返",
+      "after": "工作会话",
+      "changeReason": "原图要求打开工作会话，但当前页面提供的是新建工作会话。现写清点击中央的新建工作会话，创建本项目会话后再开启自动对话。 从真实新建会话入口创建后会优先选择该有效工作会话，自动对话接收新sessionId；原无会话主图未改，只补真实恢复图。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 188,
+          "source": "            {!autoNow && (author ? !!r.answers.length : true) && <button type=\"button\" className=\"team-question-tool boxed\" disabled={!targetSession || !!targetSession.closedAt || !!otherAuto || busy || (!author && (active || own?.state === 'running'))} title={!targetSession ? '当前 Session 不能用来自动往返' : otherAuto ? '这条 Session 正在与另一个人自动往返' : author ? `让当前 Session 和${peerName}自动往返：对方回复后会继续追问，期间不能手动发送` : `让当前 Session 自动回复${peerName}，期间不能手动发送`} onClick={() => { if (!targetSession) return; setAck({ peer: r.username, kind: 'auto' }); void run('question.auto', { projectId: q.projectId, id: q.id, sessionId: targetSession.id, peer }).then(ok => { if (!ok) setAck(current => current?.kind === 'auto' && current.peer === r.username ? undefined : current); else setAck(current => current?.kind === 'auto' && current.peer === r.username ? undefined : current); }); }}>自动对话</button>}"
+        },
+        "after": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 191,
+          "source": "      const autoBlockedReason = !targetSession ? '请先点页面中央的“新建工作会话”，创建本项目会话后再开启自动对话。' : targetSession.closedAt ? '关联会话已关闭，请重新打开工作会话。' : targetSession.cursorNative ? '此 Cursor 桌面接入暂不支持自动对话，请选择其他工作会话。' : otherAuto ? '该会话已在与另一位成员自动对话，请先停止原自动对话。' : !author && (active || own?.state === 'running') ? '当前求助答复尚未处理完成，请等待后再开启自动对话。' : busy ? '当前求助操作尚未完成，请等待结果。' : '';"
+        }
+      },
+      "beforeUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n0\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n\n没有打开的会话。\n\n已关闭会话\n（0）\nYOUR WORK, CONNECTED.\n个人探索，\n团队共享。\n新建工作会话\n打开 agent管理\n报错验收项目\nAI推荐\n寻求帮助\n1\n子会话\n侧边提问\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n自动对话\n附件\nAI填入\n发送\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n0\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n\n没有打开的会话。\n\n已关闭会话\n（0）\nYOUR WORK, CONNECTED.\n个人探索，\n团队共享。\n新建工作会话\n打开 agent管理\n报错验收项目\nAI推荐\n寻求帮助\n1\n子会话\n侧边提问\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n自动对话\n附件\nAI填入\n发送\n\n请先点页面中央的“新建工作会话”，创建本项目会话后再开启自动对话。\n\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-question-auto-blocked-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-auto-blocked-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "当前 Session 不能用来自动往返",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "工作会话",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实新建会话入口",
+          "expected": "打开创建会话对话框",
+          "pass": true
+        },
+        {
+          "action": "从真实创建会话入口恢复自动对话条件",
+          "expected": "同项目有效work会话创建后自动对话按钮可用；无会话主图字节保留",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-ready-after.png"
+        },
+        {
+          "action": "从真实自动对话按钮开始并验证sessionId",
+          "expected": "question.auto恰1次，传入刚创建的同项目work session ID而非旧求助source session；收到成功状态后显示停止自动",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-recovered-after.png"
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-question-auto-blocked-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      }
+    },
+    {
+      "id": "team-question-stopping",
+      "entry": "寻求帮助／停止自动",
+      "condition": "停止请求尚未返回",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "已停止自动，可以继续手动发送",
+      "after": "正在停止",
+      "changeReason": "原图一处显示正在停止，另一处仍标自动对话中，状态矛盾。现徽标与提示均保持正在停止，说明停止后才能手动发送，不提前宣告完成。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 197,
+          "source": "          {pendingStop && <p className=\"team-question-ack\" role=\"status\">已停止自动，可以继续手动发送。</p>}"
+        },
+        "after": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 211,
+          "source": "      const status = q.closedAt ? '已结束' : pendingStop ? '正在停止…' : pendingAuto ? '正在开启…' : automatic ? (suggested ? '建议结束' : '自动对话中') : r.answers.length ? `${r.answers.length} 条答复` : ({ pending: '待回复', linked: '已关联', running: '回答中', replied: '已回复' })[r.state];"
+        }
+      },
+      "beforeUI": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n自动对话中\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n自动对话\n附件\nAI填入\n发送中…\n\n已停止自动，可以继续手动发送。",
+      "afterUI": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n正在停止…\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n结束\n正在停止…\n\n正在停止自动对话。停止后才能手动发送，请稍候。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-question-stopping-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-stopping-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "已停止自动，可以继续手动发送",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "正在停止",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-question-stopping-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-transfer-cache",
+      "entry": "传输记录",
+      "condition": "失败上传的本机缓存已被清理",
+      "file": "src/renderer/transfer-records.tsx",
+      "before": "本机上传缓存已清理",
+      "after": "不能重试",
+      "changeReason": "原图同时说无法重试和先查回执，还可能诱导直接另传一份。现说明临时文件已清理、不能重试，但上传结果仍待确认；可展开真实远端位置，让项目管理者确认是否收到。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/transfer-records.tsx",
+          "line": 25,
+          "source": "      {item.cacheCleared && <p className=\"muted small\">本机上传缓存已清理</p>}"
+        },
+        "after": {
+          "file": "src/renderer/transfer-records.tsx",
+          "line": 34,
+          "source": "      {item.error && <div className=\"inline-error\" role=\"alert\">{transferRecordError(item)} <ErrorLogLink failure={(item as any).failure} message={item.error}/>{item.status === 'done' && item.phase === 'completed' && <button className=\"text-button\" style={{marginLeft:10}} disabled={saving === item.id} onClick={() => void saveRecord(item.id)}>{saving === item.id ? '正在保存记录…' : '重试保存记录'}</button>}</div>}"
+        }
+      },
+      "beforeUI": "轨迹上传 · 验收工作会话轨迹.md\n未完成\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n\n本机上传缓存已清理\n\n服务器可能已接收；重试会先查询原请求回执。 read ECONNRESET",
+      "afterUI": "轨迹上传 · 验收工作会话轨迹.md\n结果待确认\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n这次上传的临时文件已清理，不能重试。点“查看详情”把上传位置交给项目管理者，先确认是否收到，别再上传一份。 查看日志",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-transfer-cache-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-transfer-cache-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "本机上传缓存已清理",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "不能重试",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-transfer-cache-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-transfer-uncertain",
+      "entry": "传输记录",
+      "condition": "上传后等待回执时断线",
+      "file": "src/renderer/transfer-records.tsx",
+      "before": "服务器可能已接收",
+      "after": "文件可能已上传",
+      "changeReason": "原图用原请求、回执等内部词，且徽标未完成与可能收到矛盾。现说文件可能已上传、结果待确认，按钮改为检查上传结果，保留先查这次上传再传输的机制。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/transfer-records.tsx",
+          "line": 26,
+          "source": "      {item.error && <div className=\"inline-error\" role=\"alert\">{item.error}</div>}"
+        },
+        "after": {
+          "file": "src/renderer/transfer-records.tsx",
+          "line": 34,
+          "source": "      {item.error && <div className=\"inline-error\" role=\"alert\">{transferRecordError(item)} <ErrorLogLink failure={(item as any).failure} message={item.error}/>{item.status === 'done' && item.phase === 'completed' && <button className=\"text-button\" style={{marginLeft:10}} disabled={saving === item.id} onClick={() => void saveRecord(item.id)}>{saving === item.id ? '正在保存记录…' : '重试保存记录'}</button>}</div>}"
+        }
+      },
+      "beforeUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n未开启同步\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nTRANSFER CENTER\n传输记录\n上传缓存：4.0 KB\n清理成功上传缓存\n轨迹上传 · 验收工作会话轨迹.md\n未完成\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n重试\n查看详情\n服务器可能已接收；重试会先查询原请求回执。 read ECONNRESET\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n未开启同步\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nTRANSFER CENTER\n传输记录\n上传缓存：4.0 KB\n清理成功上传缓存\n轨迹上传 · 验收工作会话轨迹.md\n结果待确认\n4.0 KB / 4.0 KB · 2026/11/16 10:00:00\n检查上传结果\n查看详情\n文件可能已上传，暂时没查到结果。恢复连接后点“检查上传结果”，会先检查这次上传，避免重复上传。 查看日志\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-transfer-uncertain-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-transfer-uncertain-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "服务器可能已接收",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "文件可能已上传",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实中央节点入口",
+          "expected": "打开登录中央节点",
+          "pass": true
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-transfer-uncertain-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      }
+    },
+    {
+      "id": "team-rsi-retry",
+      "entry": "AI推荐",
+      "condition": "上次分析失败并已安排后台重试",
+      "file": "src/renderer/project-interactions.tsx",
+      "before": "已记录项目变化",
+      "after": "上次推荐没生成，已安排重新分析",
+      "changeReason": "原图先说已记录项目变化，再叠加一段上次错误，读者难判断当前是否正在处理。现合并说明上次推荐未生成、已安排重新分析以及生成后出现的位置，后台失败不打断工作。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/project-interactions.tsx",
+          "line": 69,
+          "source": "      {(!inbox.enabled || inbox.busy || inbox.queued || inbox.lastError) && <div className=\"rsi-background-status\" role=\"status\">{!inbox.enabled ? 'AI推荐已关闭，已有记录保留。' : inbox.busy ? '正在分析项目进展…' : inbox.queued ? '已记录项目变化，稍后在后台分析。' : '本次分析未完成：' + inbox.lastError}</div>}"
+        },
+        "after": {
+          "file": "src/renderer/project-interactions.tsx",
+          "line": 71,
+          "source": "      {inbox.lastError && <div className=\"rsi-background-status\" role=\"status\">{inbox.enabled && inbox.queued ? '上次推荐没生成，已安排重新分析。生成后会显示在这里，你可以继续工作。' : '上次推荐没生成，已有推荐仍可查看。你可以继续工作。'}</div>}"
+        }
+      },
+      "beforeUI": "已记录项目变化，稍后在后台分析。\n\n暂无待处理的推荐。",
+      "afterUI": "上次推荐没生成，已安排重新分析。生成后会显示在这里，你可以继续工作。\n\n暂无待处理的推荐。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-rsi-retry-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-rsi-retry-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "已记录项目变化",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "上次推荐没生成，已安排重新分析",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-rsi-retry-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-activity-failed",
+      "entry": "会话／相关动态",
+      "condition": "AI返回的判断未通过来源校验",
+      "file": "src/renderer/activity-recommendations.tsx",
+      "before": "暂未完成判断",
+      "after": "AI给出的推荐无法对应到这条动态",
+      "changeReason": "原图展示非原文、来源校验等模型实现术语。现只说明部分动态尚未分析好、稍后会自动再试；展开理由说明推荐无法对应动态，原动态保留。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/activity-recommendations.tsx",
+          "line": 79,
+          "source": "    {failed && <div className=\"activity-background-error\" role=\"status\">有 {failedJobs.length} 条新动态暂未完成判断，将在新动态到达、资料或连接恢复后自动继续。你可以继续对话。</div>}"
+        },
+        "after": {
+          "file": "src/renderer/activity-recommendations.tsx",
+          "line": 80,
+          "source": "    {failed && <div className=\"activity-background-error\" role=\"status\">有 {failedJobs.length} 条新动态还没分析好，稍后会自动再试。你可以继续对话。<details><summary>查看未完成原因</summary>{[...new Set(failedJobs.map(job => 'AI给出的推荐无法对应到这条动态，已暂缓展示。原动态仍然保留。'))].map(message => <p key={message}>{message}</p>)}</details></div>}"
+        }
+      },
+      "beforeUI": "新动态判断暂未完成\n有 1 条新动态暂未完成判断，将在新动态到达、资料或连接恢复后自动继续。你可以继续对话。",
+      "afterUI": "相关动态分析暂未完成\n有 1 条新动态还没分析好，稍后会自动再试。你可以继续对话。\n查看未完成原因\n\nAI给出的推荐无法对应到这条动态，已暂缓展示。原动态仍然保留。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-activity-failed-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-activity-failed-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "暂未完成判断",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "AI给出的推荐无法对应到这条动态",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-activity-failed-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-environment-failure",
+      "entry": "服务器环境修复",
+      "condition": "远端修复请求返回技术异常",
+      "file": "src/admin/environment-view.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "没拿到这次修复的结果",
+      "changeReason": "原图堆叠安装实现说明和泛化失败句，遮住接下来能做的事。现把安装细节折叠，直接说明未拿到修复结果、可再次执行修复，日志保留原诊断。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/environment-view.tsx",
+          "line": 9,
+          "source": "    setBusy(true); setError(''); setResult(undefined);"
+        },
+        "after": {
+          "file": "src/admin/environment-view.tsx",
+          "line": 11,
+          "source": "    setBusy(true); setError(''); setResult(undefined);"
+        }
+      },
+      "beforeUI": "修复远端服务器环境\n操作位置：\naudit.invalid\n\n问题出在远端 Linux 服务器，本机 Windows 无需安装。只有点击“在服务器执行修复”后，管理端才会通过当前 SSH 连接，在服务器上安装缺失组件并重新检查；打开此窗口不会执行安装。\n\n当前服务器检查结果\n\n服务器组件尚未准备完成\n\n服务器安装方式\n在线：由服务器从其软件源下载\n离线：使用已放在服务器上的安装包\n\n确认后，程序通过 SSH 让服务器执行 apt-get，使用服务器已有的软件源和网络配置下载、安装缺失的 ACL / Supervisor 组件及依赖；本机不下载软件包。服务器能访问内网软件源也可以。\n\n自动安装目前支持 Debian / Ubuntu。SSH、Python 或账号管理命令缺失时，需在服务器上手动补齐后点击“重新检查服务器”。容器可能还需在启动流程中接入服务脚本，完成后会显示具体要求。\n\n服务器操作失败：TypeError: isolated backend failure\n取消\n在服务器执行修复",
+      "afterUI": "修复远端服务器环境\n操作位置：\naudit.invalid\n\n点击“在服务器执行修复”，为当前连接的服务器安装缺少的组件。本机电脑无需安装。\n\n当前服务器检查结果\n\n服务器组件尚未准备完成\n\n服务器安装方式\n在线：由服务器从其软件源下载\n离线：使用已放在服务器上的安装包\n\n服务器将从自己的软件源下载并安装，可能需要几分钟。\n\n支持的服务器与安装说明\n没拿到这次修复的结果。请再点“在服务器执行修复”；仍失败时查看日志。 查看日志\n取消\n在服务器执行修复",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-environment-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-environment-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "没拿到这次修复的结果",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-environment-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-environment-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-import-failure",
+      "entry": "接入已有账号",
+      "condition": "读取已有账号状态返回技术异常",
+      "file": "src/admin/existing-member-dialog.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "账号「demo」的资料没加载出来",
+      "changeReason": "原图未指明是检测还是接入失败，还要求管理员读一段账号空间说明。现点名检测中的账号，说明资料没加载出来，并指向真实检测按钮。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/existing-member-dialog.tsx",
+          "line": 13,
+          "source": "    setBusy(true); setError(''); setFound(undefined); setPassword('');"
+        },
+        "after": {
+          "file": "src/admin/existing-member-dialog.tsx",
+          "line": 15,
+          "source": "    setBusy(true); setError(''); setFound(undefined); setPassword('');"
+        }
+      },
+      "beforeUI": "恢复已有 Linux 账号\nTypeError: isolated backend failure\nroot@audit.invalid · /srv/audit\n\n账号归属当前 Linux 系统，不受团队空间 ID 限制。仅接入本机 Workbench 专用账号：通过原密码验证并核对已有权限，不会重设密码；若属于旧空间，会添加当前空间的登录组，并核对实际 SFTP 目录。\n\nLinux 登录账号\n检测已有账号及权限\n取消\n验证密码并接入",
+      "afterUI": "恢复已有 Linux 账号\n账号「demo」的资料没加载出来。请再点“检测已有账号及权限”。 查看日志\nroot@audit.invalid · /srv/audit\n\n先检测服务器上的已有账号，再输入该账号原来的密码完成接入。成员以后仍使用自己的账号登录。\n\nLinux 登录账号\n检测已有账号及权限\n取消\n验证密码并接入",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-import-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-import-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "账号「demo」的资料没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-import-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-import-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-sync-failure",
+      "entry": "成员同步状态",
+      "condition": "后台同步失败",
+      "file": "src/admin/member-sync-view.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "成员列表这次没更新",
+      "changeReason": "原图把成员同步前缀重复三次，仍无法知道能否继续工作。现只说明成员列表本次未更新和后台会再试，原诊断可从日志查看。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/member-sync-view.tsx",
+          "line": 21,
+          "source": "    {error && <p className=\"inline-error\" role=\"alert\">{error}</p>}"
+        },
+        "after": {
+          "file": "src/admin/member-sync-view.tsx",
+          "line": 23,
+          "source": "    {error && <p className=\"inline-error\" role=\"alert\">{error} <ErrorLogLink message={error}/></p>}"
+        }
+      },
+      "beforeUI": "成员自动同步 · 团队 fixture-\n\n成员同步暂未完成：TypeError: isolated backend failure",
+      "afterUI": "成员自动同步 · 团队 fixture-\n\n成员列表这次没更新，稍后会自动再试。 查看日志",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-sync-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-sync-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "成员列表这次没更新",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-sync-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-sync-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-egress-test-failure",
+      "entry": "网络出口／连接诊断",
+      "condition": "网络测试返回技术异常",
+      "file": "src/admin/egress-tests.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "没能检查这台管理电脑是否能连接 Codex",
+      "changeReason": "原图只说测试管理端网络未完成，设备和服务不清楚。现明确检查的是这台管理电脑到Codex的连接，并对应真实测试与日志入口。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/egress-tests.tsx",
+          "line": 1,
+          "source": "import React from 'react';"
+        },
+        "after": {
+          "file": "src/admin/egress-tests.tsx",
+          "line": 1,
+          "source": "import { adminErrorMessage } from './failure';"
+        }
+      },
+      "beforeUI": "管理端网络测试\n无需在本机安装或启动对应 CLI。测试使用已保存的网络设置，不改变成员转发权限。\nCodex\n允许成员转发\n测试 Codex\nTypeError: isolated backend failure\nCursor\n允许成员转发\n测试 Cursor\nClaude Code\n允许成员转发\n测试 Claude Code\n\n检查管理端到服务地址的网络连接；成员的模型登录、配额与实际请求状态在用户端查看。",
+      "afterUI": "管理端网络测试\n无需在本机安装或启动对应 CLI。测试使用已保存的网络设置，不改变成员转发权限。\nCodex\n允许成员转发\n测试 Codex\n没能检查这台管理电脑是否能连接 Codex。请再点“测试 Codex”；仍失败时查看日志。 查看日志\nCursor\n允许成员转发\n测试 Cursor\nClaude Code\n允许成员转发\n测试 Claude Code\n\n检查管理端到服务地址的网络连接；成员的模型登录、配额与实际请求状态在用户端查看。",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-egress-test-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-egress-test-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "没能检查这台管理电脑是否能连接 Codex",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/admin-egress-test-failure-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-test-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-egress-jump-failure",
+      "entry": "共享服务器中转",
+      "condition": "启用隧道返回技术异常",
+      "file": "src/admin/egress-jump.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "没读到中转连接结果",
+      "changeReason": "原图用反向隧道与通用操作失败描述，难以找到重试入口。现统一为服务器中转，直接指向启用服务器中转按钮。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/egress-jump.tsx",
+          "line": 9,
+          "source": "  useEffect(() => { setMessage(''); setError(''); }, [remote.profile?.host, remote.profile?.port, remote.profile?.root, host, port]);"
+        },
+        "after": {
+          "file": "src/admin/egress-jump.tsx",
+          "line": 11,
+          "source": "  useEffect(() => { setMessage(''); setError(''); }, [remote.profile?.host, remote.profile?.port, remote.profile?.root, host, port]);"
+        }
+      },
+      "beforeUI": "共享服务器中转\n用户端 → 共享服务器 → 管理端 → 模型服务\n未启用\n\n复用共享服务器的 SSH 端口 22，由本机建立反向隧道，无需新增对外端口。\n\nTypeError: isolated backend failure\n\n启用反向隧道\n高级：服务器直接连接本机",
+      "afterUI": "共享服务器中转\n用户端 → 共享服务器 → 管理端 → 模型服务\n未启用\n\n复用共享服务器的 SSH 端口 22，由本机建立反向隧道，无需新增对外端口。\n\n没读到中转连接结果。请点“启用服务器中转”再试；仍失败时查看日志。 查看日志\n\n启用服务器中转\n高级：服务器直接连接本机",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-egress-jump-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-egress-jump-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "没读到中转连接结果",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-jump-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-results-edit-failure",
+      "entry": "团队成果／编辑成果",
+      "condition": "保存修改返回技术异常",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "是否已保存",
+      "changeReason": "原图只说执行此操作失败，随后仍允许继续点保存。现明确当前成果的保存结果未知、输入仍保留，锁住重复保存，并用真实只读检查保存结果入口判断下一步。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 65,
+          "source": "      setError(failed?.status === 'rejected' ? '最新团队信息暂未更新：' + failed.reason.message : ''); return !failed;"
+        },
+        "after": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 118,
+          "source": "    try { const savedTitle = title.trim(); await window.workbench.call('content.edit', { projectId: project.id, change: { id: item.id, revision: item.revision, action, title: savedTitle, description: body, repoUrl: repo, ...(item.kind === 'contribution' ? { category: editCategory, resultStatus: item.linkedAssignments?.length ? undefined : editStatus, resultOwner: editOwner } : {}), curate: admin, merge: [] } }); setEditing(false); await load(); notice(action === 'delete' ? '团队成果已删除' : '团队成果已更新'); } catch (e: any) { setUncertainWrite({ action: 'save', value: item }); setError(collaborationFailure(e, `还不知道“${title.trim()}”是否已保存，修改内容还在。请点“检查保存结果”，先别再次保存。`, { domain: 'central', operation: '保存团队成果', outcome: 'unknown' })); } finally { setBusy(false); }"
+        }
+      },
+      "beforeUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\nTypeError: isolated backend failure\n验收待办\n待办事项\n进行中\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n取消编辑\n保存修改\n\n成果 ID：result-audit · v1 复制 ID\n\n状态\n待处理\n进行中\n已完成\n已取消\n负责人\n标题\n内容 / 说明\n仓库链接（可选）",
+      "afterUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n还不知道“验收待办”是否已保存，修改内容还在。请点“检查保存结果”，先别再次保存。 查看日志检查保存结果\n验收待办\n待办事项\n进行中\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n取消编辑\n保存修改\n\n成果 ID：result-audit · v1 复制 ID\n\n状态\n待处理\n进行中\n已完成\n已取消\n负责人\n标题\n内容 / 说明\n仓库链接（可选）",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-results-edit-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-edit-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1425,
+          "height": 1295
+        },
+        "comparisonNote": "原图为 1425×1295，现图为 1425×1313；两次配置视口均为1440×1000并采用fullPage。完整文档高度随文案长度变化，前后PNG不等高，不宣称图像尺寸一致。"
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1425,
+          "documentHeight": 1313
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "是否已保存",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "真实检查保存/删除结果入口",
+          "expected": "结果未知时确认写入按钮禁用；检查只读content.list/history、写接口仍恰1次；读取原版本后可显式重试，修改内容保留",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-edit-failure-checked-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-results-edit-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-results-delete-failure",
+      "entry": "团队成果／删除成果",
+      "condition": "删除请求返回技术异常",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "是否已删除",
+      "changeReason": "原图的未知删除结果与仍可点红色确认按钮互相矛盾。现将失败留在前景弹窗，点名成果并禁用重复删除；检查删除结果只读列表和历史，确认原版本仍在后才允许显式重试。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 65,
+          "source": "      setError(failed?.status === 'rejected' ? '最新团队信息暂未更新：' + failed.reason.message : ''); return !failed;"
+        },
+        "after": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 126,
+          "source": "    } catch (e: any) { setUncertainWrite({ action: 'delete', value }); setError(collaborationFailure(e, `还不知道“${displayTitle(value)}”是否已删除。请点“检查删除结果”，先别再次删除。`, { domain: 'central', operation: '删除团队成果', outcome: 'unknown' })); }"
+        }
+      },
+      "beforeUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\nTypeError: isolated backend failure\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\n确认删除团队成果？\n×\n\n将删除团队成果“验收待办”。同组成员将无法再从团队成果库查看或引用；正文和历史版本无法从库中恢复。\n\n已保存的个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留。这条成果自己的提交文件、会话轨迹和附件会一并删除；仍被其他成果引用的文件会保留。\n\n各成员可在删除动态中自行决定是否删除个人副本。\n\n取消\n确认删除团队成果",
+      "afterUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n验收待办\n待办事项\n进行中\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n已关联项目任务 · 按任务进度处理\n存入个人成果库\n删除团队成果\n更多\n确认删除团队成果？\n×\n\n将删除团队成果“验收待办”。同组成员将无法再从团队成果库查看或引用；正文和历史版本无法从库中恢复。\n\n已保存的个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留。这条成果自己的提交文件、会话轨迹和附件会一并删除；仍被其他成果引用的文件会保留。\n\n各成员可在删除动态中自行决定是否删除个人副本。\n\n还不知道“验收待办”是否已删除。请点“检查删除结果”，先别再次删除。 查看日志检查删除结果\n取消\n确认删除团队成果",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-results-delete-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-delete-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "是否已删除",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-logs-after.png"
+        },
+        {
+          "action": "真实检查保存/删除结果入口",
+          "expected": "结果未知时确认写入按钮禁用；检查只读content.list/history、写接口仍恰1次；读取原版本后可显式重试，修改内容保留",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-checked-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-results-delete-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-attachment-failure",
+      "entry": "团队成果／附件预览",
+      "condition": "预览附件返回技术异常",
+      "file": "src/renderer/attachments.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "暂时无法预览",
+      "changeReason": "原图通用操作名无法区分附件预览或下载。现点名验收附件与预览失败，可再次预览或下载后在本机打开，不猜测具体技术原因。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/attachments.tsx",
+          "line": 26,
+          "source": "  const action = async (sha256: string, download: boolean) => { setBusy(true); setError(''); try { const result = await api.call<FilePreview>(download ? 'content.attachment.download' : 'content.attachment.preview', { projectId, contentId: item.id, sha256 }); if (!download) setPreview(result); } catch (error: any) { setError(error.message); } finally { setBusy(false); } };"
+        },
+        "after": {
+          "file": "src/renderer/attachments.tsx",
+          "line": 29,
+          "source": "  const action = async (sha256: string, download: boolean) => { setBusy(true); setError(''); const operation = (download ? '下载附件' : '预览附件') + '「' + (item.attachments?.find(file => file.sha256 === sha256)?.name || '当前附件') + '」'; try { const result = await api.call<FilePreview>(download ? 'content.attachment.download' : 'content.attachment.preview', { projectId, contentId: item.id, sha256 }); if (!download) setPreview(result); } catch (error: any) { setError(collaborationFailure(error, /中央节点未找到|REMOTE_FILE_MISSING|FILE_MISSING/.test(String(error?.failure?.code || error?.code || '') + ' ' + String(error?.message || '')) ? `服务器上没找到附件“${item.attachments?.find(file => file.sha256 === sha256)?.name}”，暂时无法${download ? '下载' : '预览'}。点页面右上角的“刷新”后再试；仍没有时请项目管理员补回附件。` : `附件“${item.attachments?.find(file => file.sha256 === sha256)?.name}”${download ? '没下载下来，请再点“下载附件”试一次。' : '暂时无法预览。可再点“预览”，或点“下载附件”后在电脑上打开。'}`, { domain: 'central', operation })); } finally { setBusy(false); } };"
+        }
+      },
+      "beforeUI": "附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\nTypeError: isolated backend failure",
+      "afterUI": "附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\n附件“验收附件.txt”暂时无法预览。可再点“预览”，或点“下载附件”后在电脑上打开。 查看日志",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-attachment-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-attachment-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "暂时无法预览",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-attachment-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-task-create-failure",
+      "entry": "派发任务",
+      "condition": "派发请求返回技术异常",
+      "file": "src/renderer/assignments.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "没收到派发结果",
+      "changeReason": "原图把派发和读取关联成果都称为执行此操作，并重复操作前缀。现区分两个动作，派发未获结果时保留表单和同一任务身份，重试不会再建一条；同ID内容变化则引导查看原任务。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/assignments.tsx",
+          "line": 32,
+          "source": "    setBusy(true); setError(''); try { const files = await api.call<AssignmentUpload[]>('assignment.files.pick', { projectId: project.id, taskId: requestId }); setUploads(files); setUploadIds(current => [...new Set([...current, ...files.filter(file => !uploads.some(previous => previous.id === file.id)).map(file => file.id)])]); } catch (error: any) { setError(error.message); } finally { setBusy(false); }"
+        },
+        "after": {
+          "file": "src/renderer/assignments.tsx",
+          "line": 39,
+          "source": "    setBusy(true); setError(''); try { const files = await api.call<AssignmentUpload[]>('assignment.files.pick', { projectId: project.id, taskId: requestId }); setUploads(files); setUploadIds(current => [...new Set([...current, ...files.filter(file => !uploads.some(previous => previous.id === file.id)).map(file => file.id)])]); } catch (error: any) { setError(uiErrorMessage(error, { domain: 'central', operation: '操作项目任务' })); } finally { setBusy(false); }"
+        }
+      },
+      "beforeUI": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\n我负责的\n0\n我派发的\n0\n全组任务\n0\n状态\n待办任务（0）\n全部状态（0）\n已删除（0）\n暂无分配给你的任务\n\n点击“派发任务”，可选择自己或其他组内成员。\n\n选择任务查看详情。\n\n派发任务\n×\nTypeError: isolated backend failure\n负责人\n请选择本组成员\n验收成员（demo） · 我自己\n分配给自己\n任务标题\n任务目标与工作范围\n验收要求（可选）\n关联共享成果和文件（已选 0/20）\n刷新成员和成果\n\nTypeError: isolated backend failure\n\n填写任务后，会优先显示文字相关的候选成果；勾选的内容将随任务交给成员。勾选成果时会一并带上它的附件，可逐个取消。刷新时保留当前选择，确认派发时会再次核对权限和版本。\n\n【待办事项】 验收待办\nv1 · demo · 与任务相关：标题命中：验收\n阅读成果\n另外附文件\n选择本地文件\n\n确认派发时上传。任务文件只对负责人和本组管理员可见；相同权限下的相同内容只存一份。\n\n共选择 0 个文件，单个任务最多 30 个，每个不超过 2 GB。\n\n取消\n确认派发",
+      "afterUI": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\n我负责的\n0\n我派发的\n0\n全组任务\n0\n状态\n待办任务（0）\n全部状态（0）\n已删除（0）\n暂无分配给你的任务\n\n点击“派发任务”，可选择自己或其他组内成员。\n\n选择任务查看详情。\n\n派发任务\n×\n没收到派发结果，填写内容还在。再次点“确认派发”会沿用这次任务，不会多建一条。 查看日志\n负责人\n请选择本组成员\n验收成员（demo） · 我自己\n分配给自己\n任务标题\n任务目标与工作范围\n验收要求（可选）\n关联共享成果和文件（已选 0/20）\n刷新成员和成果\n\n填写任务后，会优先显示文字相关的候选成果；勾选的内容将随任务交给成员。勾选成果时会一并带上它的附件，可逐个取消。刷新时保留当前选择，确认派发时会再次核对权限和版本。\n\n【待办事项】 验收待办\nv1 · demo · 与任务相关：标题命中：验收\n阅读成果\n另外附文件\n选择本地文件\n\n确认派发时上传。任务文件只对负责人和本组管理员可见；相同权限下的相同内容只存一份。\n\n共选择 0 个文件，单个任务最多 30 个，每个不超过 2 GB。\n\n取消\n确认派发",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-task-create-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-task-create-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "没收到派发结果",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "派发失败后刷新真实关联成果候选列表",
+          "expected": "派发错误与读取候选错误分别只显示在对应区域，互不冒充",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-create-failure-choices-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-task-create-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-task-created-refresh-failure",
+      "entry": "派发任务／创建已确认后刷新",
+      "condition": "实际assignment.create返回已创建任务，随后真实refresh回调调用assignment.list被拒绝",
+      "file": "src/renderer/assignments.tsx",
+      "before": "TypeError: isolated assignment refresh failure",
+      "after": "列表没刷新出来",
+      "changeReason": "原图把任务已派发与刷新未完成的两套错误句叠在一起。现点名已派发的任务，只说明列表没刷新、点击真实刷新任务查看，禁止再次派发；成功刷新后提示清除。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/assignments.tsx",
+          "line": 32,
+          "source": "    setBusy(true); setError(''); try { const files = await api.call<AssignmentUpload[]>('assignment.files.pick', { projectId: project.id, taskId: requestId }); setUploads(files); setUploadIds(current => [...new Set([...current, ...files.filter(file => !uploads.some(previous => previous.id === file.id)).map(file => file.id)])]); } catch (error: any) { setError(error.message); } finally { setBusy(false); }"
+        },
+        "after": {
+          "file": "src/renderer/assignments.tsx",
+          "line": 32,
+          "source": "  const acceptedTaskMessage = (task: Pick<ProjectAssignment, 'id' | 'title'>) => `任务「${task.title}」已派发。列表没刷新出来，点“刷新任务”查看；请不要再次派发。`;"
+        }
+      },
+      "beforeUI": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\nTypeError: isolated assignment refresh failure\n我负责的\n0\n我派发的\n0\n全组任务\n0\n状态\n待办任务（0）\n全部状态（0）\n已删除（0）\n当前列表暂无任务\n\n点击“派发任务”，可选择自己或其他组内成员。\n\n选择任务查看详情。",
+      "afterUI": "PROJECT TASKS\n项目任务 · 报错验收项目\n\n把任务分配给自己或组内成员，分别查看自己的待办与派发进展。\n\n刷新任务\n派发任务\n\n任务「隔离验收任务」已派发。列表没刷新出来，点“刷新任务”查看；请不要再次派发。 查看日志\n\n我负责的\n—\n我派发的\n—\n全组任务\n—\n状态\n待办任务（—）\n全部状态（—）\n已删除（—）\n\n选择任务查看详情。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated assignment refresh failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "列表没刷新出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-logs-after.png"
+        },
+        {
+          "action": "点击真实刷新任务入口并恢复读取",
+          "expected": "assignment.create恰1次，原任务可见，成功刷新后已派发/未刷新提示清除；日志仍定位原刷新失败id",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-recovered-after.png"
+        },
+        {
+          "action": "父级捕获刷新异常并以loadError返回，再使用真实刷新入口恢复",
+          "expected": "保留已派发事实及原日志id，恢复后提示清除且原任务可见，创建恰1次",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-read-status-after.png"
+        },
+        {
+          "action": "未收到创建回执后，从保留的表单再次提交",
+          "expected": "任务内容保留，两次请求使用同一requestId，不生成新的任务身份",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-task-created-refresh-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-task-status-failure",
+      "entry": "任务验收",
+      "condition": "确认任务完成返回技术异常",
+      "file": "src/renderer/assignment-lifecycle.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "还不知道“验收任务”是否已标为完成",
+      "changeReason": "原图不知道任务是否已完成，却仍允许再次确认完成。现点名该任务的未知状态，锁住确认按钮并提供真实检查任务状态入口，只读原状态后再允许重试。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/assignment-lifecycle.tsx",
+          "line": 25,
+          "source": "    setAction(next); setError(''); setSummary(''); setReason(''); setConfirmedTitle(''); setChoices([]); setReferenceIds([]); setUploads([]); setUploadIds([]); setSelectionId(crypto.randomUUID());"
+        },
+        "after": {
+          "file": "src/renderer/assignment-lifecycle.tsx",
+          "line": 30,
+          "source": "    setAction(next); setError(''); setSummary(''); setReason(''); setConfirmedTitle(''); setChoices([]); setReferenceIds([]); setUploads([]); setUploadIds([]); setSelectionId(crypto.randomUUID());"
+        }
+      },
+      "beforeUI": "验收通过\n退回继续工作\n取消任务\n确认完成？\n验收任务\n\n确认已达到任务目标和验收要求。通过后任务变为“已完成”，记录本次验收人。\n\n验收意见（可选）\n\n已有 Session、对话、项目成果和已带入会话的文件不受影响。\n\nTypeError: isolated backend failure\n\n返回\n确认完成",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-task-status-failure-before.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "还不知道“验收任务”是否已标为完成",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-status-failure-logs-after.png"
+        },
+        {
+          "action": "点击真实检查任务状态入口",
+          "expected": "未知时禁用确认完成，只读assignment.list，assignment.status仍1次；读到原待验收状态后才可显式重试",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-task-status-failure-checked-after.png"
+        }
+      ],
+      "pass": true,
+      "afterUI": "验收通过\n退回继续工作\n取消任务\n确认完成？\n验收任务\n\n确认已达到任务目标和验收要求。通过后任务变为“已完成”，记录本次验收人。\n\n验收意见（可选）\n\n已有 Session、对话、项目成果和已带入会话的文件不受影响。\n\n还不知道“验收任务”是否已标为完成。请点“检查任务状态”，先别再次提交。 查看日志检查任务状态\n\n返回\n确认完成",
+      "afterScreenshot": "docs/error-audit/screenshots/team-task-status-failure-after.png",
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-task-status-failure-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      }
+    },
+    {
+      "id": "team-question-sync-failure",
+      "entry": "寻求帮助",
+      "condition": "后台求助同步返回技术异常",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "最新求助消息没加载出来",
+      "changeReason": "原图只说求助同步操作失败，读者不知旧消息是否还能看。现说明最新消息未加载、已有消息可查看，并提供真实刷新求助记录和日志入口。 刷新按钮先实际重新同步求助，再刷新父界面快照，避免只反复显示旧错误。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 22,
+          "source": "    setError('');"
+        },
+        "after": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 48,
+          "source": "  const readFailure = (reason: unknown) => collaborationFailure(reason === inbox.error && inbox.failure ? {message: reason, failure: inbox.failure} : reason, inbox.items.length ? '最新求助消息没加载出来，下面是之前读到的记录。请点“刷新求助记录”。' : '求助记录没加载出来。请点“刷新求助记录”再试。', { domain: 'central', operation: '读取求助记录' });"
+        }
+      },
+      "beforeUI": "寻求帮助\n\nTypeError: isolated backend failure\n\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送",
+      "afterUI": "寻求帮助\n\n最新求助消息没加载出来，已有消息仍可查看。请点“刷新求助记录”。 查看日志刷新求助记录\n\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-question-sync-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-sync-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "最新求助消息没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-sync-failure-logs-after.png"
+        },
+        {
+          "action": "刷新求助记录确实重新同步",
+          "expected": "真实按钮先question.sync恰1次，再调用父级快照刷新恰1次，未发送/新建任何求助；已签主图保留",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-question-sync-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-question-send-failure",
+      "entry": "寻求帮助／继续求助",
+      "condition": "发送请求失败且草稿保留",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "消息可能已发出，草稿还在",
+      "changeReason": "原图叠加未知送达和通用失败句，绿色发送按钮还可重复发送。现说明消息可能已发出、草稿仍在，并锁住重发；真实同步与读取均成功后，以消息ID是否出现决定等回复或再发送。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 22,
+          "source": "    setError('');"
+        },
+        "after": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 138,
+          "source": "  const run = async (action: string, payload: object) => { if (working.current) return false; working.current = true; setBusy(true); setError(''); let confirmed = false; try { await window.workbench.call(action, payload); confirmed = true; await changed(); return true; } catch (e: any) { setError(collaborationFailure(e, confirmed ? ['question.follow', 'question.answer'].includes(action) ? '消息已发出，求助记录还没更新。请点“刷新求助记录”，不用再发送。' : '已保存这次操作，求助记录还没更新。请点“刷新求助记录”，不用再提交。' : ['question.follow', 'question.answer'].includes(action) ? '消息可能已发出，草稿还在。点“刷新求助记录”：看到这条消息就等对方回复，没看到再发送。' : '没收到这次求助操作的结果。请点“刷新求助记录”查看变化后再操作。', { domain: 'central', operation: ['question.follow', 'question.answer'].includes(action) ? '发送求助消息' : '更新求助', outcome: confirmed ? 'accepted' : 'unknown' })); return confirmed; } finally { working.current = false; setBusy(false); } };"
+        }
+      },
+      "beforeUI": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送\n\nTypeError: isolated backend failure",
+      "afterUI": "寻求帮助\n返回求助列表\n请协助核对验收步骤\n开放\n\n验收成员 · 2026/11/16 10:00:00\n\n请核对当前任务的验收说明。\n\n1/ 人已回复 · 每人一条对话\n\n协作成员\n1 条答复\n协作成员 · 2026/11/16 10:00:00\n\n已完成第一轮核对。\n\n填入对话框\n结束\n自动对话\n附件\nAI填入\n发送\n\n消息可能已发出，草稿还在。点“刷新求助记录”：看到这条消息就等对方回复，没看到再发送。 查看日志刷新求助记录",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-question-send-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-send-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "消息可能已发出，草稿还在",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-send-failure-logs-after.png"
+        },
+        {
+          "action": "刷新真实求助记录并读取最新snapshot.questions",
+          "expected": "未知时发送禁用；同步与状态读取均成功且原消息ID未出现后才可重发，草稿保留，question.follow仍1次",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-send-failure-checked-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-question-send-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-personal-read-failure",
+      "entry": "个人成果库",
+      "condition": "首次读取失败且没有已有列表",
+      "file": "src/renderer/conclusions.tsx",
+      "before": "暂无当前成果",
+      "after": "个人成果没加载出来",
+      "changeReason": "原图连续显示泛化失败、无法确认是否有成果等多句同义提示。现只说个人成果没加载出来并指向刷新，数量继续保持未知，避免空库误判。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/conclusions.tsx",
+          "line": 228,
+          "source": "      {!visible.length && !creating && <div className=\"page-empty\"><h2>{busy ? '正在读取成果…' : hasFilters ? '暂无匹配成果' : historyView === 'history' ? '暂无历史成果' : historyView === 'current' ? '暂无当前成果' : '还没有项目成果'}</h2><p>{hasFilters ? '可清除筛选查看现有成果。' : historyView === 'history' ? '移入历史的成果会显示在这里。' : historyView === 'current' && items.some(value => value.archived) ? '可切换到“全部成果”或“历史成果”查看。' : '保存到个人库的成果会显示在这里，也可以手工新建。'}</p></div>}"
+        },
+        "after": {
+          "file": "src/renderer/conclusions.tsx",
+          "line": 98,
+          "source": "  const load = async () => { setBusy(true); try { setItems(await api.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true })); setReadError(''); const request = ++teamRevisionRequest.current; void api.call<SharedContent[]>('content.list', { projectId: project.id }).then(shared => { if (request === teamRevisionRequest.current) setTeamRevisions(Object.fromEntries(shared.map(value => [value.id, value.revision]))); }).catch(() => {}); } catch (e: any) { setReadError(collaborationFailure(e, '个人成果没加载出来。请点“刷新个人成果”再试。', { domain: 'local', operation: '读取个人成果列表' })); } finally { setBusy(false); } };"
+        }
+      },
+      "beforeUI": "PERSONAL RESULTS\n个人成果 · 报错验收项目\n\n你在本项目中保存的成果，可供会话引用。仅你可见，由你维护，并随账号同步。\n\nTypeError: isolated backend failure\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n0 条\n成果范围\n全部成果\n历史成果\n当前成果\n批量管理\n新建成果\n暂无当前成果\n\n保存到个人库的成果会显示在这里，也可以手工新建。",
+      "afterUI": "PERSONAL RESULTS\n个人成果 · 报错验收项目\n\n你在本项目中保存的成果，可供会话引用。仅你可见，由你维护，并随账号同步。\n\n个人成果没加载出来。请点“刷新个人成果”再试。 查看日志\n\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n数量未确认\n刷新个人成果\n成果范围\n全部成果\n历史成果\n当前成果\n批量管理\n新建成果",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-personal-read-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-personal-read-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "暂无当前成果",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "个人成果没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-personal-read-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-draft-upload-unconfirmed",
+      "entry": "成果整理任务列表",
+      "condition": "已有上传记录但上传失败且没有独立个人副本",
+      "file": "src/renderer/draft-list.tsx",
+      "before": "成果已单独保存",
+      "after": "草稿和上传记录仍保留",
+      "changeReason": "原图把仅有上传记录称作成果已单独保存，且缺少明显下一步。现区分上传结果未知与草稿仍保留，并在真实卡片主体独立一行完整显示查看上传详情。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/draft-list.tsx",
+          "line": 70,
+          "source": "            <span className=\"draft-task-badges\"><span className=\"content-category-badge\">{profile ? '项目整理' : taskKind(draft)}</span><span className={'badge ' + statusTone(draft, transfers)}>{status}</span>{preserved && <span className=\"draft-preserved\">成果已单独保存</span>}</span>"
+        },
+        "after": {
+          "file": "src/renderer/draft-list.tsx",
+          "line": 70,
+          "source": "            <span className=\"draft-task-badges\"><span className=\"content-category-badge\">{profile ? '项目整理' : taskKind(draft)}</span><span className={'badge ' + statusTone(draft, transfers)}>{status}</span>{preserved && <span className=\"draft-preserved\">{draft.mergeCompletedAt || draft.personalSavedIds?.length || relatedTransfers(draft, transfers).some(item => item.status === 'done') ? '成果已单独保存' : '草稿和上传记录仍保留'}</span>}</span>"
+        }
+      },
+      "beforeUI": "会话成果整理\n上传未完成\n成果已单独保存\n待上传的整理成果\n来源：验收工作会话\n项目：报错验收项目\n1 项内容\n创建于 2026/11/16 10:00:00",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nLOCAL PREPARATION\n成果整理\n\n查看整理草稿，审阅后再选择保存到个人成果库或提交团队。\n\n共 1 项\n批量删除记录\n会话成果整理\n上传结果还没查到\n草稿和上传记录仍保留\n待核对的验收成果\n来源：验收工作会话\n项目：报错验收项目\n1 项内容\n创建于 2026/11/16 10:00:00\n查看上传详情 →\n删除记录\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "成果已单独保存",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "草稿和上传记录仍保留",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-upload-unconfirmed-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      },
+      "sharedContributionStatusUpdate": {
+        "source": "src/shared/contribution-status.ts",
+        "boundary": "awaiting_receipt or cache cleanup error",
+        "currentLabel": "上传结果待核对"
+      }
+    },
+    {
+      "id": "team-updates-refresh-failure",
+      "entry": "团队动态／标记已处理",
+      "condition": "标记已成功但随后列表刷新失败",
+      "file": "src/renderer/content-updates.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "已将这条动态标为已处理",
+      "changeReason": "原图只说处理状态已保存，下面仍显示待处理，难知道要不要再点一次。现明确动态已标为已处理但列表未更新，保留刷新团队动态入口并阻止重复执行原动作。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/content-updates.tsx",
+          "line": 56,
+          "source": "    if (busy || !items.length) return; setBusy('status'); setError('');"
+        },
+        "after": {
+          "file": "src/renderer/content-updates.tsx",
+          "line": 59,
+          "source": "    if (busy || refreshNotice || !items.length) return; setBusy('status'); setError('');"
+        }
+      },
+      "beforeUI": "TEAM ACTIVITY\n团队动态\n\n先查看成果，再决定是否存入本地库。无需保留的动态可直接标记已处理，之后也能设回待处理。\n\nTypeError: isolated backend failure\n待处理\n1\n已处理\n0\n全部\n1\n类型\n全部类型（1）\n上传成果（1）\n更新成果（0）\n合并成果（0）\n成果被替代（0）\n团队成果已删除（0）\n关联文件缺失（0）\n关联文件恢复（0）\n多选处理\n上传成果\n待办事项\nv1\n待处理\n2026/11/16 10:00:00\ndemo 提交了《验收待办》\n\n来源与历史\n查看结果\n标记已处理",
+      "afterUI": "TEAM ACTIVITY\n团队动态\n\n先查看成果，再决定是否存入本地库。无需保留的动态可直接标记已处理，之后也能设回待处理。\n\n刷新团队动态\n\n已将这条动态标为已处理。列表还没更新，请点“刷新团队动态”。\n\n待处理\n1\n已处理\n0\n全部\n1\n类型\n全部类型（1）\n上传成果（1）\n更新成果（0）\n合并成果（0）\n成果被替代（0）\n团队成果已删除（0）\n关联文件缺失（0）\n关联文件恢复（0）\n多选处理\n上传成果\n待办事项\nv1\n待处理\n2026/11/16 10:00:00\ndemo 提交了《验收待办》\n\n来源与历史\n查看结果\n标记已处理",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-updates-refresh-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-updates-refresh-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "已将这条动态标为已处理",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-updates-refresh-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-scheduled-read-failure",
+      "entry": "定时任务",
+      "condition": "任务和运行记录首次读取失败",
+      "file": "src/renderer/scheduled-tasks.tsx",
+      "before": "还没有定时任务",
+      "after": "定时任务和运行记录没加载出来",
+      "changeReason": "原图把两条技术读取错误与空状态说明叠在一起。现合并为任务和运行记录没加载出来，保留真实重新读取按钮。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/scheduled-tasks.tsx",
+          "line": 63,
+          "source": "      {!visible.length && <div className=\"scheduled-empty\"><Clock3 size={32}/><p>还没有定时任务。先选择项目，再设置任务和执行时间。</p></div>}"
+        },
+        "after": {
+          "file": "src/renderer/scheduled-tasks.tsx",
+          "line": 46,
+          "source": "    } catch (e: any) { if (mounted.current && n === sequence.current) setReadError(collaborationFailure(e, '定时任务和运行记录没加载出来。请点“重新读取”再试。', { domain: 'local', operation: '读取定时任务和运行记录' })); } finally { if (mounted.current && n === sequence.current) setLoading(false); }"
+        }
+      },
+      "beforeUI": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\nTypeError: isolated backend failure\n\n还没有定时任务。先选择项目，再设置任务和执行时间。\n\n运行记录\n共 0 次\n删除所选（0）\n\n暂无运行记录。",
+      "afterUI": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\n\n定时任务和运行记录没加载出来。请点“重新读取”再试。 重新读取\n\n运行记录\n记录数量未确认\n删除所选（0）",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-scheduled-read-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-scheduled-read-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "还没有定时任务",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "定时任务和运行记录没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-scheduled-read-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-scheduled-read-recovered",
+      "entry": "定时任务",
+      "condition": "首次失败后下一次刷新成功",
+      "file": "src/renderer/scheduled-tasks.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "本机任务验收",
+      "changeReason": "本轮沿真实失败后恢复读取流程验证；成功后原任务可见且错误提示消失，不把临时读取失败说成任务丢失。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/scheduled-tasks.tsx",
+          "line": 43,
+          "source": "    } catch (e: any) { if (mounted.current && n === sequence.current) setError(e.message); }"
+        },
+        "after": {
+          "file": "src/renderer/scheduled-tasks.tsx",
+          "line": 52,
+          "source": "  useEffect(() => { if (!focusRun) return; setProjectId(focusRun.projectId); setTaskId(''); if (!focusRun.id) { setOpened(undefined); return; } void api.call<ScheduledRunSession>('scheduledTask.open', { id: focusRun.id, projectId: focusRun.projectId }).then(value => setOpened(value.run), e => setError(e.message)); }, [focusRun]);"
+        }
+      },
+      "beforeUI": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\nTypeError: isolated backend failure\n本机任务验收\n报错验收项目 · 单次 · 2026/11/16 10:00:00 · Asia/Shanghai\n已启用\n\n核对本机任务列表状态。\n\n下次执行：2026/11/16 10:00:00\n\n立即执行\n暂停\n编辑\n运行记录\n运行记录\n共 0 次\n删除所选（0）\n\n暂无运行记录。",
+      "afterUI": "定时任务\n\n在本机自动执行，关闭窗口后可留在托盘继续运行。\n\n新建定时任务\n项目\n全部项目\n报错验收项目\n任务使用本机缓存的项目资料，无需连接中央节点。\n本机任务验收\n报错验收项目 · 单次 · 2026/11/16 10:00:00 · Asia/Shanghai\n已启用\n\n核对本机任务列表状态。\n\n下次执行：2026/11/16 10:00:00\n\n立即执行\n暂停\n编辑\n运行记录\n运行记录\n共 0 次\n删除所选（0）\n\n暂无运行记录。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-scheduled-read-recovered-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-scheduled-read-recovered-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "本机任务验收",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-scheduled-read-recovered-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-context-action-failure",
+      "entry": "操作菜单",
+      "condition": "界面操作函数抛出技术异常",
+      "file": "src/renderer/context-menu.tsx",
+      "before": "TypeError: isolated renderer failure",
+      "after": "复制失败，原消息还在",
+      "changeReason": "原图把菜单复制动作说成执行此操作，找不到失败对象。现明确复制失败、原消息仍在，并给出再次复制或键盘复制两种可执行办法。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/context-menu.tsx",
+          "line": 32,
+          "source": "    setBusy(true); setError('');"
+        },
+        "after": {
+          "file": "src/renderer/context-menu.tsx",
+          "line": 37,
+          "source": "    catch (reason: any) { void window.workbench.call('logs.rendererError', { type: 'error', message: String(reason?.message || reason), stack: reason?.stack }).catch(() => {}); setError(collaborationFailure(reason, item.label === '复制消息' ? '复制失败，原消息还在。请再点“复制消息”，或选中文字后按 Ctrl+C。' : item.label + '没有完成，请再试一次。', { domain: 'local', operation: item.label, outcome: 'unknown' })); }"
+        }
+      },
+      "beforeUI": "Codex\n2026/11/16 10:00\n\n请复制这条验收回复，核对复制失败时的提示与原文保留。\n\n复制消息\n\nTypeError: isolated renderer failure",
+      "afterUI": "Codex\n2026/11/16 10:00\n\n请复制这条验收回复，核对复制失败时的提示与原文保留。\n\n复制消息\n\n复制失败，原消息还在。请再点“复制消息”，或选中文字后按 Ctrl+C。 查看日志",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-context-action-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-context-action-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated renderer failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "复制失败，原消息还在",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-context-action-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-rsi-settings-read-failure",
+      "entry": "AI推荐模型设置",
+      "condition": "项目设置读取成功但主状态读取失败",
+      "file": "src/renderer/rsi-project-settings.tsx",
+      "before": "正在读取设置",
+      "after": "AI推荐设置没加载出来，原来的设置没变",
+      "changeReason": "原图在同一处重复显示设置读取错误与通用重试说明。现合并为一句说明AI推荐设置未加载、原设置不变，并对应真实重试读取设置按钮。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/rsi-project-settings.tsx",
+          "line": 27,
+          "source": "    {!settings || !snapshot ? <p>正在读取设置…</p> : <>"
+        },
+        "after": {
+          "file": "src/renderer/rsi-project-settings.tsx",
+          "line": 23,
+          "source": "    const refresh = () => void window.workbench.call<Snapshot>('snapshot').then(value => { if (alive) { setSnapshot(value); setSnapshotError(''); } }).catch(reason => { if (alive) setSnapshotError(collaborationFailure(reason, 'AI推荐设置没加载出来，原来的设置没变。请点“重试读取设置”。', { domain: 'local', operation: '读取AI推荐设置' })); });"
+        }
+      },
+      "beforeUI": "本项目的后台推荐使用此配置和你的个人账号额度。项目有新进展时自动分析，无需保持某条会话打开。\n\n正在读取设置…",
+      "afterUI": "本项目的后台推荐使用此配置和你的个人账号额度。项目有新进展时自动分析，无需保持某条会话打开。\n\nAI推荐设置没加载出来，原来的设置没变。请点“重试读取设置”。 查看日志\n重试读取设置",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-rsi-settings-read-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-rsi-settings-read-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "正在读取设置",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "AI推荐设置没加载出来，原来的设置没变",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-rsi-settings-read-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-directions-read-failure",
+      "entry": "成员名片",
+      "condition": "首次读取失败且无本机缓存",
+      "file": "src/renderer/directions.tsx",
+      "before": "你还没有填写名片",
+      "after": "成员名片没加载出来",
+      "changeReason": "原图把成员名片未读取与无法确认填写状态重复显示。现保留一个具体加载提示，直接指向重新读取成员名片。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/directions.tsx",
+          "line": 59,
+          "source": "        {!drafts.length && <p className=\"muted small\">你还没有填写名片。先添加一条内容，让队友了解你。</p>}"
+        },
+        "after": {
+          "file": "src/renderer/directions.tsx",
+          "line": 27,
+          "source": "    } catch (reason: any) { if (sequence === loadSequence.current) setError(collaborationFailure(reason, '成员名片没加载出来。请点“重新读取成员名片”再试。', { domain: 'central', operation: '读取成员名片' })); }"
+        }
+      },
+      "beforeUI": "MEMBER PROFILES\n成员名片\n\n在名片里介绍你正在做的事和可以交流的经验，方便队友找到你。每张名片可以添加多条内容，只能编辑自己的名片。\n\n我的名片\n0/12\n\n写清你在做什么、有哪些经验可以交流。同一名称不要重复填写。\n\n你还没有填写名片。先添加一条内容，让队友了解你。\n\n添加内容\n保存我的名片\nTypeError: isolated backend failure\n按内容\n按成员\n刷新\n\n0 人 · 0 条内容\n\n还没有人填写名片\n\n先在左侧填写你的名片，介绍正在做的事和可以交流的经验。",
+      "afterUI": "MEMBER PROFILES\n成员名片\n\n在名片里介绍你正在做的事和可以交流的经验，方便队友找到你。每张名片可以添加多条内容，只能编辑自己的名片。\n\n成员名片没加载出来。请点“重新读取成员名片”再试。\n\n重新读取成员名片",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-directions-read-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-directions-read-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "你还没有填写名片",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "成员名片没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-directions-read-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-account-sync-failure",
+      "entry": "账号资料自动同步",
+      "condition": "网络中断被笼统归因为旧版服务器",
+      "file": "src/renderer/account-sync.tsx",
+      "before": "旧服务器需更新存储服务",
+      "after": "资料还在这台电脑上",
+      "changeReason": "原图重复解释本机保留、账号状态未确认与旧服务器，读者容易以为必须先排障。现只保留本机资料仍在、同步结果暂未查到、后台自动重试和可继续工作。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/account-sync.tsx",
+          "line": 33,
+          "source": "  const run = async (action: string, input?: unknown) => { setBusy(true); setError(''); try { await window.workbench.call(action, input); } catch (error: any) { setError(error.message); } finally { setBusy(false); } };"
+        },
+        "after": {
+          "file": "src/renderer/account-sync.tsx",
+          "line": 38,
+          "source": "  const run = async (action: string, input?: unknown) => { setBusy(true); setError(''); try { await window.workbench.call(action, input); } catch (error: any) { setError(uiErrorMessage(error, { domain: 'central', operation: '处理资料同步' })); } finally { setBusy(false); } };"
+        }
+      },
+      "beforeUI": "资料等待自动同步\n自动同步\n×\n\n个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。\n\n账号资料尚未同步：read ECONNRESET。本机内容已保留；旧服务器需更新存储服务。",
+      "afterUI": "资料等待自动同步\n自动同步\n×\n\n个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。\n\n资料还在这台电脑上，暂时没查到账号同步的结果。工作台会自动再试，你可以继续工作。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-account-sync-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-account-sync-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "旧服务器需更新存储服务",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "资料还在这台电脑上",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-account-sync-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-projects-read-failure",
+      "entry": "管理端／项目管理",
+      "condition": "首次读取项目列表失败",
+      "file": "src/renderer/team-groups.tsx",
+      "before": "暂无项目",
+      "after": "项目列表没加载出来",
+      "changeReason": "原图在读取错误下又重复无法确认项目数量的说明。现直接说明项目列表没加载出来，真实刷新项目按钮可重读，列表不冒充空团队。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/team-groups.tsx",
+          "line": 85,
+          "source": "    {!groups.filter(group=>!!group.deletedAt===trash).length && <p className=\"muted\">{busy?'正在读取…':trash?'回收站为空':'暂无项目'}</p>}"
+        },
+        "after": {
+          "file": "src/renderer/team-groups.tsx",
+          "line": 81,
+          "source": "  const refresh = async()=>{if(!enabled)return;setBusy(true);try{setGroups(await call({action:'list'}));setError('');}catch(e:any){setError(collaborationFailure(e, '项目列表没加载出来。请点“刷新项目”再试。', { domain: 'central', operation: '读取项目列表' }));}finally{setBusy(false);}};"
+        }
+      },
+      "beforeUI": "项目管理\n刷新项目\n创建项目\n\n查看各项目成员与角色，调整创建者，删除或恢复项目。\n\n当前项目\n项目回收站\nTypeError: isolated backend failure\n项目\t创建者\t成员\t占用空间\t操作\n\n暂无项目",
+      "afterUI": "项目管理\n刷新项目\n创建项目\n\n查看各项目成员与角色，调整创建者，删除或恢复项目。\n\n当前项目\n项目回收站\n项目列表没加载出来。请点“刷新项目”再试。\n项目\t创建者\t成员\t占用空间\t操作\n\n项目列表暂未读取成功，当前无法确认是否有项目。请点击“刷新项目”重试。",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-projects-read-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-projects-read-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "暂无项目",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "项目列表没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-projects-read-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-project-brief-read-failure",
+      "entry": "项目资料",
+      "condition": "项目说明读取失败",
+      "file": "src/renderer/project-brief-editor.tsx",
+      "before": "尚未填写",
+      "after": "项目说明没加载出来",
+      "changeReason": "原图用两个提示重复解释未读取成功，读者难找动作。现合并为项目说明没加载出来和真实重新读取项目说明入口。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/project-brief-editor.tsx",
+          "line": 15,
+          "source": "    if (!visible.length) return <p className=\"muted\">项目说明尚未填写。</p>;"
+        },
+        "after": {
+          "file": "src/renderer/project-brief-editor.tsx",
+          "line": 31,
+          "source": "    }, reason => { if (active) setError(collaborationFailure(reason, '项目说明没加载出来。请点“重新读取项目说明”再试。', { domain: 'local', operation: '读取项目说明' })); }).finally(() => { if (active) setBusy(false); });"
+        }
+      },
+      "beforeUI": "MD\n报错验收项目\n这是本项目当前的项目说明，对应共享目录中的“项目说明.md”，由创建者或管理者维护。\nTypeError: isolated backend failure\n\n只读，仅本项目创建者或管理者可修改。\n\n项目背景\n\n尚未填写\n\n项目目标\n\n尚未填写\n\n验收标准\n\n尚未填写",
+      "afterUI": "MD\n报错验收项目\n这是本项目当前的项目说明，对应共享目录中的“项目说明.md”，由创建者或管理者维护。\n项目说明没加载出来。请点“重新读取项目说明”再试。\n\n只读，仅本项目创建者或管理者可修改。\n\n重新读取项目说明",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-project-brief-read-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-project-brief-read-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "尚未填写",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "项目说明没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-project-brief-read-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-personal-group-refresh-failure",
+      "entry": "新建个人分组",
+      "condition": "分组已保存但刷新失败",
+      "file": "src/renderer/personal-workspace.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "列表还没更新",
+      "changeReason": "原图只说个人分组已保存，没有指明刚创建哪个分组。现点名分组且明确列表未更新，刷新仅重读列表，不重复创建。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/personal-workspace.tsx",
+          "line": 13,
+          "source": "    const mode = event.target.value; setBusy(true); setError('');"
+        },
+        "after": {
+          "file": "src/renderer/personal-workspace.tsx",
+          "line": 40,
+          "source": "      try { await changed(); setRefreshNotice(''); } catch { setRefreshNotice((removing ? `分组「${removing.name}」已解散` : `分组「${editing?.name}」已创建`) + '，列表还没更新。点“刷新分组列表”查看，不用再创建。'); }"
+        }
+      },
+      "beforeUI": "未分项目\n0\n未分组\n0\n新建个人分组\n分组名称\nTypeError: isolated backend failure\n取消保存分组",
+      "afterUI": "未分项目\n0\n未分组\n0\n\n分组「验收分组」已创建，列表还没更新。点“刷新分组列表”查看，不用再创建。刷新分组列表",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-personal-group-refresh-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-personal-group-refresh-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "列表还没更新",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实刷新分组列表入口",
+          "expected": "仅重新读取父级列表，local.group.save仍只调用1次；再次读取失败时保留已保存事实",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-personal-group-refresh-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-draft-delete-partial",
+      "entry": "批量删除整理记录",
+      "condition": "一条已删除，一条保存状态失败",
+      "file": "src/renderer/draft-delete.tsx",
+      "before": "ENOSPC",
+      "after": "电脑空间不足",
+      "changeReason": "原图堆叠技术保存错误与大段保留范围，难看出剩下哪条。现保留已删除与剩余数量、列出未完成记录，说明本机空间不足并对应重试删除按钮。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/draft-delete.tsx",
+          "line": 10,
+          "source": "    <div className=\"modal-body\"><p>删除“{resultLabelTitle(draft.titleAlias || draft.title)}”的整理记录{draft.generation === 'running' ? '，并停止这次整理' : ''}。</p><p className=\"muted small\">已保存的个人成果、已提交的团队成果、原 Session 和增量整理进度都会保留。尚未保存或提交的草稿内容会随记录删除。已提交的上传仍可在传输列表查看和重试；记录删除会同步到你的其他电脑。</p>{error && <p className=\"inline-error\" role=\"alert\">{error}</p>}</div>"
+        },
+        "after": {
+          "file": "src/renderer/draft-delete.tsx",
+          "line": 27,
+          "source": "      const errors = Object.fromEntries(result.failures.map(item => [item.id, userFailure(item.message, { domain: 'local' }).code === 'STORAGE_FULL' ? '这台电脑空间不足，没能保存删除记录。请腾出空间，再点下方“重试删除”。' : uiErrorMessage(item.message, { domain: 'local', operation: '删除该整理记录', outcome: 'unknown' })]));"
+        }
+      },
+      "beforeUI": "批量删除整理记录？\n×\n\n已删除 1 条记录，剩余 1 条未完成。\n\n将删除以下 1 条整理记录。\n\n验收整理记录 b · 本机项目\n\nENOSPC: no space left on device, write C:/audit/state.json\n\n只删除所选整理记录。已保存的个人成果、已提交的团队成果、原 Session 和增量整理进度都会保留；未保存的草稿内容会删除。已提交的上传不受影响，记录删除会同步到你的其他电脑。\n\n关闭\n重试删除 1 条记录",
+      "afterUI": "批量删除整理记录？\n×\n\n已删除 1 条记录，剩余 1 条未完成。\n\n以下 1 条还没删完：\n\n验收整理记录 b · 本机项目\n\n这台电脑空间不足，没能保存删除记录。请腾出空间，再点下方“重试删除”。\n\n只删除所选整理记录。个人成果、团队成果和原会话都保留；尚未保存的草稿会删除。\n\n关闭\n重试删除 1 条记录",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-draft-delete-partial-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-draft-delete-partial-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "ENOSPC",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "电脑空间不足",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-delete-partial-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-results-move-uncertain",
+      "entry": "批量移动团队成果",
+      "condition": "第一组移动已确认，第二组等待回执时断线",
+      "file": "src/renderer/result-directories.tsx",
+      "before": "其余未完成",
+      "after": "验收待办B",
+      "changeReason": "原图只给已移动1条和其余结果未知，没说哪条去了哪里。现分别点名已移好的成果及目录、当前未查到结果的成果与目标，指向刷新后检查该目录，避免重复移动。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/result-directories.tsx",
+          "line": 51,
+          "source": "  } catch (reason: any) { throw new Error((moved ? `已移动 ${moved} 条，其余未完成。` : '') + reason.message); }"
+        },
+        "after": {
+          "file": "src/renderer/result-directories.tsx",
+          "line": 22,
+          "source": "      if (sequence.current === request) setError('');"
+        }
+      },
+      "beforeUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n2\n新建目录\n全部目录\n2 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n取消多选\n清理未引用文件\n刷新\n已移动 1 条，其余未完成。read ECONNRESET\n全选当前可删除项（最多 100 项）\n已选择 0 项；切换目录、筛选或刷新后会清空选择\n移动到目录\n删除选中的 0 项\n验收待办\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多\n验收待办B\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多",
+      "afterUI": "TEAM CONTENT\n团队成果 · 报错验收项目\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n2\n新建目录\n全部目录\n2 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n取消多选\n清理未引用文件\n刷新\n“验收待办”已移到“探索记录”。“验收待办B”移到“项目资料”的结果还没查到。点“刷新”后打开“项目资料”：已在里面就不用再移。 查看日志\n全选当前可删除项（最多 100 项）\n已选择 0 项；切换目录、筛选或刷新后会清空选择\n移动到目录\n删除选中的 0 项\n验收待办\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多\n验收待办B\n待办事项\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n待办事项\n存入个人成果库\n删除团队成果\n更多",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-results-move-uncertain-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-move-uncertain-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "其余未完成",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "验收待办B",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-results-move-uncertain-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-results-remote-missing",
+      "entry": "项目成果库／文件下载",
+      "condition": "文件下载收到SFTP code=2；错误原因由指定源码friendlySftp实际生成",
+      "file": "src/renderer/shared-content.tsx",
+      "before": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+      "after": "服务器上没找到",
+      "changeReason": "原图保留了SFTP原因但叠加下载操作前缀，后续对象不清。现直接点名服务器未找到的文件、下载无法进行，使用真实刷新入口，仍缺失时联系项目管理员。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 65,
+          "source": "      setError(failed?.status === 'rejected' ? '最新团队信息暂未更新：' + failed.reason.message : ''); return !failed;"
+        },
+        "after": {
+          "file": "src/renderer/shared-content.tsx",
+          "line": 263,
+          "source": "        {value.kind !== 'contribution' && <button className=\"secondary compact\" disabled={disabled || fileBlocked} onClick={() => void window.workbench.call('remote.download', { projectId: project.id, path: value.path }).catch(e => setError(collaborationFailure(e, /中央节点未找到|REMOTE_FILE_MISSING|FILE_MISSING/.test(String(e?.failure?.code || e?.code || '') + ' ' + String(e?.message || '')) ? `服务器上没找到“${displayTitle(value)}”，暂时无法下载。点“刷新”后再试；仍没有时请联系项目管理员。` : `“${displayTitle(value)}”没下载下来。请再点“下载”试一次；仍失败时查看日志。`, { domain: 'central', operation: '下载团队文件' })))}>下载</button>}"
+        }
+      },
+      "beforeUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n1\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n远端路径不存在，请核对管理员提供的 SFTP 路径\n验收清单.txt\n共享文件\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n项目资料\n存入个人成果库\n删除团队成果\n更多\n移动到目录\n下载\n设置本地别名\n加入会话\n编辑成果\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n1\n已有能力\n探索记录\n待办事项\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n服务器上没找到“验收清单.txt”，暂时无法下载。点“刷新”后再试；仍没有时请联系项目管理员。 查看日志\n验收清单.txt\n共享文件\n待处理\n检查失败状态与恢复动作。\ndemo · v1 · 2026/11/16 10:00:00\n项目资料\n存入个人成果库\n删除团队成果\n更多\n移动到目录\n下载\n设置本地别名\n加入会话\n编辑成果\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-results-remote-missing-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-results-remote-missing-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "服务器上没找到",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实团队成果刷新",
+          "expected": "文件状态重新读取并显示关联文件缺失",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-refreshed-after.png"
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-results-remote-missing-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      }
+    },
+    {
+      "id": "team-attachment-remote-missing",
+      "entry": "项目成果库／附件下载",
+      "condition": "附件下载收到SFTP code=2；错误原因由指定源码friendlySftp实际生成",
+      "file": "src/renderer/attachments.tsx",
+      "before": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+      "after": "服务器上没找到附件",
+      "changeReason": "原图未清楚区分附件预览和下载失败。现点名具体附件及当前下载动作，说明右上角刷新后再试，仍缺失时请项目管理员补回附件。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/attachments.tsx",
+          "line": 26,
+          "source": "  const action = async (sha256: string, download: boolean) => { setBusy(true); setError(''); try { const result = await api.call<FilePreview>(download ? 'content.attachment.download' : 'content.attachment.preview', { projectId, contentId: item.id, sha256 }); if (!download) setPreview(result); } catch (error: any) { setError(error.message); } finally { setBusy(false); } };"
+        },
+        "after": {
+          "file": "src/renderer/attachments.tsx",
+          "line": 29,
+          "source": "  const action = async (sha256: string, download: boolean) => { setBusy(true); setError(''); const operation = (download ? '下载附件' : '预览附件') + '「' + (item.attachments?.find(file => file.sha256 === sha256)?.name || '当前附件') + '」'; try { const result = await api.call<FilePreview>(download ? 'content.attachment.download' : 'content.attachment.preview', { projectId, contentId: item.id, sha256 }); if (!download) setPreview(result); } catch (error: any) { setError(collaborationFailure(error, /中央节点未找到|REMOTE_FILE_MISSING|FILE_MISSING/.test(String(error?.failure?.code || error?.code || '') + ' ' + String(error?.message || '')) ? `服务器上没找到附件“${item.attachments?.find(file => file.sha256 === sha256)?.name}”，暂时无法${download ? '下载' : '预览'}。点页面右上角的“刷新”后再试；仍没有时请项目管理员补回附件。` : `附件“${item.attachments?.find(file => file.sha256 === sha256)?.name}”${download ? '没下载下来，请再点“下载附件”试一次。' : '暂时无法预览。可再点“预览”，或点“下载附件”后在电脑上打开。'}`, { domain: 'central', operation })); } finally { setBusy(false); } };"
+        }
+      },
+      "beforeUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n验收附件说明\n待办事项\n待处理\ndemo · v1 · 2026/11/16 10:00:00 · 1 个附件\n待办事项\n存入个人成果库\n删除团队成果\n更多\n\n成果 ID：result-audit · v1 复制 ID\n\n检查失败状态与恢复动作。\n\n附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\n远端路径不存在，请核对管理员提供的 SFTP 路径\n\n来源与历史\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\nPROJECT RESULTS\n项目成果库 · 报错验收项目\n团队\n项目成员共享\n个人\n仅自己可见\n目录\n成果数含子目录\n全部目录\n项目目标\n项目资料\n已有能力\n探索记录\n待办事项\n1\n新建目录\n全部目录\n1 条\n仅看与个人库的差异\n查看团队历史\n合并整理\n批量管理\n清理未引用文件\n刷新\n验收附件说明\n待办事项\n待处理\ndemo · v1 · 2026/11/16 10:00:00 · 1 个附件\n待办事项\n存入个人成果库\n删除团队成果\n更多\n\n成果 ID：result-audit · v1 复制 ID\n\n检查失败状态与恢复动作。\n\n附件（1）\n验收附件.txt\n10 B\n预览\n下载附件\n\n服务器上没找到附件“验收附件.txt”，暂时无法下载。点页面右上角的“刷新”后再试；仍没有时请项目管理员补回附件。 查看日志\n\n来源与历史\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "远端路径不存在，请核对管理员提供的 SFTP 路径",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "服务器上没找到附件",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实团队成果刷新",
+          "expected": "文件状态重新读取并显示关联文件缺失",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-refreshed-after.png"
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-logs-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-attachment-remote-missing-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      }
+    },
+    {
+      "id": "team-transfer-record-save",
+      "entry": "传输记录／完成后的本机记录保存",
+      "condition": "实际TransferQueue成功接收并验证回执，最终保存传输状态及随后重试保存均失败",
+      "file": "src/core/transfers.ts",
+      "before": "结果尚未通过校验",
+      "after": "文件已上传，无需重新上传。",
+      "changeReason": "原图已经确认上传，却又要求核对上传结果避免重传，完成边界不清。现明确文件已上传、无需重新上传，仅本机记录上次保存失败，提供真实重试保存记录入口且不会再次传文件。",
+      "codeLocation": {
+        "before": {
+          "file": "src/core/transfers.ts",
+          "line": 17,
+          "source": "  const prefix = task.phase === 'awaiting_receipt' ? '服务器可能已接收；重试会先查询原请求回执。' : task.phase === 'streaming' ? '传输中断，可能留有未完成的临时文件；重试会校验后从头传输。' : task.phase === 'verifying' ? '传输已结束但结果尚未通过校验；不会标记为成功。' : task.phase === 'rejected' ? '服务器已拒绝此次请求；重试前会重新核对账号和项目权限。' : '传输尚未开始。';"
+        },
+        "after": {
+          "file": "src/core/transfers.ts",
+          "line": 1,
+          "source": "import { submissionRecord, submissionRecordSchema } from '../shared/submission';"
+        }
+      },
+      "beforeUI": "轨迹上传 · 已传输的验收轨迹.md\n未完成\n24 B / 24 B · 2026/11/16 10:00:00\n重试\n查看详情\n传输已结束但结果尚未通过校验；不会标记为成功。 ENOSPC: no space left on device, write state.json；传输状态保存失败：ENOSPC: no space left on device, write state.json。请恢复本地存储后重试，将复用原目标。",
+      "afterUI": "轨迹上传 · 已传输的验收轨迹.md\n已完成\n24 B / 24 B · 2026/11/16 10:00:00\n查看详情\n文件已上传，无需重新上传。这台电脑空间不够，上传记录没存好。请腾出空间后点“重试保存记录”。 查看日志重试保存记录",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-transfer-record-save-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-transfer-record-save-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "结果尚未通过校验",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "文件已上传，无需重新上传。",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "真实完成记录的保存失败、仍失败重试、存储恢复再保存与生产按钮调用",
+          "expected": "status done/phase completed不回退，真实queue.retrySave只调用store.save且upload总计1次；UI保存后警告清除",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-transfer-record-save-saved-after.png"
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-transfer-record-save-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-draft-transfer-cache",
+      "entry": "成果整理／已提交草稿",
+      "condition": "原上传回执未确认且本机缓存已清理，成果整理页提供后续操作",
+      "file": "src/renderer/draft-editor.tsx",
+      "before": "重试原上传",
+      "after": "先确认是否收到，别再上传一份",
+      "changeReason": "原图标题上传未完成、绿色勾和正文结果未知矛盾，还提供必然失败的重试。现统一为上传结果待确认、去掉成功勾，缓存缺失时禁用上传重试，并能展开实际远端位置。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/draft-editor.tsx",
+          "line": 121,
+          "source": "    {!isMerge && !artifacts.length && transfer?.status === 'error' && <div className=\"inline-error\" role=\"alert\">上传失败：{transfer.error}<div className=\"row\"><button className=\"secondary\" onClick={() => void run(() => api.call('transfer.retry', { id: transfer.id }))}>重试原上传</button><button className=\"secondary\" onClick={() => void run(async () => { await api.call('draft.revise', { id: draft.id }); notice('修订草稿已创建，可在上方草稿列表选择并补充后上传'); })}>生成修订草稿</button></div></div>}"
+        },
+        "after": {
+          "file": "src/renderer/draft-editor.tsx",
+          "line": 1,
+          "source": "import { useResultDestination } from './result-directories';"
+        }
+      },
+      "beforeUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\n返回成果整理\n关闭\n删除整理记录\n上传未完成\n再次整理\n\n来自“验收工作会话”\n\n待核对的验收成果\n修改名称\n\n这份整理内容已有上传记录，仍需核对原提交结果。\n\n附件（已选 0 个）\n上传失败：服务器可能已接收；重试会先查询原请求回执。 read ECONNRESET\n重试原上传\n生成修订草稿\n补充说明（可选）\n上传位置\n报错验收项目 / 项目成果（自动选择）\n返回成果整理\n保存到个人成果库\n部分上传失败，可在对应成果中重试\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterUI": "任务\n动态\n1\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\n返回成果整理\n关闭\n删除整理记录\n上传结果待确认\n再次整理\n\n来自“验收工作会话”\n\n待核对的验收成果\n修改名称\n\n这份整理内容已有上传记录，仍需核对原提交结果。\n\n附件（已选 0 个）\n这次上传的临时文件已清理，不能重试。点“查看详情”把上传位置交给项目管理者，先确认是否收到，别再上传一份。 查看日志\n查看详情\n无法重试上传\n生成修订草稿\n补充说明（可选）\n上传位置\n报错验收项目 / 项目成果（自动选择）\n返回成果整理\n保存到个人成果库\n部分上传还没查到结果，请查看对应记录\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "重试原上传",
+          "pass": true
+        },
+        {
+          "action": "同一失败记录出现在实际PreparationReview子成果中",
+          "expected": "保留基线子成果原UI",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-artifact-before.png"
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "先确认是否收到，别再上传一份",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "同一失败记录出现在实际PreparationReview子成果中",
+          "expected": "子成果保留回执未知并阻止必失败重传",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-artifact-after.png"
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-transfer-cache-after.png",
+      "readabilityApproval": "pending-independent-review",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      },
+      "sharedContributionStatusUpdate": {
+        "source": "src/shared/contribution-status.ts",
+        "boundary": "awaiting_receipt or cache cleanup error",
+        "currentLabel": "上传结果待核对"
+      }
+    },
+    {
+      "id": "team-project-created-refresh-failure",
+      "entry": "完善项目资料／首次初始化",
+      "condition": "中央节点已确认创建项目，随后父界面刷新失败",
+      "file": "src/renderer/project-onboarding.tsx",
+      "before": "TypeError: isolated backend failure",
+      "after": "已创建，项目列表没刷新出来",
+      "changeReason": "原图把项目已创建与未知创建结果拼在一起，还展示未完成的创建表单。现只说明项目已创建、列表没刷新，隐藏已完成表单，真实继续按钮只刷新不再次初始化。",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/project-onboarding.tsx",
+          "line": 22,
+          "source": "      {error && <div className=\"inline-error\" role=\"alert\">{error}</div>}{draftError && <p className=\"inline-error\">{draftError}</p>}"
+        },
+        "after": {
+          "file": "src/renderer/project-onboarding.tsx",
+          "line": 34,
+          "source": "      catch (reason) { setError(collaborationFailure(reason, `项目「${project.name}」已创建，项目列表没刷新出来。点“刷新项目并继续”即可，不用再创建。`, { domain: 'central', operation: '刷新已创建项目', outcome: 'accepted' })); }"
+        }
+      },
+      "beforeUI": "完善项目资料\n报错验收项目 · 项目初始化\n账号：demo\nTypeError: isolated backend failure\n项目名称 *\n项目背景 *\n项目目标 *\n验收标准 *\n补充范围、资料与协作约定（可选）\n稍后填写\n保存项目资料",
+      "afterUI": "完善项目资料\n报错验收项目 · 项目初始化\n账号：demo\n项目「报错验收项目」已创建，项目列表没刷新出来。点“刷新项目并继续”即可，不用再创建。 查看日志\n关闭\n刷新项目并继续",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-project-created-refresh-failure-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/team-project-created-refresh-failure-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "TypeError: isolated backend failure",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "已创建，项目列表没刷新出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "刷新已创建项目",
+          "expected": "仅重试父界面刷新，project.initialize仍只调用1次",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/team-project-created-refresh-failure-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "admin-project-catalog-unreadable",
+      "entry": "共享空间／清理项目",
+      "condition": "实际legacy catalogProjects枚举已登记目录收到EACCES，不能完整读取可清理项目",
+      "file": "src/admin/project-purge.ts",
+      "before": "还没有项目",
+      "after": "没能读全可清理的项目",
+      "changeReason": "原图在清理弹窗重复显示项目目录与读取失败长句，像空项目列表。现说明可清理项目未读全、清理尚未开始，保留重新读取项目与日志入口，确认清理保持禁用。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/project-purge.ts",
+          "line": 1,
+          "source": "import fs from 'node:fs/promises';"
+        },
+        "after": {
+          "file": "src/admin/project-purge.ts",
+          "line": 1,
+          "source": "import fs from 'node:fs/promises';"
+        }
+      },
+      "beforeUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目\n清理项目\n\n还没有项目。\n\n取消\n确认清理",
+      "afterUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已统计的部分\n4.00 KB\n2 个文件 · 2 个目录\n另有 1 个位置没统计完整，实际占用可能更多。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n已统计的部分\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看未统计的位置\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目\n清理项目\n重新读取项目\n没能读全可清理的项目，清理还没开始。请点“重新读取项目”再试。 查看日志\n取消\n确认清理",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-project-catalog-unreadable-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-project-catalog-unreadable-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "screenshotMode": "fullPage",
+        "geometryEvidence": "The capture script configured a 1440x1000 viewport. These existing captures did not record runtime layout metrics; actual image dimensions are read from the PNG header.",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "还没有项目",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "没能读全可清理的项目",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-project-catalog-unreadable-after.png",
+      "readabilityApproval": "pending-independent-review"
+    },
+    {
+      "id": "team-question-feed-read-failure",
+      "entry": "团队动态／求助动态",
+      "condition": "求助记录同步失败且没有已读列表；刷新成功后保留记录，后续同步失败仍保留已读记录",
+      "file": "src/renderer/team-questions.tsx",
+      "before": "暂无求助",
+      "after": "求助记录没加载出来",
+      "beforeVersion": "readability-round2-pre-rewrite",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 230,
+          "source": "    {q ? <QuestionDetail key={q.id} active={active} question={q} inbox={inbox} username={username} sessions={sessions} session={session} changed={changed} onPlace={onPlace} onBack={() => select('session')}/> : <div className=\"team-question-panel-scroll\">{canCompose && <QuestionComposer key={session.id} session={session} sent={item => { select(item.id); void changed(); }}/>} {!!items.length && <h3>{projectId ? '本项目的求助' : '当前会话的求助'}</h3>}{items.map(item => <QuestionCard key={item.id} question={item} unread={questionUnread(item, inbox)} open={() => select(item.id)}/>)}{!items.length && !canCompose && <p className=\"muted small\">暂无求助</p>}</div>}"
+        },
+        "after": {
+          "file": "src/renderer/team-questions.tsx",
+          "line": 48,
+          "source": "  const readFailure = (reason: unknown) => collaborationFailure(reason === inbox.error && inbox.failure ? {message: reason, failure: inbox.failure} : reason, inbox.items.length ? '最新求助消息没加载出来，下面是之前读到的记录。请点“刷新求助记录”。' : '求助记录没加载出来。请点“刷新求助记录”再试。', { domain: 'central', operation: '读取求助记录' });"
+        }
+      },
+      "beforeUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\n求助动态\n开放的求助\n已关闭\n全部\n\n求助动态暂未同步：同步求助记录：未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n\n暂无求助\n\nTEAM ACTIVITY\n团队动态\n\n先查看成果，再决定是否存入本地库。无需保留的动态可直接标记已处理，之后也能设回待处理。\n\n刷新团队动态\n待处理\n0\n已处理\n0\n全部\n0\n类型\n全部类型（0）\n上传成果（0）\n更新成果（0）\n合并成果（0）\n成果被替代（0）\n团队成果已删除（0）\n关联文件缺失（0）\n关联文件恢复（0）\n多选处理\n没有待处理动态\n\n新的团队成果变化会出现在这里。\n\nAI推荐\n寻求帮助\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-before.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "暂无求助",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "afterUI": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n中央节点 · 验收中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n0\n未分组\n0\n报错验收项目\n1\n创建者\n同步已开启\nAI推荐\n会话\n报错验收项目\nG\nC\n▸\nG\n验收工作会话\n已关闭会话\n（0）\n求助动态\n开放的求助\n已关闭\n全部\n\n求助记录没加载出来。请点“刷新求助记录”再试。 查看日志刷新求助记录\n\nTEAM ACTIVITY\n团队动态\n\n先查看成果，再决定是否存入本地库。无需保留的动态可直接标记已处理，之后也能设回待处理。\n\n刷新团队动态\n待处理\n0\n已处理\n0\n全部\n0\n类型\n全部类型（0）\n上传成果（0）\n更新成果（0）\n合并成果（0）\n成果被替代（0）\n团队成果已删除（0）\n关联文件缺失（0）\n关联文件恢复（0）\n多选处理\n没有待处理动态\n\n新的团队成果变化会出现在这里。\n\nAI推荐\n寻求帮助\n子会话\n侧边提问\n资料同步\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+      "afterScreenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-after.png",
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-before.png",
+      "readabilityApproval": "pending-independent-review",
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "afterAssertions": [
+        {
+          "expected": "求助记录没加载出来",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "点击真实求助动态刷新入口恢复读取",
+          "expected": "question.sync新增1次，真实state事件恢复原求助；不调用任何求助写接口",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-recovered-after.png"
+        },
+        {
+          "action": "后台再次同步失败时保留已读列表",
+          "expected": "求助记录仍1条，不显示暂无求助，提示这些是此前记录；query总增2、写接口0",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-question-feed-read-failure-retained-after.png"
+        },
+        {
+          "action": "底部同步入口使用准确范围",
+          "expected": "实际DOM含资料同步、不再含本机已保存，业务失败与恢复断言保持原有条件",
+          "actual": {
+            "containsSyncEntry": true,
+            "containsSavedClaim": false
+          },
+          "pass": true
+        }
+      ],
+      "readabilityBaselineSource": ".test-data/error-readability/baseline",
+      "changeReason": "旧版团队动态页把求助同步失败和暂无求助同时显示，用户会误认为没有求助，也没有专门的刷新入口。新版保留已有求助，未读列表不当作空列表，并提供真实刷新求助记录；成功恢复后清除错误，再次失败仍显示此前记录。",
+      "sharedStatusUpdate": {
+        "source": "src/renderer/account-sync.tsx",
+        "previousLabel": "本机已保存",
+        "currentLabel": "资料同步",
+        "reason": "入口只描述账号资料同步，不断言所有本机记录已持久化。"
+      }
+    },
+    {
+      "id": "team-account-sync-cache-unreadable",
+      "entry": "账号资料同步／本机同步记录不可读",
+      "condition": "实际AccountSync.activate读取隔离账号同步JSON失败，保留本机资料且没有启动同步轮询",
+      "file": "src/renderer/account-sync.tsx",
+      "before": "后台会继续尝试同步",
+      "after": "自动同步没能启动",
+      "beforeVersion": "readability-round2-pre-rewrite",
+      "codeLocation": {
+        "before": {
+          "file": "src/renderer/account-sync.tsx",
+          "line": 36,
+          "source": "  const run = async (action: string, input?: unknown) => { setBusy(true); setError(''); try { await window.workbench.call(action, input); } catch (error: any) { setError(uiErrorMessage(error, { domain: 'central', operation: '处理资料同步' })); } finally { setBusy(false); } };"
+        },
+        "after": {
+          "file": "src/renderer/account-sync.tsx",
+          "line": 38,
+          "source": "  const run = async (action: string, input?: unknown) => { setBusy(true); setError(''); try { await window.workbench.call(action, input); } catch (error: any) { setError(uiErrorMessage(error, { domain: 'central', operation: '处理资料同步' })); } finally { setBusy(false); } };"
+        }
+      },
+      "beforeUI": "资料等待自动同步\n自动同步\n×\n\n个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。\n\n账号资料尚未同步。账号同步缓存无法读取，已保留本机资料 本机内容已保留，后台会继续尝试同步，你可以继续本机工作。",
+      "beforeScreenshot": "docs/error-audit/screenshots/team-account-sync-cache-unreadable-before.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "后台会继续尝试同步",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "afterAssertions": [
+        {
+          "expected": "自动同步没能启动",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "实际AccountSync.activate读取损坏的隔离JSON",
+          "expected": "本机成果保留，损坏同步记录不改写，同步网络调用0且没有启动polling，真实日志入口查看原JSON错误",
+          "pass": true
+        },
+        {
+          "action": "点击生产查看日志入口并查看对应日志详情",
+          "expected": "实际LogsPanel打开，技术原文只在日志详情显示",
+          "pass": true,
+          "screenshot": "docs/error-audit/screenshots/team-account-sync-cache-unreadable-logs-after.png"
+        }
+      ],
+      "changeReason": "旧版把本机同步记录不可读也写成后台继续尝试，但真实activate已返回、轮询没有启动。新版独立说明自动同步未启动、本机资料仍在，并提供对应账号同步日志交给维护人员。",
+      "readabilityBaselineSource": ".test-data/error-readability/baseline",
+      "afterUI": "自动同步未启动\n自动同步\n×\n\n个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。\n\n这台电脑的同步记录读不了，自动同步没能启动。资料仍保存在本机，请把日志交给维护人员处理。 查看日志",
+      "afterScreenshot": "docs/error-audit/screenshots/team-account-sync-cache-unreadable-after.png",
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/screenshots/team-account-sync-cache-unreadable-before.png",
+      "readabilityApproval": "pending-independent-review",
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "fullPage"
+      }
+    },
+    {
+      "id": "admin-project-index-unreadable",
+      "entry": "共享空间／清理项目／保留轨迹",
+      "condition": "实际legacy purgeProject读取成果索引JSON失败，不能把未知关联作为空索引后执行清理",
+      "file": "src/admin/project-purge.ts",
+      "before": "已清理",
+      "after": "本次没有删除文件",
+      "changeReason": "原图清空选择后只说这个项目与成果索引，读者不知道对象。现点名所选项目的成果文件清单未读取、本次没有删除文件，提供重读与日志，清理仍禁用。",
+      "codeLocation": {
+        "before": {
+          "file": "src/admin/project-purge.ts",
+          "line": 1,
+          "source": "import fs from 'node:fs/promises';"
+        },
+        "after": {
+          "file": "src/admin/project-purge.ts",
+          "line": 1,
+          "source": "import fs from 'node:fs/promises';"
+        }
+      },
+      "beforeUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已清理「验收已登记项目」并保留轨迹，删除 1 个文件\n共享文件总量\n4.00 KB\n2 个文件 · 2 个目录\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n共享文件\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目",
+      "afterUI": "SHARED STORAGE\n共享空间\n\n统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。\n\n统计于 11/16 10:00\n清理项目\n刷新统计\n已统计的部分\n4.00 KB\n2 个文件 · 2 个目录\n另有 1 个位置没统计完整，实际占用可能更多。\n磁盘剩余\n512 MB\n总容量 1.00 GB\n项目\n0\n按成员权限独立管理\n成员共享占用\n0 B\n0 位成员有共享内容\n内容构成\n按共享目录用途归类\n4.00 KB\n已统计的部分\n磁盘容量\n共享空间所在磁盘或分区\n50.0%\n已使用\n已用 512 MB\n剩余 512 MB\n1 个路径未能完整统计\n查看未统计的位置\n项目\n用户\n文件夹\n项目占用\n总量包含成员提交、轨迹、团队整理和项目公共文件\n暂无已准备共享目录的项目\n清理项目\n重新读取项目\n没能读取项目「验收已登记项目」的成果文件清单，本次没有删除文件。请点“重新读取项目”再试；仍失败时查看日志。 查看日志\n取消\n确认清理",
+      "beforeScreenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-before.png",
+      "afterScreenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-after.png",
+      "beforeCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1425,
+          "documentHeight": 1006
+        },
+        "screenshotMode": "viewport",
+        "actualPNG": {
+          "width": 1440,
+          "height": 1000
+        }
+      },
+      "afterCapture": {
+        "configuredViewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "layoutViewport": {
+          "width": 1440,
+          "height": 1000,
+          "documentWidth": 1440,
+          "documentHeight": 1000
+        },
+        "screenshotMode": "viewport"
+      },
+      "beforeAssertions": [
+        {
+          "expected": "已清理",
+          "pass": true
+        }
+      ],
+      "afterAssertions": [
+        {
+          "expected": "本次没有删除文件",
+          "pass": true
+        },
+        {
+          "expected": "No raw errno, protocol marker, authentication traceback, or TypeError is rendered",
+          "pass": true
+        },
+        {
+          "action": "实际purgeProject读取损坏索引",
+          "expected": "保留轨迹模式在任何文件删除前停止；隔离原文件仍在",
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "readabilityRound": 2,
+      "readabilityBaselineScreenshot": "docs/error-audit/readability-baseline/admin/screenshots/admin-project-index-unreadable-after.png",
+      "readabilityApproval": "pending-independent-review"
+    }
+  ]
+}

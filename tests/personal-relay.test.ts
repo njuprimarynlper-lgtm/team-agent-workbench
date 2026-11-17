@@ -97,7 +97,7 @@ test('cached runtimes, preparation helpers and background summaries keep the ori
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {}, undefined, env, undefined, undefined, undefined, true);
   try {
     await wb.store.init(); await wb.restoreLocalWorkspace();
-    wb.store.settings.providerPaths.codex = cli.launcher;
+    wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = cli.launcher;
     wb.store.settings.egress = { enabled: true, viaSharedServer: true, host: 'test', port: 443, certificateFingerprint: '' };
     const session = await wb.createSession('codex', root, undefined, 'work', undefined, undefined, 'inherit', false, 'management');
     session.relayAccount = 'alice';

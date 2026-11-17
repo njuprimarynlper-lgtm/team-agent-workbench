@@ -5,7 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Workbench } from '../src/core/workbench';
-import { relocateWorkspace } from '../src/core/workspace-relocation';
+import { relocateWorkspace, workspaceRelocationFailure } from '../src/core/workspace-relocation';
+import { userFailure } from '../src/shared/user-failure';
+import { logsFor } from '../src/core/logging';
 import { projectDirectoryKey } from '../src/shared/project-directory';
 import { sessionContext } from '../src/core/session-context';
 import { grantTestWorkspace, offlineProjectId } from './fixtures/offline-workspace';
@@ -20,10 +22,27 @@ async function fixture(run: (f: { wb: Workbench; root: string; source: string; t
   const wb = new Workbench(path.join(root, 'store'), () => {}, () => {});
   try {
     await wb.store.init(); grantTestWorkspace(wb, source);
+    wb.store.settings.codexRequestGuard = false; // Directory/CLI fixture; never inspect the real OS proxy.
     const key = projectDirectoryKey(wb.store.settings.workspaceSnapshot!.profile, offlineProjectId);
     await run({ wb, root, source, target, save: () => wb.saveProjectDirectory(offlineProjectId, target, key) });
   } finally { await wb.close(); await fs.rm(root, { recursive: true, force: true, maxRetries: 5 }); }
 }
+
+test('known migration reasons survive the public boundary while paths and errno stay in diagnostics', () => {
+  const cases = [
+    ['目录链接形成循环，原目录已保留：C:/audit/a/to-b', /循环/],
+    ['会话数据内部包含符号链接，请保留当前目录：C:/audit/.workbench/sessions/a/journal', /会话记录内部有指向别处的文件夹链接/],
+    ['无法在新目录保留文件链接，原目录已保留：C:/audit/docs（EPERM）', /Windows 没允许在新目录创建文件夹链接.*权限/],
+    ['目录包含独立 Git 工作树或子模块，请保留独立目录：C:/audit/.git', /独立 Git 工作树或子模块/],
+    ['迁移保留副本的位置也有冲突：C:/audit/copy', /保留副本的位置也有冲突/],
+  ] as const;
+  for (const [diagnostic, expected] of cases) {
+    const known = workspaceRelocationFailure(Error(diagnostic)); assert(known);
+    const published = userFailure({ failure: known }).message;
+    assert.match(published, expected); assert.doesNotMatch(published, /C:\/audit|EPERM|原因尚未确认/);
+  }
+  assert.equal(workspaceRelocationFailure(Error('unclassified internal error')), undefined);
+});
 
 test('running shared-directory sessions defer copying; fixed and imported sessions retain their roots', () => fixture(async ({ wb, source, target, save }) => {
   const parent = await wb.createSession('codex', source, offlineProjectId, 'work', undefined, undefined, 'inherit', false);
@@ -120,7 +139,10 @@ test('failed persistence keeps the original cwd; verified copies can be retried 
   await fs.writeFile(path.join(source, 'output.txt'), 'keep me');
   const originalSave = wb.store.save.bind(wb.store); let fail = true;
   wb.store.save = async () => { if (s.cwd === target && fail) { fail = false; throw new Error('disk unavailable'); } await originalSave(); };
-  await save(); assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /disk unavailable/);
+  await save(); assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /文件已复制到新目录.*切换设置没有存好.*仍使用原目录/); assert.doesNotMatch(s.directoryMove!.error!, /disk unavailable/);
+  const diagnostic = (await logsFor(wb.store.root).files()).filter(file => file.category === 'diagnostic');
+  const recorded = (await Promise.all(diagnostic.map(file => fs.readFile(file.file, 'utf8')))).join('\n');
+  assert.match(recorded, /disk unavailable/, 'the original persistence failure remains in diagnostic logs');
   assert.equal(await fs.readFile(path.join(source, 'output.txt'), 'utf8'), 'keep me');
   await wb.flushProjectDirectories(); assert(s.directoryMove?.error, 'failed migrations wait for an explicit retry');
   await wb.setSessionDirectoryMode(s.id, 'project');
@@ -269,7 +291,7 @@ test('link creation failure retains the original workspace; explicit retry succe
   const original = fs.symlink;
   fs.symlink = async (...args: Parameters<typeof fs.symlink>) => { if (args[1] === path.join(target, 'docs')) throw Object.assign(new Error('denied'), { code: 'EPERM' }); return original(...args); };
   try { await save(); } finally { fs.symlink = original; }
-  assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /无法.*保留文件链接/);
+  assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /Windows 没允许在新目录创建文件夹链接/);
   await wb.setSessionDirectoryMode(s.id, 'project');
   assert.equal(s.cwd, target); assert.equal(await fs.realpath(path.join(target, 'docs')), outside);
   assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
@@ -336,6 +358,6 @@ test('metadata root support does not allow nested journal links during migration
   await fs.rename(logical, metadata); await fs.symlink(metadata, logical, process.platform === 'win32' ? 'junction' : 'dir');
   const outside = path.join(root, 'outside'); await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'keep.txt'), 'keep');
   await fs.symlink(outside, path.join(metadata, 'sessions', s.id, 'project-journal'), process.platform === 'win32' ? 'junction' : 'dir');
-  await save(); assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /会话数据内部包含符号链接/);
+  await save(); assert.equal(s.cwd, source); assert.match(s.directoryMove!.error!, /会话记录内部有指向别处的文件夹链接/);
   assert.deepEqual(await fs.readdir(target), []); assert.equal(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8'), 'keep');
 }));

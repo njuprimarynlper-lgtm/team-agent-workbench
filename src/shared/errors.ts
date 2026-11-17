@@ -1,6 +1,8 @@
 import { ZodError } from 'zod';
 
 export function errorMessage(error: unknown): string {
+  // Electron preserves plain rejection payloads, but strips custom Error fields.
+  if ((error as any)?.failure?.version === 1 && typeof (error as any)?.message === 'string') return (error as any).message;
   if (error instanceof ZodError) {
     const labels: Record<string, string> = { username: '登录账号', password: '密码', label: '项目组名称', host: '服务器地址', port: '端口', root: '共享根路径', name: '名称' };
     return [...new Set(error.issues.map(issue => /[\u4e00-\u9fff]/.test(issue.message) ? issue.message

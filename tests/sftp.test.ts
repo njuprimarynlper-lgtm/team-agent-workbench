@@ -8,7 +8,10 @@ import path from 'node:path';
 import os from 'node:os';
 const key = generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs1', format: 'pem' }, publicKeyEncoding: { type: 'pkcs1', format: 'pem' } }).privateKey;
 test('nologin SFTP reply identifies incomplete member access configuration', () => {
-  assert.match(friendlySftp(new Error('Packet length 1416128883 exceeds max length of 262144')).message, /成员登录配置异常.*重新创建该成员账号/);
+  const cause = new Error('Packet length 1416128883 exceeds max length of 262144'), failure = friendlySftp(cause);
+  assert.match(failure.message, /账号验证成功.*未启用此账号的文件访问.*修复成员登录配置/);
+  assert.doesNotMatch(failure.message, /重新创建|Packet length/);
+  assert.equal(failure.cause, cause, 'original protocol diagnostic is retained for logs');
 });
 test('disconnected SFTP errors point to the visible account login action', () => {
   assert.throws(() => new SftpConnection().channel(), /中央节点连接已断开，请重新连接后再试/);
@@ -55,7 +58,11 @@ test('legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks
     remote.profile!.projects = profile.projects;
     const binding = remote.binding('p');
     assert.deepEqual(await remote.verifyDirectory('/project'), { path: '/project', canonicalPath: '/project' });
-    await assert.rejects(remote.verifyDirectory('/project/denied'), /Linux 拒绝访问/);
+    await assert.rejects(remote.verifyDirectory('/project/denied'), (error: any) => {
+      assert.match(error.message, /当前中央节点账号.*没有.*访问权限/);
+      assert.equal(error.cause?.code, CODE.PERMISSION_DENIED, 'readable wording does not change the permission result');
+      return true;
+    });
     await assert.rejects(remote.verifyDirectory('/project/readme.md'), /必须是.*目录/);
     const preview = await remote.preview(binding, '/project/readme.md'); assert.equal(preview.content, '项目说明：中文');
     const local = path.join(dir, 'readme.md'); await remote.download(binding, '/project/readme.md', local); assert.equal(await fs.readFile(local, 'utf8'), preview.content);

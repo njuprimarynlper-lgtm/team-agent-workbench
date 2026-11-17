@@ -1,0 +1,440 @@
+{
+  "version": 1,
+  "purpose": "第二轮可读性改动前的上一轮实际after截图与清单；d4d51bb根基线before保持不动",
+  "scenarios": 51,
+  "pngs": 68,
+  "files": [
+    {
+      "source": "docs/error-audit/admin-scenarios.json",
+      "target": "docs/error-audit/readability-baseline/admin/admin-scenarios.json",
+      "bytes": 224878,
+      "sha256": "df34f4632f3ad8fd8ba562e377746210132bc32f285ab0a3a64193c0209ed9aa"
+    },
+    {
+      "source": ".test-data/error-audit/admin-results.json",
+      "target": "docs/error-audit/readability-baseline/admin/admin-results.json",
+      "bytes": 245979,
+      "sha256": "ff9dfdad968d7427c57e5c2caf12696b526fd51ae93e7d869321f70a146a5a10"
+    },
+    {
+      "source": "docs/error-audit/admin-display-inventory.json",
+      "target": "docs/error-audit/readability-baseline/admin/admin-display-inventory.json",
+      "bytes": 520937,
+      "sha256": "ea8ca7d20de81e30ed90ffcf55ed6dab7c02602f8450f31fe29088c75f41acc2"
+    },
+    {
+      "source": "docs/error-audit/admin-review.json",
+      "target": "docs/error-audit/readability-baseline/admin/admin-review.json",
+      "bytes": 2136494,
+      "sha256": "31853e347c908f70a4cab18cae21b8fe5676d5fe578f2495af58559ff2b27f4d"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-ssh-auth-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-ssh-auth-after.png",
+      "bytes": 70363,
+      "sha256": "8ad967d993ad6da3a3c4ff22b7a203b3357c23726b7fe7601436d04185c8530b"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-ssh-check-timeout-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-ssh-check-timeout-after.png",
+      "bytes": 70487,
+      "sha256": "85b0583ea93cd7da6459469849432fbe420be9cd4f9198e6fcbf98379c64a932"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-member-blocked-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-member-blocked-after.png",
+      "bytes": 48747,
+      "sha256": "5aafb14a52411f03c290cb32316b5df870334a21d816378ec3dde01bc1bcb195"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-recovery-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-recovery-after.png",
+      "bytes": 73212,
+      "sha256": "e32e2cf79f2b35a8d28b5ec53f22f121084d0bf36bd528b177c2aef6d7f4d9c4"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-storage-partial-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-storage-partial-after.png",
+      "bytes": 86851,
+      "sha256": "41f89cce1a96e823f143737706f6cde077a64452e6897a54b639e869568ca6ad"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-storage-cancelled-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-storage-cancelled-after.png",
+      "bytes": 23081,
+      "sha256": "4964a260e3f3e66622cf42a1476aed67a3c8cb6adf849d5e42affe4b3fdbf325"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-storage-cancelled-previous-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-storage-cancelled-previous-after.png",
+      "bytes": 89964,
+      "sha256": "ced70cbfdd8ad39a60257bf65da2b3db5c37e697ba1b8ae6b7f3ff1c4b8b5ba8"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-egress-port-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-port-after.png",
+      "bytes": 73208,
+      "sha256": "953922000297ed2d0a3ffc4537883201e20dde6a61447866d37d8a594ef87042"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-personal-read-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-personal-read-after.png",
+      "bytes": 53767,
+      "sha256": "3c274e8966285eca0c14d7b1bc7e47beb8a10c19574b0947aadb5910cc88675f"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-merge-blocked-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-merge-blocked-after.png",
+      "bytes": 107161,
+      "sha256": "413f06f8ad0273e7b489c2e2f6028478e06409c18a622eaaafb6b4076da6ec96"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-tasks-read-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-tasks-read-after.png",
+      "bytes": 37904,
+      "sha256": "d15c4e8b0f52319b254b9a3b025793767f8f378dfbe3bb381444a8677e830147"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-question-auto-blocked-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-question-auto-blocked-after.png",
+      "bytes": 206780,
+      "sha256": "17a9234fc5de2da16f9ba0cf9473580593bce1851b3c4095c0f0a44e5d73e20b"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-question-stopping-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-question-stopping-after.png",
+      "bytes": 35832,
+      "sha256": "408df586ba8056241f120b89e20e06d3db5f00b984d394112cfcfd6d6ecfbef7"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-transfer-cache-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-transfer-cache-after.png",
+      "bytes": 28686,
+      "sha256": "b5bb311172fa4305ad14fe20c69b8964e957513190471722d515e07c51b7bc65"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-transfer-uncertain-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-transfer-uncertain-after.png",
+      "bytes": 73543,
+      "sha256": "82239fdfec80639600094fdba16300621f4011749173affbcc6b8fcbea2d38e4"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-rsi-retry-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-rsi-retry-after.png",
+      "bytes": 15154,
+      "sha256": "60d8d0e1cf887cf1da01398b61cae64acccca9e61fdf6f9226f94b61a4246d0c"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-activity-failed-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-activity-failed-after.png",
+      "bytes": 21110,
+      "sha256": "e4d42576cf588e265a34068e759528213692fd27faa6f6dc2d2703f66675f6d7"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-environment-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-environment-failure-after.png",
+      "bytes": 78980,
+      "sha256": "3feb05f0dfc564526cba990e916be063fb9bbd4443ca06e4b422f3d406b3f6bc"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-environment-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-environment-failure-logs-after.png",
+      "bytes": 74751,
+      "sha256": "0c2f87e0dd33b7380712ee55f02ee40d01b0191c11d55cca3dc3b985a5926a3a"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-import-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-import-failure-after.png",
+      "bytes": 51063,
+      "sha256": "70b8bd191fa0faa5b27a5ae273e126dcef85145af332c16fc6d40bb9066a06ce"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-import-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-import-failure-logs-after.png",
+      "bytes": 74555,
+      "sha256": "ea74632a5014003d8088e93496e3a4833d825f1098e5d1ab7e8f0736bdcc2f3e"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-sync-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-sync-failure-after.png",
+      "bytes": 12837,
+      "sha256": "e0ed4fe6f70d9eb752080a695d286b863f03dea207125f8c1551ea36a5a541fc"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-sync-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-sync-failure-logs-after.png",
+      "bytes": 77737,
+      "sha256": "0f6d3e149e2f0690153e94f65273ebc187214b50251d06e9c2220333ccacb266"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-egress-test-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-test-failure-after.png",
+      "bytes": 32827,
+      "sha256": "6d5960db915226c66b942180f5aead4eb695159fb1ea9b588aae5ccd97c0439d"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-egress-test-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-test-failure-logs-after.png",
+      "bytes": 87727,
+      "sha256": "98fd07bb0c988c5d2031c452b7f72ecb2b98d01a2bb4529638f42fbf05bf5a98"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-egress-jump-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-egress-jump-failure-after.png",
+      "bytes": 25207,
+      "sha256": "51e8d2509ecc38aa2ee8ca1273cf1e9769f2f1d2d9e1b58caf0e85dc4a89fb41"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-edit-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-edit-failure-after.png",
+      "bytes": 60547,
+      "sha256": "17b4f27851761a41223774153f1f60b781623fb7e8a50953f0ad0886446a53e6"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-delete-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-delete-failure-after.png",
+      "bytes": 107801,
+      "sha256": "78e25fc296a0288a3e5d13aa9263b8a050ef68df12cef5c3646354a5a70daa94"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-delete-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-delete-failure-logs-after.png",
+      "bytes": 102831,
+      "sha256": "4b4bed587089435ad38f298ded6bd566c98f84d049cc805d2ff5424a769c0efb"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-attachment-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-attachment-failure-after.png",
+      "bytes": 16046,
+      "sha256": "f895387cbf76e5cdb6102266eb24ed90db1fafc58a1d8284136a840912fde65f"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-create-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-create-failure-after.png",
+      "bytes": 99861,
+      "sha256": "6d58a5ddb2ac6e3500f82bce16dca3b8c052531965e949223aa65e974a46dfb7"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-create-failure-choices-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-create-failure-choices-after.png",
+      "bytes": 98834,
+      "sha256": "4ceca7ebcb7fe4adee3896b60bf0d3da6a466b3f32932fac091ca0e743c8139b"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-created-refresh-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-created-refresh-failure-after.png",
+      "bytes": 42751,
+      "sha256": "137e555fe609ead7de1c141e5cb09fc5c89f869c13929c829dcf23f47cdb83c1"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-created-refresh-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-created-refresh-failure-logs-after.png",
+      "bytes": 92253,
+      "sha256": "bb1fc5f840333aa36cf2f30634a7445beec1f56842bbe59564332fb14a2e2cee"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-created-refresh-failure-recovered-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-created-refresh-failure-recovered-after.png",
+      "bytes": 60105,
+      "sha256": "eee48317d167aeb5240311210459345452fcb07e921876b07004173fc8b137c9"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-created-refresh-failure-read-status-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-created-refresh-failure-read-status-after.png",
+      "bytes": 42751,
+      "sha256": "137e555fe609ead7de1c141e5cb09fc5c89f869c13929c829dcf23f47cdb83c1"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-status-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-status-failure-after.png",
+      "bytes": 51028,
+      "sha256": "2ebb674dd7222e56560475f11f7005eee821db4b9a730983e281e74110157218"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-task-status-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-task-status-failure-logs-after.png",
+      "bytes": 81861,
+      "sha256": "d8e485f96f2c42747c058dadb02c0866e76367c8bcc8cf5a713b5efea4ae78ba"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-question-sync-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-question-sync-failure-after.png",
+      "bytes": 35795,
+      "sha256": "8ef6138ddded11352d2305f504b84cedd333794031919c8d922ad87c568f1844"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-question-sync-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-question-sync-failure-logs-after.png",
+      "bytes": 98863,
+      "sha256": "4ca44533c1a9e6e617e46fbc4025b425cec1060fb739d33feddf1d8c3a4de3ee"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-question-send-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-question-send-failure-after.png",
+      "bytes": 42877,
+      "sha256": "f39e78ab5c24bc004250d037c8213d557cd31f67149933b38fa31a6c212cb9b1"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-question-send-failure-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-question-send-failure-logs-after.png",
+      "bytes": 102097,
+      "sha256": "9f6c593f5f490eeca36cc4f283aada3f5cb45d694c50ee40c7c4d8a671608220"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-personal-read-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-personal-read-failure-after.png",
+      "bytes": 45762,
+      "sha256": "d7841f794865757dd56df3e4dfb81430fdd8c2ce1a5fe0f4874a1b83d00159e1"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-upload-unconfirmed-after.png",
+      "bytes": 17700,
+      "sha256": "4e0dd8e2f35f0fbae1b61e83a2733616cfd2ee94878462e1a24caa9b951ba7aa"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-updates-refresh-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-updates-refresh-failure-after.png",
+      "bytes": 40329,
+      "sha256": "3f2232499eb7fc90d5af35f8e5407e04822003b305631470a5d777fee66c278b"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-scheduled-read-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-scheduled-read-failure-after.png",
+      "bytes": 31434,
+      "sha256": "da0c76acb07b9e3bb477f0b6c19b61150582db30d50dc0f5cf199a6f2d534509"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-scheduled-read-recovered-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-scheduled-read-recovered-after.png",
+      "bytes": 37024,
+      "sha256": "1eaba86f397abe9290d1b1a208cf0365eaeb0a1708e94249df58e7fb04c78b49"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-context-action-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-context-action-failure-after.png",
+      "bytes": 22052,
+      "sha256": "6d40644ee04796e55de9e76b1ed376bd345e01904f6ee321e639f59979b3085c"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-rsi-settings-read-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-rsi-settings-read-failure-after.png",
+      "bytes": 20837,
+      "sha256": "7c034a18924f6f79144ee1c5b830067dcca1b7232a6d54605d61d50e74cbc342"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-directions-read-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-directions-read-failure-after.png",
+      "bytes": 29701,
+      "sha256": "18705d50b9370749de9767b5101998321e788f861f7ecff6f4009544cc0d11ed"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-account-sync-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-account-sync-failure-after.png",
+      "bytes": 43594,
+      "sha256": "203163cb799c7409f648d35cdffb17e107dd50f5a29cff13024bb23ea838abc6"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-projects-read-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-projects-read-failure-after.png",
+      "bytes": 27188,
+      "sha256": "5ee93373956aa695c0b8c49b899039b0a9fd8324503c66aa6349e99e17d4a22e"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-project-brief-read-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-project-brief-read-failure-after.png",
+      "bytes": 24787,
+      "sha256": "11502874bc9eda488d4a99f48916d09df9f2e3833ecee045914aed67de36422a"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-personal-group-refresh-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-personal-group-refresh-failure-after.png",
+      "bytes": 15353,
+      "sha256": "f08a5ec67d89a0ad34f66ebe83b6bb5cacff6f057c5110729cec4c931c72e7b6"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-draft-delete-partial-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-delete-partial-after.png",
+      "bytes": 50933,
+      "sha256": "db8f7bef98871081194fd6409fdada97fb40745534d68a86b2f738be4ab282a7"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-move-uncertain-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-move-uncertain-after.png",
+      "bytes": 72991,
+      "sha256": "354985033eca67b2c8f94cbc4a575ca75adec9408f836710084968871e937e86"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-remote-missing-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-remote-missing-after.png",
+      "bytes": 108237,
+      "sha256": "a9f69fd7065789e5ff4ad5d01eac95dff6264b24c5f7fd100603187a413b25a1"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-remote-missing-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-remote-missing-logs-after.png",
+      "bytes": 124404,
+      "sha256": "a1cc518ab293e8b59f31fa949bdcce22cc4cae802a08518a35e2aa7291debccc"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-results-remote-missing-refreshed-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-results-remote-missing-refreshed-after.png",
+      "bytes": 94801,
+      "sha256": "63b16bce00c36dfd64c33170e5c03cea24787ad3b3ca9a909afc98692dcba30c"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-attachment-remote-missing-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-attachment-remote-missing-after.png",
+      "bytes": 107383,
+      "sha256": "0378888db2d56a2b752e5747c35343ed0a3de503593f969c87ded20840ea0f4c"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-attachment-remote-missing-logs-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-attachment-remote-missing-logs-after.png",
+      "bytes": 126047,
+      "sha256": "580e6d6d02b9d6f8e085d1508c4a8791d01b8a16a0fc2daee2e2c2f39b95047a"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-attachment-remote-missing-refreshed-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-attachment-remote-missing-refreshed-after.png",
+      "bytes": 111893,
+      "sha256": "58dde4db4b7d4079b2c63093e03b27ba3ab0d66eb259882b6b0f59b5d4d16e7b"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-transfer-record-save-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-transfer-record-save-after.png",
+      "bytes": 21780,
+      "sha256": "75ff1388df86422f1be53d19b2ff39b0aa1f63c847f9ff9a336d99893be5fca1"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-draft-transfer-cache-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-transfer-cache-after.png",
+      "bytes": 93885,
+      "sha256": "cdcd52bfdd16bbcbaf288c14122fd361eb855c6e1b2c4a5e675bbcc18398fd04"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-draft-transfer-cache-artifact-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-draft-transfer-cache-artifact-after.png",
+      "bytes": 92746,
+      "sha256": "37b90e16d03069348840c81de38638ff322170d32e85ccbbad69a3deffcf0cc9"
+    },
+    {
+      "source": "docs/error-audit/screenshots/team-project-created-refresh-failure-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/team-project-created-refresh-failure-after.png",
+      "bytes": 55927,
+      "sha256": "bbecc95802cfaf002830278fd3d67e71f1608804765ec03f03339de4d5b65d10"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-project-catalog-unreadable-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-project-catalog-unreadable-after.png",
+      "bytes": 136876,
+      "sha256": "e2f5e0ac1911f235fd8b3beb701a20f5c2e3a8ce58448326b2a376566b97786a"
+    },
+    {
+      "source": "docs/error-audit/screenshots/admin-project-index-unreadable-after.png",
+      "target": "docs/error-audit/readability-baseline/admin/screenshots/admin-project-index-unreadable-after.png",
+      "bytes": 141520,
+      "sha256": "f46325d3f86ad9058e58d0d6aac12ffa2c2d3e882e829e82ab79894ae378eed8"
+    }
+  ]
+}

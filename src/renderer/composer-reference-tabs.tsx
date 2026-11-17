@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, FileText, X } from 'lucide-react';
@@ -43,14 +46,14 @@ export function ComposerReferenceTabs({ session, api, controls, locked, removalL
     const sequence = ++request.current;
     void api.call<FilePreview>('session.source.preview', { id: session.id, sourceId: source.id }).then(value => {
       if (sequence === request.current) setPreview(value);
-    }, reason => { if (sequence === request.current) setError(reason instanceof Error ? reason.message : String(reason)); }).finally(() => { if (sequence === request.current) setLoading(false); });
+    }, reason => { if (sequence === request.current) setError(contextualError(reason, { domain: 'local', operation: '预览参考资料' }, { FILE_ACCESS_DENIED: `无法预览“${source.localPath?.replaceAll('\\', '/').split('/').pop() || source.name}”：Windows 拒绝读取。该资料仍已选中。请先检查文件权限，再点“重试预览”，以免发送时也读不到。`, UNCLASSIFIED_FAILURE: `这次没能预览“${source.name}”。选择仍保留，点“重试预览”再试。` })); }).finally(() => { if (sequence === request.current) setLoading(false); });
   };
   const toggle = (source: SourceFile) => controls.select(toggleComposerReference(session, controls.sourceIds, source));
   const detach = async (source: SourceFile) => {
     if (removing.current || removalLocked || disabled) return;
     removing.current = true; setBusy(true); setError('');
     try { await controls.detach(source); if (open !== 'all') close(true); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    catch (reason) { setError(uiErrorMessage(reason, { domain: 'local' })); }
     finally { removing.current = false; setBusy(false); }
   };
   const selection = (item: typeof items[number]) => <label className="composer-reference-choice"><input type="checkbox" aria-label={`下一条消息引用：${resultLabelTitle(item.source.name)}`} checked={item.selected} disabled={item.automatic || disabled} onChange={() => toggle(item.source)}/><span>{item.automatic ? '自动引用' : '随下一条消息发送'}</span></label>;
@@ -70,7 +73,7 @@ export function ComposerReferenceTabs({ session, api, controls, locked, removalL
           {preview?.truncated && <p className="muted small">仅预览前 512 KB。</p>}</div>
         {selected.removable && <footer><button type="button" className="text-button" aria-label={`撤销加入：${resultLabelTitle(selected.source.name)}`} disabled={removalLocked || disabled} title={removalLocked ? '当前操作结束后可撤销' : undefined} onClick={() => void detach(selected.source)}>{busy ? '正在撤销…' : '撤销加入'}</button></footer>}
       </>}
-      {error && <p className="inline-error" role="alert">{error}</p>}
+      {error && <p className="inline-error" role="alert">{error} {selected && <button type="button" className="text-button" disabled={loading} onClick={() => show(selected.source, trigger.current!)}>重试预览</button>} <ErrorLogLink message={error}/></p>}
     </section>}
   </div>;
 }

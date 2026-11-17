@@ -1,0 +1,41 @@
+[
+  {
+    "id": "native-user-start",
+    "entry": "用户端启动失败",
+    "condition": "隔离运行时模拟本机会话资料读取异常",
+    "source": "src/main/index.ts → src/main/startup-failure.ts",
+    "beforeScreenshot": "screenshots/native-user-start-before.jpg",
+    "afterScreenshot": "screenshots/native-user-start-after.jpg",
+    "beforeUI": "工作台启动失败\n本地会话资料无法读取：C:/audit/sessions.json\nError: EIO: read failed",
+    "afterUI": "本机会话资料未能读取。请保留原目录，通过日志联系维护人员排查。\n处理完成后，可重新双击启动入口。\n关闭 / 打开日志目录",
+    "pass": true,
+    "capture": "actual-native-Electron-dialog via computer-use:computer-use",
+    "validation": "实际原生窗口观察、保存截图并点击关闭；合成异常，不读取用户数据"
+  },
+  {
+    "id": "native-admin-start",
+    "entry": "管理员版启动失败",
+    "condition": "隔离运行时模拟本机资料读取异常",
+    "source": "src/admin/main.ts → src/main/startup-failure.ts",
+    "beforeScreenshot": "screenshots/native-admin-start-before.jpg",
+    "afterScreenshot": "screenshots/native-admin-start-after.jpg",
+    "beforeUI": "管理员版启动失败\n本地会话资料无法读取：C:/audit/sessions.json\nError: EIO: read failed",
+    "afterUI": "本机会话资料未能读取。请保留原目录，通过日志联系维护人员排查。\n处理完成后，可重新双击启动入口。\n关闭 / 打开日志目录",
+    "pass": true,
+    "capture": "actual-native-Electron-dialog via computer-use:computer-use",
+    "validation": "实际原生窗口观察、保存截图并点击关闭；合成异常，不读取用户数据"
+  },
+  {
+    "id": "native-close-save",
+    "entry": "关闭后记录保存失败",
+    "condition": "窗口关闭后保存本地记录失败",
+    "source": "src/main/index.ts → src/main/startup-failure.ts",
+    "beforeScreenshot": "screenshots/native-close-save-before.jpg",
+    "afterScreenshot": "screenshots/native-close-save-after.jpg",
+    "beforeUI": "未保存的编辑\n保存失败，窗口已经关闭。\n本地会话资料无法读取：C:/audit/sessions.json\nError: EIO: read failed\n请恢复目录或磁盘空间后重新打开工作台。",
+    "afterUI": "会话记录未能保存，窗口已经关闭。\n请保留原数据目录。处理保存问题后重新打开工作台。\n关闭 / 打开日志目录",
+    "pass": true,
+    "capture": "actual-native-Electron-dialog via computer-use:computer-use",
+    "validation": "实际原生窗口观察、保存截图并点击关闭；合成异常，不读取用户数据"
+  }
+]

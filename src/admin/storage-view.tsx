@@ -1,3 +1,5 @@
+import { ErrorLogLink } from '../renderer/error-notice';
+import { adminErrorMessage } from './failure';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronRight, Database, Folder, FolderOpen, HardDrive, RefreshCw, Square, Users, X } from 'lucide-react';
 import type { AdminState, StorageCategoryKey, StorageUsageReport } from './types';
@@ -19,24 +21,25 @@ export function StorageView({ active, enabled, identity, state }: { active: bool
   const [folder, setFolder] = useState<StorageUsageReport>();
   const [tab, setTab] = useState<'groups' | 'users' | 'folders'>('groups');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [scanNotice, setScanNotice] = useState('');
   const [autoScanned, setAutoScanned] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false), [purgeNotice, setPurgeNotice] = useState('');
   const request = useRef(0), currentIdentity = useRef(identity); currentIdentity.current = identity;
-  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setPurgeNotice(''); setPurgeOpen(false); setAutoScanned(false); setBusy(false); }, [identity]);
+  useEffect(() => { request.current++; setSummary(undefined); setFolder(undefined); setError(''); setPurgeNotice(''); setPurgeOpen(false); setScanNotice(''); setAutoScanned(false); setBusy(false); }, [identity]);
   const scan = async (path = '', append = false, offset = 0) => {
     const token = ++request.current, targetIdentity = identity;
     const current = () => token === request.current && targetIdentity === currentIdentity.current;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setScanNotice('');
     try {
       const result = await window.admin.call<StorageUsageReport>('storage.scan', { path, offset, limit: 100 });
       if (!current()) return;
       if (!path) setSummary(result);
       setFolder(current => append && current?.path === result.path ? { ...result, children: [...current.children, ...result.children] } : result);
-    } catch (reason: any) { if (current()) setError(reason.message || '空间统计失败'); }
+    } catch (reason: any) { if (current()) { if (/已取消|操作已取消/.test(reason.message || '')) setScanNotice(summary || folder ? '已取消统计，上次统计结果仍可查看。' : '已取消统计，本次没有生成统计结果。'); else setError(adminErrorMessage(reason, '统计共享空间')); } }
     finally { if (current()) setBusy(false); }
   };
   useEffect(() => { if (active && enabled && !summary && !busy && !autoScanned) { setAutoScanned(true); void scan(); } }, [active, enabled, summary, busy, autoScanned]);
-  const cancel = async () => { try { await window.admin.call('storage.cancel'); } catch (reason: any) { setError(reason.message || '取消统计失败'); } };
+  const cancel = async () => { try { await window.admin.call('storage.cancel'); } catch (reason: any) { setError(adminErrorMessage(reason, '取消统计')); } };
   const root = summary;
   const totalCategories = root?.categories.reduce((sum, item) => sum + item.bytes, 0) || 0;
   const donut = useMemo(() => {
@@ -55,19 +58,20 @@ export function StorageView({ active, enabled, identity, state }: { active: bool
   if (!enabled) return <div className="admin-connect-card"><HardDrive size={36}/><h2>共享空间</h2><p>连接并初始化团队空间后，可以查看容量和目录占用。</p></div>;
   return <section className="storage-view" aria-label="共享空间管理">
     <div className="page-title storage-title"><div><span className="eyebrow">SHARED STORAGE</span><h1>共享空间</h1><p>统计团队共享目录中的文件占用，不包含成员本机目录或 Linux Home。</p></div><div className="storage-actions">{root && <span className="storage-scanned">统计于 {formatTime(root.scannedAt)}</span>}<button className="secondary" disabled={busy} onClick={() => { setPurgeNotice(''); setPurgeOpen(true); }}>清理项目</button>{busy ? <button className="secondary" onClick={() => void cancel()}><Square size={14}/>取消统计</button> : <button className="primary" onClick={() => void scan()}><RefreshCw size={15}/>刷新统计</button>}</div></div>
+    {scanNotice && <p className="muted small" role="status">{scanNotice}</p>}
     {purgeNotice && <div className="admin-success" role="status">{purgeNotice}</div>}
-    {error && <div className="inline-error admin-alert" role="alert"><span>{error}</span><button className="icon" aria-label="关闭错误" onClick={() => setError('')}><X size={17}/></button></div>}
+    {error && <div className="inline-error admin-alert" role="alert"><span>{error} <ErrorLogLink message={error}/></span><button className="icon" aria-label="关闭错误" onClick={() => setError('')}><X size={17}/></button></div>}
     {busy && <div className="storage-loading"><span className="spinner"/>正在统计共享空间，可以继续切换页面。</div>}
     {!root && !busy ? <div className="storage-empty"><HardDrive size={42}/><h3>还没有空间统计</h3><button className="primary" onClick={() => void scan()}>开始统计</button></div> : root && <>
       <div className="storage-stat-grid">
-        <div className="storage-stat primary-stat"><span>共享文件总量</span><strong>{formatBytes(root.total.bytes)}</strong><small>{root.total.files.toLocaleString()} 个文件 · {root.total.directories.toLocaleString()} 个目录</small></div>
+        <div className="storage-stat primary-stat"><span>{root.warningCount ? '已统计的部分' : '共享文件总量'}</span><strong>{formatBytes(root.total.bytes)}</strong><small>{root.total.files.toLocaleString()} 个文件 · {root.total.directories.toLocaleString()} 个目录</small>{root.warningCount > 0 && <small>另有 {root.warningCount} 个位置没统计完整，实际占用可能更多。</small>}</div>
         <div className="storage-stat"><span>磁盘剩余</span><strong>{root.volume.totalBytes ? formatBytes(root.volume.freeBytes) : '不可用'}</strong><small>{root.volume.totalBytes ? `总容量 ${formatBytes(root.volume.totalBytes)}` : '服务器未返回磁盘容量'}</small></div>
         <div className="storage-stat"><span>项目</span><strong>{root.groups.length}</strong><small>按成员权限独立管理</small></div>
         <div className="storage-stat"><span>成员共享占用</span><strong>{formatBytes(root.users.reduce((sum, user) => sum + user.bytes, 0))}</strong><small>{root.users.filter(user => user.bytes > 0).length} 位成员有共享内容</small></div>
       </div>
       <div className="storage-overview-grid">
-        <section className="storage-card storage-category-card"><header><div><h3>内容构成</h3><small>按共享目录用途归类</small></div></header><div className="storage-category-body"><div className="storage-donut" style={{ background: donut }}><div><strong>{formatBytes(root.total.bytes)}</strong><span>共享文件</span></div></div><div className="storage-legend">{root.categories.map(item => <div key={item.key}><i style={{ background: colors[item.key] }}/><span>{item.label}</span><b>{formatBytes(item.bytes)}</b><small>{percent(item.bytes, root.total.bytes).toFixed(1)}%</small></div>)}</div></div></section>
-        <section className="storage-card storage-volume-card"><header><div><h3>磁盘容量</h3><small>共享空间所在磁盘或分区</small></div></header>{root.volume.totalBytes ? <><div className="capacity-number"><strong>{percent(volumeUsed, root.volume.totalBytes).toFixed(1)}%</strong><span>已使用</span></div><div className="capacity-track"><i style={{ width: `${percent(volumeUsed, root.volume.totalBytes)}%` }}/></div><div className="capacity-labels"><span>已用 {formatBytes(volumeUsed)}</span><span>剩余 {formatBytes(root.volume.freeBytes)}</span></div></> : <div className="capacity-unavailable">当前环境无法读取磁盘容量，目录占用统计不受影响。</div>}{root.warningCount > 0 && <div className="storage-warning"><AlertTriangle size={16}/><span>{root.warningCount} 个路径未能完整统计</span><details><summary>查看</summary>{root.warnings.map((warning, index) => <p key={index}><code>{warning.path || '/'}</code>{warning.message}</p>)}</details></div>}</section>
+        <section className="storage-card storage-category-card"><header><div><h3>内容构成</h3><small>按共享目录用途归类</small></div></header><div className="storage-category-body"><div className="storage-donut" style={{ background: donut }}><div><strong>{formatBytes(root.total.bytes)}</strong><span>{root.warningCount ? '已统计的部分' : '共享文件'}</span></div></div><div className="storage-legend">{root.categories.map(item => <div key={item.key}><i style={{ background: colors[item.key] }}/><span>{item.label}</span><b>{formatBytes(item.bytes)}</b><small>{percent(item.bytes, root.total.bytes).toFixed(1)}%</small></div>)}</div></div></section>
+        <section className="storage-card storage-volume-card"><header><div><h3>磁盘容量</h3><small>共享空间所在磁盘或分区</small></div></header>{root.volume.totalBytes ? <><div className="capacity-number"><strong>{percent(volumeUsed, root.volume.totalBytes).toFixed(1)}%</strong><span>已使用</span></div><div className="capacity-track"><i style={{ width: `${percent(volumeUsed, root.volume.totalBytes)}%` }}/></div><div className="capacity-labels"><span>已用 {formatBytes(volumeUsed)}</span><span>剩余 {formatBytes(root.volume.freeBytes)}</span></div></> : <div className="capacity-unavailable">当前环境无法读取磁盘容量，目录占用统计不受影响。</div>}{root.warningCount > 0 && <div className="storage-warning"><AlertTriangle size={16}/><span>{root.warningCount} 个路径未能完整统计</span><details><summary>查看未统计的位置</summary>{root.warnings.map((warning, index) => <p key={index}><code>{warning.path || '/'}</code>{warning.message}</p>)}</details></div>}</section>
       </div>
       <div className="storage-tabs" role="tablist" aria-label="空间占用视图"><button role="tab" aria-selected={tab === 'groups'} onClick={() => setTab('groups')}><Database size={16}/>项目</button><button role="tab" aria-selected={tab === 'users'} onClick={() => setTab('users')}><Users size={16}/>用户</button><button role="tab" aria-selected={tab === 'folders'} onClick={() => setTab('folders')}><FolderOpen size={16}/>文件夹</button></div>
       {tab === 'groups' && <GroupUsage report={root}/>} 
@@ -84,17 +88,17 @@ function ProjectPurgeDialog({ close, done }: { close: () => void; done: (message
   const [projects, setProjects] = useState<ProjectCatalogItem[]>([]);
   const [projectId, setProjectId] = useState('');
   const [mode, setMode] = useState<'all' | 'keep_trajectories'>();
-  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(''), [readError, setReadError] = useState(''), [indexReadBlocked, setIndexReadBlocked] = useState(false), [reload, setReload] = useState(0);
   useEffect(() => {
-    let live = true;
+    let live = true; setLoading(true); setReadError(''); setIndexReadBlocked(false); setProjects([]); setProjectId(''); setMode(undefined);
     window.admin.call<{ projects: ProjectCatalogItem[] }>('project.catalog').then(result => {
       if (!live) return;
       setProjects(result.projects);
       setProjectId(result.projects[0]?.id || '');
-    }).catch((reason: any) => { if (live) setError(reason.message || '读取项目列表失败'); })
+    }).catch((reason: any) => { if (live) setReadError(adminErrorMessage(reason, '读取可清理项目')); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, []);
+  }, [reload]);
   const project = projects.find(item => item.id === projectId);
   const confirm = async () => {
     if (!project || !mode) return;
@@ -104,12 +108,12 @@ function ProjectPurgeDialog({ close, done }: { close: () => void; done: (message
       done(mode === 'all'
         ? `已全部清理「${result.name}」，删除 ${result.removedFiles.toLocaleString()} 个文件`
         : `已清理「${result.name}」并保留轨迹，删除 ${result.removedFiles.toLocaleString()} 个文件`);
-    } catch (reason: any) { setError(reason.message || '清理失败'); }
+    } catch (reason: any) { const message = adminErrorMessage(reason, `清理项目「${project.name}」`); if ((reason?.failure?.code || reason?.code) === 'PROJECT_RESULT_INDEX_UNREADABLE') { setIndexReadBlocked(true); setReadError(message); setProjectId(''); setMode(undefined); } else setError(message); }
     finally { setBusy(false); }
   };
   return <div className="modal-backdrop"><section className="modal project-purge-dialog" role="dialog" aria-labelledby="project-purge-title"><header><h2 id="project-purge-title">清理项目</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={close}><X size={19}/></button></header>
     <div className="modal-body">
-      {loading ? <p>正在读取项目…</p> : !projects.length ? <p>还没有项目。</p> : <>
+      {loading ? <p>正在读取项目…</p> : readError ? <><button className="secondary" onClick={() => setReload(value => value + 1)}>重新读取项目</button></> : !projects.length ? <p>还没有项目。</p> : <>
         <label className="field">项目<select aria-label="要清理的项目" value={projectId} disabled={busy} onChange={event => setProjectId(event.target.value)}>{projects.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <div className="purge-options" role="radiogroup" aria-label="清理方式">
           <button type="button" role="radio" aria-checked={mode === 'all'} className={mode === 'all' ? 'selected' : ''} disabled={busy} onClick={() => setMode('all')}><b>全部删除</b><span>删除成果、历史、附件、会话轨迹和项目目录里的其他文件。项目本身和项目说明会保留。</span></button>
@@ -117,9 +121,10 @@ function ProjectPurgeDialog({ close, done }: { close: () => void; done: (message
         </div>
         {project && mode && <p className="purge-confirm">{mode === 'all' ? `确认后将全部清理「${project.name}」。此操作不能撤销。` : `确认后将清理「${project.name}」，并保留其中的会话轨迹。此操作不能撤销。`}</p>}
       </>}
-      {error && <div className="inline-error" role="alert">{error}</div>}
+      {readError && <div className="inline-error" role="alert">{readError} <ErrorLogLink message={readError}/></div>}
+      {error && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></div>}
     </div>
-    <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || loading || !project || !mode} onClick={() => void confirm()}>{busy ? '正在清理…' : '确认清理'}</button></footer>
+    <footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="primary" disabled={busy || loading || !!readError || !project || !mode} onClick={() => void confirm()}>{busy ? '正在清理…' : '确认清理'}</button></footer>
   </section></div>;
 }
 

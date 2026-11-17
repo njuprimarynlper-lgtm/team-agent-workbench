@@ -1,0 +1,19 @@
+{
+  "title": "最近的会话记录可能没保存",
+  "accessibility": {
+    "focused_element": "0 window (对话框) 最近的会话记录可能没保存 Secondary Actions: Raise",
+    "tree": "Window: \"最近的会话记录可能没保存\", App: electron.exe.\n\t0 window (对话框) 最近的会话记录可能没保存 Secondary Actions: Raise\n\t\t1 image (图像) MainInstructionIcon ID: MainIcon\n\t\t2 text (文本) 窗口已关闭，但最近的会话记录可能没有保存。 ID: MainInstruction\n\t\t3 text (文本) 请不要删除工作台数据。点“打开日志文件夹”，将最新日志交给维护人员排查。 ID: ContentText\n\t\t4 button (按钮) 关闭 ID: CommandButton_100\n\t\t5 button (按钮) 打开日志文件夹 ID: CommandButton_101\n\t\t6 title bar (标题栏) (settable, string) Value: 最近的会话记录可能没保存\n\t\t\t7 menu bar (菜单栏) 系统 ID: MenuBar\n\t\t\t\t8 menu item (菜单项) 系统\n\t\t\t9 button (按钮) 关闭\n\nThe focused UI element is 0 window (对话框) 最近的会话记录可能没保存 Secondary Actions: Raise."
+  },
+  "dimensions": [
+    {
+      "width": 493,
+      "height": 150
+    }
+  ],
+  "capturedAt": "2026-11-16T13:35:13.442Z",
+  "fixture": "production showRecordSaveFailure in isolated Electron process",
+  "recovery": {
+    "action": "打开日志文件夹",
+    "sharedHandlerVerifiedBy": "native-user-start-round2-observation.json"
+  }
+}

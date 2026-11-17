@@ -1,3 +1,6 @@
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
+import { collaborationFailure } from './collaboration-failure';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -31,7 +34,7 @@ export function ContextMenu({ anchor, label, actions, close }: { anchor: Context
   }}>{actions.map((item, index) => <React.Fragment key={item.label}>{item.separator && index > 0 && <hr role="separator"/>}<button type="button" role="menuitem" className={item.danger ? 'danger' : ''} disabled={busy || item.disabled} onClick={async () => {
     setBusy(true); setError('');
     try { const result = item.run(); if (result && typeof result.then === 'function') await result; close(); }
-    catch (reason: any) { setError(reason.message || '操作失败，请重试'); }
+    catch (reason: any) { void window.workbench.call('logs.rendererError', { type: 'error', message: String(reason?.message || reason), stack: reason?.stack }).catch(() => {}); setError(collaborationFailure(reason, item.label === '复制消息' ? '复制失败，原消息还在。请再点“复制消息”，或选中文字后按 Ctrl+C。' : item.label + '没有完成，请再试一次。', { domain: 'local', operation: item.label, outcome: 'unknown' })); }
     finally { setBusy(false); }
-  }}>{item.label}</button></React.Fragment>)}{error && <p className="interaction-context-error" role="alert">{error}</p>}</div>, document.body);
+  }}>{item.label}</button></React.Fragment>)}{error && <p className="interaction-context-error" role="alert">{error} <ErrorLogLink message={error}/></p>}</div>, document.body);
 }

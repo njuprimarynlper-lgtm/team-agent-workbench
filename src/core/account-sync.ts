@@ -12,6 +12,8 @@ import { safeFilename } from './paths';
 import { rememberPreparationProgress } from '../shared/preparation-progress';
 import { applyConflictText, applyConflictVersion, canonicalSync, mergeSyncValue, verifiableTextMerge, type SyncChoice } from '../shared/sync-conflict';
 import { conflictToken, SyncConflicts, type ConflictTextTask } from './sync-conflicts';
+import { accountSyncCacheUnavailableMessage, accountSyncFailureMessage } from '../shared/account-sync-failure';
+import { accountLogScope, logsFor } from './logging';
 
 const canonical = canonicalSync;
 type Resolution = { local: string; remote: string; choice: SyncChoice; value?: unknown };
@@ -205,7 +207,14 @@ export class AccountSync {
     }
     this.state = { status: 'pending' }; this.profile = structuredClone(profile); this.base = {}; this.choices = {};
     for (const item of this.store.conclusions) (item as any).accountOwner ||= accountIdentity(profile);
-    try { this.base = JSON.parse(await fs.readFile(this.file(profile), 'utf8')).records; } catch (error: any) { if (error.code !== 'ENOENT') { this.state = { status: 'error', detail: '账号同步缓存无法读取，已保留本机资料' }; this.changed(); return; } }
+    try { this.base = JSON.parse(await fs.readFile(this.file(profile), 'utf8')).records; }
+    catch (error: any) {
+      if (error.code !== 'ENOENT') {
+        const logRef = logsFor(this.store.root).record('diagnostic', 'account.sync.cache_unreadable', accountLogScope(this.store.root, { origin: 'background' }), { level: 'error', detail: error.message, stack: error.stack });
+        this.state = { status: 'error', detail: accountSyncCacheUnavailableMessage, failure: { version: 1, code: 'ACCOUNT_SYNC_CACHE_UNREADABLE', message: accountSyncCacheUnavailableMessage, recovery: 'contact-admin', ...(logRef ? { logRef } : {}) } };
+        this.changed(); return;
+      }
+    }
     if (previous && accountIdentity(previous) !== accountIdentity(profile)) {
       try { this.apply(JSON.parse(await fs.readFile(this.file(profile) + '.pending', 'utf8')), profile); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
     }
@@ -328,7 +337,12 @@ export class AccountSync {
           this.state = { status: 'synced', syncedAt: new Date().toISOString(), history: this.state.history }; this.choices = {}; return;
         }
         throw new Error('另一台电脑正在保存，稍后重试');
-      } catch (error: any) { if (generation === this.generation) this.state = { ...this.state, status: 'error', detail: `账号资料尚未同步：${error.message}。本机内容已保留；旧服务器需更新存储服务。` }; }
+      } catch (error: any) {
+        if (generation === this.generation) {
+          logsFor(this.store.root).record('diagnostic', 'account.sync.failed', accountLogScope(this.store.root, { origin: 'background' }), { level: 'error', detail: error.message, stack: error.stack });
+          this.state = { ...this.state, status: 'error', detail: accountSyncFailureMessage(error) };
+        }
+      }
       finally { this.changed(); }
     })().finally(() => { this.running = undefined; });
     return this.running;

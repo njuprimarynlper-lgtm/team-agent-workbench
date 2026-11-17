@@ -4,7 +4,7 @@ export type SessionMode = 'default' | 'plan' | 'ask';
 export interface SessionModeOption { id: SessionMode; name: string; description: string }
 export interface SessionModeCatalog { modes: SessionModeOption[]; current: SessionMode; error?: string }
 export interface PlanStep { text: string; status: 'pending' | 'inProgress' | 'completed' | 'cancelled' }
-export interface ProposedPlan { messageId: string; text: string; ready: boolean; accepted?: boolean }
+export interface ProposedPlan { messageId: string; text: string; ready: boolean; accepted?: boolean; submissionUnknown?: boolean }
 export const modeOption = (id: SessionMode): SessionModeOption => ({ id,
   name: id === 'default' ? 'Agent' : id === 'plan' ? 'Plan' : 'Ask',
   description: id === 'default' ? '执行任务' : id === 'plan' ? '先研究并制定计划' : '回答问题，不修改代码',

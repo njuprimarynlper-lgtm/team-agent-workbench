@@ -6,6 +6,46 @@ import type { AgentSession, Draft } from '../shared/types';
 import { atomicJson } from './store';
 import { writeHandoffAtomic } from './handoff-writer';
 import { inspectWorkspaceLinks, compatibleWorkspaceLink, copyWorkspaceLink, verifyWorkspaceLink, validateWorkspaceLinks, type WorkspaceLink, type WorkspaceLinks } from './workspace-links';
+import type { UserFailure } from '../shared/user-failure';
+
+// These reasons are emitted by this module and workspace-links. Keep their
+// meaning at the UI boundary; the appended paths and errno belong in logs.
+export function workspaceRelocationFailure(error: unknown, phase?: 'persist'): UserFailure | undefined {
+  const value = error as any, message = typeof value?.message === 'string' ? value.message : String(error);
+  const failure = (code: string, text: string): UserFailure => ({ version: 1, code: 'DIRECTORY_MOVE_' + code, message: text, phase: phase === 'persist' ? 'persist-directory-switch' : 'copy-workspace', outcome: 'partial', recovery: 'retry' });
+  if (value?.failure?.code === 'DIRECTORY_MOVE_SAVE_FAILED') return value.failure;
+  if (phase === 'persist') return failure('SAVE_FAILED', '文件已复制到新目录，但切换设置没有存好，现在仍使用原目录。可以先点“继续使用原目录”接着工作，稍后再“重试切换”。');
+  if (message.startsWith('无法在新目录保留文件链接')) {
+    const errno = value?.code || /（([A-Z_]+)）$/.exec(message)?.[1];
+    return failure('LINK_CREATE_FAILED', ['EPERM', 'EACCES'].includes(errno) ? 'Windows 没允许在新目录创建文件夹链接，所以还没切换目录。先点“继续使用原目录”；需要切换时，请管理员处理创建链接的权限。' : '无法在新目录保留文件链接，尚未切换目录。原目录已保留；可继续使用原目录，或查看日志核对原因后重试。');
+  }
+  const reasons = [
+    ['目录链接形成循环', 'LINK_CYCLE', '文件夹链接绕成了循环，无法搬到新目录。点“继续使用原目录”可接着工作；需要切换时，把日志交给管理员处理循环链接。'],
+    ['会话数据内部包含符号链接', 'METADATA_LINK', '会话记录内部有指向别处的文件夹链接，不能直接搬过去。点“继续使用原目录”可接着工作；需要切换时，把日志交给管理员处理这些链接。'],
+    ['无法迁移特殊文件', 'SPECIAL_FILE', '有些文件暂时不能复制，所以还在使用原目录。先点“继续使用原目录”即可接着工作；文件种类可在日志中看。'],
+    ['链接指向特殊文件', 'SPECIAL_LINK_TARGET', '目录链接指向暂不支持复制的特殊文件。原目录已保留；请继续使用原目录，或调整链接后重试。'],
+    ['目录包含独立 Git 工作树或子模块', 'GIT_WORKTREE', '目录包含独立 Git 工作树或子模块，暂不支持自动迁移。请继续使用原目录。'],
+    ['目录链接的目标不可访问', 'LINK_TARGET_UNAVAILABLE', '目录链接的目标不可访问。原目录已保留；请核对链接目标后重试，或继续使用原目录。'],
+    ['会话数据目录不是文件夹', 'METADATA_NOT_DIRECTORY', '会话数据的位置不是文件夹，尚未切换目录。请继续使用原目录，并在日志中核对具体位置。'],
+    ['会话数据目录链接已变化', 'METADATA_LINK_CHANGED', '会话数据目录链接已变化，尚未切换目录。原目录已保留；请核对链接后重试，或继续使用原目录。'],
+    ['迁移路径包含已变化或不支持的符号链接', 'PATH_LINK_CHANGED', '迁移路径中有已变化或不支持的符号链接。原目录已保留；请核对链接后重试，或继续使用原目录。'],
+    ['目录链接在迁移期间发生变化', 'LINK_CHANGED', '目录链接在迁移期间发生变化，尚未切换目录。原目录已保留；请停止其他修改后重试，或继续使用原目录。'],
+    ['迁移后目录链接会指向自身或上级目录', 'RECURSIVE_LINK', '迁移后目录链接会指向自身或上级目录，无法安全复制。原目录已保留；请调整链接或继续使用原目录。'],
+    ['复制期间源文件发生变化', 'SOURCE_CHANGED', '复制期间源文件发生变化，尚未切换目录。原文件已保留；请结束其他写入后重试，或继续使用原目录。'],
+    ['文件发生变化或目标冲突', 'FILE_CONFLICT', '文件发生变化或目标位置有冲突，尚未切换目录。原文件已保留；请核对后重试，或继续使用原目录。'],
+    ['迁移期间文件发生变化', 'VERIFY_CHANGED', '校验时发现文件发生变化，尚未切换目录。原文件已保留；请结束其他写入后重试，或继续使用原目录。'],
+    ['校验时目标被替换为目录链接', 'TARGET_BECAME_LINK', '校验时目标位置被替换为目录链接，尚未切换目录。原文件已保留；请核对目标位置后重试，或继续使用原目录。'],
+    ['迁移保留副本的位置也有冲突', 'RETAINED_COPY_CONFLICT', '用于保留副本的位置也有冲突，尚未切换目录。原文件已保留；请核对目标目录后重试，或继续使用原目录。'],
+    ['目录链接与目标内容存在冲突', 'LINK_CONTENT_CONFLICT', '目录链接与目标内容存在冲突，尚未切换目录。原目录已保留；请核对后重试，或继续使用原目录。'],
+    ['目标目录已有不同内容', 'TARGET_CONTENT_CONFLICT', '目标目录已有不同内容，尚未切换目录。原目录已保留；请核对后重试，或继续使用原目录。'],
+    ['目标目录链接已变化', 'TARGET_LINK_CHANGED', '目标目录链接已变化，尚未切换目录。原目录已保留；请核对后重试，或继续使用原目录。'],
+    ['目录链接未能完整保留', 'LINK_INCOMPLETE', '目录链接未能完整保留，尚未切换目录。原目录已保留；请查看日志核对原因后重试，或继续使用原目录。'],
+    ['目录链接不属于本次迁移', 'LINK_OUTSIDE_PLAN', '迁移记录中的链接不属于本次迁移，尚未切换目录。原目录已保留；请查看日志核对记录，或继续使用原目录。'],
+    ['迁移期间新增了文件', 'NEW_FILES', '迁移期间新增了文件，尚未切换目录。原目录已保留；请结束其他写入后重试，或继续使用原目录。'],
+  ] as const;
+  const reason = reasons.find(([prefix]) => message.startsWith(prefix));
+  return reason ? failure(reason[1], reason[2]) : undefined;
+}
 
 type Mapping = { from: string; to: string };
 type MetadataRoot = { path: string; resolved: string };

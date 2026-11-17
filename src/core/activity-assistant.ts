@@ -251,7 +251,7 @@ export class ActivityAssistant {
       const unique = new Set<string>();
       for (const match of result.matches) {
         const key = JSON.stringify([match.sessionId, match.eventId]);
-        if (unique.has(key) || !eligible.some(j => j.sessionId === match.sessionId && j.event.eventId === match.eventId) || !documents.get(match.eventId)?.body.includes(match.excerpt)) throw new Error('后台返回了无效来源或非原文片段，任务已保留');
+        if (unique.has(key) || !eligible.some(j => j.sessionId === match.sessionId && j.event.eventId === match.eventId) || !documents.get(match.eventId)?.body.includes(match.excerpt)) throw new Error('AI 返回的动态判断含有非原文片段或无法核对的来源，本次结果未采用，待处理动态已保留。');
         unique.add(key);
       }
       for (const s of batch) {

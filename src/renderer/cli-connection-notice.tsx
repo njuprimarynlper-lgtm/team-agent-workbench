@@ -1,17 +1,14 @@
+import { ErrorLogLink } from './error-notice';
 import React from 'react';
 import { CircleAlert, RefreshCw } from 'lucide-react';
 import { cliConnectionAdvice, cliConnectionLabel, type CliConnection } from '../shared/cli-connection';
 
-export function CliConnectionNotice({ value, provider }: { value?: CliConnection; provider?: string }) {
+export function CliConnectionNotice({ value, provider, configure }: { value?: CliConnection; provider?: string; configure?: () => void }) {
   if (!value || !['reconnecting', 'failed'].includes(value.state)) return null;
-  if (provider === 'codex' && (value.state === 'reconnecting' || value.kind === 'network')) {
-    const stopped = value.state === 'failed';
-    return <p className={'cli-reconnect-line' + (stopped ? ' failed' : '')} role={stopped ? 'alert' : 'status'}>{stopped ? '连接模型服务失败' : '正在重试连接模型服务…'}</p>;
-  }
   const retrying = value.state === 'reconnecting';
   return <div className={'cli-connection-notice ' + (retrying ? 'retrying' : 'failed')} role={retrying ? 'status' : 'alert'}>
     {retrying ? <RefreshCw size={17}/> : <CircleAlert size={17}/>}
-    <div><strong>{cliConnectionLabel(value)}</strong><span>{cliConnectionAdvice(value)}</span></div>
+    <div><strong>{cliConnectionLabel(value).replace('CLI', provider === 'codex' ? 'Codex' : provider === 'cursor' ? 'Cursor' : provider === 'claude' ? 'Claude Code' : '模型连接')}</strong><span>{cliConnectionAdvice(value)} {configure && <button className="secondary compact" onClick={configure}>打开网络与登录</button>} <ErrorLogLink/></span></div>
     <time>{new Date(value.at).toLocaleTimeString('zh-CN', { hour12: false })}</time>
   </div>;
 }

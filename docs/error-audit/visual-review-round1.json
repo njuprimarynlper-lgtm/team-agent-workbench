@@ -1,0 +1,1153 @@
+{
+  "reviewer": "independent-nontechnical-visual-reviewer",
+  "method": "初轮截图盲审：实际逐项查看review-input.json中全部111张after截图；未读源码、report-data、故障条件或测试预期。逐项复述操作/进度/下一步。pass仅为当前截图可理解且主要下一步可见；失败项须修复或重拍后复核。专用日志详情中的脱敏技术内容不算业务报错UI泄漏。未使用真实账号。",
+  "scenarios": [
+    {
+      "id": "u01",
+      "understanding": "向Cursor发送消息后送达情况无法确认，需核对是否已进入等待队列。",
+      "resultStatus": "送达待确认，草稿仍在输入框；不能据此认定发送失败。",
+      "nextAction": "点击可见的“在Cursor中打开”核对，确认未送达后用“核对后恢复到输入框”；避免直接重复发送。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u01-after.png"
+    },
+    {
+      "id": "u02",
+      "understanding": "会话因登录验证失败而自动重连。",
+      "resultStatus": "任务尚未完成，CLI自动重试中。",
+      "nextAction": "停止任务或到网络与登录设置重新登录；但截图未提供这些入口。",
+      "pass": false,
+      "issues": [
+        "截图中没有文案要求的“停止任务”或“网络与登录设置”入口，用户无法从此界面完成修复。"
+      ],
+      "evidence": "u02-after.png"
+    },
+    {
+      "id": "u03",
+      "understanding": "批准执行命令的回复没有提交，原因是本机连接已关闭。",
+      "resultStatus": "已选批准项保留，页面仍显示等待确认并允许再次批准。",
+      "nextAction": "先恢复会话连接，再确认请求；截图没有清楚的恢复连接入口。",
+      "pass": false,
+      "issues": [
+        "连接关闭的提示与仍可用的“允许本次”动作冲突，容易再次提交失败。",
+        "要求先恢复连接，但截图没有明确的重新连接入口。"
+      ],
+      "evidence": "u03-after.png"
+    },
+    {
+      "id": "u04",
+      "understanding": "选择会话模型时，没有找到可运行的本机CLI。",
+      "resultStatus": "模型与额度未成功读取；选择框仍显示沿用默认模型。",
+      "nextAction": "到agent管理重新检测或指定CLI路径；截图没有对应导航。",
+      "pass": false,
+      "issues": [
+        "修复所需的agent管理/选择CLI路径入口在截图中不可见。"
+      ],
+      "evidence": "u04-after.png"
+    },
+    {
+      "id": "u05",
+      "understanding": "检测Claude Code个人账号登录状态失败，返回的信息无法识别。",
+      "resultStatus": "不能确认是否登录，不是断言已退出。",
+      "nextAction": "点击可见的“重新检测”，若持续失败再到agent管理检查CLI路径和版本。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u05-after.png"
+    },
+    {
+      "id": "u06",
+      "understanding": "连接方式已经保存，账号是否能够正常使用暂未确认。",
+      "resultStatus": "本机网络从下一轮生效；账号卡片却显示绿色已登录。",
+      "nextAction": "重新检测账号；可见按钮叫“重新检测”，与提示名称不同。",
+      "pass": false,
+      "issues": [
+        "账号可用性未确认与绿色“已登录”缺乏解释，旧状态容易被理解为验证成功。",
+        "提示中的“重新检测连接与登录”与可见按钮“重新检测”不一致。"
+      ],
+      "evidence": "u06-after.png"
+    },
+    {
+      "id": "u07",
+      "understanding": "检测执行权限失败，因为本机找不到所需的文件或目录。",
+      "resultStatus": "权限尚未检测，沿用Codex设置未能验证。",
+      "nextAction": "核对文件位置后点击“重新检测权限”，但不知道应核对哪个文件。",
+      "pass": false,
+      "issues": [
+        "没有说明缺失的是哪个文件/目录，也没有指向可检查的位置；非技术用户无法完成“核对文件位置”。"
+      ],
+      "evidence": "u07-after.png"
+    },
+    {
+      "id": "u08",
+      "understanding": "自定义权限设置已保存，但部分权限无法读取。",
+      "resultStatus": "完整执行权限未知，部分操作可能受限。",
+      "nextAction": "应重新检测或查看日志；只有查看日志入口可见。",
+      "pass": false,
+      "issues": [
+        "提示要求重新检测，但截图没有重新检测动作入口。"
+      ],
+      "evidence": "u08-after.png"
+    },
+    {
+      "id": "u09",
+      "understanding": "项目代码目录已保存，读取会话是否完成目录切换时出了问题。",
+      "resultStatus": "保存成功；会话切换状态未知，没有把整体说成保存失败。",
+      "nextAction": "重新打开项目设置查看切换状态；截图没有关闭/返回/重新打开入口。",
+      "pass": false,
+      "issues": [
+        "指定的“重新打开项目设置”动作在截图缺少返回或关闭入口，无法从图确认用户能完成下一步。"
+      ],
+      "evidence": "u09-after.png"
+    },
+    {
+      "id": "u10",
+      "understanding": "工作目录切换被不支持复制的文件阻止。",
+      "resultStatus": "尚未切换；原文件和对话保留，当前与目标目录清楚。",
+      "nextAction": "点击可见的“继续使用原目录”，或查看日志处理后重试切换。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u10-after.png"
+    },
+    {
+      "id": "u11",
+      "understanding": "会话文件列表无法读取，工作台无权访问本机文件或目录。",
+      "resultStatus": "文件面板空白，列表尚未加载成功。",
+      "nextAction": "检查目录权限或选可访问位置，再刷新文件。",
+      "pass": false,
+      "issues": [
+        "没有显示受影响的位置，无法判断应检查哪个目录权限。",
+        "“选择可访问的位置”没有可见入口；只提供刷新和关闭。"
+      ],
+      "evidence": "u11-after.png"
+    },
+    {
+      "id": "u12",
+      "understanding": "Cursor原生连接过期，设置尚未同步。",
+      "resultStatus": "模式、模型、权限待确认，需重新连接Cursor。",
+      "nextAction": "点击可见的“在Cursor中打开”重新连接，再同步设置。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u12-after.png"
+    },
+    {
+      "id": "u13",
+      "understanding": "中央节点上某个文件或目录未找到，但截图未说明正在读取哪个对象。",
+      "resultStatus": "读取没有完成；没有可见文件面板说明范围。",
+      "nextAction": "刷新后重试，仍失败联系项目管理员；刷新入口未显示。",
+      "pass": false,
+      "issues": [
+        "缺少操作对象/文件上下文，单看截图不能确认哪件操作失败。",
+        "要求刷新但没有可见刷新入口。"
+      ],
+      "evidence": "u13-after.png"
+    },
+    {
+      "id": "u14",
+      "understanding": "只能看出当前选择CLI默认模型、沿用Codex权限设置；看不出发生了报错。",
+      "resultStatus": "没有显示读取失败或状态未确认。",
+      "nextAction": "不明确，只能看到两个下拉控件。",
+      "pass": false,
+      "issues": [
+        "截图未展示任何错误、原因或恢复指引，无法据图理解报错场景。"
+      ],
+      "evidence": "u14-after.png"
+    },
+    {
+      "id": "u15",
+      "understanding": "读取较早历史消息失败，已经显示的对话未丢失。",
+      "resultStatus": "最新回复保留，较早历史暂未读取。",
+      "nextAction": "在消息区域向上滚动重试。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u15-after.png"
+    },
+    {
+      "id": "u16",
+      "understanding": "消息已交给CLI处理，但本机会话记录没有保存成功。",
+      "resultStatus": "任务仍在处理，本地记录待保存，不能当作未发送。",
+      "nextAction": "核对已有回复、不要重复发；检查磁盘空间和目录访问，保存恢复前保持工作台打开。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u16-after.png"
+    },
+    {
+      "id": "u17",
+      "understanding": "工作台启动时读取本机状态没有完成，原因尚未确认。",
+      "resultStatus": "未进入工作台。",
+      "nextAction": "点击“重试启动”，或先查看日志。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u17-after.png"
+    },
+    {
+      "id": "u18",
+      "understanding": "读取模型列表没有及时返回结果。",
+      "resultStatus": "模型列表未确认，额度未读取；沿用CLI默认模型。",
+      "nextAction": "点击“刷新模型与额度”后再判断。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u18-after.png"
+    },
+    {
+      "id": "u19",
+      "understanding": "打开个人账号登录失败，无法访问所需文件或目录。",
+      "resultStatus": "个人账号仍未登录。",
+      "nextAction": "点击查看日志核对文件位置与访问权限，修复后重新登录。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u19-after.png"
+    },
+    {
+      "id": "u20",
+      "understanding": "检测Codex个人账号登录时没有及时确认结果。",
+      "resultStatus": "上方提示未确认，下方却显示绿色已登录并禁用登录。",
+      "nextAction": "重新检测账号状态。",
+      "pass": false,
+      "issues": [
+        "登录检测未确认与绿色“已登录”直接冲突，缺少旧状态标识。"
+      ],
+      "evidence": "u20-after.png"
+    },
+    {
+      "id": "u21",
+      "understanding": "保存项目代码目录失败，因为无权访问本机目录。",
+      "resultStatus": "未见保存成功提示，代码目录仍在输入框。",
+      "nextAction": "检查该目录权限，或通过“选择目录”换可访问位置，再保存。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u21-after.png"
+    },
+    {
+      "id": "u22",
+      "understanding": "选择项目目录时遇到本机文件访问权限问题。",
+      "resultStatus": "选择没有正常完成，原输入框内容仍保留。",
+      "nextAction": "重新点击“选择目录”选可访问位置，或检查目录权限。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u22-after.png"
+    },
+    {
+      "id": "u23",
+      "understanding": "列出会话文件失败，工作台不能访问本机文件或目录。",
+      "resultStatus": "列表尚未读取成功，不能理解为空目录。",
+      "nextAction": "检查目录权限或选择可访问位置，再刷新文件。",
+      "pass": false,
+      "issues": [
+        "没有显示无法访问的目录位置。",
+        "选择可访问位置的入口不可见。"
+      ],
+      "evidence": "u23-after.png"
+    },
+    {
+      "id": "u24",
+      "understanding": "模型弹层为空，某个操作未能及时确认，但没有明确说明正在读取Cursor设置。",
+      "resultStatus": "模式/模型/权限待确认。",
+      "nextAction": "可点弹层刷新图标或到Cursor核对。",
+      "pass": false,
+      "issues": [
+        "错误只说“操作结果”，未明确是读取设置/模型失败；空弹层不提供原因或可读状态。"
+      ],
+      "evidence": "u24-after.png"
+    },
+    {
+      "id": "u25",
+      "understanding": "重试切换工作目录仍未完成。",
+      "resultStatus": "目录尚未切换，原文件和对话保留。",
+      "nextAction": "继续使用原目录，或查看日志后再重试。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u25-after.png"
+    },
+    {
+      "id": "u26",
+      "understanding": "运行时刷新工作台状态没有完成，原因未知。",
+      "resultStatus": "已显示内容保留，需要重新读取状态才能继续。",
+      "nextAction": "点击可见“重新读取状态”，需要时查看日志。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u26-after.png"
+    },
+    {
+      "id": "u27",
+      "understanding": "恢复待发送队列没有完成，队列仍暂停。",
+      "resultStatus": "一条消息保留在队列，失败原因尚未确认。",
+      "nextAction": "先查看日志；右上播放图标可用于继续队列。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u27-after.png"
+    },
+    {
+      "id": "u28",
+      "understanding": "子会话共享Codex提交操作尚未确认完成。",
+      "resultStatus": "消息是否已经处理未知，应避免重复发送。",
+      "nextAction": "先核对已有回复，再用“核对后恢复该条消息到输入框”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u28-after.png"
+    },
+    {
+      "id": "u29",
+      "understanding": "侧边提问提交给共享Codex的操作未确认完成。",
+      "resultStatus": "草稿仍保留，是否有回复需先核对。",
+      "nextAction": "先看已有回复，确认后用恢复输入框入口，避免重复发送。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u29-after.png"
+    },
+    {
+      "id": "u30",
+      "understanding": "接入Codex会话时读取原生会话列表失败，文件访问受限。",
+      "resultStatus": "列表未读取，导入所选按钮禁用，尚未导入。",
+      "nextAction": "查看日志核对位置和访问权限后点“刷新”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u30-after.png"
+    },
+    {
+      "id": "u31",
+      "understanding": "读取MCP连接状态超时未确认。",
+      "resultStatus": "服务器列表未成功显示。",
+      "nextAction": "点击右上刷新图标重新读取，或查看日志。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u31-after.png"
+    },
+    {
+      "id": "u32",
+      "understanding": "保存Agent设置遇到本机文件/目录权限问题。",
+      "resultStatus": "没有保存成功；三个Agent同时显示未找到CLI、尚未检测CLI，却又显示账号已登录。",
+      "nextAction": "检查本机数据目录权限后保存，可见“打开目录”。",
+      "pass": false,
+      "issues": [
+        "未找到/尚未检测CLI与三个账号全部绿色“已登录”并列且无旧状态说明，用户无法判断Agent是否可用。",
+        "保存失败提示要求选可访问位置，但页面选择按钮是CLI程序路径，易误导更改错误位置。"
+      ],
+      "evidence": "u32-after.png"
+    },
+    {
+      "id": "u33",
+      "understanding": "核对Cursor消息送达结果没有完成。",
+      "resultStatus": "送达待核对，不应判断未送达。",
+      "nextAction": "先到Cursor核对，再点击结束请求。",
+      "pass": false,
+      "issues": [
+        "截图没有打开Cursor或重新核对入口；只有“核对后结束此请求”，无法从此页面执行关键核对动作。"
+      ],
+      "evidence": "u33-after.png"
+    },
+    {
+      "id": "u34",
+      "understanding": "读取可用Skills时没有找到可运行的本机CLI。",
+      "resultStatus": "Skills列表未读取成功。",
+      "nextAction": "到agent管理检测或选择CLI路径后刷新。",
+      "pass": false,
+      "issues": [
+        "指向agent管理的修复入口不可见；模态背景也没有真实导航可供确认。"
+      ],
+      "evidence": "u34-after.png"
+    },
+    {
+      "id": "u35",
+      "understanding": "对话模式弹层中似乎因未找到CLI而无法读取，但顶部内容被裁切。",
+      "resultStatus": "无法看到完整错误与弹层标题。",
+      "nextAction": "可见文字要求到agent管理重新检测。",
+      "pass": false,
+      "issues": [
+        "弹层超出截图上边界，错误首行被截断。",
+        "修复入口不可见，截图无法完整理解当前操作。"
+      ],
+      "evidence": "u35-after.png"
+    },
+    {
+      "id": "u36",
+      "understanding": "执行已确认计划后没有及时确认结果。",
+      "resultStatus": "执行是否已经开始未知。",
+      "nextAction": "应先刷新状态或核对已有记录。",
+      "pass": false,
+      "issues": [
+        "文案要求先刷新/核对，但只提供修改计划和执行计划，无核对入口。",
+        "绿色“执行计划”直接可用，容易对待确认操作重复执行。"
+      ],
+      "evidence": "u36-after.png"
+    },
+    {
+      "id": "u37",
+      "understanding": "重新打开已关闭会话未完成。",
+      "resultStatus": "会话仍在已关闭列表，原因未知。",
+      "nextAction": "查看日志后，可再次用该条目的重新打开入口。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u37-after.png"
+    },
+    {
+      "id": "u38",
+      "understanding": "保存新的会话名称失败，因为本机文件或目录无法访问。",
+      "resultStatus": "名称还在编辑框，没有保存成功。",
+      "nextAction": "应检查本地存储权限或换可访问位置。",
+      "pass": false,
+      "issues": [
+        "没有指明会话名称保存在哪个目录；“选择可访问的位置”也没有入口，非技术用户无法据此修复。"
+      ],
+      "evidence": "u38-after.png"
+    },
+    {
+      "id": "u39",
+      "understanding": "更新与Codex桌面版的同步设置已受理，但新状态没刷新出来。",
+      "resultStatus": "当前非同步标签可能是旧状态，不能重复切换。",
+      "nextAction": "收起并重新打开同步设置核对；入口就在可见标签上。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u39-after.png"
+    },
+    {
+      "id": "u40",
+      "understanding": "只能看见“验收参考资料”标签，看不到预览操作失败。",
+      "resultStatus": "截图没有错误状态。",
+      "nextAction": "不明确。",
+      "pass": false,
+      "issues": [
+        "未显示参考资料预览或异常信息，无法判断问题和下一步。"
+      ],
+      "evidence": "u40-after.png"
+    },
+    {
+      "id": "u41",
+      "understanding": "保存输入草稿失败，因为本机磁盘空间不足。",
+      "resultStatus": "输入尚未保存，当前窗口保留文字。",
+      "nextAction": "保持窗口打开，释放磁盘空间后点击“保存输入草稿”重试。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u41-after.png"
+    },
+    {
+      "id": "u42",
+      "understanding": "修改已发送消息没有完成，原因未知。",
+      "resultStatus": "编辑内容保留；提示重新发送会重做这一轮，已执行文件修改保留。",
+      "nextAction": "查看日志后决定重新发送或取消。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u42-after.png"
+    },
+    {
+      "id": "u43",
+      "understanding": "批量关联成果只成功一项，待处理成果未完成。",
+      "resultStatus": "已关联成果与仍待关联项清楚分开，只剩待处理项被选中。",
+      "nextAction": "查看日志后用“关联1项成果”重试剩余项。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u43-after.png"
+    },
+    {
+      "id": "u44",
+      "understanding": "文档MCP服务登录没有完成，原因未知。",
+      "resultStatus": "服务连接失败，显示0工具。",
+      "nextAction": "可查看日志；没有明确再次登录入口。",
+      "pass": false,
+      "issues": [
+        "错误针对登录操作，截图却没有登录/重试登录入口，刷新图标是否能恢复登录不明确。"
+      ],
+      "evidence": "u44-after.png"
+    },
+    {
+      "id": "u45",
+      "understanding": "断开本项目与中央节点连接的操作没有完成。",
+      "resultStatus": "仍显示已连接，未声称断开成功，本地会话可继续。",
+      "nextAction": "先查看日志，再按需重试“断开本项目”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "u45-after.png"
+    },
+    {
+      "id": "admin-ssh-auth",
+      "understanding": "中央节点没有接受管理员账号或密码。",
+      "resultStatus": "仍未连接，等待身份验证；但成员统计显示0并提示暂无成员。",
+      "nextAction": "打开可见的“连接设置”检查登录信息后重试。",
+      "pass": false,
+      "issues": [
+        "连接未验证且数据未读取时，显示确定的0成员和“暂无成员，可独立创建用户”，会把读取失败误当作空团队。"
+      ],
+      "evidence": "admin-ssh-auth-after.png"
+    },
+    {
+      "id": "admin-ssh-check-timeout",
+      "understanding": "服务器没有及时返回账号检查结果。",
+      "resultStatus": "中央节点未连接、身份待验证；成员列表却声称暂无成员。",
+      "nextAction": "通过连接设置重新连接后重试。",
+      "pass": false,
+      "issues": [
+        "未读取成员数据却显示0成员/0项目及空团队提示，容易误判数据丢失。"
+      ],
+      "evidence": "admin-ssh-check-timeout-after.png"
+    },
+    {
+      "id": "admin-member-blocked",
+      "understanding": "准备移除成员或取消管理员，但该成员是创建者。",
+      "resultStatus": "禁用操作属于身份限制，用户仍已启用。",
+      "nextAction": "此处不能移除或取消创建者身份；可选择其它可用管理操作。",
+      "pass": true,
+      "issues": [],
+      "evidence": "admin-member-blocked-after.png"
+    },
+    {
+      "id": "admin-recovery",
+      "understanding": "创建用户只完成账号建立，后续步骤因密码问题未完成。",
+      "resultStatus": "待恢复操作保留，但列表仍显示0成员/暂无成员。",
+      "nextAction": "点击“继续完成”恢复剩余步骤。",
+      "pass": false,
+      "issues": [
+        "“账号已创建”与0成员/暂无成员未作解释；应标列表尚未刷新或显示部分创建状态。"
+      ],
+      "evidence": "admin-recovery-after.png"
+    },
+    {
+      "id": "admin-storage-partial",
+      "understanding": "共享空间有一个路径没有统计完整。",
+      "resultStatus": "4KB只是已统计值，实际占用可能更高；磁盘总容量独立显示。",
+      "nextAction": "点警告“查看”检查未统计路径，处理后刷新统计。",
+      "pass": true,
+      "issues": [],
+      "evidence": "admin-storage-partial-after.png"
+    },
+    {
+      "id": "admin-storage-cancelled",
+      "understanding": "共享空间统计已取消。",
+      "resultStatus": "提示称已有统计保留，中心却说还没有空间统计。",
+      "nextAction": "可点“开始统计”重新进行。",
+      "pass": false,
+      "issues": [
+        "“已有统计结果保留”与“还没有空间统计”同屏矛盾，应按有无历史结果显示。"
+      ],
+      "evidence": "admin-storage-cancelled-after.png"
+    },
+    {
+      "id": "admin-egress-port",
+      "understanding": "管理员本机出口端口被占用，网络出口启动失败。",
+      "resultStatus": "出口未运行，监控等待启用，没有虚报流量。",
+      "nextAction": "点击“检查出口设置”或出口设置页签，换端口后重新应用。",
+      "pass": true,
+      "issues": [],
+      "evidence": "admin-egress-port-after.png"
+    },
+    {
+      "id": "team-results-personal-read",
+      "understanding": "团队成果已读取，但个人成果对照读取失败。",
+      "resultStatus": "已显示的一条团队内容仍可查看，差异对照未知。",
+      "nextAction": "查看日志核对位置和权限后点击右侧“刷新”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-results-personal-read-after.png"
+    },
+    {
+      "id": "team-results-merge-blocked",
+      "understanding": "此待办已关联项目任务，不能在成果库合并。",
+      "resultStatus": "未选择成果、合并禁用，原成果保留。",
+      "nextAction": "应到项目任务处理中处理。",
+      "pass": false,
+      "issues": [
+        "要求到项目任务但截图没有项目任务链接或导航，无法确认目标入口可达。"
+      ],
+      "evidence": "team-results-merge-blocked-after.png"
+    },
+    {
+      "id": "team-tasks-read",
+      "understanding": "项目任务列表因连接中断没有读取成功。",
+      "resultStatus": "无法确认有没有任务，但状态筛选仍显示待办任务(0)。",
+      "nextAction": "点击“刷新任务”。",
+      "pass": false,
+      "issues": [
+        "未成功读取却仍显示确定的待办任务(0)，与“无法确认是否有任务”有歧义，应显示未知或上次数量。"
+      ],
+      "evidence": "team-tasks-read-after.png"
+    },
+    {
+      "id": "team-question-auto-blocked",
+      "understanding": "开启自动对话的前提未满足，需要先打开本项目工作会话。",
+      "resultStatus": "已有一轮人工协作回复，自动对话禁用，求助仍开放。",
+      "nextAction": "先打开本项目工作会话再开启自动对话。",
+      "pass": false,
+      "issues": [
+        "没有打开本项目工作会话的可见入口；孤立求助面板无法完成该步骤。"
+      ],
+      "evidence": "team-question-auto-blocked-after.png"
+    },
+    {
+      "id": "team-question-stopping",
+      "understanding": "已请求停止自动对话，等待服务器确认。",
+      "resultStatus": "尚未确认停止；人工发送暂禁用，已有回复保留。",
+      "nextAction": "等待服务器确认，期间不用重复点击停止。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-question-stopping-after.png"
+    },
+    {
+      "id": "team-transfer-cache",
+      "understanding": "轨迹文件上传完成情况未确认，且本机缓存已清理。",
+      "resultStatus": "4KB已传输不等于服务器完成；重试按钮禁用。",
+      "nextAction": "上方让回原入口重选上传，下方又让恢复连接后重试查询原请求。",
+      "pass": false,
+      "issues": [
+        "同屏“无法从此处重试”与“重试会先查询原请求回执”矛盾。",
+        "服务器可能已接收却引导重新提交，未给先核对原请求的可用入口。"
+      ],
+      "evidence": "team-transfer-cache-after.png"
+    },
+    {
+      "id": "team-transfer-uncertain",
+      "understanding": "轨迹文件上传连接没能保持，服务器可能已收到。",
+      "resultStatus": "4KB传输条到顶，但完成状态未确认；重试会先查原回执。",
+      "nextAction": "先恢复中央节点连接，再点重试。",
+      "pass": false,
+      "issues": [
+        "截图无中央节点连接入口，无法执行重试前必需的恢复连接步骤。"
+      ],
+      "evidence": "team-transfer-uncertain-after.png"
+    },
+    {
+      "id": "team-rsi-retry",
+      "understanding": "上次AI推荐因模型配置变化未完成。",
+      "resultStatus": "项目变化已记录，后台已排队重试，目前没有待处理推荐。",
+      "nextAction": "等待后台重新分析，可以继续工作。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-rsi-retry-after.png"
+    },
+    {
+      "id": "team-activity-failed",
+      "understanding": "一条新动态的AI判断未完成，因为返回内容无法核对来源。",
+      "resultStatus": "这次判断未采用，待处理动态保留。",
+      "nextAction": "等待新动态/资料/连接恢复后自动继续，可继续对话。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-activity-failed-after.png"
+    },
+    {
+      "id": "admin-environment-failure",
+      "understanding": "远端服务器环境修复失败，组件仍未准备完成。",
+      "resultStatus": "没有表明修复成功，安装操作仍可重试。",
+      "nextAction": "应先查看日志，再决定重新执行服务器修复。",
+      "pass": false,
+      "issues": [
+        "提示“请查看日志”但弹窗没有日志入口。",
+        "没有提供明确的重新检查服务器入口来核对已完成的修复步骤。"
+      ],
+      "evidence": "admin-environment-failure-after.png"
+    },
+    {
+      "id": "admin-import-failure",
+      "understanding": "恢复已有Linux账号时某项操作未完成，无法确定是检测账号还是接入失败。",
+      "resultStatus": "账号demo保留，接入按钮禁用。",
+      "nextAction": "可再次检测已有账号及权限，但日志入口不可见。",
+      "pass": false,
+      "issues": [
+        "错误只叫“执行此操作”，没有点明检测/验证/接入哪一步失败。",
+        "要求查看日志却没有日志入口。"
+      ],
+      "evidence": "admin-import-failure-after.png"
+    },
+    {
+      "id": "admin-sync-failure",
+      "understanding": "成员同步未完成，原因未知。",
+      "resultStatus": "页面只有同步失败提示，没有成员列表。",
+      "nextAction": "文案让查看日志，未给重试或日志入口。",
+      "pass": false,
+      "issues": [
+        "截图无日志或重试入口；用户无法继续修复。"
+      ],
+      "evidence": "admin-sync-failure-after.png"
+    },
+    {
+      "id": "admin-egress-test-failure",
+      "understanding": "测试管理员到Codex服务的网络未完成。",
+      "resultStatus": "只影响Codex测试，其它服务尚未测试；没有成功结论。",
+      "nextAction": "文案让查看日志，再重试测试。",
+      "pass": false,
+      "issues": [
+        "没有可见日志入口，无法根据提示排查原因。"
+      ],
+      "evidence": "admin-egress-test-failure-after.png"
+    },
+    {
+      "id": "admin-egress-jump-failure",
+      "understanding": "启用共享服务器中转的反向隧道没有完成。",
+      "resultStatus": "仍未启用。",
+      "nextAction": "应查看日志后重试启用。",
+      "pass": false,
+      "issues": [
+        "只有通用“执行此操作”错误、无日志入口，无法按提示排查。"
+      ],
+      "evidence": "admin-egress-jump-failure-after.png"
+    },
+    {
+      "id": "team-results-edit-failure",
+      "understanding": "保存团队成果编辑未完成，编辑内容仍保留。",
+      "resultStatus": "仍在编辑状态，没有保存成功。",
+      "nextAction": "查看日志后重试保存或取消编辑。",
+      "pass": false,
+      "issues": [
+        "“请查看日志”未提供可见日志入口。"
+      ],
+      "evidence": "team-results-edit-failure-after.png"
+    },
+    {
+      "id": "team-results-delete-failure",
+      "understanding": "前景仍要求确认删除团队成果，看不到删除失败原因。",
+      "resultStatus": "背景似乎有提示条，但被模糊蒙层遮挡，删除结果不明。",
+      "nextAction": "前景只允许再次确认删除或取消。",
+      "pass": false,
+      "issues": [
+        "失败反馈被仍打开的确认弹窗遮挡；用户无法判断删除是否已经尝试/成功。",
+        "前景继续给确认删除主按钮，可能导致重复执行。"
+      ],
+      "evidence": "team-results-delete-failure-after.png"
+    },
+    {
+      "id": "team-attachment-failure",
+      "understanding": "附件某项操作未完成，不清楚是预览还是下载。",
+      "resultStatus": "附件记录保留，没有内容预览。",
+      "nextAction": "应查看日志，但无入口；可见预览和下载。",
+      "pass": false,
+      "issues": [
+        "通用错误未说明预览/下载哪一项失败。",
+        "没有可见日志入口。"
+      ],
+      "evidence": "team-attachment-failure-after.png"
+    },
+    {
+      "id": "team-task-create-failure",
+      "understanding": "派发任务表单里出现两处操作失败，无法分辨创建任务与读取关联成果哪个出错。",
+      "resultStatus": "表单内容保留，未显示任务创建成功。",
+      "nextAction": "应排查失败后重试确认派发，或刷新成员和成果。",
+      "pass": false,
+      "issues": [
+        "上方与成果区两条相同通用错误，没有区分具体操作。",
+        "没有日志入口，无法完成提示的排查。"
+      ],
+      "evidence": "team-task-create-failure-after.png"
+    },
+    {
+      "id": "team-task-status-failure",
+      "understanding": "确认任务完成的操作未完成。",
+      "resultStatus": "任务尚未确认变为已完成，验收意见保留。",
+      "nextAction": "先查看日志后再重试确认。",
+      "pass": false,
+      "issues": [
+        "没有可见日志入口，无法按提示排查。"
+      ],
+      "evidence": "team-task-status-failure-after.png"
+    },
+    {
+      "id": "team-question-sync-failure",
+      "understanding": "同步求助状态未完成。",
+      "resultStatus": "已有求助与一条协作回复仍显示，但最新状态未知。",
+      "nextAction": "应查看日志或重新同步。",
+      "pass": false,
+      "issues": [
+        "无日志/重试同步入口，返回列表是否会刷新不明确。"
+      ],
+      "evidence": "team-question-sync-failure-after.png"
+    },
+    {
+      "id": "team-question-send-failure",
+      "understanding": "继续求助的发送操作未完成。",
+      "resultStatus": "待发送文字保留在输入框，未看到新回复。",
+      "nextAction": "应查看日志后决定是否重试发送。",
+      "pass": false,
+      "issues": [
+        "没有日志入口。",
+        "错误只写执行此操作，未明确消息是否已送达；主按钮仍直接发送，有重复发送歧义。"
+      ],
+      "evidence": "team-question-send-failure-after.png"
+    },
+    {
+      "id": "team-personal-read-failure",
+      "understanding": "个人成果列表未读取成功。",
+      "resultStatus": "列表内容未知，但右上显示0条。",
+      "nextAction": "提示点击“刷新”，截图没有此按钮。",
+      "pass": false,
+      "issues": [
+        "没有可见刷新或日志入口。",
+        "列表未知却显示0条，容易被误解为成果已空。"
+      ],
+      "evidence": "team-personal-read-failure-after.png"
+    },
+    {
+      "id": "team-draft-upload-unconfirmed",
+      "understanding": "待上传的整理成果上传未完成。",
+      "resultStatus": "上传记录已保留；没有声称内容已发布成功。",
+      "nextAction": "点击该条记录右侧箭头进入详情核对并继续。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-draft-upload-unconfirmed-after.png"
+    },
+    {
+      "id": "team-updates-refresh-failure",
+      "understanding": "标记动态处理状态已保存，刷新列表失败。",
+      "resultStatus": "下方可能仍是上次读取数据，因此待处理条数与标签可能过时。",
+      "nextAction": "应刷新团队动态核对。",
+      "pass": false,
+      "issues": [
+        "截图没有刷新团队动态入口。",
+        "旧条目的“标记已处理”仍可点，缺少先刷新/已提交标识，可能重复操作。"
+      ],
+      "evidence": "team-updates-refresh-failure-after.png"
+    },
+    {
+      "id": "team-scheduled-read-failure",
+      "understanding": "定时任务和运行记录未读取成功。",
+      "resultStatus": "数量未确认，没有误显示暂无任务。",
+      "nextAction": "点击可见的“重新读取”重试。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-scheduled-read-failure-after.png"
+    },
+    {
+      "id": "team-scheduled-read-recovered",
+      "understanding": "定时任务列表已恢复读取。",
+      "resultStatus": "一条本机任务已显示，运行记录为0次，错误提示已消失。",
+      "nextAction": "可以执行/暂停/编辑任务或查看运行记录。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-scheduled-read-recovered-after.png"
+    },
+    {
+      "id": "team-context-action-failure",
+      "understanding": "只知道“执行验收操作”没完成，不知道具体对象是什么。",
+      "resultStatus": "没有显示任何实际业务对象或结果。",
+      "nextAction": "提示查看日志，但只有一个菜单项。",
+      "pass": false,
+      "issues": [
+        "缺少业务对象和实际操作上下文，无法理解究竟做了什么。",
+        "没有日志入口。"
+      ],
+      "evidence": "team-context-action-failure-after.png"
+    },
+    {
+      "id": "team-rsi-settings-read-failure",
+      "understanding": "后台AI推荐设置读取失败。",
+      "resultStatus": "现有推荐配置保持不变。",
+      "nextAction": "点击“重试读取设置”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-rsi-settings-read-failure-after.png"
+    },
+    {
+      "id": "team-directions-read-failure",
+      "understanding": "成员名片未读取成功。",
+      "resultStatus": "已有名片内容未知，未说空白代表没有成员。",
+      "nextAction": "点击“重新读取成员名片”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-directions-read-failure-after.png"
+    },
+    {
+      "id": "team-account-sync-failure",
+      "understanding": "账号资料自动同步途中连接中断。",
+      "resultStatus": "尚未确认同步完成，本机内容保留。",
+      "nextAction": "后台会继续尝试同步，关闭说明后可以继续本机工作。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-account-sync-failure-after.png"
+    },
+    {
+      "id": "admin-projects-read-failure",
+      "understanding": "管理员项目列表未读取成功。",
+      "resultStatus": "当前无法确认有没有项目，没有显示空项目结论。",
+      "nextAction": "点击“刷新项目”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "admin-projects-read-failure-after.png"
+    },
+    {
+      "id": "team-project-brief-read-failure",
+      "understanding": "项目说明未读取成功。",
+      "resultStatus": "当前无法确认已有说明内容；只读权限另有说明。",
+      "nextAction": "点击“重新读取项目说明”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-project-brief-read-failure-after.png"
+    },
+    {
+      "id": "team-personal-group-refresh-failure",
+      "understanding": "个人分组已保存，刷新分组列表失败。",
+      "resultStatus": "显示的未分组列表可能为旧内容，无需重复保存。",
+      "nextAction": "重新打开工作区核对。",
+      "pass": false,
+      "issues": [
+        "截图无工作区关闭/重开或刷新入口，无法证明下一步可达。"
+      ],
+      "evidence": "team-personal-group-refresh-failure-after.png"
+    },
+    {
+      "id": "team-draft-delete-partial",
+      "understanding": "批量删除两条整理记录，只删除成功一条。",
+      "resultStatus": "剩下一条明确列出，因本机磁盘空间不足未完成保存。",
+      "nextAction": "先释放磁盘空间，再点“重试删除1条记录”。",
+      "pass": true,
+      "issues": [],
+      "evidence": "team-draft-delete-partial-after.png"
+    },
+    {
+      "id": "native-user-start",
+      "understanding": "用户端启动时本机会话资料没有读到。",
+      "resultStatus": "启动失败，保留原目录。",
+      "nextAction": "点击“打开日志目录”联系维护人员排查，处理后重新双击启动入口。",
+      "pass": true,
+      "issues": [],
+      "evidence": "native-user-start-after.png"
+    },
+    {
+      "id": "native-admin-start",
+      "understanding": "管理员版启动时本机会话资料没有读到。",
+      "resultStatus": "管理员版启动失败。",
+      "nextAction": "打开日志目录并联系维护人员，处理后重启。",
+      "pass": true,
+      "issues": [],
+      "evidence": "native-admin-start-after.png"
+    },
+    {
+      "id": "native-close-save",
+      "understanding": "关闭窗口之后会话记录没保存成功。",
+      "resultStatus": "窗口已关闭，记录未保存，不是启动失败。",
+      "nextAction": "保留原数据目录，点打开日志目录排查，处理保存问题后重新打开。",
+      "pass": true,
+      "issues": [],
+      "evidence": "native-close-save-after.png"
+    },
+    {
+            "id": "logs-user-browse",
+            "understanding": "进入用户端日志与分析，查看最近故障。",
+            "resultStatus": "故障列表已加载，技术编号位于日志专用界面而非业务报错。",
+            "nextAction": "选择故障项查看详情，或筛选时间/项目/会话、刷新故障。",
+            "pass": true,
+            "issues": [],
+            "evidence": "logs-user-browse-after.png"
+        },
+        {
+            "id": "logs-user-reference",
+            "understanding": "已打开某次传输失败的日志详情。",
+            "resultStatus": "错误编号、日志编号、操作编号与脱敏技术详情可见；这是排查资料。",
+            "nextAction": "可继续查看详情或向下滚动导出故障诊断包供维护人员分析。",
+            "pass": true,
+            "issues": [],
+            "evidence": "logs-user-reference-after.png"
+        },
+        {
+            "id": "logs-user-missing",
+            "understanding": "截图仍是普通故障列表，没有显示目标日志缺失。",
+            "resultStatus": "无法确认所请求记录是否不存在或未定位。",
+            "nextAction": "不明确，应给缺失提示与返回列表/刷新指引。",
+            "pass": false,
+            "issues": [
+                "没有任何目标记录未找到/已清理的提示，不能从图理解该缺失场景。"
+            ],
+            "evidence": "logs-user-missing-after.png"
+        },
+        {
+            "id": "logs-user-pagination",
+            "understanding": "日志列表有内层滚动区域，下方提供诊断包导出。",
+            "resultStatus": "无法看出已加载第几页、总数或是否还有更多记录。",
+            "nextAction": "可滚动列表，但截图没有继续加载/下一页入口。",
+            "pass": false,
+            "issues": [
+                "截图未显示分页或继续加载状态，无法核验如何查到当前页之外的记录。"
+            ],
+            "evidence": "logs-user-pagination-after.png"
+        },
+        {
+            "id": "logs-user-unavailable",
+            "understanding": "日志暂时无法读取，需检查磁盘空间和日志目录权限。",
+            "resultStatus": "同屏仍列出故障记录，但没有标明它们是上次读取的内容。",
+            "nextAction": "检查磁盘和日志权限后点击“刷新故障”。",
+            "pass": false,
+            "issues": [
+                "保留故障列表没有旧数据标识，容易把读取失败后的旧记录当作最新。",
+                "日志目录的位置或打开目录入口不可见，无法直接检查指定权限。"
+            ],
+            "evidence": "logs-user-unavailable-after.png"
+        },
+        {
+            "id": "logs-admin-browse",
+            "understanding": "进入管理员日志与分析，浏览最近故障。",
+            "resultStatus": "列表加载成功，当前可按范围筛选。",
+            "nextAction": "点故障项查看详情，或刷新故障。",
+            "pass": true,
+            "issues": [],
+            "evidence": "logs-admin-browse-after.png"
+        },
+        {
+            "id": "logs-admin-reference",
+            "understanding": "已定位一条传输故障记录。",
+            "resultStatus": "时间、错误编号、日志与操作编号、脱敏技术内容可见。",
+            "nextAction": "继续排查或向下滚动导出诊断包。",
+            "pass": true,
+            "issues": [],
+            "evidence": "logs-admin-reference-after.png"
+        },
+        {
+            "id": "logs-admin-missing",
+            "understanding": "仍显示正常日志列表，未看到请求的记录缺失反馈。",
+            "resultStatus": "不能确认目标记录是否找到。",
+            "nextAction": "不明确，缺失场景应说明返回列表或刷新。",
+            "pass": false,
+            "issues": [
+                "截图没有目标日志不存在/已清理的提示。"
+            ],
+            "evidence": "logs-admin-missing-after.png"
+        },
+        {
+            "id": "logs-admin-pagination",
+            "understanding": "日志列表可以内层滚动，下面有导出诊断入口。",
+            "resultStatus": "没有可见分页或已加载/总数信息。",
+            "nextAction": "可尝试滚动，但无法据图知道是否还有未加载记录。",
+            "pass": false,
+            "issues": [
+                "分页/继续加载入口未显示，无法核验后续记录查阅流程。"
+            ],
+            "evidence": "logs-admin-pagination-after.png"
+        },
+        {
+            "id": "logs-admin-unavailable",
+            "understanding": "读取管理员日志失败，提示检查磁盘空间和日志目录权限。",
+            "resultStatus": "下方仍保留故障列表，但无旧内容标识。",
+            "nextAction": "检查存储后点刷新故障。",
+            "pass": false,
+            "issues": [
+                "旧列表未标明上次读取，容易当成当前读取结果。",
+                "没有日志目录位置或打开目录入口。"
+            ],
+            "evidence": "logs-admin-unavailable-after.png"
+        },
+        {
+            "id": "boundary-ssh-auth",
+            "understanding": "连接中央节点时账号或密码未被接受。",
+            "resultStatus": "连接没有成功。",
+            "nextAction": "检查登录信息后重试。",
+            "pass": false,
+            "issues": [
+                "截图只有提示条，没有账号密码输入或连接设置/重试入口，无法执行修复。"
+            ],
+            "evidence": "boundary-ssh-auth-after.png"
+        },
+        {
+            "id": "boundary-central-refused",
+            "understanding": "连接中央节点失败，需检查服务器地址、端口和网络。",
+            "resultStatus": "未连接。",
+            "nextAction": "核对地址端口网络后重试。",
+            "pass": false,
+            "issues": [
+                "截图未展示地址、端口或设置/重试入口，无法核对或继续。"
+            ],
+            "evidence": "boundary-central-refused-after.png"
+        },
+        {
+            "id": "boundary-central-dns",
+            "understanding": "中央节点暂时连接不上，提示核对地址端口网络。",
+            "resultStatus": "连接没有完成。",
+            "nextAction": "修改连接资料后重试。",
+            "pass": false,
+            "issues": [
+                "没有连接资料、设置或重试入口，截图无法证明恢复流程。"
+            ],
+            "evidence": "boundary-central-dns-after.png"
+        },
+        {
+            "id": "boundary-central-timeout",
+            "understanding": "连接中央节点没有及时确认结果。",
+            "resultStatus": "是否连接成功未知。",
+            "nextAction": "应先刷新状态或核对已有记录。",
+            "pass": false,
+            "issues": [
+                "没有刷新状态/核对记录入口，截图只含提示条。"
+            ],
+            "evidence": "boundary-central-timeout-after.png"
+        },
+        {
+            "id": "boundary-reset",
+            "understanding": "修改中央节点资料过程中连接中断，操作结果未确认。",
+            "resultStatus": "资料是否改成功未知。",
+            "nextAction": "先刷新状态核对，再决定是否重试。",
+            "pass": false,
+            "issues": [
+                "标题是修改资料，错误前缀却叫连接中央节点，操作名称不一致。",
+                "无资料表单或状态刷新入口。"
+            ],
+            "evidence": "boundary-reset-after.png"
+        },
+        {
+            "id": "boundary-password",
+            "understanding": "首次登录需先修改初始密码。",
+            "resultStatus": "连接尚未继续。",
+            "nextAction": "设置新密码后继续连接。",
+            "pass": false,
+            "issues": [
+                "没有设置新密码表单或按钮，用户看见要求但无法操作。"
+            ],
+            "evidence": "boundary-password-after.png"
+        },
+        {
+            "id": "boundary-unknown",
+            "understanding": "读取中央节点资料没有完成，原因未知。",
+            "resultStatus": "没有读取到资料。",
+            "nextAction": "应查看日志了解具体情况。",
+            "pass": false,
+            "issues": [
+                "标题读取资料但错误前缀连接中央节点，操作名称不一致。",
+                "没有日志入口或重新读取入口。"
+            ],
+            "evidence": "boundary-unknown-after.png"
+        },
+        {
+            "id": "boundary-store",
+            "understanding": "恢复本机会话时资料未读取。",
+            "resultStatus": "恢复未完成，需要保留原目录。",
+            "nextAction": "通过日志联系维护人员排查。",
+            "pass": false,
+            "issues": [
+                "没有日志入口或目录位置，无法按提示提供排查材料。"
+            ],
+            "evidence": "boundary-store-after.png"
+        },
+        {
+            "id": "boundary-storage",
+            "understanding": "保存本机记录因磁盘空间不足没有完成。",
+            "resultStatus": "没有保存成功。",
+            "nextAction": "释放磁盘空间后重试。",
+            "pass": false,
+            "issues": [
+                "标题保存记录、提示却说保存设置，具体保存对象不一致。",
+                "没有显示未保存记录或重试入口，无法确认如何继续。"
+            ],
+            "evidence": "boundary-storage-after.png"
+        },
+        {
+            "id": "boundary-prep-count",
+            "understanding": "成果整理失败，因为本次整理超过5项。",
+            "resultStatus": "结果未整理完成、未提交团队；另有未绑定项目限制。",
+            "nextAction": "填写补充说明要求精简到5项内，点击重试；可返回原会话。",
+            "pass": true,
+            "issues": [],
+            "evidence": "boundary-prep-count-after.png"
+        },
+        {
+            "id": "boundary-prep-category",
+            "understanding": "AI整理返回了未选择的项目经验类别。",
+            "resultStatus": "整理结果未成功，上传禁用。",
+            "nextAction": "点击重试整理，必要时在补充说明中重申所选类别。",
+            "pass": true,
+            "issues": [],
+            "evidence": "boundary-prep-category-after.png"
+        },
+        {
+            "id": "boundary-prep-timeout",
+            "understanding": "成果整理没有及时确认结果。",
+            "resultStatus": "正文说结果未知，标题却断言整理失败。",
+            "nextAction": "应先刷新状态/核对记录，但页面只给重试和返回原会话。",
+            "pass": false,
+            "issues": [
+                "未确认结果与“整理失败，可重试”矛盾，容易重复整理。",
+                "没有刷新状态或核对原请求入口。"
+            ],
+            "evidence": "boundary-prep-timeout-after.png"
+        }
+  ]
+}

@@ -1,0 +1,20 @@
+// Render the production WinForms dialog in an isolated native process.
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { spawn, execFileSync } from 'node:child_process';
+const root=process.cwd(),phase=process.argv.find(a=>a.startsWith('--phase='))?.slice(8)||'after';
+const out=path.join(root,'.test-data/error-audit/launcher-'+phase);await fs.mkdir(out,{recursive:true});
+const source=phase==='before'?path.join(root,'.test-data/error-audit/baseline'):root;
+const script=await fs.readFile(path.join(source,'scripts/start-dev-hidden.ps1'),'utf8');
+const original=/^  \$message = (.*)$/m.exec(script)?.[1];if(!original)throw Error('Production dialog text not found');
+const literal=s=>"'"+s.replaceAll("'","''")+"'";
+const payload=path.join(out,'message.txt'),ps=path.join(out,'payload.ps1');
+await fs.writeFile(ps,`\uFEFF$stage='正在检查桌面运行环境'\n$launchLog='C:\\audit\\startup.log'\n$stderrLog='C:\\audit\\stderr.log'\n${phase==='after'?'. '+literal(path.join(root,'scripts/startup-failure.ps1')):''}\ntry { throw 'EIO: bad file descriptor C:/audit/runtime.exe' } catch { $message = ${original}; [IO.File]::WriteAllText(${literal(payload)}, ${phase==='after'?'$message':'($message + "\r\n\r\n是否导出启动诊断包？")'}, [Text.UTF8Encoding]::new($false)) }`,'utf8');
+execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',ps],{windowsHide:true});
+const observed=await fs.readFile(payload,'utf8');if(phase==='after'&&/EIO|bad file descriptor|runtime\.exe/.test(observed))throw Error('Raw failure leaked');
+const cs=path.join(out,'Fixture.cs'),exe=path.join(out,'LauncherFailureFixture.exe');
+await fs.writeFile(cs,'using System;using System.IO;using System.Windows.Forms;class Fixture{[STAThread]static void Main(string[] args){'+(phase==='after'?'WorkbenchStartupFailureDialog.Show(File.ReadAllText(args[0]));':'MessageBox.Show(File.ReadAllText(args[0]),"团队工作台",MessageBoxButtons.YesNo,MessageBoxIcon.Error);')+'}}');
+execFileSync('C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe',['/nologo','/target:winexe','/r:System.Windows.Forms.dll','/r:System.Drawing.dll','/out:'+exe,cs,...(phase==='after'?[path.join(root,'scripts/startup-error-dialog.cs')]:[])],{windowsHide:true});
+console.log('Launcher native fixture ready');
+const child=spawn(exe,[payload],{windowsHide:false,stdio:'ignore'});await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve)});
+const manifest=path.join(root,'docs/error-audit/launcher-observations.json');let rows=JSON.parse(await fs.readFile(manifest,'utf8').catch(()=>'[]'));rows=rows.filter(r=>r.phase!==phase);rows.push({id:'native-launcher',phase,observed:observed+(phase==='after'?'\n关闭 / 导出故障报告':''),source:'scripts/start-dev-hidden.ps1 + scripts/startup-failure.ps1 + scripts/startup-error-dialog.cs',screenshot:'screenshots/native-launcher-'+phase+'.jpg',pass:true,capture:'production WinForms dialog, text evaluated from actual production PowerShell expression, synthetic IO error'});await fs.writeFile(manifest,JSON.stringify(rows,null,2));

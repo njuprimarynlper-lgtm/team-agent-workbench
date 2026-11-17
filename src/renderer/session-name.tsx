@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useId, useRef, useState } from 'react';
 
 /** Keep the editor in place so renaming never takes the user away from the chat. */
@@ -24,7 +27,7 @@ export function SessionName({ title, save, variant = 'heading', children }: {
     if (next === title) { finish(); return; }
     saving.current = true; setBusy(true); setError('');
     try { await save(next); finish(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : '名称未保存，请重试'); }
+    catch (reason) { setError(contextualError(reason, { domain: 'local', operation: '保存会话名称' }, { FILE_ACCESS_DENIED: '名称没存下来：Windows 不允许写入会话记录。新名称还在输入框里。点“查看日志”，请管理员检查记录文件的写入权限；处理好后按回车重试。', UNCLASSIFIED_FAILURE: '这个名称还没保存。输入内容保留，按回车可以再试，按 Esc 放弃修改。' })); }
     finally { saving.current = false; setBusy(false); }
   };
   return <div className={'session-name session-name-' + variant} onKeyDown={event => {
@@ -42,7 +45,7 @@ export function SessionName({ title, save, variant = 'heading', children }: {
           if (event.key === 'Escape') { event.preventDefault(); if (!saving.current) finish(); }
         }}/>
       {busy && <span className="session-name-saving" role="status">保存中…</span>}
-      {error && <span id={errorId} className="session-name-error" role="alert">{error}</span>}
+      {error && <span id={errorId} className="session-name-error" role="alert">{error} <ErrorLogLink message={error}/></span>}
     </div> : children ? children(begin) : <button type="button" className="session-name-label" title={title + ' · 点击修改名称'} aria-label={'修改会话名称：' + title} onClick={begin}>{title}</button>}
   </div>;
 }

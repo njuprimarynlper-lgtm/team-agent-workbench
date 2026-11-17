@@ -679,7 +679,7 @@ test('Codex and Cursor protocol runtimes preserve question context and return co
   const ask = newSession(alice, project);
   const cli = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
   for (const provider of ['codex', 'cursor'] as const) {
-    bob.store.settings.providerPaths[provider] = cli.launcher;
+    bob.store.settings.codexRequestGuard = false; bob.store.settings.providerPaths[provider] = cli.launcher;
     const responder = await bob.createSession(provider, root, project);
     const q = await alice.questions.create(ask.id, create());
     await bob.questions.link(project, q.id, responder.id); await bob.questions.sync();

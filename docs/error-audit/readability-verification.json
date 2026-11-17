@@ -1,0 +1,225 @@
+{
+  "generatedAt": "2026-11-16T15:04:06.357Z",
+  "round": 2,
+  "targetedTestsPassed": true,
+  "fullProjectRegressionPassed": false,
+  "releaseReady": true,
+  "runs": [
+    {
+      "name": "用户端与三家 CLI 状态恢复",
+      "command": "node scripts/test-background.mjs tests/error-audit-user.test.ts tests/session-input-autosave.test.ts tests/workspace-relocation.test.ts tests/provider-auth.test.ts tests/provider-auth-recovery.test.ts tests/provider-connection.test.ts tests/project-directory.test.ts tests/session-files.test.ts tests/new-session-network.test.ts tests/preparation-context.test.ts tests/error-pipeline-boundary.test.ts",
+      "evidence": ".test-data/error-audit/readability-user-complete-tests.log",
+      "sha256": "81c4472ee4dde0aeeebd7ebc64d0d40e9b93c4199613b6a833f473a09e0d7da3",
+      "tests": 100,
+      "passed": 100,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 65481.094
+    },
+    {
+      "name": "管理、任务、传输与本机同步异常",
+      "command": "node --import tsx --test --test-concurrency=1 tests/error-audit-admin.test.ts tests/submission.test.ts tests/workflow-states.test.ts tests/assignments.test.ts",
+      "evidence": ".test-data/error-audit/admin-readability-final-regression.log",
+      "sha256": "cd53b5dec01c2200d6628fe31714887a14ada898c89fd08ade8ff65724ce503c",
+      "tests": 38,
+      "passed": 38,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 25335.4731
+    },
+    {
+      "name": "结构化错误、IPC、日志与来源隔离",
+      "command": "node scripts/test-background.mjs tests/user-failure.test.ts tests/error-pipeline-boundary.test.ts tests/log-query.test.ts tests/logging.test.ts tests/central-connection.test.ts tests/provider-connection.test.ts tests/renderer-entry.test.ts tests/startup-failure.test.ts",
+      "evidence": ".test-data/error-audit/readability-root-final-tests.log",
+      "sha256": "b58ef68c6c1ad96bba0778c032ce8ef8bb2759637d65b9744401f4804dbadb7b",
+      "tests": 45,
+      "passed": 45,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 7126.6069
+    },
+    {
+      "name": "两端窗口与 IPC",
+      "command": "node scripts/test-background.mjs tests/account-windows.test.ts tests/local-project-windows.test.ts tests/admin-reverse-ipc.test.ts tests/admin-windows-ipc.test.ts tests/codex-mcp.test.ts",
+      "evidence": ".test-data/error-audit/readability-ipc-complete-tests.log",
+      "sha256": "f908489d0f0aec2fc90df87bf7035e67ca71a85e6c579b14ff4adcab0d495095",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 17621.4239
+    },
+    {
+      "name": "后台保存、账号隔离与未知状态徽标",
+      "command": "node scripts/test-background.mjs tests/background-record-save.test.ts tests/preparation-review.test.ts",
+      "evidence": ".test-data/error-audit/readability-save-and-badges-tests.log",
+      "sha256": "c8b77facabb79132159bf7403520ad8d428e605ba70c050b2df4dc6e84b43ff7",
+      "tests": 18,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 6284.2099
+    },
+    {
+      "name": "真实保存与引导协议完整文件回归",
+      "command": "node --import tsx --test --test-concurrency=1 tests/background-record-save.test.ts tests/session-steering.test.ts tests/session-delta.test.ts tests/workflow-states.test.ts",
+      "evidence": ".test-data/error-audit/background-record-save-regression.log",
+      "sha256": "3e9e118182096c9ce1a3f5f13a005e76ad13cc3c871e120643ad7ebefac4834e",
+      "tests": 32,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 44865.3347
+    },
+    {
+      "name": "新增日志标题回归",
+      "command": "node scripts/test-background.mjs tests/log-query.test.ts",
+      "evidence": ".test-data/error-audit/readability-final-log-title-tests.log",
+      "sha256": "78b1ee53b102f743109ef1319e68c856be6ac658455cd4e00da8c1880c3c6fe3",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 1063.1114
+    },
+    {
+      "name": "Windows 启动、取消与导出恢复",
+      "command": "node --import tsx --test --test-concurrency=1 tests/launcher.test.ts",
+      "evidence": ".test-data/error-audit/launcher-export-regression.log",
+      "sha256": "b7623498da99b40492b175fe96ae1c8c43bcc4829827b8a3dc48ee8c760bb834",
+      "tests": 22,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 65130.2846
+    }
+  ],
+  "relatedRegression": {
+    "name": "共享状态与成果生命周期完整文件回归",
+    "command": "node scripts/test-background.mjs tests/collaboration-lifecycle.test.ts tests/materials-rendering.test.ts",
+    "evidence": ".test-data/error-audit/readability-shared-status-regression.log",
+    "sha256": "5fd2cb1dee685bf9f6ebe80d97e562b985a73f09ee0196f3eff6700da92c3bfb",
+    "tests": 21,
+    "passed": 20,
+    "failed": 1,
+    "skipped": 0,
+    "durationMs": 18058.7961,
+    "allPassed": false,
+    "newFailures": 0,
+    "knownBaselineFailures": [
+      {
+        "file": "tests/collaboration-lifecycle.test.ts",
+        "name": "personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart",
+        "summary": "团队成果更新版本后沿用了旧引用快照标识，未满足原用例要求的新版本独立快照",
+        "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+        "evidence": ".test-data/error-audit/baseline-regression.log"
+      }
+    ],
+    "conclusion": "20 项通过；1 项旧版本快照标识用例仍未通过，与固定基线相同。丢失上传回执后的核对、显式重试及不重复提交验证通过；没有把遗留失败改为跳过或通过。"
+  },
+  "note": "8 组专项回归通过。额外完整文件回归仍有 1 个固定基线遗留失败；全库遗留 3 项未冒充通过。各批次有重叠，不把通过数相加成独立测试数量。测试结果与可读性逐图门禁分开。",
+  "typecheck": {
+    "passed": true,
+    "command": "npm run typecheck",
+    "exitCode": 0,
+    "evidence": ".test-data/error-audit/readability-final-typecheck.log",
+    "sha256": "3656b7e41781ab62424408d969cc968cb00cb673c7e9a8f0c17cef4c101d7656",
+    "basis": "实际执行返回 exit_code=0，并核对日志无 TypeScript 错误"
+  },
+  "build": {
+    "passed": true,
+    "command": "npm run build:check",
+    "evidence": ".test-data/error-audit/readability-final-build.log",
+    "sha256": "f3f579bab0822cb5fe046e23b913ca9b29bcedfdf2e09a5be666ff3229c9d0c6",
+    "runtimeFilesUnchanged": true
+  },
+  "logsDesktopSmoke": {
+    "passed": true,
+    "evidence": ".test-data/error-audit/readability-final-logs-smoke.log",
+    "sha256": "9b935b6f1f8b64dcce02af79e9d20ddc9a38337eba426cfefcea1b94d816cf7a",
+    "checks": [
+      "两端实际日志入口",
+      "主进程日志定位及渲染异常",
+      "导出与脱敏",
+      "存储预算",
+      "清理",
+      "取消不显示成功"
+    ]
+  },
+  "actualLogScope": {
+    "passed": true,
+    "checks": [
+      "failed first connection resolves main-issued operationId to its attempted node and retrieves redacted detail",
+      "a repeated identical failure resolves to the retained diagnostic record after log deduplication",
+      "another admin window cannot reuse the first window reference to read a different node",
+      "renderer cannot supply centralId or filesystem root to change the derived scope"
+    ],
+    "data": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\log-scope-1794839517761",
+    "generatedAt": "2026-11-16T14:32:03.273Z"
+  },
+  "offlineReport": {
+    "passed": true,
+    "checks": [
+      "离线打开，全部场景可读",
+      "搜索与模块筛选",
+      "逐项 9 分门禁筛选，不以平均分代替放行",
+      "实际截图可加载、放大与关闭",
+      "候选清单有界分页与编号搜索",
+      "场景链接直接跳转",
+      "窄窗口无横向溢出",
+      "无页面异常、无外网请求"
+    ],
+    "scenes": 149,
+    "generatedAt": "2026-11-16T14:56:13.557Z"
+  },
+  "knownBaselineFailures": [
+    {
+      "file": "tests/codex-fork-writer.test.ts",
+      "name": "next-turn model changes preserve pending permission reconnect: model-first",
+      "summary": "原生子会话先改模型再改权限：恢复请求中的模型字段未满足原用例预期",
+      "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+      "evidence": ".test-data/error-audit/baseline-regression.log"
+    },
+    {
+      "file": "tests/codex-fork-writer.test.ts",
+      "name": "next-turn model changes preserve pending permission reconnect: permission-first",
+      "summary": "原生子会话先改权限再改模型：恢复请求中的模型字段未满足原用例预期",
+      "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+      "evidence": ".test-data/error-audit/baseline-regression.log"
+    },
+    {
+      "file": "tests/collaboration-lifecycle.test.ts",
+      "name": "personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart",
+      "summary": "团队成果更新版本后沿用了旧引用快照标识，未满足原用例要求的新版本独立快照",
+      "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+      "evidence": ".test-data/error-audit/baseline-regression.log"
+    }
+  ],
+  "readability": {
+    "scenes": 149,
+    "pairedAndVerified": 149,
+    "reviewedCandidates": 5376,
+    "candidates": 5376,
+    "pendingCandidates": 0,
+    "visualReviewed": 149,
+    "visualPassed": 149,
+    "visualFailed": 0,
+    "scored": 148,
+    "scoreAtLeastNine": 148,
+    "notApplicable": 1,
+    "minimumScore": 9,
+    "initialScored": 126,
+    "initialAtLeastNine": 3,
+    "pendingFollowup": 0,
+    "releaseReady": true
+  },
+  "boundaries": [
+    "全部注入数据隔离；没有读取真实用户会话或登录凭据，没有真实中央节点写入，也没有付费模型调用。",
+    "原生窗口受 Windows 锁屏影响而未重拍时，维持未放行；不以自动化测试替代实际截图。",
+    "可读性分数来自独立 agent，不代表真实用户研究。",
+    "全部故障使用隔离数据、临时目录、协议桩或原生测试窗口；不读取真实用户会话或凭据，不连接真实中央节点，不调用付费模型。",
+    "Codex、Cursor、Claude Code 的会话、授权与恢复走协议夹具；真实账号及真实网关端到端测试未执行。",
+    "Windows 环境不能替代 Linux 内核 ACL 实测；相关跳过项保留。",
+    "不同定向测试批次存在重叠，不将各批次数相加作为独立用例总量。"
+  ]
+}

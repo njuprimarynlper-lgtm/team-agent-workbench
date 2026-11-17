@@ -1,0 +1,37 @@
+[
+  {
+    "id": "team-results-merge-blocked",
+    "screenshot": "docs/error-audit/screenshots/team-results-merge-blocked-after.png",
+    "sha256": "77d40166e05e97475219ee9d577aa36769311e9019c26f871b5238ad0181f9f6"
+  },
+  {
+    "id": "team-task-status-failure",
+    "screenshot": "docs/error-audit/screenshots/team-task-status-failure-after.png",
+    "sha256": "5d5b3a1ff80b1d5cb3e5566d9e052780622d50275fbb4f2f13e9e8e5dbfa7afe"
+  },
+  {
+    "id": "team-question-send-failure",
+    "screenshot": "docs/error-audit/screenshots/team-question-send-failure-after.png",
+    "sha256": "730448cd8d82b74579225aaa11ac074839ef2bbb369f8df33843be84116792a5"
+  },
+  {
+    "id": "team-draft-upload-unconfirmed",
+    "screenshot": "docs/error-audit/screenshots/team-draft-upload-unconfirmed-after.png",
+    "sha256": "cac65e39e1d14a9de2f3c44b2e9b5ba7ab23c1a97f383db5b9f84feb9b54a0c4"
+  },
+  {
+    "id": "team-transfer-record-save",
+    "screenshot": "docs/error-audit/screenshots/team-transfer-record-save-after.png",
+    "sha256": "af6346e3cff776330c4ace8b182e73473cf1a56a4ddac0b11fdd42864b809ec7"
+  },
+  {
+    "id": "team-draft-transfer-cache",
+    "screenshot": "docs/error-audit/screenshots/team-draft-transfer-cache-after.png",
+    "sha256": "acf664e9d879c8d9c9382b8d74578443f890134d1a237bddf996c436e792065f"
+  },
+  {
+    "id": "admin-project-index-unreadable",
+    "screenshot": "docs/error-audit/screenshots/admin-project-index-unreadable-after.png",
+    "sha256": "11157499cab19dd266b238c3abd71df710d8c8a04005eeedd21b59ff6db41a0d"
+  }
+]

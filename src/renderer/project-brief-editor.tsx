@@ -1,6 +1,7 @@
 import { MarkdownEditor } from './markdown-editor';
 import { Markdown } from './markdown';
-import { errorMessage } from '../shared/errors';
+import { uiErrorMessage } from '../shared/user-failure';
+import { collaborationFailure } from './collaboration-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import type { Project, ProjectBriefState } from '../shared/types';
 import { briefFields, type ProjectBrief } from '../shared/project-brief';
@@ -20,29 +21,30 @@ function BriefFields({ brief, setBrief, busy, readOnly }: { brief: ProjectBrief;
 
 export function ProjectBriefSettings({ project, admin, cancel, saved, saveLabel = '保存新版本', localSettings }: { project: Project; admin: boolean; cancel?: () => void; saved: (revision: number) => Promise<void>; saveLabel?: string; localSettings?: React.ReactNode }) {
   const [brief, setBrief] = useState<ProjectBrief>(blank), [revision, setRevision] = useState(0);
+  const [readLoaded, setReadLoaded] = useState(false), [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(true), [error, setError] = useState('');
   useEffect(() => {
     let active = true;
-    setBusy(true); setError(''); setBrief(blank()); setRevision(0);
+    setBusy(true); setReadLoaded(false); setError(''); setBrief(blank()); setRevision(0);
     void window.workbench.call<ProjectBriefState>('project.brief', { projectId: project.id }).then(data => {
-      if (active) { setBrief(data.brief || blank()); setRevision(data.revision); }
-    }, reason => { if (active) setError(errorMessage(reason)); }).finally(() => { if (active) setBusy(false); });
+      if (active) { setBrief(data.brief || blank()); setRevision(data.revision); setReadLoaded(true); }
+    }, reason => { if (active) setError(collaborationFailure(reason, '项目说明没加载出来。请点“重新读取项目说明”再试。', { domain: 'local', operation: '读取项目说明' })); }).finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
-  }, [project.id]);
+  }, [project.id, reload]);
   const invalid = briefFields.filter(field => field.required).some(field => !brief[field.key].trim());
   return <><div className="modal-body project-settings-form">
     {localSettings}
     <div className="callout"><span className="project-file-icon" aria-hidden="true">MD</span><div><b>{project.name}</b><small>{admin ? '下列字段与共享项目根目录中的“项目说明.md”一一对应；修改先保存在本机，连接后自动同步；冲突不会覆盖任一版本。' : '这是本项目当前的项目说明，对应共享目录中的“项目说明.md”，由创建者或管理者维护。'}</small></div></div>
     {error && <div className="inline-error" role="alert">{error}</div>}
     {!admin && <p className="muted small">只读，仅本项目创建者或管理者可修改。</p>}
-    <BriefFields brief={brief} setBrief={setBrief} busy={busy} readOnly={!admin}/>
-  </div><footer>{cancel && <button className="secondary" disabled={busy} onClick={cancel}>取消</button>}{admin && <button className="primary" disabled={busy || invalid} onClick={async () => {
+    <>{!readLoaded && !busy ? <div><button className="secondary" onClick={() => setReload(value => value + 1)}>重新读取项目说明</button></div> : <BriefFields brief={brief} setBrief={setBrief} busy={busy || !readLoaded} readOnly={!admin}/>}</>
+  </div><footer>{cancel && <button className="secondary" disabled={busy} onClick={cancel}>取消</button>}{admin && <button className="primary" disabled={busy || invalid || !readLoaded} onClick={async () => {
     setBusy(true); setError('');
     try {
       const result = await window.workbench.call<ProjectBriefState & { briefRevision?: number }>('project.brief.save', { projectId: project.id, brief, revision });
       const nextRevision = result.revision ?? result.briefRevision ?? revision + 1;
       setRevision(nextRevision); await saved(nextRevision);
-    } catch (reason: any) { setError(errorMessage(reason)); } finally { setBusy(false); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'local', operation: '读取或保存项目说明' })); } finally { setBusy(false); }
   }}>{busy ? '保存中…' : saveLabel}</button>}</footer></>;
 }
 
@@ -71,6 +73,6 @@ export function ProjectBriefEditor({ project, initialName = '', connectionLabel,
       if (attempt.current?.key !== key) attempt.current = { key, id: 'project_' + crypto.randomUUID().replace(/-/g, '') };
       const result = await window.workbench.call<Project>('project.create', { ...input, requestId: attempt.current.id });
       setCreatedProject(result); await saved(result);
-    } catch (reason: any) { setError(errorMessage(reason)); } finally { setBusy(false); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'local', operation: '读取或保存项目说明' })); } finally { setBusy(false); }
   }}>{busy ? '正在创建…' : createdProject ? '打开项目' : '创建项目'}</button></footer></section></div>;
 }

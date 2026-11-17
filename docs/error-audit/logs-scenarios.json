@@ -1,0 +1,361 @@
+{
+  "schema": 1,
+  "scenarios": [
+    {
+      "id": "logs-user-browse",
+      "phase": "before",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-user-browse-before.png",
+      "observed": "只有日志状态、导出与清理，没有最近故障列表和详情查询"
+    },
+    {
+      "id": "logs-user-reference",
+      "phase": "before",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-user-reference-before.png",
+      "observed": "没有从错误定位到诊断记录的入口"
+    },
+    {
+      "id": "logs-user-missing",
+      "phase": "before",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-user-missing-before.png",
+      "observed": "没有日志引用查询，无法说明记录已清理或不在当前范围"
+    },
+    {
+      "id": "logs-user-pagination",
+      "phase": "before",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-user-pagination-before.png",
+      "observed": "没有故障列表与分页入口"
+    },
+    {
+      "id": "logs-user-unavailable",
+      "phase": "before",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-user-unavailable-before.png",
+      "observed": "没有故障查询功能，无法展示查询读取失败状态"
+    },
+    {
+      "id": "logs-admin-browse",
+      "phase": "before",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-admin-browse-before.png",
+      "observed": "只有日志状态、导出与清理，没有最近故障列表和详情查询"
+    },
+    {
+      "id": "logs-admin-reference",
+      "phase": "before",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-admin-reference-before.png",
+      "observed": "没有从错误定位到诊断记录的入口"
+    },
+    {
+      "id": "logs-admin-missing",
+      "phase": "before",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-admin-missing-before.png",
+      "observed": "没有日志引用查询，无法说明记录已清理或不在当前范围"
+    },
+    {
+      "id": "logs-admin-pagination",
+      "phase": "before",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-admin-pagination-before.png",
+      "observed": "没有故障列表与分页入口"
+    },
+    {
+      "id": "logs-admin-unavailable",
+      "phase": "before",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel",
+      "screenshot": "screenshots/logs-admin-unavailable-before.png",
+      "observed": "没有故障查询功能，无法展示查询读取失败状态"
+    },
+    {
+      "id": "logs-user-source-path",
+      "phase": "before",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\baseline",
+      "sourceVersion": "2.3.46",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-em0L0P",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-em0L0P",
+      "entry": "从 Windows 短路径启动用户端",
+      "condition": "8.3运行目录触发初始界面的可信来源误拒绝",
+      "observed": "初始界面显示“不允许的调用来源”，无法进入工作台",
+      "screenshot": "screenshots/logs-user-source-path-before.png",
+      "fixture": "fixed baseline Electron app with actual Windows 8.3 build path",
+      "viewportVerified": [
+        "不允许的调用来源"
+      ]
+    },
+    {
+      "id": "logs-user-browse",
+      "phase": "after",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:31:51.166Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-user-browse-after.png",
+      "observed": "当前账号范围显示20条/1页，加载更早故障控件在画面内",
+      "viewportVerified": [
+        "已显示 20 条记录 · 已读取 1 页",
+        "加载更早故障"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-user-pagination",
+      "phase": "after",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:31:57.414Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-user-pagination-after.png",
+      "observed": "已显示24条/2页和当前查询没有更多记录提示均在画面内",
+      "viewportVerified": [
+        "已显示 24 条记录 · 已读取 2 页",
+        "当前查询没有更多记录"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-user-reference",
+      "phase": "after",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:02.677Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-user-reference-after.png",
+      "observed": "日志详情显示脱敏技术原文、错误编号和操作编号",
+      "viewportVerified": [
+        "技术错误详情"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-user-missing",
+      "phase": "after",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:05.868Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-user-missing-after.png",
+      "observed": "日志缺失时说明可能原因、检查账号和中央节点、打开日志文件夹的实际入口，未将缺失日志当作原操作失败",
+      "viewportVerified": [
+        "这条日志没有找到",
+        "打开日志文件夹"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-user-unavailable",
+      "phase": "after",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:14.142Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-user-unavailable-after.png",
+      "observed": "一处提示说明最新读取失败、下方旧记录时间；可实际重试读取或打开主进程确定的日志文件夹，目录异常时打开其所在数据文件夹",
+      "viewportVerified": [
+        "最新故障记录没读出来",
+        "读取的旧记录",
+        "打开日志文件夹",
+        "已打开它所在的数据文件夹"
+      ],
+      "openDirectoryVerified": {
+        "rejectsRendererPath": true,
+        "logDirectory": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\logs-after-1794839496955\\user\\logs",
+        "fallback": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\logs-after-1794839496955\\user"
+      },
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-admin-browse",
+      "phase": "after",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:25.290Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-admin-browse-after.png",
+      "observed": "当前账号范围显示20条/1页，加载更早故障控件在画面内",
+      "viewportVerified": [
+        "已显示 20 条记录 · 已读取 1 页",
+        "加载更早故障"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-admin-pagination",
+      "phase": "after",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:31.505Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-admin-pagination-after.png",
+      "observed": "已显示24条/2页和当前查询没有更多记录提示均在画面内",
+      "viewportVerified": [
+        "已显示 24 条记录 · 已读取 2 页",
+        "当前查询没有更多记录"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-admin-reference",
+      "phase": "after",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:35.713Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-admin-reference-after.png",
+      "observed": "日志详情显示脱敏技术原文、错误编号和操作编号",
+      "viewportVerified": [
+        "技术错误详情"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-admin-missing",
+      "phase": "after",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:38.903Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-admin-missing-after.png",
+      "observed": "日志缺失时说明可能原因、检查账号和中央节点、打开日志文件夹的实际入口，未将缺失日志当作原操作失败",
+      "viewportVerified": [
+        "这条日志没有找到",
+        "打开日志文件夹"
+      ],
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-admin-unavailable",
+      "phase": "after",
+      "edition": "admin",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "sourceVersion": "2.3.46",
+      "capturedAt": "2026-11-16T14:32:47.169Z",
+      "fixture": "isolated synthetic log records; real Electron LogsPanel; shell.openPath recorded at OS boundary",
+      "screenshot": "screenshots/logs-admin-unavailable-after.png",
+      "observed": "一处提示说明最新读取失败、下方旧记录时间；可实际重试读取或打开主进程确定的日志文件夹，目录异常时打开其所在数据文件夹",
+      "viewportVerified": [
+        "最新故障记录没读出来",
+        "读取的旧记录",
+        "打开日志文件夹",
+        "已打开它所在的数据文件夹"
+      ],
+      "openDirectoryVerified": {
+        "rejectsRendererPath": true,
+        "logDirectory": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\logs-after-1794839496955\\admin\\logs",
+        "fallback": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\logs-after-1794839496955\\admin"
+      },
+      "entryPathVerified": {
+        "preservedLaunchPath": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+        "foreignFileRejected": true
+      }
+    },
+    {
+      "id": "logs-user-source-path",
+      "phase": "after",
+      "edition": "user",
+      "source": "D:\\agent开发\\team-agent-workbench",
+      "sourceVersion": "2.3.46",
+      "buildDirectory": "C:\\Users\\L00851~1\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "canonicalBuildDirectory": "C:\\Users\\l00851001\\AppData\\Local\\Temp\\workbench-build-check-YHZ8In",
+      "entry": "从 Windows 短路径启动用户端",
+      "condition": "8.3运行目录触发初始界面的可信来源误拒绝",
+      "observed": "同样用未规范化的8.3路径启动，初始工作台正常加载；没有误拒绝提示",
+      "screenshot": "screenshots/logs-user-source-path-after.png",
+      "fixture": "current production Electron app with actual Windows 8.3 build path",
+      "viewportVerified": [
+        "更多功能"
+      ]
+    }
+  ]
+}

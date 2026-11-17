@@ -17,6 +17,9 @@ import { draftDeleteIdsSchema } from '../shared/draft-delete';
 import { preparationDirectionsSchema } from '../shared/preparation-directions';
 import { contentDeleteSelectionsSchema, contentEditSchema, contributionCategorySchema, resultReferenceSchema } from '../shared/content';
 import { errorMessage } from '../shared/errors';
+import { publicFailure, publicErrorState } from './public-failures';
+import { showStartupFailure, showRecordSaveFailure } from './startup-failure';
+import { rendererEntry } from './renderer-entry';
 import { app, BrowserWindow, Notification, ipcMain, dialog, shell, clipboard, safeStorage, Tray, Menu, nativeImage, powerMonitor } from 'electron';
 import { scheduledTaskInputSchema } from '../shared/scheduled-task';
 import fs from 'node:fs/promises';
@@ -49,7 +52,7 @@ import { EgressClientProxy } from '../core/egress';
 import { decodeEgressInvite, userEgressInputSchema } from '../core/egress-config';
 import { taskbarAttention, taskbarShouldAlert, type TaskbarAttention } from '../shared/taskbar-attention';
 import { planExecuteSchema, planReviseSchema } from '../shared/session-mode';
-type DataContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; broadcast: () => void; notice: (message: string) => void };
+type DataContext = { workbench: Workbench; egress: EgressClientProxy; egressSecretFile: string; broadcast: () => void; notice: (message: string, failure?: import('../shared/user-failure').UserFailure) => void };
 type SidebarPanes = { workgroups?: number; files?: number; sessions?: number };
 type WindowContext = DataContext & { projectLinkTarget?: string; projectCreation?: ProjectCreationIntent; selectedProjectId?: string; slot: number; sidebarProjectHeight?: number; sidebarPanes?: SidebarPanes; release: () => Promise<void> };
 const windows = new Set<BrowserWindow>(), contexts = new Map<BrowserWindow, WindowContext>(), activeSlots = new Set<number>(), closingWindows = new Set<BrowserWindow>();
@@ -62,7 +65,7 @@ function routeAccount<T>(operation: () => Promise<T>): Promise<T> { const next =
 let quitting = false; let closing = false; let windowsReady = false; let openingWindow = false;
 let sharedServerEndpoint: { host: string; port: number } | undefined;
 let pendingWindowRequests = 0;
-const entry = path.join(__dirname, runtimeAssets, 'index.html');
+const entry = rendererEntry(__dirname, runtimeAssets);
 app.setName('Team Agent User');
 if (process.platform === 'win32') app.setAppUserModelId('local.teamagent.user');
 app.setPath('userData', process.env.WORKBENCH_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentUser'));
@@ -199,10 +202,11 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
         sideChats: [...(local?.sideChats || []), ...(snapshot.sideChats || [])], sessions: [...(local?.sessions || []), ...snapshot.sessions], drafts: [...(local?.drafts || []), ...snapshot.drafts],
         inputs: { ...snapshot.inputs, ...local?.inputs }, activeTurns: { ...snapshot.activeTurns, ...local?.activeTurns },
         activity: { ...snapshot.activity, jobs: [...(snapshot.activity?.jobs || []), ...(local?.activity?.jobs || [])] },
-        personal: local && { settings: local.settings, providers: local.providers, auth: local.auth, egress: personalContext!.egress.status() },
+        personal: local && { localRecordSaveFailure: local.localRecordSaveFailure, settings: local.settings, providers: local.providers, auth: local.auth, egress: personalContext!.egress.status() },
         settings: { ...snapshot.settings, personalGroups: local?.settings.personalGroups || [], sidebarProjectHeight: active!.sidebarProjectHeight, sidebarPanes: active!.sidebarPanes, defaultServer: sharedServerEndpoint }, egress: egress.status() };
       return compactSnapshotContent(full as Snapshot, known?.accountKey, known?.sessions, true);
     }
+    case 'localRecord.retrySave': return workbench.retryBackgroundRecordSave();
     case 'project.connection.open': { const p = z.object({ localProjectId: z.string().optional(), key: z.string().min(1), projectId: z.string().optional(), createProject: projectCreationInputSchema.optional() }).parse(raw); return openProjectConnection(owner, p.key, p.projectId, p.createProject, p.localProjectId); }
     case 'project.connection.disconnect': { const p = z.object({ projectId: z.string().min(1) }).parse(raw); await workbench.disconnectProject(p.projectId); return true; }
     case 'project.connection.setup.dismiss': { active!.projectLinkTarget = undefined; return true; }
@@ -261,6 +265,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.capabilities': { const p = z.object({ id, forceRefresh: z.boolean().optional(), kind: z.enum(['skill', 'plugin']).optional() }).parse(raw); return workbench.capabilities(p.id, p.forceRefresh, p.kind); }
     case 'session.modes': return workbench.modes(z.object({ id }).parse(raw).id);
     case 'session.mode': { const p = z.object({ id, mode: z.enum(['default', 'plan', 'ask']) }).parse(raw); return workbench.changeMode(p.id, p.mode); }
+    case 'session.plan.confirmRetry': { const p = planExecuteSchema.parse(raw); return workbench.confirmPlanRetry(p.id, p.messageId); }
     case 'session.plan.execute': { const p = planExecuteSchema.parse(raw); return workbench.executePlan(p.id, p.messageId); }
     case 'session.plan.revise': { const p = planReviseSchema.parse(raw); return workbench.revisePlan(p.id, p.messageId, p.text); }
     case 'session.tools.configuration': { const p = z.object({ id, kind: z.enum(['mcp', 'skill', 'plugin']) }).parse(raw); const file = await workbench.toolConfiguration(p.id, p.kind); const error = await shell.openPath(file); if (error) throw new Error('无法打开配置，请检查本机文件关联。'); return true; }
@@ -372,6 +377,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'subsession.report.review': { const p = z.object({ parentId: id, childId: id, reportId: id }).parse(raw); return workbench.reviewSubsessionReport(p.parentId, p.childId, p.reportId); }
     case 'subsession.report.attach': { const p = z.object({ parentId: id, childId: id, reportId: id }).parse(raw); return workbench.attachSubsessionReport(p.parentId, p.childId, p.reportId); }
     case 'session.completion.read': { const p = z.object({ id, completionId: z.string().uuid() }).parse(raw); return workbench.readSessionCompletion(p.id, p.completionId); }
+    case 'session.record.save': return workbench.retrySessionSave(sessionInput.parse(raw).id);
     case 'session.rename': { const p = z.object({ id, title: z.string().trim().min(1).max(120) }).parse(raw); return workbench.renameSession(p.id, p.title); }
     case 'project.link': { const p = z.object({ projectId: z.string(), groupName: z.string().min(1) }).parse(raw); return personalContext!.workbench.linkLocalProject(active!.workbench, p.projectId, p.groupName); }
     case 'project.brief': return workbench.projectSync.read(z.object({ projectId: z.string() }).parse(raw).projectId);
@@ -523,7 +529,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       if (s.title === '新会话') s.title = p.text.trim().slice(0, 40);
       return new Promise<boolean>((resolve, reject) => {
         let submitted = false;
-        void workbench.send(p.id, p.text, p.sourceIds, p.capabilities, () => { submitted = true; resolve(true); }).then(started => { if (!started && !submitted) reject(new Error(s.error || '任务未能提交给 CLI，请重试')); }).catch(error => { notice(error.message); if (!submitted) reject(error); });
+        void workbench.send(p.id, p.text, p.sourceIds, p.capabilities, () => { submitted = true; resolve(true); }).then(started => { if (!started && !submitted) reject(new Error(s.error || '任务未能提交给 CLI，请重试')); }).catch(error => { const failure = publicFailure(error, 'session.send'); notice(failure.message, failure); if (!submitted) reject(error); });
       });
     }
     case 'session.enqueue': {
@@ -571,6 +577,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'session.delete': return workbench.deleteSession(sessionInput.parse(raw).id);
     case 'journal.project': return workbench.projectJournal(sessionInput.parse(raw).id);
     case 'session.reopen': return workbench.reopenSession(sessionInput.parse(raw).id);
+    case 'session.connection.restore': { const p = z.object({ id }).strict().parse(raw); return workbench.reconnectSession(p.id); }
     case 'session.answer': { const p = z.object({ id, requestId: z.string(), option: z.string(), answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional() }).parse(raw); return workbench.answer(p.id, p.requestId, p.option, p.answers); }
     case 'session.attachLocal': { const p = sessionInput.parse(raw); return workbench.attachLocal(p.id, await chooseFiles(owner)); }
     case 'session.attachRemote': { const p = z.object({ id, projectId: z.string(), path: text }).parse(raw); return workbench.attachRemote(p.id, p.projectId, p.path); }
@@ -624,6 +631,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
       const zip = await packageDraft(d, workbench.store.root); await fs.copyFile(zip, target.filePath); return true;
     }
     case 'transfer.retry': return workbench.queue.retry(sessionInput.parse(raw).id);
+    case 'transfer.retrySave': return workbench.queue.retrySave(sessionInput.parse(raw).id);
     case 'provider.login': {
       const p = z.object({ provider, cwd: z.string().optional(), networkRoute: z.enum(['direct', 'management']).optional() }).parse(raw);
       await workbench.accounts.login(p.provider, p.cwd || workbench.store.settings.localWorkspace || app.getPath('home'), p.networkRoute);
@@ -836,7 +844,7 @@ function syncTaskbar(window: BrowserWindow, workbench: Workbench) {
 }
 async function createDataContext(root: string, personal = false): Promise<DataContext> {
   let workbench: Workbench;
-  const emit = (event: WorkbenchEvent) => { for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) window.webContents.send('workbench:event', event); };
+  const emit = (event: WorkbenchEvent) => { const displayed = publicErrorState(event, 'session.status', applicationLogs, root); for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) window.webContents.send('workbench:event', displayed); };
   const pendingMessages = new Map<string, { session: import('../shared/types').AgentSession; ids: Set<string>; sideChatId?: string }>();
   let deltaTimer: NodeJS.Timeout | undefined;
   const emitSessionDelta = (session: import('../shared/types').AgentSession, messageId?: string, sideChatId?: string) => {
@@ -858,7 +866,7 @@ async function createDataContext(root: string, personal = false): Promise<DataCo
   };
   let emitTimer: NodeJS.Timeout | undefined;
   const broadcast = () => { egress?.sharedServerConnectionChanged(personal ? !!personalRelay?.workbench.remote.connected : !!workbench?.remote.connected); if (!personal) personalContext?.egress.sharedServerConnectionChanged(!!personalRelay?.workbench.remote.connected); if (!emitTimer) emitTimer = setTimeout(() => { emitTimer = undefined; emit({ type: 'state' }); for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) syncTaskbar(window, context.workbench); }, 80); };
-  const notice = (message: string) => { emit({ type: 'notice', message });
+  const notice = (message: string, failure?: import('../shared/user-failure').UserFailure) => { emit({ type: 'notice', message, ...(failure ? { failure } : {}) });
     if (/^(定时任务完成|定时任务结束|定时任务待处理|收到求助|收到求助答复|求助已关闭|收到提问|收到问题答复|问题已关闭)：/.test(message) && Notification.isSupported()) {
       const notification = new Notification({ title: message.startsWith('定时任务') ? '团队工作台 · 定时任务与授权' : '团队工作台 · 寻求帮助', body: message });
       notification.on('click', () => { for (const [window, context] of contexts) if ((personal || context.workbench === workbench) && !window.isDestroyed()) { window.show(); window.focus(); window.webContents.send('workbench:event', { type: message.startsWith('定时任务') ? 'scheduled-tasks' : 'questions' }); break; } });
@@ -946,7 +954,7 @@ function drainAdditionalWindows() {
             // start at login instead of reusing an unrelated old slot's identity.
             await createWindow(storedSlot, storedSlot === undefined);
           });
-        } catch (error: any) { dialog.showErrorBox('工作台窗口启动失败', error.message); }
+        } catch (error: any) { await showStartupFailure('工作台窗口启动失败', error, app.getPath('userData')); }
       }
     }
     finally { openingWindow = false; }
@@ -974,8 +982,8 @@ if (ownDataDirectory(latestWindow, queueLauncherWindow)) app.whenReady().then(as
       const value = await logContext.run({ operationId: finishLog.operationId }, () => executing.workbench.runAccountOperation(operation, () => dispatch(operation, payload, owner, preferPersonal)));
       if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(operation) && contexts.get(owner) !== context) throw new Error('账号已改变，未返回上一个账号的操作结果，请刷新后重试');
       finishLog?.();
-      return { ok: true, value };
-    } catch (e: any) { finishLog?.(e); return { ok: false, error: errorMessage(e) }; }
+      return { ok: true, value: publicErrorState(value, operation, applicationLogs, executing.workbench.store.root) };
+    } catch (e: any) { finishLog?.(e); const failure = publicFailure(e, String(action), finishLog?.logRef); return { ok: false, error: failure.message, failure }; }
   });
   const legacySettings = await fs.readFile(path.join(app.getPath('userData'), 'settings.json'), 'utf8').then(value => JSON.parse(value)).catch((error: any) => { if (error.code === 'ENOENT') return {}; throw error; });
   await serverIdentities.init(legacySettings.trustedServerIdentities || {});
@@ -984,7 +992,7 @@ if (ownDataDirectory(latestWindow, queueLauncherWindow)) app.whenReady().then(as
   await routeAccount(() => createWindow());
   windowsReady = true;
   void drainAdditionalWindows();
-}).catch(async error => { applicationLogs.record('diagnostic', 'app.start_failed', {}, { level: 'error', detail: errorMessage(error), stack: error.stack }); await applicationLogs.close(); dialog.showErrorBox('工作台启动失败', error.message); app.quit(); });
+}).catch(async error => { applicationLogs.record('diagnostic', 'app.start_failed', {}, { level: 'error', detail: errorMessage(error), stack: error.stack }); await applicationLogs.close(); await showStartupFailure('工作台启动失败', error, app.getPath('userData')); app.quit(); });
 app.on('window-all-closed', () => { if (!closing && !taskTray) void finishQuit(); });
 let taskTray: Tray | undefined;
 app.whenReady().then(() => {
@@ -1011,9 +1019,9 @@ function dismissWindow(window: BrowserWindow) {
   if (window.isDestroyed()) return;
   window.hide();
 }
-function reportCloseFailure(error: unknown) {
+async function reportCloseFailure(error: unknown) {
   applicationLogs.record('diagnostic', 'storage.close_failed', {}, { level: 'error', detail: errorMessage(error), stack: error instanceof Error ? error.stack : undefined });
-  dialog.showErrorBox('未保存的编辑', '保存失败，窗口已经关闭。\n' + errorMessage(error) + '\n请恢复目录或磁盘空间后重新打开工作台。');
+  await showRecordSaveFailure(app.getPath('userData'));
 }
 async function closeWindow(window: BrowserWindow) {
   if (closingWindows.has(window)) return;
@@ -1024,7 +1032,7 @@ async function closeWindow(window: BrowserWindow) {
   dismissWindow(window);
   if (!window.isDestroyed()) window.destroy();
   try { await routeAccount(() => context.release()); }
-  catch (error) { reportCloseFailure(error); }
+  catch (error) { await reportCloseFailure(error); }
   finally { closingWindows.delete(window); broadcastConnections(); }
 }
 async function finishQuit() {
@@ -1037,7 +1045,7 @@ async function finishQuit() {
   }
   for (const [window] of pending) { dismissWindow(window); if (!window.isDestroyed()) window.destroy(); }
   try { await routeAccount(async () => { for (const [, context] of pending) await context.release(); if (personalContext) { await personalContext.workbench.close(); await personalContext.egress.stop(); } }); }
-  catch (error) { reportCloseFailure(error); }
+  catch (error) { await reportCloseFailure(error); }
   finally { applicationLogs.record('diagnostic', 'app.stopped'); await applicationLogs.close(); quitting = true; for (const [window] of pending) closingWindows.delete(window); closing = false; app.quit(); }
 }
 app.on('before-quit', event => { if (!quitting && contexts.size) { event.preventDefault(); void finishQuit(); } });

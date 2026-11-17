@@ -9,10 +9,11 @@ export function ResultMoreMenu({ children, disabled = false }: { children: React
   </MenuDetails>;
 }
 
-export function ResultCard({ id, title, badges, metadata, preview, expanded, selected, disabled, toggle, selection, children, actions, completed = false }: {
+export function ResultCard({ id, title, badges, metadata, preview, expanded, selected, disabled, toggle, selection, children, actions, notice, completed = false }: {
   id: string; title: string; badges: React.ReactNode; metadata: React.ReactNode; preview: string;
   expanded: boolean; selected?: boolean; disabled?: boolean; completed?: boolean; toggle: () => void;
   selection?: React.ReactNode; children?: React.ReactNode; actions: React.ReactNode;
+  notice?: React.ReactNode;
 }) {
   const detailId = useId();
   return <article className={'content-card result-card' + (completed ? ' result-completed' : '') + (expanded ? ' is-expanded' : '') + (selected ? ' merge-selected' : '')} data-result-id={id}>
@@ -24,6 +25,7 @@ export function ResultCard({ id, title, badges, metadata, preview, expanded, sel
       </button>
       <div className="content-card-actions result-card-actions">{actions}</div>
     </div>
+    {notice && <p className="result-card-notice" role="status">{notice}</p>}
     {expanded && <div className="result-card-details" id={detailId} role="region" aria-label={`${title}详情`}>{children}</div>}
   </article>;
 }

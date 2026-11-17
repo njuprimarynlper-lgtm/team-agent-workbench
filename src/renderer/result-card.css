@@ -57,6 +57,7 @@
 .result-card-selection { flex: none; align-self: flex-start; padding: 15px 0 0 14px; }
 .result-card-selection .content-card-select { padding: 0; margin: 0; border: 0; background: none; }
 .result-card-selection input { width: 15px; height: 15px; margin: 0; accent-color: #287a58; }
+.result-card-notice { margin: 0; padding: 8px 14px; border-top: 1px solid #e7ede8; color: #718579; font-size: 11px; line-height: 1.6; white-space: normal; overflow-wrap: anywhere; }
 .result-card-toggle { flex: 1; min-width: 0; padding: 12px 14px; gap: 6px; border-radius: 0; }
 .result-card-toggle:focus-visible { outline: 2px solid #287a58; outline-offset: -3px; }
 .result-card-heading { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }

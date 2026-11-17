@@ -1,3 +1,5 @@
+import { adminErrorMessage } from './failure';
+import { ErrorLogLink } from '../renderer/error-notice';
 import React from 'react';
 import type { AdminEgressSnapshot } from '../shared/egress';
 
@@ -14,7 +16,7 @@ export function EgressNetworkTests({ snapshot, busy, testing, results, pendingCh
     <div className="egress-test-grid">{egressServices.map(service => <div className="egress-test-service" key={service.id}>
       <div><strong>{service.label}</strong><span className={'egress-service-access ' + (snapshot.config[service.id] ? 'allowed' : '')}>{snapshot.config[service.id] ? '允许成员转发' : '未允许成员转发'}</span></div>
       <button className="secondary" disabled={busy} onClick={() => onTest(service.id)}>{testing === service.id ? '正在测试…' : `测试 ${service.label}`}</button>
-      {results[service.id] && <small role={results[service.id]!.ok ? 'status' : 'alert'} className={'egress-test-result ' + (results[service.id]!.ok ? 'passed' : 'failed')}>{results[service.id]!.detail}</small>}
+      {results[service.id] && <small role={results[service.id]!.ok ? 'status' : 'alert'} className={'egress-test-result ' + (results[service.id]!.ok ? 'passed' : 'failed')}>{results[service.id]!.ok ? results[service.id]!.detail : <>{adminErrorMessage(results[service.id]!.detail, `测试 ${service.label} 网络`)} <ErrorLogLink message={results[service.id]!.detail}/></>}</small>}
     </div>)}</div>
     <p className="egress-test-note">检查管理端到服务地址的网络连接；成员的模型登录、配额与实际请求状态在用户端查看。</p>
   </section>;

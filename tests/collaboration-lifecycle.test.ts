@@ -260,7 +260,8 @@ test('concurrent revisions have one winner; lost upload acknowledgement retries 
     x.bob.remote.upload = async (...args) => { const result = await original(...args); if (lost) { lost = false; throw new Error('injected acknowledgement loss'); } return result; };
     const transfer = await x.bob.queue.enqueue(file, b, b.project.uploadPath, 'upload', undefined, { title: '报告', description: '结论', kind: 'contribution' }); await done(transfer);
     assert.equal(transfer.status, 'error'); assert.equal((await x.bob.remote.contentList(b)).length, 1);
-    assert.equal(contributionStatus({ submitted: transfer.id } as Draft, transfer), '上传失败');
+    assert.equal(transfer.phase, 'verifying');
+    assert.equal(contributionStatus({ submitted: transfer.id } as Draft, transfer), '上传结果待核对');
     await x.bob.queue.retry(transfer.id); await done(transfer); assert.equal(transfer.status, 'done'); assert(transfer.completedAt);
     const item = (await x.bob.remote.contentList(b))[0];
     const edit = { id: item.id, revision: item.revision, action: 'save' as const, title: '修改', description: '新内容', curate: false, merge: [] };

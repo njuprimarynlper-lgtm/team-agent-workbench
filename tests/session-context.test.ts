@@ -77,7 +77,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': project 
   const calls = async (nativeId: string) => (await fs.readFile(path.join(root, 'cli/rpc-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line)).filter(m => m.method === (provider === 'codex' ? 'turn/start' : 'session/prompt') && (m.params.threadId || m.params.sessionId) === nativeId);
   const wireText = (call: any) => (provider === 'codex' ? call.params.input : call.params.prompt)[0].text;
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths[provider] = fixture.launcher;
     let s = await wb.createSession(provider, root, offlineProjectId); const v1 = await source(1);
     s.sources.push(v1); s.projectBrief = { revision: 1, sourceId: v1.id, capturedAt: '' };
     const send = async (text: string, ids: string[] = []) => { await wb.send(s.id, text, ids); await until(() => !['starting', 'running', 'approval'].includes(s.status)); return s.messages.filter(m => m.role === 'user').at(-1)!; };

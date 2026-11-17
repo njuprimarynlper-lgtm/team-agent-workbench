@@ -1,3 +1,4 @@
+import { uiErrorMessage } from '../shared/user-failure';
 import { MarkdownEditor } from './markdown-editor';
 import React, { useEffect, useRef, useState } from 'react';
 import { Handshake, Network, MessageCircleQuestion, Sparkles, PanelRightClose, PanelRightOpen } from 'lucide-react';
@@ -12,7 +13,7 @@ export function useRsiInbox(projectId: string | undefined, api: WorkbenchAPI) {
     if (!projectId) return;
     const request = ++sequence.current;
     try { const inbox = await api.call<RsiInbox>('rsi.inbox', { projectId }); if (current.current === projectId && request === sequence.current) setValue({ projectId, inbox }); }
-    catch (error: any) { if (current.current === projectId && request === sequence.current) setValue(previous => ({ projectId, inbox: previous?.projectId === projectId ? previous.inbox : undefined, error: error.message })); }
+    catch (error: any) { if (current.current === projectId && request === sequence.current) setValue(previous => ({ projectId, inbox: previous?.projectId === projectId ? previous.inbox : undefined, error: uiErrorMessage(error, { domain: 'model', operation: '处理AI推荐' }) })); }
   };
   useEffect(() => {
     if (!projectId) return;
@@ -58,15 +59,16 @@ export function RsiRecommendations({ inbox, error, call, reload }: { inbox?: Rsi
       if (kind === 'supplement' || kind === 'dismissed') setCompleted(current => [...current, item.id]);
       setNotice(kind === 'accepted' ? '已接受。可选填关联会话和反馈，再保存补充。' : kind === 'rejected' ? '已拒绝。可选填反馈，再保存补充。' : kind === 'dismissed' ? `已关闭“${item.title}”，处理记录已保留。` : kind === 'supplement' && item.review.decision === 'accepted' && draft?.linkedSessionId ? saved.reference?.status === 'deferred' ? '补充已保存；原关联会话已关闭，重新打开后随下一次消息生效。' : `已关联到“${inbox.sessions.find(session => session.id === draft.linkedSessionId)?.title || '所选会话'}”，随下一次发送生效。当前生成不受影响。` : `“${item.title}”的补充已保存，推荐已移出列表。`);
       try { await reload(); } catch { setFailure('处理结果已保存，列表暂未刷新，请重试刷新。'); }
-    } catch (reason: any) { setNotice(''); setFailure(reason.message); if (reason.message.includes('处理已更新')) await reload().catch(() => {}); }
+    } catch (reason: any) { setNotice(''); setFailure(uiErrorMessage(reason, { domain: 'model', operation: '处理AI推荐' })); if (reason.message.includes('处理已更新')) await reload().catch(() => {}); }
     finally { lock.current = false; setPending(undefined); }
   };
   return <section className="rsi-recommendations" aria-label="项目推荐">
     {notice && <div className="rsi-notice" role="status" aria-live="polite">{notice}</div>}
-    {(error || failure) && <div className="inline-error" role="alert">{failure || error}{error && <button className="text-button" onClick={() => void reload()}>重试</button>}</div>}
+    {(error || failure) && <div className="inline-error" role="alert">{failure || uiErrorMessage(error, { domain: 'central', operation: '读取AI推荐' })}{error && <button className="text-button" onClick={() => void reload()}>重试</button>}</div>}
     {!inbox ? <p className="muted rsi-empty">{error ? '推荐暂时无法读取。' : '正在读取推荐…'}</p> : <>
       {inbox.recovery && <div className="inline-error" role="status">AI推荐数据已从 {new Date(inbox.recovery.snapshotAt).toLocaleString('zh-CN')} 的每日快照自动恢复。此后至恢复前的推荐记录可能丢失；{inbox.recovery.archivePath ? '损坏原件已保留。' : '原数据文件缺失。'}</div>}
-      {(!inbox.enabled || inbox.busy || inbox.queued || inbox.lastError) && <div className="rsi-background-status" role="status">{!inbox.enabled ? 'AI推荐已关闭，已有记录保留。' : inbox.busy ? '正在分析项目进展…' : inbox.queued ? '已记录项目变化，稍后在后台分析。' : '本次分析未完成：' + inbox.lastError}</div>}
+      {(!inbox.enabled || inbox.busy || inbox.queued && !inbox.lastError) && <div className="rsi-background-status" role="status">{!inbox.enabled ? 'AI推荐已关闭，已有记录保留。' : inbox.busy ? '正在分析项目进展…' : inbox.queued ? '已记录项目变化，稍后在后台分析。' : ''}</div>}
+      {inbox.lastError && <div className="rsi-background-status" role="status">{inbox.enabled && inbox.queued ? '上次推荐没生成，已安排重新分析。生成后会显示在这里，你可以继续工作。' : '上次推荐没生成，已有推荐仍可查看。你可以继续工作。'}</div>}
       {!item ? <p className="muted rsi-empty">暂无待处理的推荐。</p> : <div className="rsi-layout">
         <nav className="rsi-list" aria-label="推荐列表">{items.map(value => <button key={value.id} type="button" className="rsi-list-item" aria-pressed={value.id === item.id} onClick={() => { setSelected(value.id); setFailure(''); setNotice(''); }}><span>{value.title}</span><small>{decisionLabels[value.review.decision]} · {new Date(value.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></button>)}</nav>
         <article className="rsi-detail" aria-label="推荐详情">

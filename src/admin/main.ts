@@ -6,9 +6,13 @@ import { app, BrowserWindow, ipcMain, dialog, clipboard, safeStorage, utilityPro
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
+import { logContext, accountLogScope } from '../core/logging';
 import { z } from 'zod';
 import { errorMessage } from '../shared/errors';
+import { publicFailure, publicErrorState } from '../main/public-failures';
+import { showStartupFailure } from '../main/startup-failure';
+import { rendererEntry } from '../main/renderer-entry';
 import { AdminConnection } from './connection';
 import { LocalAdminConnection } from './local-connection';
 import { adminConnectSchema, adminOperationSchema } from './types';
@@ -26,10 +30,18 @@ import { memberCommandSchema, memberCreateSchema } from './member-protocol';
 app.setName('Team Agent Admin');
 app.setPath('userData', process.env.WORKBENCH_ADMIN_DATA_DIR || path.join(app.getPath('appData'), 'TeamAgentAdmin'));
 const applicationLogs = installLogging(app.getPath('userData'), 'admin');
-const entry = path.join(__dirname, runtimeAssets, 'index.html');
+const entry = rendererEntry(__dirname, runtimeAssets);
 const store = new AdminWindowStore(app.getPath('userData'));
 type AdminContext = { slot: number; window: BrowserWindow; profile(): AdminProfile | undefined; connected(): boolean; dispatch(action: string, payload: unknown): Promise<any>; stop(): Promise<void>; closing?: Promise<void> };
 const contexts = new Map<BrowserWindow, AdminContext>();
+// Failed connection attempts may belong to a node which never became the
+// window's active profile. Only main-issued references authorize that scope.
+const diagnosticScopes = new Map<BrowserWindow, Map<string, string | undefined>>();
+function rememberDiagnosticScope(window: BrowserWindow, reference: string | undefined, centralId?: string) {
+  if (!reference) return;
+  let scopes = diagnosticScopes.get(window); if (!scopes) { scopes = new Map(); diagnosticScopes.set(window, scopes); window.once('closed', () => diagnosticScopes.delete(window)); }
+  scopes.set(reference, centralId); while (scopes.size > 200) scopes.delete(scopes.keys().next().value!);
+}
 let quitting = false, stopped = false, ready = false, pendingLaunches = 0;
 let windowOperations: Promise<unknown> = Promise.resolve();
 function routeWindow<T>(fn: () => Promise<T>): Promise<T> {
@@ -41,7 +53,7 @@ async function closeWindow(context: AdminContext) {
   if (context.closing) return context.closing;
   context.closing = (async () => {
     try { await context.stop(); }
-    catch (error) { applicationLogs.record('diagnostic', 'central.close', {}, { level: 'error', detail: errorMessage(error) }); }
+    catch (error) { const profile = context.profile(); applicationLogs.record('diagnostic', 'central.close', accountLogScope(app.getPath('userData'), { centralId: profile ? createHash('sha256').update(adminNodeKey(profile)).digest('hex').slice(0, 32) : undefined }), { level: 'error', detail: errorMessage(error) }); }
     finally { contexts.delete(context.window); if (!context.window.isDestroyed()) context.window.destroy(); store.release(context.slot); }
   })();
   return context.closing;
@@ -81,7 +93,7 @@ async function initializeWindow(slot: number): Promise<AdminContext> {
     entry => utilityProcess.fork(entry, [], { serviceName: 'Team Agent Network Relay', stdio: 'ignore' })); egress.on('changed', () => {
       for (const event of egress.snapshot().events.filter(event => event.status === 'error' || event.status === 'rejected')) if (!loggedEgressEvents.has(event.id)) {
         loggedEgressEvents.add(event.id); if (loggedEgressEvents.size > 200) loggedEgressEvents.delete(loggedEgressEvents.values().next().value!);
-        applicationLogs.record('diagnostic', 'egress.connection', {}, { level: 'warning', outcome: event.status, detail: event.detail });
+        applicationLogs.record('diagnostic', 'egress.connection', accountLogScope(app.getPath('userData'), { centralId: boundProfile ? createHash('sha256').update(adminNodeKey(boundProfile)).digest('hex').slice(0, 32) : undefined }), { level: 'warning', outcome: event.status, detail: event.detail });
       }
       changed(); void reverse.setGateway(egressConfig.enabled && egress.snapshot().running, egressConfig.listenHost, egressConfig.listenPort);
     });
@@ -255,28 +267,36 @@ function queueLauncherWindow() {
   if (!ready) return;
   while (pendingLaunches > 0) {
     pendingLaunches--;
-    void routeWindow(() => createWindow()).catch(error => { if (!quitting) dialog.showErrorBox('管理窗口启动失败', errorMessage(error)); });
+    void routeWindow(() => createWindow()).catch(async error => { if (!quitting) await showStartupFailure('管理窗口启动失败', error, app.getPath('userData')); });
   }
 }
 if (ownDataDirectory(() => [...contexts.keys()].at(-1), queueLauncherWindow)) app.whenReady().then(async () => {
   ipcMain.handle('admin', async (event, action: string, payload: unknown) => {
     const context = [...contexts.values()].find(item => item.window.webContents === event.sender);
     if (!context || !isAdminWindowSource(event.senderFrame?.url, entry)) return { ok: false, error: '不允许的调用来源' };
-    let finishLog: ((error?: unknown) => void) | undefined;
+    let finishLog: ReturnType<typeof logOperation> | undefined;
+    let centralId: string | undefined;
+    try { const profile = action === 'connect' ? (payload as any)?.profile : context.profile(); if (profile) centralId = createHash('sha256').update(adminNodeKey(profile)).digest('hex').slice(0, 32); } catch { /* Invalid input is handled by its schema below. */ }
     try {
-      if (action.startsWith('logs.')) return { ok: true, value: await handleLogAction(action, payload, context.window, app.getPath('userData'), app.getPath('userData'), () => false) };
-      finishLog = logOperation(app.getPath('userData'), app.getPath('userData'), action, {});
+      if (action.startsWith('logs.')) {
+        const reference = (payload as any)?.operationId || (payload as any)?.id, issued = diagnosticScopes.get(context.window);
+        if (reference && issued?.has(reference)) centralId = issued.get(reference);
+        const value = await handleLogAction(action, payload, context.window, app.getPath('userData'), app.getPath('userData'), () => false, { centralId });
+        if (action === 'logs.query') for (const item of (value as any)?.items || []) rememberDiagnosticScope(context.window, item.id, centralId);
+        return { ok: true, value };
+      }
+      finishLog = logOperation(app.getPath('userData'), app.getPath('userData'), action, { centralId });
       if (quitting || context.closing) throw new Error('此管理窗口正在关闭');
       const value = action === 'connect' ? await routeWindow(() => connectWindow(context, payload))
         : action === 'window.new' ? await routeWindow(async () => { if (context.closing || context.window.isDestroyed()) throw new Error('原窗口已关闭'); await createWindow(undefined, true); return true; })
-        : await context.dispatch(action, payload);
+        : await logContext.run({ centralId, operationId: finishLog.operationId }, () => context.dispatch(action, payload));
       if (context.closing) throw new Error('此管理窗口已关闭');
       finishLog?.();
-      return { ok: true, value };
-    } catch (error) { finishLog?.(error); return { ok: false, error: errorMessage(error) }; }
+      return { ok: true, value: publicErrorState(value, action, applicationLogs, app.getPath('userData'), { centralId }) };
+    } catch (error) { finishLog?.(error); rememberDiagnosticScope(context.window, finishLog?.logRef?.operationId || finishLog?.operationId, centralId); rememberDiagnosticScope(context.window, finishLog?.logRef?.id, centralId); const failure = publicFailure(error, action, finishLog?.logRef); return { ok: false, error: failure.message, failure }; }
   });
   await routeWindow(() => createWindow(1)); ready = true; const waiting = pendingLaunches; pendingLaunches = 0; for (let i = 0; i < waiting; i++) queueLauncherWindow();
-}).catch(async error => { applicationLogs.record('diagnostic', 'app.start_failed', {}, { level: 'error', detail: errorMessage(error), stack: error.stack }); await applicationLogs.close(); dialog.showErrorBox('管理员版启动失败', errorMessage(error)); app.quit(); });
+}).catch(async error => { applicationLogs.record('diagnostic', 'app.start_failed', {}, { level: 'error', detail: errorMessage(error), stack: error.stack }); await applicationLogs.close(); await showStartupFailure('管理员版启动失败', error, app.getPath('userData')); app.quit(); });
 app.on('window-all-closed', () => { if (!contexts.size) app.quit(); });
 app.on('before-quit', event => {
   if (stopped) return;

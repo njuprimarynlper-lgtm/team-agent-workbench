@@ -1,9 +1,13 @@
+import { modelReadError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, ExternalLink, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import type { AgentSession, ModelOption, PermissionMode, PermissionReport, ProviderCatalog } from '../shared/types';
 import { permissionEffects, permissionLabels, sessionPermissionDescription, sessionPermissionLabel } from '../shared/permission-presentation';
 import { CursorNativeSettingsControls } from './cursor-native-settings';
+import { uiErrorMessage } from '../shared/user-failure';
+import { PermissionSummary } from './permissions';
 
 type Choice = { kind: 'model' | 'permission'; value: string };
 const effortLabels: Record<string, string> = { none: '关闭', false: '关闭', true: '开启', minimal: '最少', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大', ultra: '极高' };
@@ -31,7 +35,7 @@ function CliComposerSettings({ session, modelLocked, networkEnabled, openConnect
     try {
       const result = await window.workbench.call(kind === 'model' ? 'provider.catalog' : 'provider.permissions', { provider: session.provider, cwd: session.cwd, networkRoute: session.networkRoute, ...(kind === 'model' ? { forceRefresh } : {}) });
       if (n === sequence.current) { if (kind === 'model') setCatalog(result as ProviderCatalog); else setReport(result as PermissionReport); }
-    } catch { if (n === sequence.current) setError(kind === 'model' ? '模型与额度读取失败，请检查登录或网络后重试。' : '权限读取失败，请重试。'); }
+    } catch (error) { if (n === sequence.current) setError(kind === 'model' ? modelReadError(error, session.provider, '刷新') : uiErrorMessage(error, { domain: 'cli', operation: '检测执行权限', provider: session.provider, outcome: 'not-started' })); }
     finally { if (n === sequence.current) setLoading(false); }
   };
   useEffect(() => { if (open) void refresh(open); return () => { sequence.current++; }; }, [open, session.provider, session.cwd, session.networkRoute, authCheckedAt]);
@@ -49,7 +53,7 @@ function CliComposerSettings({ session, modelLocked, networkEnabled, openConnect
         if (effort !== undefined) await window.workbench.call('session.reasoningEffort', { id: session.id, effort });
       } else await window.workbench.call('session.permissions', { id: session.id, mode: choice.value });
       close();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(uiErrorMessage(e, { domain: 'cli', operation: choice.kind === 'model' ? '切换会话模型' : '切换执行权限', provider: session.provider })); }
     finally { setSaving(false); }
   };
   const toggle = (kind: Choice['kind']) => { setError(''); setOpen(open === kind ? undefined : kind); };
@@ -66,7 +70,7 @@ function CliComposerSettings({ session, modelLocked, networkEnabled, openConnect
     if (disabled || session.reasoningEffort === effort) { close(); return; }
     setSaving(true); setError('');
     try { await window.workbench.call('session.reasoningEffort', { id: session.id, effort }); close(); }
-    catch (e: any) { setError(e.message); }
+    catch (e: any) { setError(uiErrorMessage(e, { domain: 'model', operation: '切换思考强度', provider: session.provider })); }
     finally { setSaving(false); }
   };
   return <div className="composer-settings" ref={root}>
@@ -76,15 +80,15 @@ function CliComposerSettings({ session, modelLocked, networkEnabled, openConnect
     <button ref={permissionButton} className="composer-setting" aria-label="当前执行权限" aria-expanded={open === 'permission'} aria-haspopup="dialog" title={session.settingsPending ? '已选择新设置，将在下一轮生效' : sessionPermissionDescription(session)} disabled={saving} onClick={() => toggle('permission')}><ShieldCheck size={13}/><span>{sessionPermissionLabel(session)}</span><ChevronDown size={12}/>{session.permissions?.execution === 'blocked' && <span className="permission-restricted" title="部分命令无法执行">!</span>}</button>
     {session.settingsPending && <span className="composer-setting-pending" role="status">下轮生效</span>}
     {open && <section className="composer-popover" role="dialog" aria-label={open === 'model' ? modelLocked ? '思考强度与额度' : '模型与额度' : '执行权限'}>
-      <header><strong>{open === 'model' ? modelLocked ? '思考强度' : (session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor') + ' · 模型' : '执行权限'}</strong><span className="spacer"/><button className="icon" title="刷新选项" disabled={loading || saving} onClick={() => void refresh(open, true)}><RefreshCw size={13} className={loading ? 'spin' : ''}/></button><button className="icon" title="关闭选项" disabled={saving} onClick={close}><X size={14}/></button></header>
+      <header><strong>{open === 'model' ? modelLocked ? '思考强度' : (session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor') + ' · 模型' : '执行权限'}</strong><span className="spacer"/><button className="icon" title="刷新选项" disabled={loading || saving} onClick={() => void refresh(open, true)}><RefreshCw size={13} className={loading ? 'spin' : ''}/>刷新</button><button className="icon" title="关闭选项" disabled={saving} onClick={close}><X size={14}/></button></header>
       <div className="composer-options">
         {loading && <p className="muted small" role="status">读取中…</p>}
-        {error && <p className="inline-error" role="alert">{error}</p>}
+        {error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}
         {session.status === 'starting' && <p className="muted small">正在启动，完成后可切换。</p>}
         {running && <p className="muted small">当前回复继续运行；切换后，新设置从下一轮开始使用。</p>}
         {open === 'model' ? <>
           {selectedModel && !models.some(m => m.id === selectedModel) && <div className="current-model">当前：{selectedModel}</div>}
-          {catalog?.modelError && <p className="inline-error" role="alert">{catalog.modelError}</p>}
+          {catalog?.modelError && <p className="inline-error" role="alert">{modelReadError(catalog.modelError, session.provider, '刷新')}</p>}
           {!loading && catalog && !models.length && !catalog.modelError && <p className="muted small">暂未获取可用模型，请刷新重试。</p>}
           {!modelLocked && <div role="group" aria-label="可用模型">{models.map(m => <button key={m.id} className="setting-option" aria-pressed={selectedModel === m.id} disabled={disabled || loading && !models.length} onClick={() => void apply({ kind: 'model', value: m.id })}><span>{m.name}{m.isDefault && <small>CLI 推荐</small>}</span>{selectedModel === m.id && <Check size={14}/>}</button>)}</div>}
           {effortSupported && (efforts.length > 0 || (!loading && (!!selected || !!session.reasoningEffort))) && <div role="group" aria-label="思考努力程度"><p>思考强度</p>{efforts.map(effort => <button key={effort.id} className="setting-option" aria-pressed={activeEffort === effort.id} disabled={disabled || loading} onClick={() => void chooseEffort(effort.id)}><span>{effortLabel(effort.id, effort.name)}{effort.description && <small>{effort.description}</small>}</span>{activeEffort === effort.id && <Check size={14}/>}</button>)}{!efforts.length && <p className="muted small">当前模型没有可选的思考强度。</p>}{session.provider === 'cursor' && session.reasoningEffort && !efforts.some(item => item.id === session.reasoningEffort) && <button className="text-button" disabled={disabled || loading} onClick={() => void chooseEffort(null)}>清除原思考强度设置</button>}</div>}
@@ -94,11 +98,12 @@ function CliComposerSettings({ session, modelLocked, networkEnabled, openConnect
           </div>
         </> : <>
           <p className="permission-current">{sessionPermissionDescription(session)}</p>
+          <PermissionSummary report={report} warningsOnly/>
           <div role="group" aria-label="权限选项">{(['inherit', 'review', 'auto', 'full'] as PermissionMode[]).map(mode => {
             const unavailable = session.provider === 'cursor' && mode === 'auto', restricted = !!report?.allowedModes && !report.allowedModes.includes(mode);
             return <button key={mode} className="setting-option" aria-label={permissionLabels[session.provider][mode]} aria-pressed={(session.permissionMode || 'inherit') === mode} disabled={disabled || loading || !report || unavailable || restricted} onClick={() => void apply({ kind: 'permission', value: mode })}><span>{permissionLabels[session.provider][mode]}<small>{unavailable ? '当前接入方式暂不支持' : restricted ? '管理员策略不允许' : permissionEffects[session.provider][mode]}</small></span>{(session.permissionMode || 'inherit') === mode && <Check size={14}/>}</button>;
           })}</div>
-          {session.provider === 'cursor' && <details className="cursor-review-config"><summary>配置 Cursor Allowlist</summary><p>清空账号及当前目录的自动允许列表，保留拒绝规则并备份配置。会影响使用同一配置的其他 Cursor CLI 会话。</p><button className="secondary compact" disabled={disabled || running || loading} onClick={async () => { setSaving(true); setError(''); try { setReport(await window.workbench.call<PermissionReport>('provider.cursorReview', { cwd: session.cwd })); } catch (e: any) { setError(e.message); } finally { setSaving(false); } }}>应用 Cursor Allowlist 配置</button></details>}
+          {session.provider === 'cursor' && <details className="cursor-review-config"><summary>配置 Cursor Allowlist</summary><p>清空账号及当前目录的自动允许列表，保留拒绝规则并备份配置。会影响使用同一配置的其他 Cursor CLI 会话。</p><button className="secondary compact" disabled={disabled || running || loading} onClick={async () => { setSaving(true); setError(''); try { setReport(await window.workbench.call<PermissionReport>('provider.cursorReview', { cwd: session.cwd })); } catch (e: any) { setError(uiErrorMessage(e, { domain: 'cli', operation: '应用 Cursor Allowlist 配置', provider: session.provider })); } finally { setSaving(false); } }}>应用 Cursor Allowlist 配置</button></details>}
         </>}
       </div>
     </section>}

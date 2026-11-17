@@ -1,0 +1,896 @@
+[
+  {
+    "id": "u01",
+    "entry": "会话发送",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u01-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u01-after.png"
+  },
+  {
+    "id": "u02",
+    "entry": "会话重连",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u02-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u02-after.png"
+  },
+  {
+    "id": "u03",
+    "entry": "批准请求",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u03-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u03-after.png"
+  },
+  {
+    "id": "u04",
+    "entry": "新建会话选择模型",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u04-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u04-after.png"
+  },
+  {
+    "id": "u05",
+    "entry": "登录检测",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u05-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u05-after.png"
+  },
+  {
+    "id": "u06",
+    "entry": "应用连接方式",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u06-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u06-after.png"
+  },
+  {
+    "id": "u07",
+    "entry": "检测执行权限",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u07-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u07-after.png"
+  },
+  {
+    "id": "u08",
+    "entry": "查看执行权限",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u08-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u08-after.png"
+  },
+  {
+    "id": "u09",
+    "entry": "保存项目代码目录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u09-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u09-after.png"
+  },
+  {
+    "id": "u10",
+    "entry": "切换会话目录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u10-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u10-after.png"
+  },
+  {
+    "id": "u11",
+    "entry": "打开会话文件",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u11-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u11-after.png"
+  },
+  {
+    "id": "u12",
+    "entry": "在Cursor中打开",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u12-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u12-after.png"
+  },
+  {
+    "id": "u13",
+    "entry": "下载团队成果附件",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u13-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u13-after.png"
+  },
+  {
+    "id": "u14",
+    "entry": "查看模型设置",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u14-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u14-after.png"
+  },
+  {
+    "id": "u16",
+    "entry": "消息提交后本地保存",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u16-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u16-after.png"
+  },
+  {
+    "id": "u15",
+    "entry": "读取历史消息",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u15-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u15-after.png"
+  },
+  {
+    "id": "u17",
+    "entry": "启动工作台",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u17-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u17-after.png"
+  },
+  {
+    "id": "u18",
+    "entry": "模型列表返回异常",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u18-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u18-after.png"
+  },
+  {
+    "id": "u19",
+    "entry": "打开个人账号登录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u19-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u19-after.png"
+  },
+  {
+    "id": "u20",
+    "entry": "打开网络与登录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u20-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u20-after.png"
+  },
+  {
+    "id": "u21",
+    "entry": "保存项目目录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u21-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u21-after.png"
+  },
+  {
+    "id": "u22",
+    "entry": "选择项目目录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u22-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u22-after.png"
+  },
+  {
+    "id": "u23",
+    "entry": "列出会话文件",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u23-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u23-after.png"
+  },
+  {
+    "id": "u24",
+    "entry": "读取Cursor原生设置",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u24-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u24-after.png"
+  },
+  {
+    "id": "u25",
+    "entry": "恢复目录切换",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u25-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u25-after.png"
+  },
+  {
+    "id": "u26",
+    "entry": "运行中刷新状态",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u26-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u26-after.png"
+  },
+  {
+    "id": "u27",
+    "entry": "继续待发送队列",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u27-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u27-after.png"
+  },
+  {
+    "id": "u28",
+    "entry": "子会话提交消息",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u28-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u28-after.png"
+  },
+  {
+    "id": "u29",
+    "entry": "侧边提问提交消息",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u29-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u29-after.png"
+  },
+  {
+    "id": "u30",
+    "entry": "导入原生会话",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u30-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u30-after.png"
+  },
+  {
+    "id": "u31",
+    "entry": "读取MCP状态",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u31-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u31-after.png"
+  },
+  {
+    "id": "u32",
+    "entry": "保存Agent设置",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u32-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u32-after.png"
+  },
+  {
+    "id": "u33",
+    "entry": "Cursor等待队列",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u33-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u33-after.png"
+  },
+  {
+    "id": "u34",
+    "entry": "读取Skills",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u34-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u34-after.png"
+  },
+  {
+    "id": "u35",
+    "entry": "读取对话模式",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u35-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u35-after.png"
+  },
+  {
+    "id": "u36",
+    "entry": "执行已确认计划",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u36-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u36-after.png"
+  },
+  {
+    "id": "u37",
+    "entry": "重新打开已关闭会话",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u37-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u37-after.png"
+  },
+  {
+    "id": "u38",
+    "entry": "修改会话名称",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u38-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u38-after.png"
+  },
+  {
+    "id": "u39",
+    "entry": "更新桌面同步",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u39-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u39-after.png"
+  },
+  {
+    "id": "u40",
+    "entry": "预览待发送参考资料",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u40-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u40-after.png"
+  },
+  {
+    "id": "u41",
+    "entry": "保存输入草稿",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u41-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u41-after.png"
+  },
+  {
+    "id": "u42",
+    "entry": "编辑已发送消息",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u42-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u42-after.png"
+  },
+  {
+    "id": "u43",
+    "entry": "关联多项成果",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u43-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u43-after.png"
+  },
+  {
+    "id": "u44",
+    "entry": "MCP服务登录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u44-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u44-after.png"
+  },
+  {
+    "id": "u45",
+    "entry": "断开项目中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\corrected\\u45.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u45-after.png"
+  },
+  {
+    "id": "u46",
+    "entry": "切换目录遇到循环链接",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u46-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u46-after.png"
+  },
+  {
+    "id": "u47",
+    "entry": "切换目录遇到内部会话链接",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u47-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u47-after.png"
+  },
+  {
+    "id": "u48",
+    "entry": "切换目录创建链接被拒绝",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u48-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u48-after.png"
+  },
+  {
+    "id": "u49",
+    "entry": "目录复制成功后记录保存失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u49-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u49-after.png"
+  },
+  {
+    "id": "u50",
+    "entry": "查看连接中断后的成果整理",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u50-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u50-after.png"
+  },
+  {
+    "id": "u51",
+    "entry": "查看CLI退出后的成果整理",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\u51-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u51-after.png"
+  },
+  {
+    "id": "u52",
+    "entry": "读取共享 Codex 的 MCP 连接状态",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u52-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\u52-after.png"
+  },
+  {
+    "id": "notice-steer-saved",
+    "entry": "补充消息发送后的保存提示",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-steer-saved-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-steer-saved-after.png"
+  },
+  {
+    "id": "notice-migrated",
+    "entry": "会话迁移后的求助清理提示",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-migrated-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-migrated-after.png"
+  },
+  {
+    "id": "notice-closed",
+    "entry": "关闭会话后的后台停止提示",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-closed-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-closed-after.png"
+  },
+  {
+    "id": "notice-draft-cleanup",
+    "entry": "删除整理记录后的清理提示",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-draft-cleanup-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-draft-cleanup-after.png"
+  },
+  {
+    "id": "notice-scheduled-background",
+    "entry": "定时任务后台异常",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-scheduled-background-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-scheduled-background-after.png"
+  },
+  {
+    "id": "notice-local-save",
+    "entry": "后台保存会话记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-local-save-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-local-save-after.png"
+  },
+  {
+    "id": "notice-question-ended",
+    "entry": "自动对话结束建议",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-question-ended-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-question-ended-after.png"
+  },
+  {
+    "id": "notice-question-follow",
+    "entry": "求助后续通知",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-question-follow-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-question-follow-after.png"
+  },
+  {
+    "id": "notice-task-completed",
+    "entry": "定时任务完成通知",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-task-completed-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-task-completed-after.png"
+  },
+  {
+    "id": "notice-task-record",
+    "entry": "保存定时任务执行记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-task-record-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-task-record-after.png"
+  },
+  {
+    "id": "notice-project-reference",
+    "entry": "创建会话加入项目背景",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-project-reference-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-project-reference-after.png"
+  },
+  {
+    "id": "notice-personal-results",
+    "entry": "AI读写个人成果",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-personal-results-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-personal-results-after.png"
+  },
+  {
+    "id": "notice-rsi-reference",
+    "entry": "恢复推荐参考资料",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-rsi-reference-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-rsi-reference-after.png"
+  },
+  {
+    "id": "notice-auto-upload",
+    "entry": "会话轨迹自动上传",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-auto-upload-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-auto-upload-after.png"
+  },
+  {
+    "id": "notice-session-file-upload",
+    "entry": "上传会话文件",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-session-file-upload-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-session-file-upload-after.png"
+  },
+  {
+    "id": "notice-project-brief",
+    "entry": "更新当前会话项目说明",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-project-brief-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-project-brief-after.png"
+  },
+  {
+    "id": "notice-codex-sync",
+    "entry": "后台接入Codex桌面会话",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-codex-sync-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-codex-sync-after.png"
+  },
+  {
+    "id": "notice-preparation-interrupted",
+    "entry": "后台成果整理中断通知",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-preparation-interrupted-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\notice-preparation-interrupted-after.png"
+  },
+  {
+    "id": "admin-ssh-auth",
+    "entry": "连接设置",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-ssh-auth-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-ssh-auth-after.png"
+  },
+  {
+    "id": "admin-ssh-check-timeout",
+    "entry": "连接设置",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-ssh-check-timeout-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-ssh-check-timeout-after.png"
+  },
+  {
+    "id": "admin-member-blocked",
+    "entry": "用户管理／按组查看",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-member-blocked-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-member-blocked-after.png"
+  },
+  {
+    "id": "admin-recovery",
+    "entry": "用户管理／待恢复操作",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\corrected\\admin-recovery.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-recovery-after.png"
+  },
+  {
+    "id": "admin-storage-partial",
+    "entry": "共享空间",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-storage-partial-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-storage-partial-after.png"
+  },
+  {
+    "id": "admin-storage-cancelled",
+    "entry": "共享空间／取消统计",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-storage-cancelled-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-storage-cancelled-after.png"
+  },
+  {
+    "id": "admin-storage-cancelled-previous",
+    "entry": "共享空间／已有结果后取消重新统计",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-storage-cancelled-previous-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-storage-cancelled-previous-after.png"
+  },
+  {
+    "id": "admin-egress-port",
+    "entry": "网络出口",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-egress-port-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-egress-port-after.png"
+  },
+  {
+    "id": "team-results-personal-read",
+    "entry": "团队成果库",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-results-personal-read-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-results-personal-read-after.png"
+  },
+  {
+    "id": "team-results-merge-blocked",
+    "entry": "团队成果库／合并整理",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-results-merge-blocked-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-results-merge-blocked-after.png"
+  },
+  {
+    "id": "team-tasks-read",
+    "entry": "项目任务",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-tasks-read-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-tasks-read-after.png"
+  },
+  {
+    "id": "team-question-auto-blocked",
+    "entry": "寻求帮助／自动对话",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-question-auto-blocked-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-question-auto-blocked-after.png"
+  },
+  {
+    "id": "team-question-stopping",
+    "entry": "寻求帮助／停止自动",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-question-stopping-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-question-stopping-after.png"
+  },
+  {
+    "id": "team-transfer-cache",
+    "entry": "传输记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-transfer-cache-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-transfer-cache-after.png"
+  },
+  {
+    "id": "team-transfer-uncertain",
+    "entry": "传输记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-transfer-uncertain-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-transfer-uncertain-after.png"
+  },
+  {
+    "id": "team-rsi-retry",
+    "entry": "AI推荐",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-rsi-retry-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-rsi-retry-after.png"
+  },
+  {
+    "id": "team-activity-failed",
+    "entry": "会话／相关动态",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-activity-failed-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-activity-failed-after.png"
+  },
+  {
+    "id": "admin-environment-failure",
+    "entry": "服务器环境修复",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-environment-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-environment-failure-after.png"
+  },
+  {
+    "id": "admin-import-failure",
+    "entry": "接入已有账号",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-import-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-import-failure-after.png"
+  },
+  {
+    "id": "admin-sync-failure",
+    "entry": "成员同步状态",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-sync-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-sync-failure-after.png"
+  },
+  {
+    "id": "admin-egress-test-failure",
+    "entry": "网络出口／连接诊断",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-egress-test-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-egress-test-failure-after.png"
+  },
+  {
+    "id": "admin-egress-jump-failure",
+    "entry": "共享服务器中转",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-egress-jump-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-egress-jump-failure-after.png"
+  },
+  {
+    "id": "team-results-edit-failure",
+    "entry": "团队成果／编辑成果",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-results-edit-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-results-edit-failure-after.png"
+  },
+  {
+    "id": "team-results-delete-failure",
+    "entry": "团队成果／删除成果",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-results-delete-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-results-delete-failure-after.png"
+  },
+  {
+    "id": "team-attachment-failure",
+    "entry": "团队成果／附件预览",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-attachment-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-attachment-failure-after.png"
+  },
+  {
+    "id": "team-task-create-failure",
+    "entry": "派发任务",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-task-create-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-task-create-failure-after.png"
+  },
+  {
+    "id": "team-task-created-refresh-failure",
+    "entry": "派发任务／创建已确认后刷新",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-task-created-refresh-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-task-created-refresh-failure-after.png"
+  },
+  {
+    "id": "team-task-status-failure",
+    "entry": "任务验收",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-task-status-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-task-status-failure-after.png"
+  },
+  {
+    "id": "team-question-sync-failure",
+    "entry": "寻求帮助",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-question-sync-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-question-sync-failure-after.png"
+  },
+  {
+    "id": "team-question-send-failure",
+    "entry": "寻求帮助／继续求助",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-question-send-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-question-send-failure-after.png"
+  },
+  {
+    "id": "team-personal-read-failure",
+    "entry": "个人成果库",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-personal-read-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-personal-read-failure-after.png"
+  },
+  {
+    "id": "team-draft-upload-unconfirmed",
+    "entry": "成果整理任务列表",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-draft-upload-unconfirmed-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-draft-upload-unconfirmed-after.png"
+  },
+  {
+    "id": "team-updates-refresh-failure",
+    "entry": "团队动态／标记已处理",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-updates-refresh-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-updates-refresh-failure-after.png"
+  },
+  {
+    "id": "team-scheduled-read-failure",
+    "entry": "定时任务",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-scheduled-read-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-scheduled-read-failure-after.png"
+  },
+  {
+    "id": "team-scheduled-read-recovered",
+    "entry": "定时任务",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-scheduled-read-recovered-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-scheduled-read-recovered-after.png"
+  },
+  {
+    "id": "team-context-action-failure",
+    "entry": "操作菜单",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-context-action-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-context-action-failure-after.png"
+  },
+  {
+    "id": "team-rsi-settings-read-failure",
+    "entry": "AI推荐模型设置",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-rsi-settings-read-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-rsi-settings-read-failure-after.png"
+  },
+  {
+    "id": "team-directions-read-failure",
+    "entry": "成员名片",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-directions-read-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-directions-read-failure-after.png"
+  },
+  {
+    "id": "team-account-sync-failure",
+    "entry": "账号资料自动同步",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-account-sync-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-account-sync-failure-after.png"
+  },
+  {
+    "id": "admin-projects-read-failure",
+    "entry": "管理端／项目管理",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-projects-read-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-projects-read-failure-after.png"
+  },
+  {
+    "id": "team-project-brief-read-failure",
+    "entry": "项目资料",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-project-brief-read-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-project-brief-read-failure-after.png"
+  },
+  {
+    "id": "team-personal-group-refresh-failure",
+    "entry": "新建个人分组",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-personal-group-refresh-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-personal-group-refresh-failure-after.png"
+  },
+  {
+    "id": "team-draft-delete-partial",
+    "entry": "批量删除整理记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-draft-delete-partial-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-draft-delete-partial-after.png"
+  },
+  {
+    "id": "team-results-move-uncertain",
+    "entry": "批量移动团队成果",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-results-move-uncertain-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-results-move-uncertain-after.png"
+  },
+  {
+    "id": "team-results-remote-missing",
+    "entry": "项目成果库／文件下载",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-results-remote-missing-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-results-remote-missing-after.png"
+  },
+  {
+    "id": "team-attachment-remote-missing",
+    "entry": "项目成果库／附件下载",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-attachment-remote-missing-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-attachment-remote-missing-after.png"
+  },
+  {
+    "id": "team-transfer-record-save",
+    "entry": "传输记录／完成后的本机记录保存",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-transfer-record-save-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-transfer-record-save-after.png"
+  },
+  {
+    "id": "team-draft-transfer-cache",
+    "entry": "成果整理／已提交草稿",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-draft-transfer-cache-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-draft-transfer-cache-after.png"
+  },
+  {
+    "id": "team-project-created-refresh-failure",
+    "entry": "完善项目资料／首次初始化",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\team-project-created-refresh-failure-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-project-created-refresh-failure-after.png"
+  },
+  {
+    "id": "admin-project-catalog-unreadable",
+    "entry": "共享空间／清理项目",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-project-catalog-unreadable-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-project-catalog-unreadable-after.png"
+  },
+  {
+    "id": "team-question-feed-read-failure",
+    "entry": "团队动态／求助动态",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-question-feed-read-failure-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-question-feed-read-failure-after.png"
+  },
+  {
+    "id": "team-account-sync-cache-unreadable",
+    "entry": "账号资料同步／本机同步记录不可读",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-account-sync-cache-unreadable-before.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\team-account-sync-cache-unreadable-after.png"
+  },
+  {
+    "id": "admin-project-index-unreadable",
+    "entry": "共享空间／清理项目／保留轨迹",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\admin-project-index-unreadable-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\admin-project-index-unreadable-after.png"
+  },
+  {
+    "id": "native-user-start",
+    "entry": "用户端启动失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\native-user-start-after.jpg",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\native-user-start-after.jpg"
+  },
+  {
+    "id": "native-admin-start",
+    "entry": "管理员版启动失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\native-admin-start-after.jpg",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\native-admin-start-after.jpg"
+  },
+  {
+    "id": "native-close-save",
+    "entry": "关闭后记录保存失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\native-close-save-after.jpg",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\native-close-save-after.jpg"
+  },
+  {
+    "id": "native-launcher-export",
+    "entry": "启动窗口／导出故障报告失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\native-launcher-export-before.jpg",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\native-launcher-export-after.jpg"
+  },
+  {
+    "id": "native-launcher",
+    "entry": "启动器准备本机运行环境",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\native-launcher-after.jpg",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\native-launcher-after.jpg"
+  },
+  {
+    "id": "logs-user-browse",
+    "entry": "查看故障记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-user-browse-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-user-browse-after.png"
+  },
+  {
+    "id": "logs-user-reference",
+    "entry": "从提示定位故障日志",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-user-reference-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-user-reference-after.png"
+  },
+  {
+    "id": "logs-user-missing",
+    "entry": "日志已清理或不在当前范围",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-user-missing-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-user-missing-after.png"
+  },
+  {
+    "id": "logs-user-pagination",
+    "entry": "继续读取故障记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-user-pagination-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-user-pagination-after.png"
+  },
+  {
+    "id": "logs-user-unavailable",
+    "entry": "故障记录读取失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-user-unavailable-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-user-unavailable-after.png"
+  },
+  {
+    "id": "logs-admin-browse",
+    "entry": "查看故障记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-admin-browse-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-admin-browse-after.png"
+  },
+  {
+    "id": "logs-admin-reference",
+    "entry": "从提示定位故障日志",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-admin-reference-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-admin-reference-after.png"
+  },
+  {
+    "id": "logs-admin-missing",
+    "entry": "日志已清理或不在当前范围",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-admin-missing-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-admin-missing-after.png"
+  },
+  {
+    "id": "logs-admin-pagination",
+    "entry": "继续读取故障记录",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-admin-pagination-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-admin-pagination-after.png"
+  },
+  {
+    "id": "logs-admin-unavailable",
+    "entry": "故障记录读取失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-admin-unavailable-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-admin-unavailable-after.png"
+  },
+  {
+    "id": "logs-user-source-path",
+    "entry": "从 Windows 短路径启动用户端",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\logs-user-source-path-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\logs-user-source-path-after.png"
+  },
+  {
+    "id": "boundary-ssh-auth",
+    "entry": "连接中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-ssh-auth-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-ssh-auth-after.png"
+  },
+  {
+    "id": "boundary-central-refused",
+    "entry": "连接中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-central-refused-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-central-refused-after.png"
+  },
+  {
+    "id": "boundary-central-dns",
+    "entry": "连接中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-central-dns-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-central-dns-after.png"
+  },
+  {
+    "id": "boundary-central-timeout",
+    "entry": "连接中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-central-timeout-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-central-timeout-after.png"
+  },
+  {
+    "id": "boundary-reset",
+    "entry": "连接中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-reset-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-reset-after.png"
+  },
+  {
+    "id": "boundary-password",
+    "entry": "首次登录中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-password-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-password-after.png"
+  },
+  {
+    "id": "boundary-unknown",
+    "entry": "连接中央节点",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-unknown-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-unknown-after.png"
+  },
+  {
+    "id": "boundary-prep-count",
+    "entry": "查看成果整理失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-prep-count-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-prep-count-after.png"
+  },
+  {
+    "id": "boundary-prep-category",
+    "entry": "查看成果整理失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-prep-category-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-prep-category-after.png"
+  },
+  {
+    "id": "boundary-prep-timeout",
+    "entry": "查看成果整理失败",
+    "before": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\readability-baseline\\screenshots\\boundary-prep-timeout-after.png",
+    "after": "D:\\agent开发\\team-agent-workbench\\docs\\error-audit\\screenshots\\boundary-prep-timeout-after.png"
+  }
+]

@@ -43,6 +43,8 @@ test('assignments enforce live roles, preserve snapshots, and start a reusable p
     await assert.rejects(bob.startAssignment(project.id, task.id, task.revision, 'codex', path.join(root, 'missing-directory')));
     assert.equal((await bob.remote.assignmentList(bobBinding))[0].status, 'assigned', 'local setup failure must not mark remote work as started');
     assert.equal((await alice.remote.assignmentCreate(binding, input)).id, task.id, 'retry is idempotent');
+    await assert.rejects(alice.remote.assignmentCreate(binding, { ...input, description: '修改过的工作目标' }), /任务编号已使用/);
+    assert.equal((await alice.remote.assignmentList(binding)).find(item => item.id === task.id)?.description, input.description, 'same-ID changed content never overwrites the original task');
     assert.equal((await alice.remote.assignmentList(binding)).length, 1);
     assert.deepEqual(await carol.remote.assignmentList(carol.remote.binding(project.id)), []);
     await assert.rejects(carol.remote.assignmentStatus(carol.remote.binding(project.id), { id: task.id, revision: 1, status: 'in_progress' }), /无权/);

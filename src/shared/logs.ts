@@ -1,8 +1,15 @@
 export type LogCategory = 'diagnostic' | 'workflow';
-export type LogScope = { account?: string; projectId?: string; sessionId?: string; turnId?: string; operationId?: string; entityId?: string; relatedIds?: string[]; origin?: 'user' | 'ai' | 'background'; provider?: string; route?: string };
-export type LogRecord = LogScope & { schema: 1; id: string; at: string; version: string; instance: string; category: LogCategory; name: string; outcome?: string; level?: 'info' | 'warning' | 'error'; durationMs?: number; code?: string; detail?: string; stack?: string; count?: number; lastAt?: string; suppressed?: number };
+export type LogScope = { account?: string; centralId?: string; projectId?: string; sessionId?: string; turnId?: string; operationId?: string; entityId?: string; relatedIds?: string[]; origin?: 'user' | 'ai' | 'background'; provider?: string; route?: string };
+export type LogRecord = LogScope & { schema: 1; id: string; at: string; version: string; instance: string; category: LogCategory; name: string; outcome?: string; level?: 'info' | 'warning' | 'error'; durationMs?: number; code?: string; detail?: string; stack?: string; cause?: string; count?: number; lastAt?: string; suppressed?: number };
 export type LogUsage = { bytes: number; limit: number; days: number; oldest?: string; newest?: string; files: number };
 export type LogStatus = { diagnostic: LogUsage; workflow: LogUsage; traces: { bytes: number; sessions: number }; queued: number; queueBytes: number; suppressed: number; lastWrite?: string; error?: string; traceError?: string; exporting: boolean };
 export type LogFilter = { from?: string; to?: string; projectId?: string; sessionId?: string };
 export type LogExportInput = LogFilter & { kind: LogCategory | 'trace'; description?: string };
+export type LogRef = { id?: string; operationId?: string };
+export type LogReadScope = { account: string; centralId?: string; projectId?: string; sessionId?: string };
+export type LogQueryInput = LogFilter & LogRef & { category?: LogCategory; code?: string; cursor?: string; limit?: number; level?: 'info' | 'warning' | 'error' };
+export type LogCoverage = { malformed: number; missingFiles: number; legacyScopeSkipped: number; scannedBytes: number; truncated: boolean; unavailable?: boolean };
+export type LogSummary = Omit<LogRecord, 'detail' | 'stack' | 'cause'>;
+export type LogQueryResult = { items: LogSummary[]; nextCursor?: string; coverage: LogCoverage };
+export type LogDetailResult = { record?: LogRecord; coverage: LogCoverage };
 export const logLimits = { diagnostic: { days: 14, bytes: 30 * 1024 * 1024, rotate: 4 * 1024 * 1024 }, workflow: { days: 90, bytes: 20 * 1024 * 1024, rotate: 2 * 1024 * 1024 } };

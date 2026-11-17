@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { inheritedMessageCount, sessionMessageCount, transcriptPageSize, type TranscriptPage } from '../shared/transcript-page';
 import type { AgentSession, Message, WorkbenchAPI } from '../shared/types';
+import { uiErrorMessage } from '../shared/user-failure';
 
 export interface InheritedTranscript {
   label?: string;
@@ -69,7 +70,7 @@ export function useTranscriptPages(messages: Message[], inherited: InheritedTran
             history.unshift(...part.messages); before = part.before;
           }
           if (mounted.current) setPage(value => value === page ? { ...value, history } : value);
-        } catch (error: any) { if (mounted.current) setStatus(error.message || '历史读取失败'); }
+        } catch (error) { if (mounted.current) setStatus(uiErrorMessage(error, { domain: 'local', operation: '读取历史消息' })); }
       })();
     }
   }, [prefix, total, messages]);
@@ -96,8 +97,8 @@ export function useTranscriptPages(messages: Message[], inherited: InheritedTran
       restore.current = captureAnchor(element);
       setStatus('');
       setPage({ start: nextStart, end: nextEnd, history, following: false });
-    } catch (error: any) {
-      if (mounted.current) setStatus((error.message || '历史读取失败') + (direction === 'up' ? '，向上滚动重试' : '，向下滚动重试'));
+    } catch (error) {
+      if (mounted.current) setStatus('更早的消息没能加载，已经显示的消息还在。' + (direction === 'up' ? '向上滚动可重试。' : '向下滚动可重试。'));
       busy.current = false;
     }
   };

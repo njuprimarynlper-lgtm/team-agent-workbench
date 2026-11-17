@@ -1,3 +1,5 @@
+import { uiErrorMessage } from '../shared/user-failure';
+import { collaborationFailure } from './collaboration-failure';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Clock3, Edit3, FilePlus, LoaderCircle, Pause, Play, Plus, Trash2, X } from 'lucide-react';
 import type { AgentSession, Project, ProviderCatalog, Snapshot, SourceFile, WorkbenchAPI } from '../shared/types';
@@ -31,16 +33,17 @@ export function ScheduledTasksPage({ api, snapshot, projects, selectedProjectId,
   const [tasks, setTasks] = useState<ScheduledTask[]>([]), [runs, setRuns] = useState<ScheduledRun[]>([]), [total, setTotal] = useState(0);
   const [projectId, setProjectId] = useState(selectedProjectId === PERSONAL_PROJECT_ID ? '' : selectedProjectId), [taskId, setTaskId] = useState('');
   const [editor, setEditor] = useState<{ task?: ScheduledTask }>(), [opened, setOpened] = useState<ScheduledRun>();
+  const [readError, setReadError] = useState(''), [loading, setLoading] = useState(true);
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [selected, setSelected] = useState<string[]>([]);
   const [deleting, setDeleting] = useState<ScheduledTask>(), [deleteHistory, setDeleteHistory] = useState(false), [deleteRecords, setDeleteRecords] = useState(false);
   const [limit, setLimit] = useState(30);
   const sequence = useRef(0), mounted = useRef(true);
   const refresh = useCallback(async () => {
-    const n = ++sequence.current;
+    const n = ++sequence.current; setLoading(true);
     try {
       const [items, history] = await Promise.all([api.call<ScheduledTask[]>('scheduledTask.list'), Promise.all(Array.from({ length: Math.ceil(limit / 30) }, (_, index) => api.call<{ items: ScheduledRun[]; total: number }>('scheduledTask.runs', { projectId: projectId || undefined, taskId: taskId || undefined, limit: 30, offset: index * 30 }))).then(pages => ({ items: pages.flatMap(page => page.items), total: pages[0]?.total || 0 }))]);
-      if (mounted.current && n === sequence.current) { setTasks(items); setRuns(history.items); setTotal(history.total); }
-    } catch (e: any) { if (mounted.current && n === sequence.current) setError(e.message); }
+      if (mounted.current && n === sequence.current) { setTasks(items); setRuns(history.items); setTotal(history.total); setReadError(''); }
+    } catch (e: any) { if (mounted.current && n === sequence.current) setReadError(collaborationFailure(e, '定时任务和运行记录没加载出来。请点“重新读取”再试。', { domain: 'local', operation: '读取定时任务和运行记录' })); } finally { if (mounted.current && n === sequence.current) setLoading(false); }
   }, [projectId, taskId, limit, api]);
   useEffect(() => { mounted.current = true; void refresh(); let timer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = api.subscribe(event => { if (event.type === 'state' && !timer) timer = setTimeout(() => { timer = undefined; void refresh(); }, 350); });
@@ -53,6 +56,7 @@ export function ScheduledTasksPage({ api, snapshot, projects, selectedProjectId,
   return <div className="workspace-page scheduled-page">
     <div className="page-title"><div><h1><Clock3 size={23}/>定时任务</h1><p className="muted small">在本机自动执行，关闭窗口后可留在托盘继续运行。</p></div><button className="primary" onClick={() => setEditor({})} disabled={!projects.some(project => project.id !== PERSONAL_PROJECT_ID)}><Plus size={16}/>新建定时任务</button></div>
     <div className="scheduled-filters"><label>项目<select aria-label="定时任务项目筛选" value={projectId} onChange={e => { setProjectId(e.target.value); setTaskId(''); setLimit(30); setOpened(undefined); setSelected([]); }}><option value="">全部项目</option>{projects.filter(project => project.id !== PERSONAL_PROJECT_ID).map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><span className="muted small">任务使用本机缓存的项目资料，无需连接中央节点。</span></div>
+    {readError && <p className="inline-error" role="alert">{readError} <button className="text-button" onClick={() => void refresh()}>重新读取</button></p>}
     {error && <div className="inline-error" role="alert">{error}</div>}
     {currentRun ? <ScheduledRecord key={currentRun.id} run={currentRun} api={api} snapshot={snapshot} close={() => setOpened(undefined)} changed={refresh} continueSession={openSession}/> : <>
       <div className="scheduled-task-list">{visible.map(task => <section className="scheduled-card" key={task.id}>
@@ -60,14 +64,14 @@ export function ScheduledTasksPage({ api, snapshot, projects, selectedProjectId,
         <p className="scheduled-task-prompt">{task.prompt}</p><p className="muted small">下次执行：{task.paused ? '暂停中' : when(task.nextRunAt, task.schedule.timezone)}</p>
         <div className="row"><button className="secondary compact" disabled={busy || !!task.activeRun} onClick={() => void act(() => api.call('scheduledTask.runNow', { id: task.id, projectId: task.projectId }))}><Play size={14}/>立即执行</button><button className="text-button" disabled={busy} onClick={() => void act(() => api.call('scheduledTask.pause', { id: task.id, projectId: task.projectId, paused: !task.paused }))}>{task.paused ? <Play size={14}/> : <Pause size={14}/>}{task.paused ? '恢复' : '暂停'}</button><button className="text-button" onClick={() => setEditor({ task })}><Edit3 size={14}/>编辑</button><button className="text-button" onClick={() => { setTaskId(task.id); setLimit(30); }}>运行记录</button><span className="spacer"/><button className="icon" aria-label={'删除定时任务：' + task.name} onClick={() => { setDeleting(task); setDeleteHistory(false); }}><Trash2 size={15}/></button></div>
       </section>)}</div>
-      {!visible.length && <div className="scheduled-empty"><Clock3 size={32}/><p>还没有定时任务。先选择项目，再设置任务和执行时间。</p></div>}
-      <div className="scheduled-history-heading"><h2>运行记录{taskId && ' · ' + (tasks.find(task => task.id === taskId)?.name || '已删除任务')}</h2>{taskId && <button className="text-button" onClick={() => { setTaskId(''); setSelected([]); }}>查看全部</button>}<span className="spacer"/><span className="muted small">共 {total} 次</span><button className="secondary compact" disabled={!selected.length || busy} onClick={() => setDeleteRecords(true)}>删除所选（{selected.length}）</button></div>
+      {!visible.length && !loading && !readError && <div className="scheduled-empty"><Clock3 size={32}/><p>还没有定时任务。先选择项目，再设置任务和执行时间。</p></div>}
+      <div className="scheduled-history-heading"><h2>运行记录{taskId && ' · ' + (tasks.find(task => task.id === taskId)?.name || '已删除任务')}</h2>{taskId && <button className="text-button" onClick={() => { setTaskId(''); setSelected([]); }}>查看全部</button>}<span className="spacer"/><span className="muted small">{readError && !runs.length ? '记录数量未确认' : `共 ${total} 次`}</span><button className="secondary compact" disabled={!selected.length || busy} onClick={() => setDeleteRecords(true)}>删除所选（{selected.length}）</button></div>
       <div className="scheduled-run-list">{runs.map(run => <div className="scheduled-run" key={run.id}>
         <input type="checkbox" aria-label={'选择运行记录：' + run.id} disabled={activeScheduledRun(run)} checked={selected.includes(run.id)} onChange={e => setSelected(value => e.target.checked ? [...value, run.id] : value.filter(id => id !== run.id))}/>
         <button className="scheduled-run-entry" onClick={() => { setOpened(run); setError(''); }}><b>{run.taskName}</b><span className="muted small">{run.projectName} · {when(run.scheduledAt)}{run.manual ? ' · 手动执行' : ''}</span><span className="scheduled-run-summary">{run.error || run.summary || (run.status === 'waiting' ? '需要你回答问题或批准操作' : '查看执行会话')}</span></button>
         <span className={'scheduled-state ' + (['failed', 'interrupted'].includes(run.status) ? 'failed' : '')}>{['running', 'queued'].includes(run.status) && <LoaderCircle size={13} className="spin"/>}{scheduledStatus[run.status]}</span>
         {activeScheduledRun(run) && <button className="text-button" disabled={busy} onClick={() => void act(() => api.call('scheduledTask.stop', { id: run.id, projectId: run.projectId }))}>停止</button>}
-      </div>)}{!runs.length && <p className="muted small">暂无运行记录。</p>}</div>
+      </div>)}{!runs.length && !loading && !readError && <p className="muted small">暂无运行记录。</p>}</div>
       {runs.length < total && <button className="secondary" onClick={() => setLimit(value => value + 30)}>加载更多记录</button>}
     </>}
     {editor && <TaskEditor task={editor.task} api={api} snapshot={snapshot} projects={projects.filter(project => project.id !== PERSONAL_PROJECT_ID)} chooseProject={chooseProject} close={() => setEditor(undefined)} saved={id => { setEditor(undefined); setProjectId(id); setTaskId(''); void refresh(); }}/ >}

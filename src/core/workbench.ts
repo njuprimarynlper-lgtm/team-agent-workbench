@@ -1,5 +1,6 @@
 import { SessionResults } from './session-results';
 import { logsFor, accountLogScope, logContext } from './logging';
+import { failureError, userFailure, type UserFailure } from '../shared/user-failure';
 import { traceHistoryDigest } from './trace-reader';
 import { sourceResultReference, supportsSessionResults } from '../shared/session-results';
 import { teamAccessRevoked } from '../shared/team-cache';
@@ -77,7 +78,7 @@ import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
 import { ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
 import { canFollowProjectDirectory, followsProjectDirectory, projectDirectory, projectDirectoryKey } from '../shared/project-directory';
-import { applyWorkspacePaths, relocateWorkspace, remapWorkspacePath } from './workspace-relocation';
+import { applyWorkspacePaths, relocateWorkspace, remapWorkspacePath, workspaceRelocationFailure } from './workspace-relocation';
 import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
 import { linkConclusionPublications } from './conclusion-publications';
 import { applyPreparation, contributionCategoryDirectory, preparationFieldContract, preparationWritingGuide } from './preparation';
@@ -90,7 +91,7 @@ import { safeFilename, localWithin } from './paths';
 import { checkCodexGuardConnection } from './codex-guard-check';
 import { ProviderAccounts, authReady } from './provider-auth';
 import { inspectCatalog } from './provider-catalog';
-import { preparationErrorMessage } from '../shared/preparation-error';
+import { preparationErrorMessage, preparationFailure, preparationNoticeFailure } from '../shared/preparation-error';
 import { applyContentMerge } from './content-merge';
 import { canDeleteSharedContent, contentDeleteSelectionsSchema, contentAliasKey, contributionCategoryFields, contributionCategories, materialCategories, contributionCategoryInfo, contributionTitle, projectResultTitle, resultTitle, titleSubject, type ContentDeleteSelection, type ContentDeleteResult, type ContentEdit, type ContributionCategory, type SharedContent } from '../shared/content';
 import { rankConclusions } from './conclusion-matcher';
@@ -145,6 +146,11 @@ export class Workbench {
   private deletingDrafts = new Set<string>();
   private deletingSharedContent = new Set<string>();
   private timer?: NodeJS.Timeout; private deltaTimer?: NodeJS.Timeout; private eventWrites = new Map<string, Promise<void>>();
+  private backgroundRecordChangeVersion = 0;
+  private backgroundRecordSavedVersion = -1;
+  private backgroundRecordFailureOrder = 0;
+  private backgroundRecordFailures = new Map<string, { owner: string; kind: import('../shared/types').LocalRecordSaveSource; version: number; order: number; failure: UserFailure }>();
+  private backgroundRecordRetry?: Promise<boolean>;
   private logPressure = (paused: boolean) => { for (const runtime of this.runtimes.values()) runtime.pauseLogEvents(paused); for (const entry of this.sideChats.values()) entry.runtime.pauseLogEvents(paused); };
   private observedTurns = new Map<string, { started: number; first: boolean; operationId?: string }>();
   private traceMigration?: Promise<void>;
@@ -203,6 +209,10 @@ export class Workbench {
     this.assertAccountReady();
     this.disconnectingProjects.add(id); this.connectedProjects.delete(id); this.accountSync.connectionChanged(); this.broadcast();
     try { await Promise.all([this.remote.settleProject(id), this.accountSync.settle(), this.projectSync.settle()]); }
+    catch (error) {
+      const logRef = logsFor(this.store.root).record('diagnostic', 'project.disconnect.settle_failed', accountLogScope(this.store.root, { projectId: id }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
+      throw failureError({ version: 1, code: 'PROJECT_DISCONNECTED_WITH_PENDING_SYNC', outcome: 'accepted', phase: 'disconnect-settle', logRef, message: '本项目已经断开，但后台同步还没收尾。本机资料仍保留，可以继续工作；需要同步时点“连接”。' });
+    }
     finally { this.disconnectingProjects.delete(id); this.broadcast(); }
   }
   workspaceReady = false;
@@ -229,11 +239,11 @@ export class Workbench {
   accountSync: AccountSync;
   readonly projectSync: ProjectSync;
   // Keep the legacy argument slot so runtime environment and desktop integrations retain their positions.
-  constructor(root: string, private broadcast: () => void, private notice: (message: string) => void, _legacyPreparationTimeoutMs?: number, private providerEnvironment: (route?: SessionNetworkRoute, session?: AgentSession) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void, readonly codexDesktop: CodexDesktopIntegration = new CodexDesktopService(), readonly cursorDesktop: CursorDesktopIntegration = new CursorFileService(), readonly personal = false, private emitSessionDelta?: (session: AgentSession, messageId?: string, sideChatId?: string) => void) {
+  constructor(root: string, private broadcast: () => void, private notice: (message: string, failure?: UserFailure) => void, _legacyPreparationTimeoutMs?: number, private providerEnvironment: (route?: SessionNetworkRoute, session?: AgentSession) => NodeJS.ProcessEnv = () => ({}), private connectionReport?: (session: AgentSession, value: import('../shared/cli-connection').CliConnection) => void, readonly codexDesktop: CodexDesktopIntegration = new CodexDesktopService(), readonly cursorDesktop: CursorDesktopIntegration = new CursorFileService(), readonly personal = false, private emitSessionDelta?: (session: AgentSession, messageId?: string, sideChatId?: string) => void) {
     logsFor(root).on('pressure', this.logPressure);
     logsFor(root).on('trace-incomplete', this.traceIncomplete);
     this.assignmentUploads = new AssignmentUploads(root);
-    this.store = new Store(root); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
+    this.store = new Store(root); this.observeFullRecordSaves(); this.remote = new SharedFiles(() => this.broadcast()); this.remote.setProjectAccess(id => this.connectedProjects.has(id)); this.queue = new TransferQueue(this.store, this.remote, () => this.broadcast());
     this.inputQueue = new SessionInputQueue({
       setDraft: (id, draft) => { const side = [...this.sideChats.values()].find(entry => entry.view.session.id === id); if (side) { side.view.input = draft; side.view.draft = draft.text; side.view.pendingReferences = draft; } else this.store.inputs[id] = draft; },
       session: id => this.composerSession(id), save: () => this.store.save(), changed: () => this.broadcast(),
@@ -1141,7 +1151,9 @@ export class Workbench {
     const session = this.session(id), next = title.trim();
     if (!next) throw new Error('会话名称不能为空');
     if (next.length > 120) throw new Error('会话名称不能超过 120 个字符');
-    session.title = next; await this.store.save(); this.broadcast(); return session;
+    const previous = session.title; session.title = next;
+    try { await this.store.save(); } catch (error) { if (session.title === next) session.title = previous; throw error; }
+    this.broadcast(); return session;
   }
   async checkGuardConnection(certificateFile?: string, cwd?: string, networkRoute: SessionNetworkRoute = 'direct', providerPath?: string, sessionId?: string) {
     const session = sessionId ? this.store.sessions.find(value => value.id === sessionId) : undefined;
@@ -1153,7 +1165,7 @@ export class Workbench {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, { connected: this.projectConnected(p.id), disconnecting: this.disconnectingProjects.has(p.id) }])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ localRecordSaveFailure: this.backgroundRecordSaveState(), projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, { connected: this.projectConnected(p.id), disconnecting: this.disconnectingProjects.has(p.id) }])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { const profile = !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile && { ...profile, projects: this.projectSync?.projects() || profile.projects }; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -1172,7 +1184,7 @@ export class Workbench {
     await this.store.save(); this.broadcast(); return enabled;
   }
   private ownsLocal(binding?: RemoteBinding) { return ownsBinding(this.localProfile(), binding); }
-  private sessionNotice(session: AgentSession, message: string) { if (!this.configuring && this.ownsLocal(session.binding)) this.notice(message); }
+  private sessionNotice(session: AgentSession, message: string, failure?: UserFailure) { if (!this.configuring && this.ownsLocal(session.binding)) this.notice(message, failure); }
   assertAccountReady() { if (this.migrationRecoveryRequired) throw new PersonalMovePendingError(); if (this.personalMoving) throw new Error('会话正在迁移，请稍候'); if (this.configuring) throw new Error('正在登录，请等待账号切换完成'); }
   async requireAuth(provider: Provider, cwd: string, route?: SessionNetworkRoute) {
     const prior = this.accounts.states[provider];
@@ -1518,7 +1530,8 @@ export class Workbench {
             for (const s of related) if (s !== session) { s.cwd = remapWorkspacePath(s.cwd, mappings); s.handoffPath = remapWorkspacePath(s.handoffPath, mappings); }
             for (const c of conclusions) for (const file of c.localFiles || []) file.localPath = remapWorkspacePath(file.localPath, mappings);
             session.directoryChange = { id: move.id, from: move.from, to: session.cwd, conflicts }; delete session.directoryMove;
-            await this.store.save();
+            try { await this.store.save(); }
+            catch (error) { const failure = failureError(workspaceRelocationFailure(error, 'persist')!); failure.cause = error; throw failure; }
           } catch (error) {
             for (const [s, old] of before) { for (const key of Object.keys(s)) delete (s as any)[key]; Object.assign(s, old); }
             for (const [d, old] of beforeDrafts) Object.assign(d, old);
@@ -1529,7 +1542,9 @@ export class Workbench {
           for (const entry of this.sideChats.values()) if (ids.has(entry.view.parentId)) entry.view.expired = true;
         } catch (error: any) {
           if (session.directoryMove) {
-            session.directoryMove.error = error.message; delete session.directoryMove.retryAt;
+            const diagnostic = error.cause instanceof Error ? error.cause : error;
+            logsFor(this.store.root).record('diagnostic', 'session.directory.move_failed', accountLogScope(this.store.root, { sessionId: session.id, projectId: session.binding?.project.id }), { level: 'error', detail: diagnostic.message, stack: diagnostic.stack });
+            session.directoryMove.error = (workspaceRelocationFailure(error) || userFailure(error, { domain: 'local', operation: '切换工作目录' })).message; delete session.directoryMove.retryAt;
             // Recovery must not unexpectedly run a queued task in a different cwd.
             if (session.inputQueue?.items.length) session.inputQueue.paused = true;
             await this.store.save();
@@ -1648,15 +1663,75 @@ export class Workbench {
     await this.connectProject(project.id);
     this.broadcast(); return project;
   }
-  changed = () => { if (this.closing) return; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.store.save().catch(e => this.notice(e.message)); }, 200); };
+  private observeFullRecordSaves() {
+    const save = this.store.save.bind(this.store);
+    this.store.save = (...args: Parameters<Store['save']>) => {
+      // Store.save captures its full snapshot at invocation. A later change or
+      // failed delta must not be cleared by this earlier barrier succeeding.
+      const version = this.backgroundRecordChangeVersion;
+      return save(...args).then(() => {
+        this.backgroundRecordSavedVersion = Math.max(this.backgroundRecordSavedVersion, version);
+        let cleared = false;
+        for (const [kind, pending] of this.backgroundRecordFailures) if (pending.version <= version) { this.backgroundRecordFailures.delete(kind); cleared = true; }
+        if (cleared) this.broadcast();
+      });
+    };
+  }
+  private backgroundRecordSaveOwner() {
+    const profile = this.personal ? personalWorkspace().profile : this.localProfile();
+    return profile ? accountIdentity(profile) : 'unlinked';
+  }
+  private backgroundRecordSaveState(): import('../shared/types').LocalRecordSaveFailure | undefined {
+    if (this.configuring) return undefined;
+    const owner = this.backgroundRecordSaveOwner();
+    const pending = [...this.backgroundRecordFailures.values()].filter(value => value.owner === owner);
+    const latest = pending.toSorted((a, b) => a.order - b.order).at(-1)?.failure;
+    if (!latest) return undefined;
+    const accepted = pending.find(value => value.kind === 'steer')?.failure;
+    return structuredClone({ ...latest, code: 'LOCAL_BACKGROUND_RECORD_SAVE_FAILED' as const,
+      ...(accepted ? { message: accepted.message, outcome: 'accepted' as const } : {}),
+      pendingSaves: pending.map(value => value.kind), failures: Object.fromEntries(pending.map(value => [value.kind, value.failure])) });
+  }
+  private recordBackgroundSaveFailure(kind: import('../shared/types').LocalRecordSaveSource, error: unknown, version: number, session?: AgentSession, owner = this.backgroundRecordSaveOwner()) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const logRef = logsFor(this.store.root).record('diagnostic', 'session.record.background_save_failed', accountLogScope(this.store.root, { sessionId: session?.id, projectId: session?.binding?.project.id, provider: session?.provider, origin: 'background' }), { level: 'error', code: 'LOCAL_BACKGROUND_RECORD_SAVE_FAILED', detail, stack: error instanceof Error ? error.stack : undefined });
+    // A newer full save may already contain this older failed attempt's data.
+    if (version <= this.backgroundRecordSavedVersion) return;
+    const key = JSON.stringify([owner, kind]);
+    const previous = this.backgroundRecordFailures.get(key);
+    if (previous && previous.version > version) return;
+    const failure: UserFailure = { version: 1, code: 'LOCAL_BACKGROUND_RECORD_SAVE_FAILED', phase: kind === 'steer' ? 'persist-steered-turn' : kind === 'delta' ? 'persist-background-session-deltas' : 'persist-background-records', outcome: kind === 'steer' ? 'accepted' : 'partial',
+      message: kind === 'steer' ? '补充已发出，最新聊天记录还没存好。请保持窗口打开，点“重试保存记录”；不用再次发送补充。' : kind === 'delta' ? '这台电脑还没存好最新聊天记录。请保持窗口打开，点“重试保存记录”。' : '这台电脑还没存好工作台记录。请保持窗口打开，点“重试保存记录”。', ...(logRef ? { logRef } : {}) };
+    this.backgroundRecordFailures.set(key, { owner, kind, version, order: ++this.backgroundRecordFailureOrder, failure });
+    this.broadcast();
+    if (!previous && !this.configuring && owner === this.backgroundRecordSaveOwner()) this.notice((kind === 'steer' ? '引导已送达，但本地记录保存失败：' : '会话记录保存失败：') + detail, this.backgroundRecordSaveState());
+  }
+  async retryBackgroundRecordSave() {
+    this.assertAccountReady();
+    if (this.backgroundRecordRetry) return this.backgroundRecordRetry;
+    this.backgroundRecordRetry = (async () => {
+      const version = this.backgroundRecordChangeVersion, owner = this.backgroundRecordSaveOwner();
+      try { await this.store.save({ source: 'retry-background-record-save' }); return true; }
+      catch (error) { this.recordBackgroundSaveFailure('full', error, version, undefined, owner); const failure = this.backgroundRecordSaveState(); if (failure) throw failureError(failure); throw error; }
+      finally { this.broadcast(); }
+    })().finally(() => { this.backgroundRecordRetry = undefined; });
+    return this.backgroundRecordRetry;
+  }
+  private async persistBackgroundRecords(kind: 'full' | 'delta') {
+    const version = this.backgroundRecordChangeVersion, owner = this.backgroundRecordSaveOwner();
+    try { if (kind === 'full') await this.store.save(); else await this.store.saveSessionDeltas(); }
+    catch (error) { this.recordBackgroundSaveFailure(kind, error, version, undefined, owner); }
+  }
+  changed = () => { if (this.closing) return; this.backgroundRecordChangeVersion++; this.broadcast(); if (!this.timer) this.timer = setTimeout(() => { this.timer = undefined; void this.persistBackgroundRecords('full'); }, 200); };
   private changedSession(id: string) { this.changedMessage(id); this.broadcast(); }
   private changedMessage(id: string, messageId?: string) {
     if (this.closing) return;
     const session = this.store.sessions.find(item => item.id === id);
     if (!session) return;
+    this.backgroundRecordChangeVersion++;
     if (!this.store.recordSessionDelta(id, messageId)) { this.changed(); return; }
     if (this.emitSessionDelta) this.emitSessionDelta(session, messageId); else this.broadcast();
-    if (!this.deltaTimer) this.deltaTimer = setTimeout(() => { this.deltaTimer = undefined; void this.store.saveSessionDeltas().catch(error => this.notice(error.message)); }, 200);
+    if (!this.deltaTimer) this.deltaTimer = setTimeout(() => { this.deltaTimer = undefined; void this.persistBackgroundRecords('delta'); }, 200);
   }
   session(id: string) { this.assertAccountReady(); if (this.movingIds.has(id)) throw new Error('会话正在迁移，请稍候'); const s = this.store.sessions.find(x => x.id === id); if (s?.binding && this.linkingProjects.has(s.binding.project.id)) throw new Error('项目正在迁移，请稍候'); if (!s || !this.ownsLocal(s.binding)) throw new Error('会话不存在或不属于当前账号，请切回原账号'); return s; }
   draft(id: string) { this.assertAccountReady(); if (this.deletingDrafts.has(id)) throw new Error('整理任务正在删除，请等待完成'); const d = this.store.drafts.find(x => x.id === id); if (!d || !this.ownsLocal(d.binding || this.store.sessions.find(session => session.id === d.sessionId)?.binding)) throw new Error('草稿不存在或不属于当前账号，请切回原账号'); return d; }
@@ -1717,18 +1792,55 @@ export class Workbench {
   async executePlan(id: string, messageId: string) {
     const s = this.session(id); this.assertCanWork(s.binding);
     const plan = s.proposedPlan;
-    if (s.provider !== 'codex' || s.closedAt || s.purpose !== 'work' || s.status !== 'idle' || !plan?.ready || plan.accepted || plan.messageId !== messageId) throw new Error('此计划当前不能执行，请查看最新计划');
+    if (s.provider !== 'codex' || s.closedAt || s.purpose !== 'work' || s.status !== 'idle' || !plan?.ready || plan.accepted || plan.submissionUnknown || plan.messageId !== messageId) throw new Error('此计划当前不能执行，请查看最新计划；提交待确认时请先核对已有任务和回复。');
     // Use the original thread. Drafts and selected references are not consumed by this action.
     await this.changeMode(id, 'default');
-    const sent = await this.send(id, '按以下已确认的计划开始执行：\n\n' + plan.text);
-    if (sent) { plan.accepted = true; await this.store.save(); this.broadcast(); }
+    let sent: boolean;
+    try { sent = await this.send(id, '按以下已确认的计划开始执行：\n\n' + plan.text); }
+    catch (error) {
+      const failure = userFailure(error, { domain: 'cli', operation: '提交计划执行', provider: s.provider });
+      if (failure.outcome === 'unknown' || failure.code === 'OPERATION_TIMEOUT') {
+        plan.submissionUnknown = true;
+        s.failure = { ...failure, code: 'PLAN_SUBMISSION_UNCONFIRMED', outcome: 'unknown', phase: 'plan-execute', message: '计划提交待确认。请核对本会话的任务和回复，不要重复执行。' }; s.error = s.failure.message;
+        try { await this.store.saveSession(id); } catch (saveError) { logsFor(this.store.root).record('diagnostic', 'session.plan.unknown_save_failed', accountLogScope(this.store.root, { sessionId: id }), { level: 'error', detail: saveError instanceof Error ? saveError.message : String(saveError) }); }
+        this.broadcast(); throw failureError(s.failure);
+      }
+      throw error;
+    }
+    if (sent) {
+      plan.accepted = true; delete plan.submissionUnknown;
+      try { await this.store.save(); }
+      catch (error) {
+        const failure: UserFailure = { version: 1, code: 'LOCAL_RECORD_SAVE_FAILED_AFTER_SUBMISSION', outcome: 'accepted', phase: 'persist-submitted-plan', message: '计划已提交，但本机执行记录尚未保存。请保持工作台打开并查看执行回复，不要重复执行计划。' };
+        failure.logRef = logsFor(this.store.root).record('diagnostic', 'session.plan.accepted_save_failed', accountLogScope(this.store.root, { sessionId: id }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
+        s.failure = failure; this.sessionNotice(s, failure.message);
+      }
+      this.broadcast();
+    }
     return sent;
+  }
+  async confirmPlanRetry(id: string, messageId: string) {
+    const s = this.session(id); this.assertCanWork(s.binding); const plan = s.proposedPlan;
+    if (s.closedAt || s.purpose !== 'work' || !plan || plan.accepted || plan.messageId !== messageId || this.sending.has(id) || this.runtimes.get(id)?.activeTurnId || ['starting', 'running', 'approval'].includes(s.status)) throw new Error('当前会话仍有操作待处理，请先核对执行状态。');
+    const previous = { unknown: plan.submissionUnknown, status: s.status, error: s.error, failure: s.failure };
+    delete plan.submissionUnknown; if (s.status === 'error') s.status = 'idle'; s.error = undefined; s.failure = undefined;
+    try { await this.store.saveSession(id); }
+    catch (error) { plan.submissionUnknown = previous.unknown; s.status = previous.status; s.error = previous.error; s.failure = previous.failure; throw error; }
+    this.broadcast(); return true;
   }
   async revisePlan(id: string, messageId: string, text: string) {
     const s = this.session(id); this.assertCanWork(s.binding);
-    if (s.provider !== 'codex' || s.closedAt || s.status !== 'idle' || !s.proposedPlan?.ready || s.proposedPlan.accepted || s.proposedPlan.messageId !== messageId || !text.trim() || text.length > 100000) throw new Error('此计划当前不能修改，请查看最新计划');
+    if (s.provider !== 'codex' || s.closedAt || s.status !== 'idle' || !s.proposedPlan?.ready || s.proposedPlan.accepted || s.proposedPlan.submissionUnknown || s.proposedPlan.messageId !== messageId || !text.trim() || text.length > 100000) throw new Error('此计划当前不能修改，请查看最新计划');
     await this.changeMode(id, 'plan');
-    return this.send(id, '请根据以下修改重新制定计划，继续处于 Plan 模式，等待我确认执行：\n\n' + text);
+    try { return await this.send(id, '请根据以下修改重新制定计划，继续处于 Plan 模式，等待我确认执行：\n\n' + text); }
+    catch (error) {
+      const failure = userFailure(error, { domain: 'cli', operation: '提交计划修改', provider: s.provider });
+      if (failure.outcome !== 'unknown' && failure.code !== 'OPERATION_TIMEOUT') throw error;
+      s.proposedPlan.submissionUnknown = true;
+      s.failure = { ...failure, code: 'PLAN_SUBMISSION_UNCONFIRMED', outcome: 'unknown', phase: 'plan-revise', message: '计划修改提交待确认。请核对本会话的任务和回复，不要重复提交。' }; s.error = s.failure.message;
+      try { await this.store.saveSession(id); } catch (saveError) { logsFor(this.store.root).record('diagnostic', 'session.plan.unknown_save_failed', accountLogScope(this.store.root, { sessionId: id }), { level: 'error', detail: saveError instanceof Error ? saveError.message : String(saveError) }); }
+      this.broadcast(); throw failureError(s.failure);
+    }
   }
   private async applyDeferredSettings(s: AgentSession) {
     if (!s.settingsPending || ['starting', 'running', 'approval'].includes(s.status) || this.changingSettings.has(s.id)) return;
@@ -2265,6 +2377,13 @@ export class Workbench {
         await this.store.save();
         await runtime.rpc.request('cursor/nativeEnqueue',{sessionId:s.nativeId,id:pending.id,text:userText},10000,submitted);
         delete s.cursorPendingSubmission; await this.store.save(); this.broadcast(); return true;
+      } catch (error) {
+        const failure = (error as any)?.failure;
+        if (failure?.outcome === 'unknown') {
+          failure.logRef = logsFor(this.store.root).record('diagnostic', 'session.native_enqueue.unconfirmed', accountLogScope(this.store.root, { sessionId: s.id, provider: s.provider }), { level: 'error', detail: String((error as any)?.cause?.message || (error as Error).message), code: failure.code });
+          s.failure = failure; this.broadcast();
+        }
+        throw error;
       } finally { this.sending.delete(id); }
     }
     if (s.provider === 'cursor' && this.configuringCursorPermissions) throw new Error('正在保存 Cursor 权限配置，请保存完成后再发送任务');
@@ -2273,7 +2392,7 @@ export class Workbench {
     if (this.stoppingSessions.has(id) || this.closing) throw new Error('会话正在停止或工作台正在关闭');
     const original = edit && editableTurnMessage(s);
     if (edit && (!original || original.id !== edit.messageId || s.nativeId !== edit.nativeId)) throw Error('编辑目标已变化');
-    this.sending.add(id); s.stoppedAt = undefined; s.error = undefined;
+    this.sending.add(id); s.stoppedAt = undefined; s.error = undefined; if (s.failure?.outcome !== 'accepted') s.failure = undefined;
     const preview = questionRunId && !draft ? this.questionPreview(s, questionRunId, userText) : undefined;
     this.changedSession(id);
     const canceled = () => this.canceledSends.has(id) || this.closing;
@@ -2349,7 +2468,13 @@ export class Workbench {
       s.status = 'idle'; const started = await runtime.prompt(input.text, { userText, context: input.context, capabilities, submitted, messageId: preview?.id });
       handedOff = true;
       if (started && edit) delete s.historyEditRecovery;
-      await this.store.saveSession(id);
+      try { await this.store.saveSession(id); }
+      catch (error) {
+        if (!started) throw error;
+        const failure: UserFailure = { version: 1, code: 'LOCAL_RECORD_SAVE_FAILED_AFTER_SUBMISSION', outcome: 'accepted', phase: 'persist-submitted-turn', message: `消息已发给 ${s.provider === 'codex' ? 'Codex' : s.provider === 'cursor' ? 'Cursor' : 'Claude Code'}。这台电脑还没存好聊天记录，请保持窗口打开，点“重试保存”；不用再发一次消息。` };
+        failure.logRef = logsFor(this.store.root).record('diagnostic', 'session.submitted.save_failed', accountLogScope(this.store.root, { sessionId: s.id, provider: s.provider }), { level: 'error', code: failure.code, detail: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
+        s.failure = failure; this.sessionNotice(s, failure.message);
+      }
       return started;
     } catch (e: any) { if (canceled()) return false; if (!s.closedAt) { s.status = 'error'; s.error = e.message; if (s.inputQueue?.items.length) { s.inputQueue.paused = true; s.inputQueue.error = e.message; } this.changedSession(id); if (s.purpose === 'prepare') await this.onDone(id); } throw e; }
     finally {
@@ -2389,8 +2514,9 @@ export class Workbench {
       if (s.closedAt || this.stoppingSessions.has(id) || this.closing || this.runtimes.get(id) !== runtime) throw new Error('会话已关闭或正在停止，引导未发送');
       this.assertReferencesAvailable(s, input.sources);
       await runtime.steer(expectedTurnId, input.text, { userText, context: input.context, capabilities });
+      const recordVersion = ++this.backgroundRecordChangeVersion, recordOwner = s.binding ? accountIdentity(s.binding) : this.backgroundRecordSaveOwner();
       try { await this.store.save(); }
-      catch (error: any) { this.notice('引导已送达，但本地记录保存失败：' + error.message); }
+      catch (error: any) { this.recordBackgroundSaveFailure('steer', error, recordVersion, s, recordOwner); }
       return true;
     } finally { this.steering.delete(id); }
   }
@@ -2405,8 +2531,9 @@ export class Workbench {
       input.context.questionRunId = runId;
       input.text = agentNotice + input.text;
       await runtime.steer(runtime.activeTurnId, input.text, { userText, context: input.context });
+      const recordVersion = ++this.backgroundRecordChangeVersion, recordOwner = s.binding ? accountIdentity(s.binding) : this.backgroundRecordSaveOwner();
       try { await this.store.save(); }
-      catch (error: any) { this.notice('引导已送达，但本地记录保存失败：' + error.message); }
+      catch (error: any) { this.recordBackgroundSaveFailure('steer', error, recordVersion, s, recordOwner); }
       return true;
     } catch { return false; }
     finally { this.steering.delete(id); }
@@ -2429,21 +2556,26 @@ export class Workbench {
         try {
           if (s.error || !body?.trim()) throw new Error(s.error || 'AI 未返回成果说明，请重试整理。');
           if (draft.mergeSources?.length) applyContentMerge(draft, body); else applyPreparation(draft, body);
-          draft.generation = 'ready'; draft.generationError = undefined;
-        } catch (e: any) { draft.generation = 'error'; draft.generationError = preparationErrorMessage(e); }
+          draft.generation = 'ready'; draft.generationError = undefined; draft.generationErrorFailure = undefined;
+        } catch (e: any) { const logRef = logsFor(this.store.root).record('diagnostic', 'preparation.result_failed', accountLogScope(this.store.root, { sessionId: draft.sessionId, projectId: draft.binding?.project.id }), { level: 'error', detail: e?.message || String(e), stack: e?.stack }); draft.generation = 'error'; draft.generationErrorFailure = { ...preparationFailure(e, s.provider), ...(logRef ? { logRef } : {}) }; draft.generationError = draft.generationErrorFailure.message; }
         draft.generationFinishedAt = new Date().toISOString();
         if (draft.generation === 'ready') {
           const parent = this.store.sessions.find(session => session.id === draft.sessionId);
           if (parent) rememberPreparationProgress(parent, [draft]);
         }
         await this.store.save(); this.broadcast();
-        this.sessionNotice(s, draft.generation === 'ready' ? isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”处理草稿已生成，请审阅后选择保存到个人成果库或提交团队。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，请审阅后选择保存到个人成果库或提交团队。` : `“${draft.title}”整理失败：${draft.generationError}`);
+        if (draft.generation === 'ready') this.sessionNotice(s, isEmptyPreparation(draft) ? '本次未生成新成果，请核对原因并确认，或调整范围与分类后再次整理。' : draft.conclusionMergeProjectId ? `“${draft.title}”处理草稿已生成，请审阅后选择保存到个人成果库或提交团队。` : draft.mergeSources?.length ? `“${draft.title}”语义融合完成，待组管理员确认。` : `“${draft.title}”整理完成，请审阅后选择保存到个人成果库或提交团队。`);
+        else if (draft.generation === 'error') { const noticeFailure = preparationNoticeFailure(draft.title, draft.generationErrorFailure || preparationFailure(draft.generationError, s.provider)); this.sessionNotice(s, noticeFailure.message, noticeFailure); }
         const runtime = this.runtimes.get(id); if (runtime) { this.runtimes.delete(id); await runtime.close(); }
       }
     }
     if (s.scheduledRun?.managed) { await this.scheduled.complete(s.id); return; }
     await this.questions.completed(s);
-    await this.store.saveSession(id); this.broadcast();
+    const pendingSaveFailure = s.failure?.code === 'LOCAL_RECORD_SAVE_FAILED_AFTER_SUBMISSION' ? s.failure : undefined;
+    if (pendingSaveFailure) s.failure = undefined;
+    try { await this.store.saveSession(id); }
+    catch (error) { if (pendingSaveFailure) s.failure = pendingSaveFailure; throw error; }
+    this.broadcast();
     if (s.purpose === 'work' && !s.closedAt) { this.activity.completed(s.id); if (s.binding) void this.rsi.completed(s.binding.project.id).catch(() => {}); }
     if (!this.configuring && this.ownsLocal(s.binding) && s.autoUpload && s.binding && this.projectConnected(s.binding.project.id) && s.purpose === 'work') { try { await this.archive(id, true); } catch (e: any) { this.sessionNotice(s, '会话自动上传未完成：' + e.message); } }
   }
@@ -2947,7 +3079,60 @@ export class Workbench {
     if (s.purpose !== 'work' || !s.binding) throw new Error('请选择项目工作会话');
     const { text, path: file } = await this.journal.project(s); return { text, path: file };
   }
-  answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) { this.session(id); const runtime = this.runtimes.get(id); if (!runtime) throw new Error('CLI 连接已关闭'); return runtime.answer(requestId, option, answers); }
+  answer(id: string, requestId: string, option: string, answers?: Record<string, string | string[]>) {
+    const session = this.session(id), runtime = this.runtimes.get(id);
+    if (!runtime) {
+      const failure: UserFailure = { version: 1, code: 'APPROVAL_NOT_SUBMITTED', outcome: 'not-started', phase: 'submit-approval', recovery: 'retry', message: `这次选择还没交给 ${session.provider === 'codex' ? 'Codex' : session.provider === 'cursor' ? 'Cursor' : 'Claude Code'}，因为连接已断开。先点“恢复会话连接”。恢复连接不会自动同意请求或重发任务。` };
+      session.status = 'error'; session.error = failure.message; session.failure = failure; this.changedSession(id);
+      throw failureError(failure);
+    }
+    return runtime.answer(requestId, option, answers);
+  }
+  async retrySessionSave(id: string) {
+    this.assertWorkspace(); const session = this.session(id); this.assertCanWork(session.binding);
+    const previous = session.failure;
+    if (previous?.code !== 'LOCAL_RECORD_SAVE_FAILED_AFTER_SUBMISSION') throw new Error('这条会话没有等待保存的聊天记录。');
+    session.failure = undefined;
+    try { await this.store.saveSession(id); this.sessionNotice(session, '聊天记录已存好。消息没有重复发送。'); return true; }
+    catch (error) {
+      if (!session.failure) session.failure = previous;
+      const failure = { ...previous, message: '聊天记录还是没存下来。请保持窗口打开，检查磁盘空间后再点“重试保存”。消息不用重新发。' };
+      failure.logRef = logsFor(this.store.root).record('diagnostic', 'session.record.retry_failed', accountLogScope(this.store.root, { sessionId: id }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
+      throw failureError(failure);
+    } finally { this.broadcast(); }
+  }
+  async reconnectSession(id: string) {
+    this.assertWorkspace(); const session = this.session(id); this.assertCanWork(session.binding);
+    if (session.closedAt || session.purpose !== 'work') throw new Error('请先打开这条工作会话，再恢复连接。');
+    if (session.scheduledRun?.managed) throw new Error('此会话由定时任务管理，请在定时任务页面核对和恢复。');
+    if (this.questions.lockedPeer(id)) throw new Error('此会话正在自动对话，请先结束自动对话后再恢复连接。');
+    if (this.closing || this.sending.has(id) || this.steering.has(id) || this.stoppingSessions.has(id) || this.attachingCodex.has(id) || this.changingSettings.has(id)) throw new Error('当前会话操作尚未结束，请稍后恢复连接。');
+    const previousRuntime = this.runtimes.get(id);
+    if (previousRuntime && (previousRuntime.activeTurnId || ['starting', 'running', 'approval'].includes(session.status))) throw new Error('这条会话仍有任务正在运行，请先核对任务状态。');
+    if (session.inputQueue) session.inputQueue.paused = true;
+    const previousApprovals = session.approvals;
+    this.sending.add(id); session.status = 'starting'; this.broadcast();
+    try {
+      if (previousRuntime) { this.runtimes.delete(id); await previousRuntime.close(); }
+      if (!session.codexDesktop && !session.codexRemote && !session.cursorNative) await this.requireAuth(session.provider, session.cwd, session.networkRoute);
+      session.approvals = [];
+      const runtime = await this.runtime(session); await runtime.ensureStarted();
+      session.error = undefined; session.failure = undefined;
+      session.status = session.approvals.length ? 'approval' : runtime.activeTurnId ? 'running' : 'idle';
+      try { await this.store.saveSession(id); }
+      catch (error) {
+        const failure: UserFailure = { version: 1, code: 'CONNECTION_RESTORED_SAVE_FAILED', outcome: 'accepted', phase: 'persist-restored-connection', message: '会话连接已恢复，但本机状态尚未保存。请保持工作台打开，并在日志中核对存储问题；任务不会自动重发。' };
+        failure.logRef = logsFor(this.store.root).record('diagnostic', 'session.reconnect.save_failed', accountLogScope(this.store.root, { sessionId: id, provider: session.provider }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
+        session.error = failure.message; session.failure = failure;
+      }
+      this.sessionNotice(session, '会话连接已恢复。旧批准请求已结束，未自动批准或重发任务；请核对已有回复后继续。'); return session;
+    } catch (error) {
+      const failure = userFailure(error, { domain: 'cli', operation: '恢复会话连接', provider: session.provider, outcome: 'not-started' });
+      failure.logRef = logsFor(this.store.root).record('diagnostic', 'session.reconnect.failed', accountLogScope(this.store.root, { sessionId: id, provider: session.provider }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
+      if (!session.approvals.length) session.approvals = previousApprovals;
+      session.status = 'error'; session.error = failure.message; session.failure = failure; throw failureError(failure);
+    } finally { this.sending.delete(id); this.broadcast(); }
+  }
   async attachLocal(id: string, files: string[]) {
     return this.edit('source-attach:' + id, async () => {
       const s = this.composerSession(id);
@@ -3223,7 +3408,7 @@ export class Workbench {
   private async runPreparation(draft: Draft) {
     if (draft.mergeSources?.length) return this.runContentMergePreparation(draft);
     draft.resultRules = this.preparationRules(draft.binding!.project.id, [...new Set((draft.resultRules?.categories || draft.requestedCategories || preparationCategories).map(category => canonicalCategory(category)!))]);
-    draft.preparationVersion = 3; draft.generation = 'running'; draft.generationError = undefined; draft.generationStartedAt = new Date().toISOString(); draft.generationFinishedAt = undefined; draft.generationStage = 'agent'; await this.store.save(); this.broadcast();
+    draft.preparationVersion = 3; draft.generation = 'running'; draft.generationError = undefined; draft.generationErrorFailure = undefined; draft.generationStartedAt = new Date().toISOString(); draft.generationFinishedAt = undefined; draft.generationStage = 'agent'; await this.store.save(); this.broadcast();
     if (draft.generation !== 'running') return;
     const attempt = draft.prepareSessionId!;
     const active = () => !this.closing && draft.generation === 'running' && draft.prepareSessionId === attempt;
@@ -3241,7 +3426,7 @@ export class Workbench {
     })().catch(e => { if (active()) void this.failPreparation(draft, e.message); });
   }
   private async runContentMergePreparation(draft: Draft) {
-    draft.preparationVersion = 4; draft.generation = 'running'; draft.generationError = undefined; draft.generationStartedAt = new Date().toISOString(); draft.generationFinishedAt = undefined; draft.generationStage = 'agent'; await this.store.save(); this.broadcast();
+    draft.preparationVersion = 4; draft.generation = 'running'; draft.generationError = undefined; draft.generationErrorFailure = undefined; draft.generationStartedAt = new Date().toISOString(); draft.generationFinishedAt = undefined; draft.generationStage = 'agent'; await this.store.save(); this.broadcast();
     const attempt = draft.prepareSessionId!, active = () => !this.closing && draft.generation === 'running' && draft.prepareSessionId === attempt;
     if (draft.resultRules) {
       void (async () => {
@@ -3264,17 +3449,19 @@ export class Workbench {
     void this.send(attempt, prompt).catch(e => { if (active()) void this.failPreparation(draft, e.message); });
   }
   private async failPreparation(d: Draft, error: string) {
-    d.generation = 'error'; d.generationError = preparationErrorMessage(error); d.generationFinishedAt = new Date().toISOString();
+    const failure = preparationFailure(error, d.prepareSessionId ? this.session(d.prepareSessionId).provider : undefined);
+    failure.logRef = logsFor(this.store.root).record('diagnostic', failure.outcome === 'unknown' ? 'preparation.interrupted' : 'preparation.failed', accountLogScope(this.store.root, { sessionId: d.sessionId, projectId: d.binding?.project.id }), { level: 'error', detail: error, code: failure.code, outcome: failure.outcome });
+    d.generation = 'error'; d.generationErrorFailure = failure; d.generationError = d.generationErrorFailure.message; d.generationFinishedAt = new Date().toISOString();
     const s = d.prepareSessionId ? this.session(d.prepareSessionId) : undefined;
     if (s) { s.closedAt = d.generationFinishedAt; s.approvals = []; const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
-    await this.store.save(); this.broadcast(); this.notice('成果整理失败：' + d.generationError);
+    await this.store.save(); this.broadcast(); const noticeFailure = preparationNoticeFailure(d.title, failure); this.notice(noticeFailure.message, noticeFailure);
   }
   async retryPreparation(id: string) {
     const d = this.draft(id); if (d.mergeCompletedAt || d.submitted || d.personalSavedIds?.length || this.submittingDrafts.has(id) || d.generation === 'running') throw new Error('此草稿已保存、已提交或正在整理；请从原会话再次整理');
     if (!d.mergeSources?.length) this.preparationRules(d.binding!.project.id, [...new Set((d.resultRules?.categories || d.requestedCategories || preparationCategories).map(category => canonicalCategory(category)!))]);
     // Reserve before the first await. Retry uses the same frozen inputs but a fresh CLI context.
     const refreshInputs = d.generation === 'ready';
-    d.generation = 'running'; d.generationError = undefined; d.generationStartedAt = new Date().toISOString(); d.generationFinishedAt = undefined; this.broadcast();
+    d.generation = 'running'; d.generationError = undefined; d.generationErrorFailure = undefined; d.generationStartedAt = new Date().toISOString(); d.generationFinishedAt = undefined; this.broadcast();
     try {
       const parent = this.session(d.sessionId), base = path.join(path.dirname(d.inputDir), 'attempt-' + randomUUID());
       await fs.mkdir(base, { recursive: true });
@@ -3293,7 +3480,7 @@ export class Workbench {
   async cancelPreparation(id: string) { return this.stopPreparation(this.draft(id)); }
   private async stopPreparation(d: Draft) {
     if (d.generation !== 'running') return;
-    d.generation = 'canceled'; d.generationError = undefined; d.generationFinishedAt = new Date().toISOString();
+    d.generation = 'canceled'; d.generationError = undefined; d.generationErrorFailure = undefined; d.generationFinishedAt = new Date().toISOString();
     if (d.prepareSessionId) { const s = this.session(d.prepareSessionId); s.closedAt = new Date().toISOString(); s.approvals = []; s.status = 'idle'; const runtime = this.runtimes.get(s.id); this.runtimes.delete(s.id); if (runtime) await runtime.close(); }
     await this.store.save(); this.broadcast();
   }
@@ -3306,7 +3493,7 @@ export class Workbench {
         // Missing records already satisfy deletion, including after an interrupted response or account sync.
         if (this.deletingDrafts.has(id) || this.store.drafts.some(draft => draft.id === id)) await this.deleteDraft(id);
         result.deletedIds.push(id);
-      } catch (error: any) { result.failures.push({ id, message: error.message || '删除失败，请重试' }); }
+      } catch (error: any) { logsFor(this.store.root).record('diagnostic', 'draft.delete_failed', accountLogScope(this.store.root, { entityId: id }), { level: 'error', detail: error?.message || String(error), stack: error?.stack }); result.failures.push({ id, message: error.message || '删除失败，请重试' }); }
     }
     return result;
   }
@@ -3699,7 +3886,7 @@ export class Workbench {
   }
   async reviseDraft(id: string) {
     const original = this.draft(id); this.assertCanWork(original.binding);
-    const draft = structuredClone(original); draft.id = randomUUID(); draft.submitted = undefined; draft.artifacts?.forEach((item, index) => { item.id = `${draft.id}-${index + 1}`; item.submitted = undefined; }); draft.generation = 'ready'; draft.generationError = undefined; draft.prepareSessionId = undefined; draft.createdAt = new Date().toISOString(); draft.outputPath = path.join(this.store.root, 'drafts', draft.id, 'draft.md');
+    const draft = structuredClone(original); draft.id = randomUUID(); draft.submitted = undefined; draft.artifacts?.forEach((item, index) => { item.id = `${draft.id}-${index + 1}`; item.submitted = undefined; }); draft.generation = 'ready'; draft.generationError = undefined; draft.generationErrorFailure = undefined; draft.prepareSessionId = undefined; draft.createdAt = new Date().toISOString(); draft.outputPath = path.join(this.store.root, 'drafts', draft.id, 'draft.md');
     delete draft.personalSavedIds;
     this.store.drafts.unshift(draft); await this.store.save(); this.broadcast(); return draft;
   }

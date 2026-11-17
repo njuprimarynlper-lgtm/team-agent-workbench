@@ -1,0 +1,598 @@
+{
+  "baseline": "d4d51bb30d23f03a883867054a893c547e558f9e",
+  "baselineVersion": "2.3.46",
+  "generatedAt": "2026-11-16T12:15:38.528Z",
+  "conclusion": "本次修改的错误处理、界面与恢复动作通过专项回归。整体基础回归仍存在3个可在固定基线复现的未通过用例，不声称整个项目的全量测试全部通过。",
+  "boundaries": [
+    "全部故障使用隔离数据、临时目录、协议桩或原生测试窗口；不读取真实用户会话或凭据，不连接真实中央节点，不调用付费模型。",
+    "Codex、Cursor、Claude Code 的会话、授权与恢复走协议夹具；真实账号及真实网关端到端测试未执行。",
+    "Windows 环境不能替代 Linux 内核 ACL 实测；相关跳过项保留。",
+    "不同定向测试批次存在重叠，不将各批次数相加作为独立用例总量。"
+  ],
+  "firstFullRegression": {
+    "tests": 1462,
+    "passed": 1427,
+    "failed": 33,
+    "skipped": 2,
+    "canceled": 0,
+    "durationMs": 975881.5722,
+    "command": "WORKBENCH_BACKGROUND_TESTS=1 node --require ./scripts/background-guard.cjs --require ./scripts/test-css.cjs --import tsx --test --test-concurrency=1 --test-force-exit --test-timeout=90000 <与 scripts/test-background.mjs 相同的后台测试文件集合>",
+    "note": "这是整改收尾期间的首轮全量结果，部分测试在最终修正前已执行；force-exit只用于本次记录完整结果，未修改产品测试入口。",
+    "sha256": "bcda32a94336e954e6725f64264e9c311d4bfbbc0d69865a1f8a127961b0f9a6",
+    "failures": [
+      {
+        "file": "tests/account-windows.test.ts",
+        "name": "production window routing reuses project connections, separates nodes and accounts into windows, and preserves shared runtimes",
+        "followUp": {
+          "run": "两端 IPC 与窗口生命周期",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/admin-reverse-ipc.test.ts",
+        "name": "admin IPC authorizes reverse access, tests TLS, copies the pinned route and cleans up on logout",
+        "followUp": {
+          "run": "两端 IPC 与窗口生命周期",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/admin-windows-ipc.test.ts",
+        "name": "production admin IPC isolates nodes, ports, codes, operations and per-window shutdown",
+        "followUp": {
+          "run": "两端 IPC 与窗口生命周期",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/codex-fork-writer.test.ts",
+        "name": "next-turn model changes preserve pending permission reconnect: model-first"
+      },
+      {
+        "file": "tests/codex-fork-writer.test.ts",
+        "name": "next-turn model changes preserve pending permission reconnect: permission-first"
+      },
+      {
+        "file": "tests/codex-mcp.test.ts",
+        "name": "workbench MCP management preserves active turns/drafts, refreshes other Codex runtimes and rejects closed/helper/foreign sessions",
+        "followUp": {
+          "run": "两端 IPC 与窗口生命周期",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/collaboration-lifecycle.test.ts",
+        "name": "personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart"
+      },
+      {
+        "file": "tests/egress-monitor.test.ts",
+        "name": "CLI reports retain only allowlisted state, remain bounded and render errors independently of a healthy tunnel",
+        "followUp": {
+          "run": "错误分类、日志、权限与恢复",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/local-project-windows.test.ts",
+        "name": "local project selection survives startup with and without a server account and stays separate per window",
+        "followUp": {
+          "run": "两端 IPC 与窗口生命周期",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/materials-rendering.test.ts",
+        "name": "local project results use consistent navigation and actions without renaming content categories",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/personal-relay.test.ts",
+        "name": "cached runtimes, preparation helpers and background summaries keep the original relay identity",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/preparation-context.test.ts",
+        "name": "failed retry reuses the frozen conversation, project brief and historical references while new work continues",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/preparation-lifecycle.test.ts",
+        "name": "orthogonal deletion: record=false, result=false, progress and Session references survive",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/preparation-lifecycle.test.ts",
+        "name": "orthogonal deletion: record=false, result=true, progress and Session references survive",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/preparation-lifecycle.test.ts",
+        "name": "orthogonal deletion: record=true, result=false, progress and Session references survive",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/preparation-lifecycle.test.ts",
+        "name": "orthogonal deletion: record=true, result=true, progress and Session references survive",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/preparation-oct08.test.ts",
+        "name": "October 8 categories and per-category directions survive generation and edited results can be reorganized",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/project-directory.test.ts",
+        "name": "directory recovery is available in the conversation, with details folded and no automatic sends",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/project-journal.test.ts",
+        "name": "metadata root junction supports summary commits, read-only project copies and a subsequent CLI conversation",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/session-context.test.ts",
+        "name": "codex: project references are delivered once, persist across resume, update once, retry unaccepted input, and remain separate from user text",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/session-experience.test.ts",
+        "name": "codex: model propagation, preparation failures/retry/cancel, close/reopen and persistence",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/session-experience.test.ts",
+        "name": "cursor: model propagation, preparation failures/retry/cancel, close/reopen and persistence",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/session-result-references.test.ts",
+        "name": "personal deletion filters UI, stale selections, automatic send context and restored data, with rollback on save failure",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/session-status.test.ts",
+        "name": "codex: completion and read state survive restart; stale reads, failure and stop cannot acknowledge a new reply",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/sftp.test.ts",
+        "name": "nologin SFTP reply identifies incomplete member access configuration",
+        "followUp": {
+          "run": "SFTP 与多组权限边界",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/sftp.test.ts",
+        "name": "legacy SFTP stays read-only, preserves UTF-8, propagates denial and blocks escaping symlinks",
+        "followUp": {
+          "run": "SFTP 与多组权限边界",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/submission.test.ts",
+        "name": "a failed success-record save leaves the personal result retryable and never creates another remote copy",
+        "followUp": {
+          "run": "传输成功事实、恢复与任务提示",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/team-questions.test.ts",
+        "name": "Codex and Cursor protocol runtimes preserve question context and return completed answers",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/workflow-states.test.ts",
+        "name": "codex: stop during authentication never sends later, running stop preserves history and can resume",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/workflow-states.test.ts",
+        "name": "normal application shutdown records an interrupted work session",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/workflow-states.test.ts",
+        "name": "transfer persistence failure at running remains retryable and never leaves a running queue stuck",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/workflow-states.test.ts",
+        "name": "transfer persistence failure at completed remains retryable and never leaves a running queue stuck",
+        "followUp": {
+          "run": "用户端与三家 CLI 协议回归",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      },
+      {
+        "file": "tests/workgroups.test.ts",
+        "name": "SFTP discovers trusted memberships across groups, refreshes roles, isolates access errors and rejects legacy/untrusted metadata",
+        "followUp": {
+          "run": "SFTP 与多组权限边界",
+          "status": "对应完整测试文件定向复验通过；文案断言按新语义更新，协议、权限和防重复提交的断言保留"
+        }
+      }
+    ]
+  },
+  "knownBaselineFailures": [
+    {
+      "file": "tests/codex-fork-writer.test.ts",
+      "name": "next-turn model changes preserve pending permission reconnect: model-first",
+      "summary": "原生子会话先改模型再改权限：恢复请求中的模型字段未满足原用例预期",
+      "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+      "evidence": ".test-data/error-audit/baseline-regression.log"
+    },
+    {
+      "file": "tests/codex-fork-writer.test.ts",
+      "name": "next-turn model changes preserve pending permission reconnect: permission-first",
+      "summary": "原生子会话先改权限再改模型：恢复请求中的模型字段未满足原用例预期",
+      "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+      "evidence": ".test-data/error-audit/baseline-regression.log"
+    },
+    {
+      "file": "tests/collaboration-lifecycle.test.ts",
+      "name": "personal activity actions show destinations, reject invalid transitions and preserve history across removal and restart",
+      "summary": "团队成果更新版本后沿用了旧引用快照标识，未满足原用例要求的新版本独立快照",
+      "conclusion": "固定基线和本次分支均未通过；本次报错整改没有把此用例改为通过，也未在本次定位根因。",
+      "evidence": ".test-data/error-audit/baseline-regression.log"
+    }
+  ],
+  "followUpRuns": [
+    {
+      "name": "错误分类、日志、权限与恢复",
+      "files": [
+        "tests/user-failure.test.ts",
+        "tests/error-pipeline-boundary.test.ts",
+        "tests/error-audit-user.test.ts",
+        "tests/error-audit-admin.test.ts",
+        "tests/log-query.test.ts",
+        "tests/logging.test.ts",
+        "tests/renderer-entry.test.ts",
+        "tests/provider-connection.test.ts",
+        "tests/egress-monitor.test.ts",
+        "tests/central-connection.test.ts",
+        "tests/team-cache.test.ts",
+        "tests/project-connection.test.ts",
+        "tests/transfer-recovery.test.ts",
+        "tests/project-purge.test.ts"
+      ],
+      "evidence": ".test-data/error-audit/final-targeted.log",
+      "sha256": "cae53d014badddd5c8ad6d3df986bbfacbb070c9eb851de44d7cc4102429af7d",
+      "tests": 91,
+      "passed": 91,
+      "failed": 0,
+      "skipped": 0,
+      "canceled": 0,
+      "durationMs": 21630.8638
+    },
+    {
+      "name": "用户端与三家 CLI 协议回归",
+      "files": [
+        "tests/materials-rendering.test.ts",
+        "tests/personal-relay.test.ts",
+        "tests/preparation-context.test.ts",
+        "tests/preparation-lifecycle.test.ts",
+        "tests/preparation-oct08.test.ts",
+        "tests/project-directory.test.ts",
+        "tests/project-journal.test.ts",
+        "tests/session-context.test.ts",
+        "tests/session-experience.test.ts",
+        "tests/session-status.test.ts",
+        "tests/session-result-references.test.ts",
+        "tests/team-questions.test.ts",
+        "tests/workflow-states.test.ts",
+        "tests/error-audit-user.test.ts",
+        "tests/error-pipeline-boundary.test.ts"
+      ],
+      "evidence": ".test-data/error-audit/user-final-regression.log",
+      "sha256": "406603bf5f63cd819d67fa1dcf62e08db3a538ab5fce43494927cacbb1502a8c",
+      "tests": 109,
+      "passed": 109,
+      "failed": 0,
+      "skipped": 0,
+      "canceled": 0,
+      "durationMs": 169171.0964
+    },
+    {
+      "name": "传输成功事实、恢复与任务提示",
+      "files": [
+        "tests/submission.test.ts",
+        "tests/error-audit-admin.test.ts",
+        "tests/workflow-states.test.ts"
+      ],
+      "evidence": ".test-data/error-audit/admin-final-regression.log",
+      "sha256": "11154a819d3790bf4800c1f3934a946ac0bf60ddd677f0f7c74ce6ea914da281",
+      "tests": 30,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "canceled": 0,
+      "durationMs": 36513.9827
+    },
+    {
+      "name": "两端 IPC 与窗口生命周期",
+      "files": [
+        "tests/account-windows.test.ts",
+        "tests/local-project-windows.test.ts",
+        "tests/admin-reverse-ipc.test.ts",
+        "tests/admin-windows-ipc.test.ts",
+        "tests/codex-mcp.test.ts"
+      ],
+      "evidence": ".test-data/error-audit/pipeline-final-regression.log",
+      "sha256": "355122ba84670f535473268e55fd0a818fb9577d074c2700678497d3b9e273e5",
+      "tests": 13,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "canceled": 0,
+      "durationMs": 19165.7158
+    },
+    {
+      "name": "SFTP 与多组权限边界",
+      "files": [
+        "tests/workgroups.test.ts",
+        "tests/sftp.test.ts"
+      ],
+      "evidence": ".test-data/error-audit/final-sftp.log",
+      "sha256": "b15b2cb46faa29cefc2f3524dea48e0c1f787920fc92a08ace72180a0fce8cc7",
+      "tests": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "canceled": 0,
+      "durationMs": 4063.612
+    },
+    {
+      "name": "真实 PowerShell 启动提示",
+      "files": [
+        "tests/launcher.test.ts"
+      ],
+      "evidence": ".test-data/error-audit/final-launcher.log",
+      "sha256": "e87007d48f59105c1abe38defd70695c152ecdb2141e7ea3684859f69d5491d3",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "canceled": 0,
+      "durationMs": 467.5619
+    }
+  ],
+  "serverTests": {
+    "tests": 164,
+    "passed": 158,
+    "skipped": 6,
+    "durationSeconds": 35.305,
+    "command": "npm run test:server"
+  },
+  "actualElectronLogScope": {
+    "passed": true,
+    "checks": [
+      "failed first connection resolves main-issued operationId to its attempted node and retrieves redacted detail",
+      "a repeated identical failure resolves to the retained diagnostic record after log deduplication",
+      "another admin window cannot reuse the first window reference to read a different node",
+      "renderer cannot supply centralId or filesystem root to change the derived scope"
+    ],
+    "data": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\log-scope-1794825407642",
+    "generatedAt": "2026-11-16T10:36:51.685Z"
+  },
+  "explicitRetryActionVerification": {
+    "passed": true,
+    "mode": "production UI actions without screenshot writes",
+    "frozenImages": [
+      {
+        "name": "u50-after.png",
+        "sha256": "a7eee886ebc390cbec5abe97166fbe7964820a8229c7422b1501b78a70226ed0"
+      },
+      {
+        "name": "u50-logs-after.png",
+        "sha256": "7f9e399ba5f4fb7487817ac54fcdb89888d50397a72558daa15c42a6f0923782"
+      }
+    ],
+    "results": [
+      {
+        "id": "u50",
+        "entry": "查看连接中断后的成果整理",
+        "condition": "CLI明确返回Network timeout: connection reset，不能丢失连接已中断的证据",
+        "source": "src/shared/preparation-error.ts",
+        "sourceSha256": "6c82420b09d08f99fbbb938c556b99ed02a84b80fcf974666d8003beec345aac",
+        "phase": "after",
+        "sourceRoot": "D:\\agent开发\\team-agent-workbench",
+        "screenshot": "docs/error-audit/screenshots/u50-after.png",
+        "messages": [
+          "网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。 查看日志\n我已核对日志和已有记录，允许重试"
+        ],
+        "ui": "任务\n动态\n工作会话\n项目成果库\n定时任务\n更多\n改密码\nagent管理\n我\n团队工作台 用户版 · v2.3.46\n连接中央节点\nBeta 功能\n创建项目\n项目\n未分项目\n1\n未分组\n1\n未分项目\n0\n未开启同步\nAI推荐\n会话\n未分组\nG\nC\n▸\nG\n错误提示验收会话\n已关闭会话\n（0）\n个人成果库\n返回成果整理\n关闭\n删除整理记录\n整理结果待核对\n重试\n\n来自“错误提示验收会话”\n\n网络连接中断，整理结果尚未确认。请核对已有记录后再决定是否重试，具体原因请查看日志。 查看日志\n我已核对日志和已有记录，允许重试\n补充说明（可选）\n返回成果整理\n保存在本机；迁入团队项目后可提交团队。\n子会话\n侧边提问\n本机已保存\n0 个会话运行中 · 0 项成果整理中\nCLI 使用本机网络",
+        "substates": [
+          {
+            "condition": "从失败提示点击实际日志入口并展开技术详情",
+            "check": "production log viewer displays the original diagnostic only after opening logs",
+            "screenshot": "docs/error-audit/screenshots/u50-logs-after.png",
+            "passed": true
+          },
+          {
+            "condition": "结果待核对时禁止重试，显式确认只启用按钮，随后点击才提交一次",
+            "check": "review confirmation never submits draft.retry; only the subsequent retry click submits once",
+            "passed": true
+          }
+        ],
+        "calls": [
+          {
+            "action": "snapshot"
+          },
+          {
+            "action": "rsi.settings",
+            "payload": {
+              "projectId": "__personal__"
+            }
+          },
+          {
+            "action": "personal:logs.interaction",
+            "payload": {
+              "view": "sessions",
+              "projectId": "__personal__"
+            }
+          },
+          {
+            "action": "workspace.select",
+            "payload": {
+              "personal": true,
+              "projectId": "__personal__"
+            }
+          },
+          {
+            "action": "personal:logs.interaction",
+            "payload": {
+              "view": "drafts",
+              "projectId": "__personal__"
+            }
+          },
+          {
+            "action": "logs.status"
+          },
+          {
+            "action": "logs.query",
+            "payload": {
+              "limit": 20
+            }
+          },
+          {
+            "action": "logs.get",
+            "payload": {
+              "id": "audit-preparation-log"
+            }
+          },
+          {
+            "action": "draft.retry",
+            "payload": {
+              "id": "audit-preparation"
+            }
+          }
+        ],
+        "assertions": [
+          {
+            "check": "production React component rendered",
+            "passed": true
+          },
+          {
+            "check": "no React runtime error",
+            "passed": true
+          },
+          {
+            "check": "critical failure and recovery are in the visible viewport",
+            "passed": true,
+            "selector": ".preparation-summary [role=alert]"
+          },
+          {
+            "check": "expected visible failure state",
+            "pattern": "网络连接中断，整理结果尚未确认",
+            "passed": true
+          },
+          {
+            "check": "technical diagnostics only in logs",
+            "passed": true
+          },
+          {
+            "check": "accepted message is never described as unsubmitted or saved",
+            "passed": true
+          },
+          {
+            "check": "production log viewer displays the original diagnostic only after opening logs",
+            "condition": "从失败提示点击实际日志入口并展开技术详情",
+            "passed": true
+          },
+          {
+            "check": "review confirmation never submits draft.retry; only the subsequent retry click submits once",
+            "condition": "结果待核对时禁止重试，显式确认只启用按钮，随后点击才提交一次",
+            "passed": true
+          }
+        ],
+        "passed": true
+      }
+    ]
+  },
+  "typecheckAndBuild": {
+    "passed": true,
+    "typecheckExit": 0,
+    "buildExit": 0,
+    "commands": [
+      "npm run typecheck",
+      "npm run build:check"
+    ],
+    "checkedAt": "2026-11-16T12:14:49.4158138Z",
+    "note": "独立临时目录构建，没有覆盖正在运行的工作台文件"
+  },
+  "offlineReport": {
+    "passed": true,
+    "checks": [
+      "离线打开，全部场景可读",
+      "搜索与模块筛选",
+      "实际截图可加载、放大与关闭",
+      "候选清单有界分页与编号搜索",
+      "场景链接直接跳转",
+      "窄窗口无横向溢出",
+      "无页面异常、无外网请求"
+    ],
+    "scenes": 127,
+    "generatedAt": "2026-11-16T12:15:38.006Z"
+  }
+}

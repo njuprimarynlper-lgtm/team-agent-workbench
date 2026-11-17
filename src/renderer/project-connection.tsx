@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage, userFailure } from '../shared/user-failure';
 import React, { useState } from 'react';
 import { Server } from 'lucide-react';
 import type { ConnectionProfile } from '../shared/types';
@@ -14,6 +17,7 @@ export function ProjectConnectionEntry({ connected, local, open }: { connected: 
 }
 
 export function ProjectCentralConnection({ profile, connected, configure, disconnect }: { profile: ConnectionProfile; connected: boolean; configure: () => void; disconnect?: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false), [error, setError] = useState('');
-  return <section className="modal-body" aria-label="项目中央节点"><div className="row"><Server size={19}/><strong>{profile.host}:{profile.port}</strong><span className="spacer"/><span className={connected ? 'green small' : 'muted small'}>{busy ? '正在断开…' : connected ? '已连接' : '未连接'}</span></div><p>成员账号：{profile.username}</p><p className="muted small">{connected ? '当前项目自动同步。断开只影响本项目，本地会话可继续。' : '连接后同步本项目的资料、成果和提问。可复用已登录的连接。'}</p>{error && <p className="inline-error" role="alert">{error}</p>}{connected ? <button className="secondary" disabled={busy || !disconnect} onClick={async () => { setBusy(true); setError(''); try { await disconnect?.(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>断开本项目</button> : <button className="primary" disabled={busy} onClick={configure}>连接</button>}</section>;
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [disconnectedLocally, setDisconnectedLocally] = useState(false);
+  connected = connected && !disconnectedLocally;
+  return <section className="modal-body" aria-label="项目中央节点"><div className="row"><Server size={19}/><strong>{profile.host}:{profile.port}</strong><span className="spacer"/><span className={connected ? 'green small' : 'muted small'}>{busy ? '正在断开…' : connected ? '已连接' : '未连接'}</span></div><p>成员账号：{profile.username}</p><p className="muted small">{connected ? '当前项目自动同步。断开只影响本项目，本地会话可继续。' : '连接后同步本项目的资料、成果和提问。可复用已登录的连接。'}</p>{error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}{connected ? <button className="secondary" disabled={busy || !disconnect} onClick={async () => { setBusy(true); setError(''); try { await disconnect?.(); } catch (e: any) { if (userFailure(e).code === 'PROJECT_DISCONNECTED_WITH_PENDING_SYNC') setDisconnectedLocally(true); setError(contextualError(e, { domain: 'central', operation: '断开本项目连接' }, { UNCLASSIFIED_FAILURE: '暂时不知道本项目是否已断开。请关闭再打开项目设置，查看上方是否仍显示“已连接”，再决定是否断开。' })); } finally { setBusy(false); } }}>断开本项目</button> : <button className="primary" disabled={busy} onClick={configure}>连接</button>}</section>;
 }

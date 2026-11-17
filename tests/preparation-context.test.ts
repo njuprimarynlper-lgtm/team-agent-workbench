@@ -75,7 +75,7 @@ test('failed retry reuses the frozen conversation, project brief and historical 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-preparation-context-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     const fixture = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success', preparationRaw: 'malformed result' });
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = fixture.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = fixture.launcher;
     const session = await wb.createSession('codex', root, offlineProjectId);
     session.messages.push({ id: 'original', role: 'user', text: '量化误差分析需要补充长尾验证', createdAt: new Date().toISOString() });
     const conclusion = await wb.createConclusion(offlineProjectId, '量化误差分析', '上一轮只覆盖均值误差。', 'exploration');

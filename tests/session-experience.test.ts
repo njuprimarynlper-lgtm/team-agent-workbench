@@ -53,7 +53,7 @@ for (const provider of ['codex', 'cursor'] as const) test(provider + ': model pr
   const f = await authLauncher(root, { status: 'ready', turn: 'success' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths[provider] = f.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths[provider] = f.launcher;
     const s = await wb.createSession(provider, root, offlineProjectId, 'work', undefined, 'chosen-model');
     await wb.send(s.id, 'work'); await until(() => s.status === 'idle');
     await wb.closeSession(s.id); assert(s.closedAt); assert.equal(s.messages.filter(m => m.role === 'assistant').length, 1);
@@ -91,7 +91,7 @@ test('closing while authentication is pending prevents CLI work; restart marks i
   const f = await authLauncher(root, { status: 'ready', delay: 800, turn: 'success' });
   const wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = f.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = f.launcher;
     const s = await wb.createSession('codex', root, offlineProjectId);
     const pending = wb.send(s.id, 'should never run'); const rejected = assert.rejects(pending, /已关闭/);
     await until(() => s.status === 'starting'); await wb.closeSession(s.id); await rejected;

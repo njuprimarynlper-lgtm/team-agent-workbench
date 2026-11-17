@@ -95,7 +95,7 @@ test('personal deletion filters UI, stale selections, automatic send context and
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-deleted-references-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   const cli = await authLauncher(path.join(root, 'cli'), { status: 'ready', turn: 'success' });
   try {
-    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.providerPaths.codex = cli.launcher;
+    await wb.store.init(); grantTestWorkspace(wb, root); wb.store.settings.codexRequestGuard = false; wb.store.settings.providerPaths.codex = cli.launcher;
     const s = await wb.createSession('codex', root, offlineProjectId), item = await wb.createConclusion(offlineProjectId, '未发送成果', '不再需要');
     const ref = await wb.attachConclusion(s.id, item.id);
     await wb.saveInput(s.id, { text: '继续工作', sourceIds: [ref.id], answers: {} });

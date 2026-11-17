@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { failureError } from '../shared/user-failure';
 import { WebSocket, type ClientOptions } from 'ws';
 import type { AgentRpc, RpcMessage } from './rpc';
 
@@ -45,7 +46,7 @@ export class WebSocketRpc extends EventEmitter implements AgentRpc {
     await this.connect();
     return new Promise<any>((resolve, reject) => {
       const id = ++this.seq;
-      const timer = timeout ? setTimeout(() => { this.pending.delete(id); reject(new Error('共享 Codex 操作未能确认完成；请核对已有回复，避免重复发送')); }, timeout) : undefined;
+      const timer = timeout ? setTimeout(() => { this.pending.delete(id); reject(['turn/start', 'turn/steer'].includes(method) ? failureError({ version: 1, code: 'SHARED_CODEX_SUBMISSION_UNCONFIRMED', outcome: 'unknown', phase: 'shared-submit', message: '不知道这条消息有没有发到 Codex。先看这条对话的最后一条消息：已有这条消息就等待回复；没有看到时先别重发，稍后再查看。' }) : new Error('共享 Codex 操作未能确认完成；请核对已有回复，避免重复发送')); }, timeout) : undefined;
       this.pending.set(id, { resolve, reject, timer });
       try { this.write({ id, method, params }); onWritten?.(); }
       catch (error) { this.pending.delete(id); clearTimeout(timer); reject(error); }

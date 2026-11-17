@@ -1,3 +1,5 @@
+import { uiErrorMessage } from '../shared/user-failure';
+import { collaborationFailure } from './collaboration-failure';
 import { cachedTeamRead } from './team-cache';
 import { MarkdownEditor } from './markdown-editor';
 import React, { useEffect, useRef, useState } from 'react';
@@ -22,7 +24,7 @@ export function DirectionsBoard({ username, connected, connect }: { username: st
         setMembers(directory?.members || []); setHasCache(directory !== undefined);
         if (!keepDraft && !draftDirty.current) setDrafts((directory?.members.find(item => item.username === username)?.directions || []).map(({ id, title, summary }) => ({ id, title, summary })));
       });
-    } catch (reason: any) { if (sequence === loadSequence.current) setError(reason.message); }
+    } catch (reason: any) { if (sequence === loadSequence.current) setError(collaborationFailure(reason, '成员名片没加载出来。请点“重新读取成员名片”再试。', { domain: 'central', operation: '读取成员名片' })); }
     finally { if (sequence === loadSequence.current) setLoading(false); }
   };
   useEffect(() => { void load(false); return () => { loadSequence.current++; }; }, [connected, username]);
@@ -34,7 +36,7 @@ export function DirectionsBoard({ username, connected, connect }: { username: st
       await window.workbench.call('directions.save', { directions });
       draftDirty.current = false; setDirty(false); setNotice('名片已保存，队友现在可以查看你的工作和经验。');
       await load(false);
-    } catch (reason: any) { setError(reason.message); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'central', operation: '读取或保存成员名片' })); }
     finally { setBusy(false); }
   };
   const listed = sortMembers(members, username);
@@ -47,7 +49,7 @@ export function DirectionsBoard({ username, connected, connect }: { username: st
     <p className="directions-intro">在名片里介绍你正在做的事和可以交流的经验，方便队友找到你。每张名片可以添加多条内容，只能编辑自己的名片。</p>
     {loading && hasCache && <p className="muted small" role="status">正在更新成员名片，当前内容可继续查看。</p>}
     {!connected && hasCache && <p className="muted small">当前显示本地缓存，连接后更新。<button className="text-button" onClick={connect}>查看连接</button></p>}
-    {!connected && !hasCache ? <div className="page-empty"><Compass size={32}/><h2>连接后查看成员名片</h2><p>本机会话可继续使用。</p><button className="text-button central-connection-link" onClick={connect}>查看连接</button></div> : <div className="directions-layout">
+    {!connected && !hasCache ? <div className="page-empty"><Compass size={32}/><h2>连接后查看成员名片</h2><p>本机会话可继续使用。</p><button className="text-button central-connection-link" onClick={connect}>查看连接</button></div> : connected && !hasCache && error ? <div className="page-empty"><p className="inline-error" role="alert">{error}</p><button className="secondary" onClick={() => void load(false)}>重新读取成员名片</button></div> : <div className="directions-layout">
       <section className="direction-editor" aria-label="我的名片">
         <header><b>我的名片</b><span>{drafts.length}/{directionLimit}</span></header>
         <p>写清你在做什么、有哪些经验可以交流。同一名称不要重复填写。</p>

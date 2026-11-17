@@ -79,8 +79,8 @@ test('local project results use consistent navigation and actions without renami
     assert.equal(unified.match(/role="tab"/g)?.length, 2);
     assert.match(unified, /aria-label="个人"[^>]*aria-selected="true"/);
     assert.match(unified, /role="tabpanel" id="results-panel-personal" aria-labelledby="results-tab-personal"/);
-    const session = renderToStaticMarkup(createElement(SessionMaterials, { session: { binding: { project } } as AgentSession, changed: async () => {} }));
-    assert.match(session, />引用项目成果<\/button>/);
+    const session = renderToStaticMarkup(createElement(SessionMaterials, { session: { id: 'work-session', provider: 'codex', purpose: 'work', status: 'idle', binding: { project } } as AgentSession, changed: async () => {} }));
+    assert.match(session, />关联成果<\/button>/); assert.doesNotMatch(session, /disabled=/, 'an open work conversation can associate project results');
     const activity = renderToStaticMarkup(createElement(ContentUpdatesPanel, { updates: [{ eventId: 'event', projectId: project.id, projectName: project.name, id: 'result', title: '共享成果', revision: 1, change: 'new', occurredAt: '2026-09-22', detectedAt: '2026-09-22' }], aliases: {}, view: () => {}, changed: async () => {} }));
     assert.match(activity, />查看结果<\/button>/); assert.match(activity, /标记已处理/); assert.doesNotMatch(activity, />存入个人成果库<\/button>|加入项目资料/);
     // This role-neutral entry must not become an administrator-only label.
@@ -88,7 +88,9 @@ test('local project results use consistent navigation and actions without renami
     assert.match(main, /title="项目成果库" data-tooltip="项目成果库" aria-label="项目成果库"/);
     assert.doesNotMatch(main, /管理项目资料|我的资料（当前项目）|我的项目笔记|本地项目结论库|整理项目文档/);
     assert.doesNotMatch(main, /title="(?:团队|个人)成果库"/, 'the rail exposes a single results entry');
-    assert.match(main, /title="成果整理" data-tooltip="成果整理" aria-label="打开成果整理"/);
+    const preparationEntry = main.match(/<button\b[^>]*role="menuitem"[^>]*aria-label="打开成果整理"[\s\S]*?<\/button>/)?.[0];
+    assert(preparationEntry, 'the shared results preparation entry remains accessible in the More menu');
+    assert.match(preparationEntry, /className="rail-more-title">成果整理/); assert.match(preparationEntry, /setView\('drafts'\)/);
     assert.match(main, /<h1>成果整理<\/h1>/);
   } finally { delete (globalThis as any).window; }
 });

@@ -1,0 +1,67 @@
+[
+  {
+    "id": "team-results-personal-read",
+    "screenshot": "docs/error-audit/screenshots/team-results-personal-read-after.png",
+    "sha256": "f31b4b95a0ea23b37339ac94efab6938c96fa6f515253fda56eeb2bbd44e41dd"
+  },
+  {
+    "id": "team-tasks-read",
+    "screenshot": "docs/error-audit/screenshots/team-tasks-read-after.png",
+    "sha256": "88d0f2998dd21445254a7805e46b5cb47c39b2cf97b06ce945882da2f31a190e"
+  },
+  {
+    "id": "team-question-auto-blocked",
+    "screenshot": "docs/error-audit/screenshots/team-question-auto-blocked-after.png",
+    "sha256": "17a9234fc5de2da16f9ba0cf9473580593bce1851b3c4095c0f0a44e5d73e20b"
+  },
+  {
+    "id": "team-question-stopping",
+    "screenshot": "docs/error-audit/screenshots/team-question-stopping-after.png",
+    "sha256": "4be5003e549f0d5fd82c7e4ec619d09e0adcbd3013799ac0339276758b97a056"
+  },
+  {
+    "id": "team-transfer-cache",
+    "screenshot": "docs/error-audit/screenshots/team-transfer-cache-after.png",
+    "sha256": "3cd2a49d7c44bc2b4f9d47b3bfe5277fc02abf52fd65ac8004fe9798df12b35c"
+  },
+  {
+    "id": "team-transfer-uncertain",
+    "screenshot": "docs/error-audit/screenshots/team-transfer-uncertain-after.png",
+    "sha256": "0b4863d8cc517208208f207c73187dd44bbf279ca7b5e80edda9718522a95e46"
+  },
+  {
+    "id": "team-rsi-retry",
+    "screenshot": "docs/error-audit/screenshots/team-rsi-retry-after.png",
+    "sha256": "aba16d0dffb5b88cbec05bc96d8d372db7b66ff8fd4f4ad74594f5e117e1f59c"
+  },
+  {
+    "id": "team-activity-failed",
+    "screenshot": "docs/error-audit/screenshots/team-activity-failed-after.png",
+    "sha256": "693c42a5326ff6d39357caadad2bca8f635c6417976c64e3c66cb2a8bfe2e990"
+  },
+  {
+    "id": "team-results-edit-failure",
+    "screenshot": "docs/error-audit/screenshots/team-results-edit-failure-after.png",
+    "sha256": "711163bc808647d6e88245e92806a34da2a346f0a10e2374cec97427dff1f234"
+  },
+  {
+    "id": "team-results-delete-failure",
+    "screenshot": "docs/error-audit/screenshots/team-results-delete-failure-after.png",
+    "sha256": "a502777d6568d224afc46eb7a868ac5e100f3f3e8e5338b4c8e78d0a595a90bb"
+  },
+  {
+    "id": "team-attachment-failure",
+    "screenshot": "docs/error-audit/screenshots/team-attachment-failure-after.png",
+    "sha256": "69edca8d69d86f1e02086f25124e3d035d8083fd34cd7b1baae0dd8901bbcfdf"
+  },
+  {
+    "id": "team-task-create-failure",
+    "screenshot": "docs/error-audit/screenshots/team-task-create-failure-after.png",
+    "sha256": "2810018f3f2d6739fdca38dbf36d9d40063f302761d136fa0f9845e1d5d3f3b2"
+  },
+  {
+    "id": "team-task-created-refresh-failure",
+    "screenshot": "docs/error-audit/screenshots/team-task-created-refresh-failure-after.png",
+    "sha256": "909af34eb34807280030dc627bdb683d1bfabb739ba36b3aa47a0af3a784b8bc"
+  }
+]

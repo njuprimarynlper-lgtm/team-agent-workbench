@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import { cursorSharedSessionUnavailable } from '../shared/cursor-session-consistency';
 import React, { useEffect, useState } from 'react';
 import type { AgentSession } from '../shared/types';
@@ -74,7 +77,7 @@ export function NativeSessionPicker({ provider, projectId, cursorDesktopBeta = f
       setCatalog(value);
       setSelectedIds(current => current.filter(id => value.sessions.some(session => nativeSelectionKey(session) === id && canImportNativeSession(session))));
       setGroupId(current => current === '__ungrouped__' || value.groups.some(group => group.id === current) ? current : '');
-    } catch (loadError: any) { setCatalog(undefined); setError(nativeDesktop ? loadError.message.replace('点击“在 Cursor 中打开”重新连接', '点击上方“打开 Cursor 并读取会话”建立连接') : loadError.message); }
+    } catch (loadError) { const message = contextualError(loadError, { domain: 'desktop', operation: '读取原生会话列表', provider }, { FILE_ACCESS_DENIED: 'Windows 不允许读取本机的会话记录，列表没有打开。点“查看日志”，把记录文件的访问权限问题交给管理员检查，再点下方“刷新”。', UNCLASSIFIED_FAILURE: '这次没读到本机会话列表。点下方“刷新”重新读取。' }); setCatalog(undefined); setError(nativeDesktop ? message.replace('点击“在 Cursor 中打开”重新连接', '点击上方“打开 Cursor 并读取会话”建立连接') : message); }
     finally { setLoading(false); }
   };
   useEffect(() => { setSelectedIds([]);void load(); }, [provider,nativeDesktop,directory,projectId]);
@@ -86,7 +89,7 @@ export function NativeSessionPicker({ provider, projectId, cursorDesktopBeta = f
   const groups = catalog ? orderedNativeSessions(catalog).groups : [];
   const groupButton = (id: string, name: string, count: number, hostName?: string) => <button type="button" key={id} aria-pressed={groupId === id} className={groupId === id ? 'selected' : ''} disabled={busy} onClick={() => setGroupId(id)}><span title={hostName ? name + ' · ' + hostName : name}>{name}{hostName && <small className="native-project-host">{hostName}</small>}</span><small>{count}</small></button>;
   return <div className="modal-backdrop"><section className="modal wide native-session-modal" role="dialog" aria-modal="true" aria-labelledby="native-session-title"><header><h2 id="native-session-title">{title}</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={close}>×</button></header>
-    <div className="modal-body">{provider === 'cursor' && cursorDesktopBeta && <div className="row"><button className={nativeDesktop?'primary':'secondary'} disabled={busy||loading} onClick={()=>setNativeDesktop(true)}>原生会话 · Beta</button><button className={!nativeDesktop?'primary':'secondary'} disabled={busy || loading} onClick={()=>setNativeDesktop(false)}>CLI 会话</button></div>}<p className="agent-notes-explanation">{explanation}</p>{nativeDesktop&&<button className="secondary" disabled={busy||loading||!directory} onClick={()=>void(async()=>{setLoading(true);setError('');try{await window.workbench.call('session.cursorDesktop.list',{cwd:directory,launch:true});await load();}catch(e:any){setError(e.message);}finally{setLoading(false);}})()}>打开 Cursor 并读取会话</button>}{error && <div className="inline-error" role="alert">{error}</div>}
+    <div className="modal-body">{provider === 'cursor' && cursorDesktopBeta && <div className="row"><button className={nativeDesktop?'primary':'secondary'} disabled={busy||loading} onClick={()=>setNativeDesktop(true)}>原生会话 · Beta</button><button className={!nativeDesktop?'primary':'secondary'} disabled={busy || loading} onClick={()=>setNativeDesktop(false)}>CLI 会话</button></div>}<p className="agent-notes-explanation">{explanation}</p>{nativeDesktop&&<button className="secondary" disabled={busy||loading||!directory} onClick={()=>void(async()=>{setLoading(true);setError('');try{await window.workbench.call('session.cursorDesktop.list',{cwd:directory,launch:true});await load();}catch(e:any){setError(uiErrorMessage(e, { domain: 'desktop' }));}finally{setLoading(false);}})()}>打开 Cursor 并读取会话</button>}{error && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></div>}
       {loading ? <p className="muted">正在读取会话…</p> : catalog && !catalog.sessions.length && !catalog.groups.some(group => group.hostId) ? <p className="muted">{nativeDesktop ? '请在 Cursor 普通 IDE 中打开要关联的聊天，再点击“刷新”。' : `没有读到${providerLabel(provider)}会话。`}</p> : catalog && <div className="native-session-layout">
         <nav className="native-project-nav" aria-label={provider === 'codex' ? 'Codex 项目' : 'Cursor 工作目录'}>
           {groupButton('', '全部会话', catalog.sessions.length)}
@@ -99,7 +102,7 @@ export function NativeSessionPicker({ provider, projectId, cursorDesktopBeta = f
     </div><footer><button className="secondary" disabled={busy} onClick={close}>取消</button><button className="secondary" disabled={loading || busy} onClick={() => void load()}>刷新</button><button className="primary" disabled={!chosen.length || busy || loading} onClick={() => void (async () => {
       if (!chosen.length) return; setBusy(true); setError('');
       try { linked(await window.workbench.call<AgentSession[]>(nativeDesktop?'session.cursorDesktop.linkMany':'session.native.linkMany', { provider, ...(chosen.some(session => session.hostId) ? { selections: chosen.map(({ nativeId, hostId }) => ({ nativeId, hostId })) } : { nativeIds: chosen.map(session => session.nativeId) }), projectId })); }
-      catch (linkError: any) { await load(); setError(linkError.message); }
+      catch (linkError: any) { await load(); setError(uiErrorMessage(linkError, { domain: 'desktop' })); }
       finally { setBusy(false); }
     })()}>{busy ? '正在导入…' : chosen.length ? `导入 ${chosen.length} 条` : '导入所选'}</button></footer>
   </section></div>;

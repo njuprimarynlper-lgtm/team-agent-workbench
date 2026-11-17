@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import { LoaderCircle, Plus, RefreshCw, X } from 'lucide-react';
 import type { AgentSession } from '../shared/types';
@@ -13,7 +16,7 @@ export function McpPanel({ session, close, manage = false, embedded = false, ope
     const n = ++sequence.current; polling.current = true;
     if (!quiet) { setBusy(true); setError(''); }
     try { const result = await window.workbench.call<McpCatalog>('session.mcp', { id: session.id, refresh }); if (alive.current && n === sequence.current) { setCatalog(result); setError(''); } }
-    catch { if (alive.current && n === sequence.current) setError('MCP 状态读取失败，可刷新重试。'); }
+    catch (error) { if (alive.current && n === sequence.current) setError(contextualError(error, { domain: 'cli', operation: '读取工具连接状态', provider: session.provider }, { OPERATION_TIMEOUT: '没有读到 MCP 工具的连接情况。点右上角“刷新”再试；这次读取不会改动工具配置。', UNCLASSIFIED_FAILURE: '这次没读到 MCP 工具列表。点右上角“刷新”重新读取。' })); }
     finally { polling.current = false; if (alive.current && n === sequence.current && !quiet) setBusy(false); }
   };
   useEffect(() => {
@@ -30,7 +33,7 @@ export function McpPanel({ session, close, manage = false, embedded = false, ope
       if (action !== 'session.mcp.login') setNotice(result?.pendingReload ? '已保存；部分会话尚未刷新，可在对应会话打开 MCP 重试。' : '已保存，后续任务使用新设置。');
       else setNotice('请在浏览器完成登录。');
       await load(); setAdding(false); setEditing(undefined); setRemoving('');
-    } catch (e: any) { if (alive.current) setError(e.message || '操作未完成，请重试。'); }
+    } catch (error) { if (alive.current) setError(uiErrorMessage(error, { domain: 'cli', operation: action === 'session.mcp.login' ? '登录 MCP 服务' : '更新 MCP 设置', provider: session.provider })); }
     finally { if (alive.current) setBusy(false); }
   };
   return <div className={embedded ? 'mcp-embedded' : 'modal-backdrop'} onPointerDown={event => { if (!embedded && event.target === event.currentTarget) close(); }} onKeyDown={event => {
@@ -42,17 +45,17 @@ export function McpPanel({ session, close, manage = false, embedded = false, ope
     }
   }}>
     <section className={embedded ? 'mcp-panel' : 'modal mcp-panel'} ref={panel} tabIndex={-1} role={embedded ? 'region' : 'dialog'} aria-modal={embedded ? undefined : true} aria-label="MCP 服务器">
-      <header><h2>{manage ? 'MCP 服务器' : 'MCP 状态'}</h2><span className="spacer"/><button className="icon" title="刷新 MCP" disabled={busy} onClick={() => void load(true)}><RefreshCw size={15} className={busy ? 'spin' : ''}/></button>{!embedded && <button className="icon" aria-label="关闭 MCP" onClick={close}><X size={17}/></button>}</header>
+      <header><h2>{manage ? 'MCP 服务器' : 'MCP 状态'}</h2><span className="spacer"/><button className="icon" title="刷新 MCP" disabled={busy} onClick={() => void load(true)}><RefreshCw size={15} className={busy ? 'spin' : ''}/>刷新</button>{!embedded && <button className="icon" aria-label="关闭 MCP" onClick={close}><X size={17}/></button>}</header>
       <div className="modal-body">
-        {error && <p className="inline-error" role="alert">{error}</p>}{notice && <p className="muted small" role="status">{notice}</p>}
+        {error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></p>}{notice && <p className="muted small" role="status">{notice}</p>}
         {busy && !catalog && <p role="status"><LoaderCircle size={14} className="spin"/>读取 MCP 中…</p>}
         {!busy && catalog && !catalog.servers.length && <p className="muted">还没有配置 MCP。</p>}
         {catalog?.servers.map(server => <article className="mcp-server" key={server.name}>
           <div className="row"><b>{server.title}</b><span className={'mcp-state ' + server.state}>{server.loginPending ? '等待浏览器登录' : session.provider === 'cursor' && server.state === 'unknown' ? '已配置 · 由 Cursor 连接' : labels[server.state]}</span><span className="spacer"/>
-            {manage && server.enabled && (server.canLogin || ['notLoggedIn', 'oAuth'].includes(server.authStatus)) && <button className="secondary compact" disabled={busy || server.loginPending} onClick={() => void mutate('session.mcp.login', { name: server.name })}>{server.authStatus === 'oAuth' ? '重新登录' : '登录'}</button>}
+            {manage && server.enabled && (server.canLogin || ['notLoggedIn', 'oAuth'].includes(server.authStatus) || session.provider === 'codex' && !!server.loginError) && <button className="secondary compact" disabled={busy || server.loginPending} onClick={() => void mutate('session.mcp.login', { name: server.name })}>{server.loginError ? '重试登录' : server.authStatus === 'oAuth' ? '重新登录' : '登录'}</button>}
             {manage && server.canToggle && <><button className="text-button" disabled={busy} onClick={() => void mutate('session.mcp.toggle', { name: server.name, enabled: !server.enabled })}>{server.enabled ? '停用' : '启用'}</button><button className="text-button" disabled={busy} onClick={async () => { setError(''); try { setEditing(await window.workbench.call<McpServerInput>('session.mcp.editable', { id: session.id, name: server.name })); setAdding(false); } catch { setError('MCP 配置读取失败，请重试。'); } }}>编辑</button><button className="text-button" disabled={busy} onClick={() => setRemoving(server.name)}>删除</button></>}
           </div><small className="muted">{server.source} · {server.tools.length} 个工具</small>
-          {server.loginError && <p className="inline-error" role="alert">{server.loginError}</p>}
+          {server.loginError && <p className="inline-error" role="alert">{contextualError(server.loginError, { domain: 'cli', operation: `登录${server.title}`, provider: session.provider }, { UNCLASSIFIED_FAILURE: `“${server.title}”没有完成登录。点它右边的“重试登录”，再到浏览器完成授权。`, OPERATION_TIMEOUT: `“${server.title}”的登录一直没有完成。点“重试登录”，再到浏览器完成授权。` })} <ErrorLogLink message={server.loginError}/></p>}
           {manage && removing === server.name && <div className="row"><span>删除个人配置中的“{server.title}”？</span><button className="secondary compact" onClick={() => setRemoving('')}>取消</button><button className="secondary compact" disabled={busy} onClick={() => void mutate('session.mcp.remove', { name: server.name })}>确认删除</button></div>}
           {server.tools.length > 0 && <details><summary>查看工具</summary><ul>{server.tools.map(tool => <li key={tool.name}><b>{tool.name}</b>{tool.description && <p>{tool.description}</p>}</li>)}</ul></details>}
         </article>)}

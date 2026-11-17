@@ -97,8 +97,8 @@ try {
  await expect.poll(() => page.evaluate(() => !!window.__rejectSide)).toBe(true);
  await input.fill('失败前继续编辑的新草稿'); await page.evaluate(() => window.__rejectSide());
  await expect(side.getByRole('alert').first()).toContainText('模拟发送失败'); await expect(input).toHaveValue('失败前继续编辑的新草稿');
- await side.getByRole('button', {name:'恢复未发送消息到输入框',exact:true}).click(); await expect(input).toHaveValue('失败前继续编辑的新草稿');
- await input.fill(''); await side.getByRole('button', {name:'恢复未发送消息到输入框',exact:true}).click();
+ await side.getByRole('button', {name:'核对后恢复这条消息到输入框',exact:true}).click(); await expect(input).toHaveValue('失败前继续编辑的新草稿');
+ await input.fill(''); await side.getByRole('button', {name:'核对后恢复这条消息到输入框',exact:true}).click();
  await expect(input).toHaveValue('失败时的侧聊草稿'); await expect(side.getByLabel('移除能力：Caveman')).toBeVisible();
  await page.getByRole('tab', {name:'子会话',exact:true}).click();
  await page.getByLabel('展开会话菜单：'+data.session.title,{exact:true}).click();

@@ -11,6 +11,99 @@ const root = path.resolve(import.meta.dirname, '..');
 const exec = promisify(execFile);
 const windows = { skip: process.platform !== 'win32' };
 
+async function exportRecovery(t: { after: (fn: () => Promise<void>) => void }, choices: 'retry' | 'cancel-error' | 'cancel-picker') {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-export-recovery-')));
+  t.after(async () => { assert.equal(path.dirname(directory), await fs.realpath(os.tmpdir())); assert(path.basename(directory).startsWith('workbench-export-recovery-')); await fs.rm(directory, { recursive: true, force: true, maxRetries: 5 }); });
+  const occupied = path.join(directory, 'occupied.zip'), output = path.join(directory, 'report.zip'), log = path.join(directory, 'export.log');
+  await fs.writeFile(occupied, 'keep-existing-file');
+  const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+  const script = path.join(directory, 'recovery.ps1');
+  await fs.writeFile(script, '\uFEFF' + `
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+. ${literal(path.join(root, 'scripts/startup-logs.ps1'))}
+. ${literal(path.join(root, 'scripts/startup-failure.ps1'))}
+$env:WORKBENCH_DATA_DIR=${literal(path.join(directory, 'data'))}
+$script:selectionCount=0; $script:confirmationCount=0
+function Select-StartupDiagnosticsDestination {
+  $script:selectionCount++
+  if (${choices === 'cancel-picker' ? '$true' : '$false'}) { return $null }
+  if ($script:selectionCount -eq 1) { return ${literal(occupied)} }
+  return ${literal(output)}
+}
+function Show-StartupDiagnosticsExportFailure { $script:confirmationCount++; return ${choices === 'retry' ? '$true' : '$false'} }
+$result=Invoke-StartupDiagnosticsExport 'user' '' ${literal(log)}
+@{result=$result; selections=$script:selectionCount; confirmations=$script:confirmationCount; logExists=(Test-Path -LiteralPath ${literal(log)}); outputExists=(Test-Path -LiteralPath ${literal(output)})}|ConvertTo-Json -Compress
+`, 'utf8');
+  const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true, timeout: 15000, encoding: 'utf8' });
+  assert.equal(await fs.readFile(occupied, 'utf8'), 'keep-existing-file');
+  return { result: JSON.parse(stdout.trim()), log: await fs.readFile(log, 'utf8').catch(() => '') };
+}
+
+test('startup export retries only after confirmation and preserves the original detailed diagnostic in the log', windows, async t => {
+  const { result, log } = await exportRecovery(t, 'retry');
+  assert.deepEqual(result, { selections: 2, confirmations: 1, result: true, logExists: true, outputExists: true });
+  assert.match(log, /Startup diagnostics export failed/); assert.match(log, /occupied\.zip/); assert.match(log, /Exception/);
+});
+
+test('cancelling an export failure does not select again or claim a saved report', windows, async t => {
+  const { result, log } = await exportRecovery(t, 'cancel-error');
+  assert.equal(result.result, false); assert.equal(result.selections, 1); assert.equal(result.confirmations, 1); assert.equal(result.outputExists, false); assert.match(log, /occupied\.zip/);
+});
+
+test('cancelling the save picker is not treated as an export failure or success', windows, async t => {
+  const { result, log } = await exportRecovery(t, 'cancel-picker');
+  assert.equal(result.result, false); assert.equal(result.selections, 1); assert.equal(result.confirmations, 0); assert.equal(result.outputExists, false); assert.equal(result.logExists, false); assert.equal(log, '');
+});
+
+test('both existing launcher UI export entries share recovery while the CLI keeps its direct exporter', async () => {
+  const script = await fs.readFile(path.join(root, 'scripts/start-dev-hidden.ps1'), 'utf8');
+  assert.equal((script.match(/\[void\]\(Invoke-StartupDiagnosticsExport \$Edition \$logRoot \$launchLog\)/g) || []).length, 2);
+  assert.doesNotMatch(script, /MessageBox\]::Show\(\$_\.Exception\.Message/);
+  assert.match(script, /if \(\$ExportDiagnostics\) \{ Export-StartupDiagnostics \$Edition \$ExportDiagnostics \$logRoot; exit 0 \}/);
+  const dialog = await fs.readFile(path.join(root, 'scripts/startup-error-dialog.cs'), 'utf8');
+  assert.match(dialog, /ShowExportFailure\(\)/); assert.match(dialog, /故障报告没能完整保存。请换一个保存位置后再试。/); assert.match(dialog, /重新选择位置/); assert.match(dialog, /取消导出/);
+});
+
+test('the actual Node directory picker cancellation follows the existing exit-2 branch without an error dialog', windows, async t => {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-picker-cancel-')));
+  t.after(async () => { assert.equal(path.dirname(directory), await fs.realpath(os.tmpdir())); assert(path.basename(directory).startsWith('workbench-picker-cancel-')); await fs.rm(directory, { recursive: true, force: true }); });
+  const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+  const marker = path.join(directory, 'error-dialog-would-open.txt'), log = path.join(directory, 'cancel.log'), script = path.join(directory, 'cancel.ps1');
+  await fs.writeFile(script, '\uFEFF' + `
+$ErrorActionPreference='Stop'
+$tokens=$null; $parseErrors=$null
+$ast=[System.Management.Automation.Language.Parser]::ParseFile(${literal(path.join(root, 'scripts/start-dev-hidden.ps1'))}, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Production launcher parse error' }
+$cancel=$ast.FindAll({param($node) $node -is [System.Management.Automation.Language.ThrowStatementAst] -and $node.Extent.Text -match '已取消选择运行环境'},$true)|Select-Object -First 1
+$route=$ast.FindAll({param($node) $node -is [System.Management.Automation.Language.IfStatementAst] -and $node.Extent.Text.StartsWith('if ($_.Exception -is [System.OperationCanceledException])')},$true)|Select-Object -First 1
+if (-not $cancel -or -not $route) { throw 'Production cancellation route missing' }
+$launchLog=${literal(log)}
+try { & ([ScriptBlock]::Create($cancel.Extent.Text)) }
+catch {
+  & ([ScriptBlock]::Create($route.Extent.Text))
+  [IO.File]::WriteAllText(${literal(marker)}, 'startup failure dialog route reached')
+  exit 5
+}
+`, 'utf8');
+  await assert.rejects(exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true, timeout: 15000 }), (error: any) => error.code === 2);
+  assert.equal(await fs.stat(marker).then(() => true, () => false), false);
+  assert.match(await fs.readFile(log, 'utf8'), /Cancelled by user/);
+});
+
+test('launcher failure guidance names the local stage without exposing exceptions or guessing from filenames', windows, async t => {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'workbench-startup-failure-')));
+  t.after(async () => { assert.equal(path.dirname(directory).toLowerCase(), (await fs.realpath(os.tmpdir())).toLowerCase()); assert(path.basename(directory).startsWith('workbench-startup-failure-')); await fs.rm(directory, { recursive: true, force: true }); });
+  const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+  const script = path.join(directory, 'check.ps1');
+  await fs.writeFile(script, '\uFEFF[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)\n. ' + literal(path.join(root, 'scripts/startup-failure.ps1')) + '\n@((Get-StartupFailureMessage "正在检查桌面运行环境" "EIO: open C:/audit/node.exe"),(Get-StartupFailureMessage "正在构建" "TypeError: internals"),(Get-StartupFailureMessage "准备启动" "另一个启动入口仍在准备环境，请稍后重试。"),(Get-StartupFailureMessage "准备启动" "需要 x64 Node.js 22.12.0 或更高版本"))|ConvertTo-Json -Compress');
+  const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true, timeout: 15000, encoding: 'utf8' });
+  const messages: string[] = JSON.parse(stdout.trim());
+  assert.match(messages[0], /启动文件准备失败/); assert.doesNotMatch(messages[0], /Node\.js/);
+  assert.match(messages[1], /启动文件生成失败/); assert.match(messages[2], /等它启动后/); assert.match(messages[3], /Node\.js 和 npm/);
+  for (const message of messages) assert.doesNotMatch(message, /EIO|TypeError|C:\/audit|internals/);
+});
+
 async function unlinkRuntime(file: string) {
   for (let attempt = 0; ; attempt++) {
     try { await fs.unlink(file); return; }
@@ -75,6 +168,8 @@ async function launcherFixture(t: { after: (fn: () => Promise<void>) => void }) 
   await fs.writeFile(path.join(dir, 'scripts/launch-desktop.mjs'), silentFixture);
   await fs.copyFile(path.join(root, 'scripts/startup-process.ps1'), path.join(dir, 'scripts/startup-process.ps1'));
   await fs.copyFile(path.join(root, 'scripts/startup-logs.ps1'), path.join(dir, 'scripts/startup-logs.ps1'));
+  await fs.copyFile(path.join(root, 'scripts/startup-failure.ps1'), path.join(dir, 'scripts/startup-failure.ps1'));
+  await fs.copyFile(path.join(root, 'scripts/startup-error-dialog.cs'), path.join(dir, 'scripts/startup-error-dialog.cs'));
   await fs.copyFile(path.join(root, 'scripts/startup-dependencies.mjs'), path.join(dir, 'scripts/startup-dependencies.mjs'));
   await fs.copyFile(path.join(root, 'scripts/electron-runtime-cache.mjs'), path.join(dir, 'scripts/electron-runtime-cache.mjs'));
   const dependencies = { electron: '44.3.0', esbuild: '0.28.2', ssh2: '1.17.0' };

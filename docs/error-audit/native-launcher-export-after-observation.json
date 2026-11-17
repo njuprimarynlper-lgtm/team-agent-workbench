@@ -1,0 +1,16 @@
+{
+  "title": "故障报告未保存",
+  "accessibility": {
+    "focused_element": "3 button (按钮) 取消导出 ID: 8589322",
+    "tree": "Window: \"故障报告未保存\", App: LauncherExportFixture.exe.\n\t0 window (窗口) 故障报告未保存 Secondary Actions: Raise\n\t\t1 pane (窗格) ID: 2625870\n\t\t2 text (文本) 故障报告没能完整保存。请换一个保存位置后再试。 ID: 3936614\n\t\t3 button (按钮) 取消导出 ID: 8589322\n\t\t4 button (按钮) 重新选择位置 ID: 1052910\n\t\t5 title bar (标题栏) (settable, string) Value: 故障报告未保存\n\t\t\t6 button (按钮) 关闭\n\nThe focused UI element is 3 button (按钮) 取消导出 ID: 8589322."
+  },
+  "dimensions": [
+    {
+      "width": 652,
+      "height": 283
+    }
+  ],
+  "capturedAt": "2026-11-16T14:05:13.518Z",
+  "fixture": "actual production ShowExportFailure; actual isolated IO failure, raw details in test log only",
+  "recovery": "Clicking retry is verified as true return; production export selection loop validated separately in launcher tests"
+}

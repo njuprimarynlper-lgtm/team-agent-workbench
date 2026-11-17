@@ -1,3 +1,4 @@
+import { uiErrorMessage } from '../shared/user-failure';
 import React from 'react';
 import { canDeleteSharedContent, type SharedContent } from '../shared/content';
 

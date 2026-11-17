@@ -1,0 +1,21 @@
+{
+  "title": "工作台启动失败",
+  "accessibility": {
+    "focused_element": "0 window (对话框) 工作台启动失败 Secondary Actions: Raise",
+    "tree": "Window: \"工作台启动失败\", App: electron.exe.\n\t0 window (对话框) 工作台启动失败 Secondary Actions: Raise\n\t\t1 image (图像) MainInstructionIcon ID: MainIcon\n\t\t2 text (文本) 读不到这台电脑上的会话记录，工作台无法启动。 ID: MainInstruction\n\t\t3 text (文本) 请不要删除工作台数据。点“打开日志文件夹”，将最新日志交给维护人员。 ID: ContentText\n\t\t4 button (按钮) 关闭 ID: CommandButton_100\n\t\t5 button (按钮) 打开日志文件夹 ID: CommandButton_101\n\t\t6 title bar (标题栏) (settable, string) Value: 工作台启动失败\n\t\t\t7 menu bar (菜单栏) 系统 ID: MenuBar\n\t\t\t\t8 menu item (菜单项) 系统\n\t\t\t9 button (按钮) 关闭\n\nThe focused UI element is 0 window (对话框) 工作台启动失败 Secondary Actions: Raise."
+  },
+  "dimensions": [
+    {
+      "width": 469,
+      "height": 150
+    }
+  ],
+  "capturedAt": "2026-11-16T13:32:15.473Z",
+  "fixture": "production showStartupFailure with isolated synthetic EIO; no user files or credentials",
+  "recovery": {
+    "action": "打开日志文件夹",
+    "observed": "Explorer breadcrumb .test-data/error-audit/native-user-start-after/logs",
+    "passed": true,
+    "filesDeleted": false
+  }
+}

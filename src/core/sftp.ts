@@ -29,13 +29,13 @@ export function sameEndpoint(a: RemoteBinding, b: ConnectionProfile): boolean {
   return a.connectionId === b.id && a.host === b.host && a.port === b.port && a.username === b.username && a.fingerprint === b.fingerprint;
 }
 export function friendlySftp(error: any): Error {
-  if (error.code === 3) return new Error('Linux 拒绝访问：当前账号没有此目录或文件的权限');
-  if ((error as any).code === 2) return new Error('远端路径不存在，请核对管理员提供的 SFTP 路径');
+  if (error.code === 3) return Object.assign(new Error('当前中央节点账号没有此文件或目录的访问权限，请联系项目管理者核对。'), { code: 'REMOTE_FILE_ACCESS_DENIED', cause: error });
+  if ((error as any).code === 2) return Object.assign(new Error('中央节点未找到要访问的文件或目录。请刷新后重试；若仍缺失，请联系项目管理者核对。'), { code: 'REMOTE_FILE_MISSING', cause: error });
   // ssh2 interprets the first four bytes of a non-SFTP reply as a packet
   // length. Linux nologin starts with "This" (0x54686973 = 1416128883),
   // which means authentication succeeded but the server did not apply the
   // team's ForceCommand internal-sftp rule to this managed account.
-  if (/Packet length 1416128883 exceeds max length/i.test(error.message || '')) return new Error('服务器成员登录配置异常：账号已通过认证，但服务器没有启动 SFTP。请管理员使用新版管理员端检查并重新创建该成员账号');
+  if (/Packet length 1416128883 exceeds max length/i.test(error.message || '')) return Object.assign(new Error('账号验证成功，但中央节点未启用此账号的文件访问。请管理员检查并修复成员登录配置后重试。'), { code: 'REMOTE_SFTP_CONFIGURATION', cause: error });
   return new Error(error.message || String(error));
 }
 export class SftpConnection {

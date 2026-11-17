@@ -63,7 +63,7 @@ test('metadata root junction supports summary commits, read-only project copies 
     await x.wb.saveHandoff(a.id, '修正后的项目进展');
     await x.wb.journal.context(b); assert.equal(await fs.readFile(copy, 'utf8'), '修正后的项目进展');
     const cli = await authLauncher(path.join(x.root, 'cli'), { status: 'ready', turn: 'success' });
-    x.wb.store.settings.providerPaths.codex = cli.launcher;
+    x.wb.store.settings.codexRequestGuard = false; x.wb.store.settings.providerPaths.codex = cli.launcher;
     assert.equal(await x.wb.send(b.id, '继续验证日志目录链接', []), true);
     const deadline = Date.now() + 8000;
     while (['starting', 'running', 'approval'].includes(b.status) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));

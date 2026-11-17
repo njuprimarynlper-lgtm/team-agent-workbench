@@ -1,3 +1,6 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import React, { useEffect, useRef, useState } from 'react';
 import { CornerUpLeft, Pencil, X, Pause, Play, LoaderCircle } from 'lucide-react';
 import type { AgentSession, FollowUpMode, SessionInput, WorkbenchAPI } from '../shared/types';
@@ -45,8 +48,8 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked,
   const action = async (name: string, extra: object = {}) => {
     if (busy) return;
     setBusy(true); setError('');
-    try { await api.call('session.queue.' + name, { id: session.id, ...extra }); await changed(); }
-    catch (reason: any) { setError(reason.message); }
+    try { await api.call('session.queue.' + name, { id: session.id, ...extra }); try { await changed(); } catch { setError('队列操作已经保存，但列表没有刷新。请重新打开这个会话查看，不用再操作一次。'); } }
+    catch (reason: any) { setError(contextualError(reason, { domain: 'local', operation: name === 'resume' ? '继续发送排队消息' : '修改待发送消息' }, { UNCLASSIFIED_FAILURE: name === 'resume' ? '没有恢复发送，消息仍留在队列里。点“继续队列”可以再试，当前不会自动发送。' : '这次没能修改待发送消息，原队列保留。请再试一次。' })); }
     finally { setBusy(false); }
   };
   const disabled = busy || locked || !!session.closedAt;
@@ -57,7 +60,7 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked,
       await queueDraftAction(api, session.id, itemId, draft, cancel ? 'cancelEdit' : 'beginEdit', replace);
       await changed();
       queueRef.current?.parentElement?.querySelector<HTMLElement>('.composer textarea,.composer [contenteditable=true]')?.focus();
-    } catch (reason: any) { setError(reason.message); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'cli' })); }
     finally { lockDraft?.(false); setBusy(false); }
   };
   const resolveHistoryEdit = async (restore: boolean) => {
@@ -69,7 +72,7 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked,
       const input = await api.call<SessionInput>('session.editRecovery', { id: session.id, restore });
       if (restore) replace(input);
       await changed();
-    } catch (reason: any) { setError(reason.message); }
+    } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'cli' })); }
     finally { lockDraft?.(false); setBusy(false); }
   };
   const canSteer = session.provider === 'codex' && !session.contextCompacting && !!activeTurnId && ['running', 'approval'].includes(session.status) && !session.stoppedAt;
@@ -78,10 +81,10 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked,
     {editing && <header><span className="queue-hint">正在编辑排队消息</span><button disabled={disabled} onClick={() => void editRow(editing, true)}>取消编辑</button></header>}
     {undo && <header><span className="queue-hint">已移除排队消息</span><button disabled={disabled} onClick={() => void action('undo', { itemId: undo.item.id })}>撤销删除</button></header>}
     {!!items.length && <header><span>{queue?.paused ? '已暂停' : items.some(row => row.failure || row.steerTurnId) ? '跟进消息' : '待发送'} · {items.length}</span><span className="queue-hint">{items.every(row => row.steerTurnId || row.failure?.uncertain) ? '' : queue?.paused ? '继续后按顺序发送' : session.contextCompacting ? '压缩完成后依次发送' : '本轮结束后依次发送'}</span>
-      <button className="queue-control" disabled={disabled} title={queue?.paused ? '继续队列' : '暂停队列'} aria-label={queue?.paused ? '继续队列' : '暂停队列'} onClick={() => void action(queue?.paused ? 'resume' : 'pause')}>{queue?.paused ? <Play size={12}/> : <Pause size={12}/>}</button></header>}
+      <button className="queue-control" disabled={disabled} title={queue?.paused ? '继续队列' : '暂停队列'} aria-label={queue?.paused ? '继续队列' : '暂停队列'} onClick={() => void action(queue?.paused ? 'resume' : 'pause')}>{queue?.paused ? <><Play size={12}/>继续队列</> : <Pause size={12}/>}</button></header>}
     <div className="queue-rows">{items.map((item, index) => <div className="queue-row" key={item.id} data-queue-id={item.id} draggable={!disabled && item.state === 'queued'} onDragStart={event => { setDragging(item.id); event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragEnd={() => setDragging('')} onDragOver={event => { if (dragging && !disabled && item.state === 'queued') event.preventDefault(); }} onDrop={event => { event.preventDefault(); if (dragging && !disabled && item.state === 'queued') void action('move', { itemId: dragging, beforeId: item.id }); setDragging(''); }} onContextMenu={event => { if ((event.target as HTMLElement).closest('input,textarea,.markdown-editor')) return; setMenu({ anchor: contextAnchor(event), id: item.id }); }}>
       <span className="queue-number">{item.state === 'sending' ? <LoaderCircle className="spin" size={12}/> : index + 1}</span>
-      <button className="queue-text" aria-label={`查看第 ${index + 1} 条待发送消息`} title={item.failure?.message || item.input.text} onClick={() => setPreview(item.id)}>{item.input.text}{item.failure && <small> · {item.failure.uncertain ? '送达待确认' : '未送达'}</small>}</button>
+      <button className="queue-text" aria-label={`查看第 ${index + 1} 条待发送消息`} title={item.failure?.message ? uiErrorMessage(item.failure.message, { domain: 'cli', operation: '提交排队消息' }) : item.input.text} onClick={() => setPreview(item.id)}>{item.input.text}{item.failure && <small> · {item.failure.uncertain ? '送达待确认' : '未送达'}</small>}</button>
       <div className="queue-actions">
         {item.failure && !item.steerTurnId && !item.failure.uncertain && <button disabled={disabled || item.state !== 'queued' || !['idle','error'].includes(session.status)} onClick={() => void action('retry', { itemId: item.id })}>重试发送</button>}
         {item.steerTurnId && !item.failure ? <span className="queue-hint">正在引导…</span> : session.provider === 'codex' && !session.contextCompacting && !item.input.nextTurnOnly && !item.failure?.uncertain && (!item.failure || item.steerTurnId) ?
@@ -94,7 +97,7 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked,
         <button disabled={disabled || item.state !== 'queued'} aria-label="待发送消息操作" onClick={e => setMenu({ anchor: contextAnchor(e), id: item.id })}>⋯</button>
       </div>
     </div>)}</div>
-    {(error || queue?.error) && <p className="queue-error" role="alert">{error || queue?.error}</p>}
+    {(error || queue?.error) && <p className="queue-error" role="alert">{error || uiErrorMessage(queue?.error, { domain: 'cli', operation: '处理待发送队列' })} <ErrorLogLink message={error || queue?.error}/></p>}
     {menu && items.some(item => item.id === menu.id) && <ContextMenu anchor={menu.anchor} label="待发送消息操作" close={() => setMenu(undefined)} actions={(() => {
       const index = items.findIndex(item => item.id === menu.id), item = items[index], unavailable = disabled || item.state !== 'queued';
       return [
@@ -103,8 +106,8 @@ export function SessionInputQueue({ session, activeTurnId, api, changed, locked,
         { label: '推后一条', disabled: unavailable || index === items.length - 1, run: () => action('move', { itemId: item.id, beforeId: items[index + 2]?.id }) },
         ...(session.provider === 'codex' && !session.contextCompacting && !item.input.nextTurnOnly && !item.steerTurnId && !item.failure ? [{ label: '引导当前任务', disabled: unavailable || !canSteer, run: () => action('steer', { itemId: item.id, expectedTurnId: activeTurnId }) }] : []),
         ...(item.steerTurnId && !item.failure?.uncertain ? [{ label: '改为下一轮排队', disabled: unavailable, run: () => action('requeue', { itemId: item.id }) }] : []),
-        ...(sideChat && !item.failure?.uncertain ? [{ label: '在侧边聊天中打开', disabled: unavailable, run: () => sideChat(item.id).catch(reason => setError(reason.message)) }] : []),
-        ...(session.provider === 'codex' ? [{ label: followUpMode === 'steer' ? '启用排队模式' : '关闭排队模式', run: async () => { try { await api.call('settings.agent.save', { followUpMode: followUpMode === 'steer' ? 'queue' : 'steer' }); await changed(); } catch (e: any) { setError(e.message); } } }] : []),
+        ...(sideChat && !item.failure?.uncertain ? [{ label: '在侧边聊天中打开', disabled: unavailable, run: () => sideChat(item.id).catch(reason => setError(uiErrorMessage(reason, { domain: 'cli' }))) }] : []),
+        ...(session.provider === 'codex' ? [{ label: followUpMode === 'steer' ? '启用排队模式' : '关闭排队模式', run: async () => { try { await api.call('settings.agent.save', { followUpMode: followUpMode === 'steer' ? 'queue' : 'steer' }); await changed(); } catch (e: any) { setError(uiErrorMessage(e, { domain: 'cli' })); } } }] : []),
         { label: '删除待发送消息', disabled: unavailable, separator: true, run: () => action('remove', { itemId: item.id }) },
       ];
     })()}/>}

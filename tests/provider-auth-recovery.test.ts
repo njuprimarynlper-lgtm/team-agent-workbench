@@ -7,8 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import React from 'react';
 import { authFailure, inspectAuth, codexLoginStatus } from '../src/core/provider-auth';
 import { ProviderAuthPanel } from '../src/renderer/provider-auth';
+import type { WorkbenchAPI } from '../src/shared/types';
 // @ts-expect-error Local CLI protocol fixture, never starts a real model.
 import { authLauncher } from './fixtures/auth-launcher.mjs';
+const ssrApi = { call: async () => { throw Error('SSR must not call the desktop API'); }, subscribe: () => () => {} } as WorkbenchAPI;
 
 async function fixture(state: Record<string, unknown>) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-auth-recovery-'));
@@ -26,7 +28,7 @@ test('a saved Codex login does not require workspace routing, token export, refr
     assert.deepEqual(calls.find(call => call.method === 'getAuthStatus').params, { includeToken: false, refreshToken: false });
     assert(!calls.some(call => ['account/read', 'thread/start', 'turn/start', 'account/login/start'].includes(call.method)));
     assert(!JSON.stringify(result).includes('PRIVATE_FIXTURE_TOKEN'));
-    const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { provider: 'codex', auth: result, autoCheck: false }));
+    const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { api: ssrApi, provider: 'codex', auth: result, autoCheck: false }));
     assert.match(html, /已保存登录/); assert.match(html, /连通性/); assert(!html.includes('CLI 未提供账号名称'));
   } finally { await f.clean(); }
 });
@@ -50,7 +52,7 @@ test('network failure preserves confirmed local login and reports the routing fa
     assert(!JSON.stringify(result).includes('DO_NOT_FORWARD'));
     assert.deepEqual(await f.calls(), ['getAuthStatus', 'login/status']);
     assert((await f.environments()).every((env: any) => env.HTTPS_PROXY === 'http://fixture.invalid:18001'));
-    const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { provider: 'codex', auth: result, autoCheck: false }));
+    const html = renderToStaticMarkup(React.createElement(ProviderAuthPanel, { api: ssrApi, provider: 'codex', auth: result, autoCheck: false }));
     assert.match(html, /已保存登录/); assert.match(html, /服务连接暂不可用/);
   } finally { await f.clean(); }
 });

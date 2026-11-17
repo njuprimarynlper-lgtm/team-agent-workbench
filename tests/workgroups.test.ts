@@ -108,7 +108,11 @@ test('SFTP discovers trusted memberships across groups, refreshes roles, isolate
     assert.equal(bob.profile!.projects.length, 2); assert(bob.workspaces.every(w => !w.canCreateProject));
     await assert.rejects(bob.createProject('越权', 'wb_test_ocr'), /管理者/);
     const binding = bob.binding(ocr.id);
-    server.state.memberships.bob = ['nlp']; await assert.rejects(bob.list(binding, ocr.remoteRoot), /拒绝访问/);
+    server.state.memberships.bob = ['nlp']; await assert.rejects(bob.list(binding, ocr.remoteRoot), (error: any) => {
+      assert.match(error.message, /当前中央节点账号.*没有.*访问权限/);
+      assert.equal(error.cause?.code, 3, 'membership removal still receives an actual SFTP permission denial');
+      return true;
+    });
     await bob.loadManifest(); assert.deepEqual(bob.profile!.projects.map(p => p.id), [nlp.id]);
     server.state.memberships.bob = ['nlp', 'denied']; await bob.loadManifest();
     assert.equal(bob.workspaces.length, 2); assert(bob.workspaces.find(w => w.groupName === 'wb_test_denied')!.accessError);

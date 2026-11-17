@@ -1,0 +1,47 @@
+[
+  {
+    "id": "team-task-status-failure",
+    "screenshot": "docs/error-audit/screenshots/team-task-status-failure-after.png",
+    "sha256": "3c662bbf71cfec03dfb59615d5f2fab634c72fcc358a547ea1385b87c642e250"
+  },
+  {
+    "id": "team-question-sync-failure",
+    "screenshot": "docs/error-audit/screenshots/team-question-sync-failure-after.png",
+    "sha256": "1a4ff514c1c38dafacfd6d271a2fece9b4ee5fac4d4fcff2b5a16793069df3e0"
+  },
+  {
+    "id": "team-question-send-failure",
+    "screenshot": "docs/error-audit/screenshots/team-question-send-failure-after.png",
+    "sha256": "c6cbab44da8cc61aab7f3686821fdaaee7abf8490ce26375ba1189595508a047"
+  },
+  {
+    "id": "team-updates-refresh-failure",
+    "screenshot": "docs/error-audit/screenshots/team-updates-refresh-failure-after.png",
+    "sha256": "7f96dd45921f39ff0904b651b378504796032f3dd137008e81c06c4c8130a834"
+  },
+  {
+    "id": "team-results-move-uncertain",
+    "screenshot": "docs/error-audit/screenshots/team-results-move-uncertain-after.png",
+    "sha256": "23425110ea2f6c34b0e9641428d37be3ea5e4a30e5bbabedbdb76eaf7cdf33e2"
+  },
+  {
+    "id": "team-results-remote-missing",
+    "screenshot": "docs/error-audit/screenshots/team-results-remote-missing-after.png",
+    "sha256": "8f277e8b58391574734b9fa6d7a99219b0e1339ffbae17ca0084d62e7a8bf01a"
+  },
+  {
+    "id": "team-attachment-remote-missing",
+    "screenshot": "docs/error-audit/screenshots/team-attachment-remote-missing-after.png",
+    "sha256": "b2d5181f0d8b035cafd073818fcc0a146c5d55d72ed36d1f5bfb09bac787d4c2"
+  },
+  {
+    "id": "team-transfer-record-save",
+    "screenshot": "docs/error-audit/screenshots/team-transfer-record-save-after.png",
+    "sha256": "563add63c8b41e9172e6fdd809ade67c82aa785ec8e336dc9e31a5fb7346a222"
+  },
+  {
+    "id": "team-project-created-refresh-failure",
+    "screenshot": "docs/error-audit/screenshots/team-project-created-refresh-failure-after.png",
+    "sha256": "140df445fdc00447e62c353bb83997acc5ac7884dee740838b5d0e978d738e76"
+  }
+]

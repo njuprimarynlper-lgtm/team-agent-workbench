@@ -1,3 +1,6 @@
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
+import { accountSyncFailureMessage } from '../shared/account-sync-failure';
 import { MarkdownEditor } from './markdown-editor';
 import React, { useState } from 'react';
 import { briefFields } from '../shared/project-brief';
@@ -16,7 +19,7 @@ export function SyncConflictCard({ conflict, busy, resolve }: { conflict: SyncCo
       {editing && <label className="field">合并稿<MarkdownEditor rows={6} value={fields.find(item => JSON.stringify(item.path) === JSON.stringify(field.path))!.text} onChange={event => setChanges({ ...changes, [JSON.stringify(field.path)]: event.target.value })}/></label>}
     </div>)}
     {['queued', 'running'].includes(conflict.ai?.status || '') && <p role="status">AI 正在分析双方修改…</p>}
-    {conflict.ai?.status === 'error' && <p className="muted small">{conflict.ai.error}；可直接处理，后台会自动重试。</p>}
+    {conflict.ai?.status === 'error' && <p className="muted small">{uiErrorMessage(conflict.ai.error, { domain: 'model', operation: '分析同步冲突' })}；可直接处理，后台会自动重试。</p>}
     {conflict.ai?.status === 'ready' && <div><b>AI 合并建议</b><p>{conflict.ai.summary}</p>{conflict.ai.fields?.map(field => <div key={JSON.stringify(field.path)}><small>{field.reason}</small><pre style={{ whiteSpace: 'pre-wrap', maxHeight: 240, overflow: 'auto' }}>{field.text}</pre></div>)}{conflict.ai.unresolved?.map((item, index) => <p className="inline-error" key={index}>{item}</p>)}</div>}
     <div className="row" style={{ flexWrap: 'wrap' }}>
       {editable && conflict.ai?.status === 'ready' && !conflict.ai.unresolved?.length && <button className="primary" disabled={busy} onClick={() => resolve('merged', conflict.ai!.fields)}>采用 AI 合并</button>}
@@ -29,9 +32,11 @@ export function SyncConflictCard({ conflict, busy, resolve }: { conflict: SyncCo
 
 export function AccountSyncStatus({ state, connected }: { state?: AccountSyncState; connected: boolean }) {
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
-  const labels = { offline: '本机已保存', pending: '资料待同步', syncing: '资料同步中', synced: '资料已同步', error: '资料等待自动同步', conflict: (state?.conflicts?.length || 0) + ' 项待处理' };
-  const run = async (action: string, input?: unknown) => { setBusy(true); setError(''); try { await window.workbench.call(action, input); } catch (error: any) { setError(error.message); } finally { setBusy(false); } };
-  return <><button className="text-button" title={state?.detail || '自动同步状态'} onClick={() => setOpen(true)}>{labels[state?.conflicts?.length ? 'conflict' : connected ? state?.status || 'offline' : 'offline']}</button>{open && <div className="modal-backdrop"><section className="modal wide" role="dialog" aria-modal="true" aria-label="账号资料同步"><header><h2>自动同步</h2><button className="icon" onClick={() => setOpen(false)} aria-label="关闭同步状态">×</button></header><div className="modal-body"><p>个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。</p>{state?.detail && <p role="status">{state.detail}</p>}{state?.syncedAt && <p className="muted small">最近同步：{new Date(state.syncedAt).toLocaleString()}</p>}{error && <p className="inline-error">{error}</p>}
+  const detail = state?.detail && (state.status === 'error' ? accountSyncFailureMessage(state.detail) : state.detail);
+  const cacheUnavailable = state?.failure?.code === 'ACCOUNT_SYNC_CACHE_UNREADABLE' || /账号同步缓存无法读取|这台电脑的同步记录读不了/.test(state?.detail || '');
+  const labels = { offline: '资料同步', pending: '资料待同步', syncing: '资料同步中', synced: '资料已同步', error: cacheUnavailable ? '自动同步未启动' : '资料等待自动同步', conflict: (state?.conflicts?.length || 0) + ' 项待处理' };
+  const run = async (action: string, input?: unknown) => { setBusy(true); setError(''); try { await window.workbench.call(action, input); } catch (error: any) { setError(uiErrorMessage(error, { domain: 'central', operation: '处理资料同步' })); } finally { setBusy(false); } };
+  return <><button className="text-button" title={detail || '自动同步状态'} onClick={() => setOpen(true)}>{labels[state?.conflicts?.length ? 'conflict' : connected ? state?.status || 'offline' : 'offline']}</button>{open && <div className="modal-backdrop"><section className="modal wide" role="dialog" aria-modal="true" aria-label="账号资料同步"><header><h2>自动同步</h2><button className="icon" onClick={() => setOpen(false)} aria-label="关闭同步状态">×</button></header><div className="modal-body"><p>个人成果、整理结果、已选附件和动态处理记录自动同步到你的账号。完整对话、代码目录和登录凭据保留在本机。</p>{detail && <p role="status">{detail}{cacheUnavailable && <> <ErrorLogLink failure={state?.failure} message={detail}/></>}</p>}{state?.syncedAt && <p className="muted small">最近同步：{new Date(state.syncedAt).toLocaleString()}</p>}{error && <p className="inline-error">{error}</p>}
     {state?.conflicts?.map(conflict => <SyncConflictCard key={conflict.token} conflict={conflict} busy={busy} resolve={(choice, fields) => void run('account.sync.resolve', { key: conflict.key, token: conflict.token, choice, fields })}/>)}
     {!!state?.history?.length && <details><summary>合并记录与恢复</summary>{state.history.map(item => <div className="row" key={item.id}><span>{new Date(item.at).toLocaleString()} · {item.method === 'ai-auto' ? 'AI 自动合并' : item.method === 'undo' ? '已恢复旧版本' : '已处理冲突'}</span><button className="text-button" disabled={busy} onClick={() => void run('account.sync.undo', { id: item.id })}>恢复处理前版本</button></div>)}</details>}
     </div></section></div>}</>;

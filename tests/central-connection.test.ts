@@ -6,6 +6,8 @@ import { needsCentralConnection } from '../src/shared/central-connection';
 import { CentralConnectionError } from '../src/renderer/central-connection-error';
 
 test('central node disconnections offer recovery while native agent and ordinary file errors do not', () => {
+  assert(needsCentralConnection({ recovery: 'reconnect-central', message: '新版本的另一种描述' }), 'structured recovery survives a wording change');
+  assert(!needsCentralConnection({ recovery: 'cli-login', message: '需要重新检测模型账号' }));
   for (const message of ['中央节点连接已断开，请重新连接后再试', '请先连接中央节点', '中央节点连接不可用，请重新连接并验证成员身份', '连接已断开，请重新登录后再试']) {
     assert(needsCentralConnection(message));
     const html = renderToStaticMarkup(React.createElement(CentralConnectionError, { message, reconnect() {} }));

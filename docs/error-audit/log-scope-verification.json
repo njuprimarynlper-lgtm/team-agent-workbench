@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "checks": [
+    "failed first connection resolves main-issued operationId to its attempted node and retrieves redacted detail",
+    "a repeated identical failure resolves to the retained diagnostic record after log deduplication",
+    "another admin window cannot reuse the first window reference to read a different node",
+    "renderer cannot supply centralId or filesystem root to change the derived scope"
+  ],
+  "data": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-audit\\log-scope-1794825407642",
+  "generatedAt": "2026-11-16T10:36:51.685Z"
+}

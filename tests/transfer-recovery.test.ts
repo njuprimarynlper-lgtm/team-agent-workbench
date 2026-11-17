@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { SFTPWrapper } from 'ssh2';
 import { Store } from '../src/core/store';
 import { TransferQueue } from '../src/core/transfers';
+import { logsFor } from '../src/core/logging';
 import { storageRequest } from '../src/core/storage-requests';
 import { Workbench } from '../src/core/workbench';
 import type { SharedFiles } from '../src/core/shared-files';
@@ -84,7 +85,7 @@ test('SFTP upload reuses its request receipt after acknowledgement is lost', asy
     let resentBytes = 0;
     assert.equal((await storageRequest(channel, 'alice', payload, () => {}, file, count => { resentBytes += count; }, pendingId)).path, target);
     assert.equal(resentBytes, 0, 'a pending server request is polled without overwriting its staging file');
-  } finally { await wb.close(); await server.close(); await fs.rm(root, { recursive: true, force: true }); }
+  } finally { await wb.close(); await server.close(); await logsFor(wb.store.root).close(); await fs.rm(root, { recursive: true, force: true }); }
 });
 
 test('partial upload restarts from the immutable snapshot; changed local bytes block retry', async () => {

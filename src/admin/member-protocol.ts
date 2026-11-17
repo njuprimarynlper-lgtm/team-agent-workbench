@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { UserFailure } from '../shared/user-failure';
 import { accountNameSchema, accountPasswordSchema } from '../shared/accounts';
 import type { AdminState, ManagedUser } from './types';
 
@@ -21,8 +22,8 @@ export const memberApplySchema = z.object({ op: z.literal('members_apply'), team
 export const memberSyncSchema = z.object({ op: z.literal('members_sync'), teamId: version.optional(), since: z.number().int().nonnegative().optional(), requestIds: z.array(z.string().uuid()).max(1000).optional() });
 export type MemberApply = z.infer<typeof memberApplySchema>;
 export type MemberDelta = { protocol: 1; teamId: string; sequence: number; full: boolean; users: AdminState['users']; groups: AdminState['groups']; deletedUsers: string[]; deletedGroups: string[]; receipts?: Record<string, 'running' | 'done' | 'failed'>; metadata?: Omit<AdminState, 'users' | 'groups'> };
-export type PendingMember = { id: string; command: MemberCreate; status: 'pending' | 'blocked'; createdAt: string; error?: string };
-export type MemberSyncView = { teamId?: string; lastSyncedAt?: string; error?: string; pending: PendingMember[] };
+export type PendingMember = { id: string; command: MemberCreate; status: 'pending' | 'blocked'; createdAt: string; error?: string; failure?: UserFailure };
+export type MemberSyncView = { teamId?: string; lastSyncedAt?: string; error?: string; failure?: UserFailure; pending: PendingMember[] };
 
 export function membershipChanges(base: ManagedUser, groups: string[], admins: string[]) {
   const role = (name: string, member: string[] = [], admin: string[] = []) => !member.includes(name) ? 'remove' as const : admin.includes(name) ? 'admin' as const : 'member' as const;

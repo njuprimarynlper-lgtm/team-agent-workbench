@@ -12,6 +12,9 @@ const { parentPort, workerData } = require('node:worker_threads');
 const limits = { diagnostic: { days: 14, bytes: 26 * 1024 ** 2, rotate: 4 * 1024 ** 2 }, workflow: { days: 90, bytes: 20 * 1024 ** 2, rotate: 2 * 1024 ** 2 } };
 const managed = /^(diagnostic|workflow)-(\d{13})-([a-f0-9-]+)\.jsonl(?:\.gz)?$/;
 const segment = /^events-(\d{8})\.jsonl(?:\.gz)?$/;
+const queryLimits = { files: 256, bytes: 32 * 1024 ** 2, line: 16384, rows: 100000, milliseconds: 5000 };
+const logKey = row => row.at + ':' + row.id;
+const queryFingerprint = (input, scope) => createHash('sha256').update(JSON.stringify({ scope, category: input.category || 'diagnostic', from: input.from, to: input.to, id: input.id, operationId: input.operationId, projectId: input.projectId, sessionId: input.sessionId, code: input.code, level: input.level })).digest('hex');
 class LogStorage {
   constructor(root, options = {}) { this.root = path.resolve(root); this.directory = path.join(this.root, 'logs'); this.limits = options.limits || limits; this.now = options.now || Date.now; this.active = {}; this.traceSizes = new Map(); this.lastCleanup = 0; }
   async safe(directory) {
@@ -33,6 +36,79 @@ class LogStorage {
       result.push({ file, name: entry.name, category: match[1], at: Number(match[2]), bytes: stat.size });
     }
     return result.sort((a, b) => a.at - b.at || a.name.localeCompare(b.name));
+  }
+  async query(input, scope, detail = false) {
+    if (!scope || typeof scope.account !== 'string' || !/^[\w.:-]{1,128}$/.test(scope.account)) throw Error('日志查询范围无效');
+    const limit = Math.max(1, Math.min(100, Number.isInteger(input.limit) ? input.limit : 30));
+    const fingerprint = queryFingerprint(input, scope), coverage = { malformed: 0, missingFiles: 0, legacyScopeSkipped: 0, scannedBytes: 0, truncated: false };
+    let through = new Date(this.now()).toISOString(), before;
+    if (input.cursor) {
+      try {
+        if (typeof input.cursor !== 'string' || input.cursor.length > 1024 || !/^[A-Za-z0-9_-]+$/.test(input.cursor)) throw Error();
+        const cursor = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'));
+        if (cursor.fingerprint !== fingerprint || typeof cursor.through !== 'string' || !Number.isFinite(Date.parse(cursor.through)) || typeof cursor.before !== 'string' || cursor.before.length > 180) throw Error();
+        through = cursor.through; before = cursor.before;
+      } catch { throw Error('日志分页已失效，请重新查询'); }
+    }
+    // Do not follow a substituted logs directory, even for a read-only request.
+    const directory = await fsp.lstat(this.directory).catch(error => { if (error.code === 'ENOENT') return; throw error; });
+    if (!directory) return detail ? { coverage } : { items: [], coverage };
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw Error('日志目录不可读取');
+    const candidates = (await this.files()).filter(file => file.category === (input.category || 'diagnostic')).reverse();
+    if (candidates.length > queryLimits.files) coverage.truncated = true;
+    const rows = [], seen = new Set(), started = Date.now(); let scannedRows = 0;
+    const consume = line => {
+      if (!line.length) return;
+      let row; try { row = JSON.parse(line.toString('utf8')); } catch { coverage.malformed++; return; }
+      if (!row || row.schema !== 1 || typeof row.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(row.id) || typeof row.at !== 'string' || !Number.isFinite(Date.parse(row.at)) || row.category !== (input.category || 'diagnostic') || typeof row.name !== 'string') { coverage.malformed++; return; }
+      if (row.account !== scope.account) { if (!row.account) coverage.legacyScopeSkipped++; return; }
+      if (row.centralId !== scope.centralId) { if (!row.centralId) coverage.legacyScopeSkipped++; return; }
+      if (scope.projectId && row.projectId !== scope.projectId || scope.sessionId && row.sessionId !== scope.sessionId) return;
+      if (input.projectId && row.projectId !== input.projectId || input.sessionId && row.sessionId !== input.sessionId || input.operationId && row.operationId !== input.operationId || input.id && row.id !== input.id || input.code && row.code !== input.code) return;
+      if (!detail && (input.level ? row.level !== input.level : !['warning', 'error'].includes(row.level))) return;
+      if (row.at > through || input.from && row.at < input.from || input.to && row.at > input.to || before && logKey(row) >= before || seen.has(row.id)) return;
+      rows.push(row); rows.sort((a, b) => logKey(a) < logKey(b) ? 1 : logKey(a) > logKey(b) ? -1 : 0);
+      seen.add(row.id);
+      if (rows.length > limit + 1) { const removed = rows.pop(); seen.delete(removed.id); }
+    };
+    for (const file of candidates.slice(0, queryLimits.files)) {
+      if (coverage.scannedBytes >= queryLimits.bytes || scannedRows >= queryLimits.rows || Date.now() - started > queryLimits.milliseconds) { coverage.truncated = true; break; }
+      let handle, source, reader;
+      try {
+        const info = await fsp.lstat(file.file); if (!info.isFile() || info.isSymbolicLink()) { coverage.missingFiles++; continue; }
+        handle = await fsp.open(file.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+        const stat = await handle.stat(); if (!stat.isFile() || !stat.size) continue;
+        source = handle.createReadStream({ start: 0, end: stat.size - 1, autoClose: false });
+        reader = file.file.endsWith('.gz') ? source.pipe(createGunzip()) : source;
+        if (reader !== source) source.on('error', error => reader.destroy(error));
+        let pending = Buffer.alloc(0), skipping = false;
+        for await (const chunk of reader) {
+          coverage.scannedBytes += chunk.length;
+          if (coverage.scannedBytes > queryLimits.bytes || Date.now() - started > queryLimits.milliseconds) { coverage.truncated = true; break; }
+          let offset = 0, end;
+          while ((end = chunk.indexOf(10, offset)) >= 0) {
+            const piece = chunk.subarray(offset, end);
+            if (!skipping && pending.length + piece.length <= queryLimits.line) consume(pending.length ? Buffer.concat([pending, piece]) : piece);
+            else coverage.malformed++;
+            pending = Buffer.alloc(0); skipping = false; offset = end + 1;
+            if (++scannedRows >= queryLimits.rows) { coverage.truncated = true; break; }
+          }
+          if (coverage.truncated && scannedRows >= queryLimits.rows) break;
+          const tail = chunk.subarray(offset);
+          if (!skipping && pending.length + tail.length <= queryLimits.line) pending = Buffer.concat([pending, tail]);
+          else { pending = Buffer.alloc(0); skipping = true; }
+        }
+        // An incomplete crash tail is not a complete record.
+        if (pending.length || skipping) coverage.malformed++;
+      } catch (error) {
+        if (error.code === 'ENOENT') coverage.missingFiles++;
+        else if (error.code === 'Z_DATA_ERROR' || error.code === 'Z_BUF_ERROR') coverage.malformed++;
+        else throw error;
+      } finally { reader?.destroy(); source?.destroy(); await handle?.close(); }
+    }
+    if (detail) return { record: rows[0], coverage };
+    const hasMore = rows.length > limit, selected = rows.slice(0, limit);
+    return { items: selected, ...(hasMore ? { nextCursor: Buffer.from(JSON.stringify({ through, before: logKey(selected.at(-1)), fingerprint })).toString('base64url') } : {}), coverage };
   }
   async cleanup(clear = false) {
     for (const entry of await fsp.readdir(this.directory, { withFileTypes: true }).catch(() => [])) if (entry.isFile() && !entry.isSymbolicLink() && /^(diagnostic|workflow)-\d{13}-[a-f0-9-]+\.jsonl\.gz\.[a-f0-9-]+\.tmp$/.test(entry.name)) await fsp.rm(path.join(this.directory, entry.name));
@@ -149,7 +225,7 @@ if (parentPort) {
   parentPort.on('message', message => {
     queue = queue.catch(() => {}).then(async () => {
       try {
-        const value = message.action === 'append' ? await storage.append(message.records) : message.action === 'trace' ? await storage.trace(message.directory, message.line) : message.action === 'seal' ? await storage.sealTrace(message.directory) : message.action === 'cleanup' ? await storage.cleanup(message.clear) : message.action === 'status' ? await storage.usage(message.roots) : message.action === 'files' ? await storage.files() : undefined;
+        const value = message.action === 'append' ? await storage.append(message.records) : message.action === 'trace' ? await storage.trace(message.directory, message.line) : message.action === 'seal' ? await storage.sealTrace(message.directory) : message.action === 'cleanup' ? await storage.cleanup(message.clear) : message.action === 'status' ? await storage.usage(message.roots) : message.action === 'files' ? await storage.files() : message.action === 'query' ? await storage.query(message.input, message.scope) : message.action === 'get' ? await storage.query({ id: message.recordId, category: 'diagnostic', limit: 1 }, message.scope, true) : undefined;
         parentPort.postMessage({ id: message.id, value });
       } catch (error) { parentPort.postMessage({ id: message.id, error: error.message }); }
     });

@@ -19,6 +19,7 @@ import type { SharedFiles } from '../src/core/shared-files';
 import type { AgentSession, Transfer, RemoteBinding } from '../src/shared/types';
 import { SubmissionDetails } from '../src/renderer/submission-details';
 import { TransferRecords } from '../src/renderer/transfer-records';
+import { conclusionUploadState } from '../src/shared/conclusion-upload';
 
 const brief = { background: '竞赛研发', objectives: '提高质量', acceptance: '固定评测集', scope: '', deliverables: '', resources: '', constraints: '', collaboration: '' };
 async function fixture() {
@@ -155,22 +156,55 @@ test('failed personal upload retries the original receipt instead of generating 
   } finally { await x.close(); }
 });
 
-test('a failed success-record save leaves the personal result retryable and never creates another remote copy', async () => {
+test('a recovered success-record save preserves the uploaded personal result without another upload or remote copy', async () => {
   const x = await fixture();
   try {
     const result = await x.bob.createConclusion(x.first.id, '成功记录保存失败', '固定正文', 'exploration');
-    const original = x.bob.store.save.bind(x.bob.store); let failOnce = true;
+    const original = x.bob.store.save.bind(x.bob.store), upload = x.bob.remote.upload.bind(x.bob.remote); let failOnce = true, uploads = 0, completedSaves = 0;
+    x.bob.remote.upload = async (...args) => { uploads++; return upload(...args); };
     x.bob.store.save = async () => {
+      if (x.bob.store.transfers.some(task => task.phase === 'completed')) completedSaves++;
       if (failOnce && x.bob.store.transfers.some(task => task.phase === 'completed')) { failOnce = false; throw Error('模拟本机保存失败'); }
       return original();
     };
     const task = await x.bob.publishConclusion(result.id); const deadline = Date.now() + 6000;
-    while (task.status !== 'error') { if (Date.now() > deadline) throw Error('未收到保存失败'); await new Promise(resolve => setTimeout(resolve, 10)); }
-    assert(result.publication); assert.equal(x.bob.conclusionUploadState(result.id).status, 'error');
-    const retried = await x.bob.publishConclusion(result.id); assert.equal(retried, task); await completed(retried);
-    assert.equal(x.bob.conclusionUploadState(result.id).status, 'done');
-    assert.equal((await x.bob.remote.contentList(task.binding)).length, 1);
+    while ((x.bob.queue as any).active) { if (Date.now() > deadline) throw Error('完成记录未结束保存'); await new Promise(resolve => setTimeout(resolve, 10)); }
+    assert.equal(failOnce, false, 'the completed-state save really failed'); assert(completedSaves >= 2, 'persistence was retried after the failure');
+    assert.equal(task.status, 'done'); assert.equal(task.phase, 'completed'); assert.equal(task.error, undefined);
+    assert(result.publication); assert.equal(result.publication.path, task.target);
+    assert.deepEqual(x.bob.conclusionUploadState(result.id), { status: 'done', transferId: task.id });
+    await assert.rejects(x.bob.publishConclusion(result.id), /当前版本已上传/);
+    await assert.rejects(x.bob.queue.retry(task.id), /只能重试/);
+    assert.equal(uploads, 1, 'neither sharing again nor retrying a completed record sends another upload');
+    assert.equal(x.bob.store.transfers.length, 1);
+    const shared = await x.bob.remote.contentList(task.binding); assert.equal(shared.length, 1); assert.equal(shared[0].id, task.contentReceipt!.id); assert.equal(shared[0].revision, 1);
+    const restored = new Store(x.bob.store.root); await restored.init();
+    const stored = restored.conclusions.find(item => item.id === result.id)!;
+    assert.deepEqual(conclusionUploadState(stored, restored.transfers), { status: 'done', transferId: task.id });
+    assert.equal(stored.publication!.path, task.target);
   } finally { await x.close(); }
+});
+
+test('an unpersisted success record blocks another personal upload and persists after storage recovers', async () => {
+  const x = await fixture(), original = x.bob.store.save.bind(x.bob.store);
+  try {
+    const result = await x.bob.createConclusion(x.first.id, '成功记录持续保存失败', '固定正文', 'exploration');
+    const upload = x.bob.remote.upload.bind(x.bob.remote); let uploads = 0, blocked = true;
+    x.bob.remote.upload = async (...args) => { uploads++; return upload(...args); };
+    x.bob.store.save = async () => { if (blocked && x.bob.store.transfers.some(task => task.phase === 'completed')) throw Error('模拟本机持续保存失败'); return original(); };
+    const task = await x.bob.publishConclusion(result.id), deadline = Date.now() + 6000;
+    while ((x.bob.queue as any).active) { if (Date.now() > deadline) throw Error('保存失败后队列未退出'); await new Promise(resolve => setTimeout(resolve, 10)); }
+    assert.equal(task.status, 'done'); assert.equal(task.phase, 'completed'); assert.match(task.error!, /文件已上传，无需重新上传.*上传记录没存好/);
+    assert.deepEqual(x.bob.conclusionUploadState(result.id), { status: 'done', transferId: task.id });
+    await assert.rejects(x.bob.publishConclusion(result.id), /当前版本已上传/);
+    await assert.rejects(x.bob.queue.retry(task.id), /只能重试/);
+    assert.equal(uploads, 1); assert.equal(x.bob.store.transfers.length, 1);
+    blocked = false; await x.bob.queue.retrySave(task.id); assert.equal(task.error, undefined);
+    const restored = new Store(x.bob.store.root); await restored.init();
+    assert.deepEqual(conclusionUploadState(restored.conclusions.find(item => item.id === result.id)!, restored.transfers), { status: 'done', transferId: task.id });
+    await assert.rejects(x.bob.publishConclusion(result.id), /当前版本已上传/); assert.equal(uploads, 1);
+    const shared = await x.bob.remote.contentList(task.binding); assert.equal(shared.length, 1); assert.equal(shared[0].id, task.contentReceipt!.id); assert.equal(shared[0].revision, 1);
+  } finally { x.bob.store.save = original; await x.close(); }
 });
 
 test('server authority rejects identity/target mismatches, retains original submitter on curation, and derives exact public merge versions', async () => {

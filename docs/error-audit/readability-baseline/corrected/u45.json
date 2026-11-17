@@ -1,0 +1,52 @@
+{
+  "conditionChanged": true,
+  "oldCondition": "旧harness笼统注入connection state save EIO并保持connected=true，与真实disconnectProject先delete后settle的顺序不符",
+  "newCondition": "实际Workbench.disconnectProject已删除connectedProjects，remote.settleProject随后EIO，连接应为false",
+  "source": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-readability\\baseline",
+  "sourceRootImmutable": true,
+  "result": {
+    "id": "u45",
+    "entry": "断开项目中央节点",
+    "condition": "项目连接状态更新失败",
+    "source": "src/renderer/project-connection.tsx",
+    "sourceSha256": "8249581533d17425d95b29ad78779b430a2754533b2d403e8c09d299f0a9dc6f",
+    "phase": "after",
+    "sourceRoot": "D:\\agent开发\\team-agent-workbench\\.test-data\\error-readability\\baseline",
+    "screenshot": "docs/error-audit/readability-baseline/corrected/u45.png",
+    "messages": [
+      "未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志"
+    ],
+    "ui": "团队工作台 · 错误提示验收\ncentral.invalid:22\n未连接\n\n成员账号：audit\n\n连接后同步本项目的资料、成果和提问。可复用已登录的连接。\n\n未能完成，原因尚未确认。请查看日志了解具体情况。 查看日志\n\n连接",
+    "substates": [],
+    "calls": [],
+    "assertions": [
+      {
+        "check": "production React component rendered",
+        "passed": true
+      },
+      {
+        "check": "no React runtime error",
+        "passed": true
+      },
+      {
+        "check": "critical failure and recovery are in the visible viewport",
+        "passed": true,
+        "selector": null
+      },
+      {
+        "check": "expected visible failure state",
+        "pattern": "本项目已经断开",
+        "passed": true
+      },
+      {
+        "check": "technical diagnostics only in logs",
+        "passed": true
+      },
+      {
+        "check": "accepted message is never described as unsubmitted or saved",
+        "passed": true
+      }
+    ],
+    "passed": true
+  }
+}

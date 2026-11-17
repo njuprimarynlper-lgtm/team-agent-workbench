@@ -1,3 +1,6 @@
+import { collaborationFailure } from './collaboration-failure';
+import { uiErrorMessage } from '../shared/user-failure';
+import { ErrorLogLink } from './error-notice';
 import { supportsSessionResults } from '../shared/session-results';
 import { ResultDirectorySidebar, useResultDirectories, useResultDestination, moveResultDestinations } from './result-directories';
 import { resultDirectoryLabel, resultItemFolder, resultDirectoryPath } from '../shared/result-directories';
@@ -37,6 +40,8 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   const editingSnapshot = useRef<SharedContent | undefined>(undefined);
   const [editing, setEditing] = useState(false), [title, setTitle] = useState(''), [body, setBody] = useState(''), [repo, setRepo] = useState('');
   const [mutating, setBusy] = useState(false), [error, setError] = useState(''), [pendingDelete, setPendingDelete] = useState<SharedContent>(), [pendingReap, setPendingReap] = useState(false);
+  const [uncertainWrite, setUncertainWrite] = useState<{ action: 'save' | 'delete'; value: SharedContent }>();
+  const [refreshWarning, setRefreshWarning] = useState('');
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false), [hasCache, setHasCache] = useState(false);
   const busy = mutating || backgroundRefreshing && !hasCache;
   const [selectingMerge, setSelectingMerge] = useState(false), [mergeSelection, setMergeSelection] = useState<string[]>([]), [mergeSessionId, setMergeSessionId] = useState('');
@@ -52,7 +57,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   }, [candidateSessions, project.id]);
   const [aliasItem, setAliasItem] = useState<SharedContent>(), [aliasValue, setAliasValue] = useState('');
   const load = async (resetSelection = true) => {
-    const scope = contentScope.current, sequence = ++loadSequence.current, localSequence = ++personalSequence.current; setBackgroundRefreshing(true); if (resetSelection) setDeleteSelection([]);
+    const scope = contentScope.current, sequence = ++loadSequence.current, localSequence = ++personalSequence.current; setBackgroundRefreshing(true); if (resetSelection) { setDeleteSelection([]); setError(''); }
     const current = () => scope === contentScope.current && sequence === loadSequence.current;
     try {
       const results = await Promise.allSettled([
@@ -61,18 +66,19 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
         window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true }).then(value => { if (current() && localSequence === personalSequence.current) setPersonal(value); }),
       ]);
       if (!current()) return false;
-      const failed = results.find((result, index) => result.status === 'rejected' && !(index === 1 && /不支持的内容操作/.test(result.reason?.message || '')));
-      setError(failed?.status === 'rejected' ? '最新团队信息暂未更新：' + failed.reason.message : ''); return !failed;
+      const failures = results.flatMap((result, index) => result.status === 'rejected' && !(index === 1 && /不支持的内容操作/.test(result.reason?.message || ''))
+        ? [collaborationFailure(result.reason, ['团队成果没加载出来。请点“刷新”再试。', '团队历史没加载出来。请点“刷新”再试。', '个人成果暂时读不到，无法比较个人库与团队库的差异。团队成果仍可查看，点“刷新”再试。'][index], { domain: index === 2 ? 'local' : 'central', operation: index === 2 ? '读取个人成果对照' : '刷新团队成果' })] : []);
+      setRefreshWarning(failures.join('；')); return !failures.length;
     } finally { if (current()) setBackgroundRefreshing(false); }
   };
-  useEffect(() => { editingSnapshot.current = undefined; setClassifying(undefined); setHistoryItem(undefined); setHasCache(false); setItems([]); setHistory([]); setShowHistory(false); setPersonal([]); setShowAll(true); setSavingId(''); setSelected(''); setEditing(false); setTodoFilter('all'); setSearch(''); setKind('all'); setSelectingMerge(false); setMergeSelection([]); setAttachItem(undefined); setAttachSelection([]); setPendingDelete(undefined); setAliasItem(undefined); void load(); return () => { loadSequence.current++; personalSequence.current++; }; }, [project.id, username, admin, resultId]);
+  useEffect(() => { editingSnapshot.current = undefined; setClassifying(undefined); setHistoryItem(undefined); setHasCache(false); setRefreshWarning(''); setItems([]); setHistory([]); setUncertainWrite(undefined); setShowHistory(false); setPersonal([]); setShowAll(true); setSavingId(''); setSelected(''); setEditing(false); setTodoFilter('all'); setSearch(''); setKind('all'); setSelectingMerge(false); setMergeSelection([]); setAttachItem(undefined); setAttachSelection([]); setPendingDelete(undefined); setAliasItem(undefined); void load(); return () => { loadSequence.current++; personalSequence.current++; }; }, [project.id, username, admin, resultId]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = window.workbench.subscribe(event => {
       if (event.type !== 'state') return;
       clearTimeout(timer); timer = setTimeout(() => {
         const scope = contentScope.current, sequence = ++personalSequence.current;
-        void window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true }).then(values => { if (scope === contentScope.current && sequence === personalSequence.current) setPersonal(values); }, error => { if (scope === contentScope.current && sequence === personalSequence.current) setError(error.message); });
+        void window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: project.id, includeArchived: true }).then(values => { if (scope === contentScope.current && sequence === personalSequence.current) setPersonal(values); }, error => { if (scope === contentScope.current && sequence === personalSequence.current) setRefreshWarning(uiErrorMessage(error, { domain: 'local', operation: '读取个人成果对照' })); });
       }, 150);
     });
     return () => { clearTimeout(timer); unsubscribe(); personalSequence.current++; };
@@ -94,7 +100,7 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
       setSelected(current => current === value.id ? '' : current); setRevealedId(current => current === value.id ? '' : current); const refreshed = await load();
       if (scope !== contentScope.current) return;
       notice(!refreshed ? '已存入个人成果库，列表刷新失败，请点击刷新重试。' : result.action === 'duplicate' ? '个人成果库中已有这条成果。' : '已存入个人成果库；团队原件保留，个人手工修改不会被覆盖。');
-    } catch (reason: any) { if (scope === contentScope.current) setError(reason.message); }
+    } catch (reason: any) { if (scope === contentScope.current) setError(uiErrorMessage(reason, { domain: 'central', operation: '操作团队成果' })); }
     finally { if (scope === contentScope.current) setSavingId(''); }
   };
 
@@ -108,29 +114,54 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   useEffect(() => { if (!selected) setRevealedId(''); }, [selected, project.id, username, admin, resultId]);
   const save = async (action: 'save' | 'delete') => {
     const item = editingSnapshot.current;
-    if (!item) return; setBusy(true); setError('');
-    try { const savedTitle = title.trim(); await window.workbench.call('content.edit', { projectId: project.id, change: { id: item.id, revision: item.revision, action, title: savedTitle, description: body, repoUrl: repo, ...(item.kind === 'contribution' ? { category: editCategory, resultStatus: item.linkedAssignments?.length ? undefined : editStatus, resultOwner: editOwner } : {}), curate: admin, merge: [] } }); setEditing(false); await load(); notice(action === 'delete' ? '团队成果已删除' : '团队成果已更新'); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    if (!item || uncertainWrite?.value.id === item.id) return; setBusy(true); setError('');
+    try { const savedTitle = title.trim(); await window.workbench.call('content.edit', { projectId: project.id, change: { id: item.id, revision: item.revision, action, title: savedTitle, description: body, repoUrl: repo, ...(item.kind === 'contribution' ? { category: editCategory, resultStatus: item.linkedAssignments?.length ? undefined : editStatus, resultOwner: editOwner } : {}), curate: admin, merge: [] } }); setEditing(false); await load(); notice(action === 'delete' ? '团队成果已删除' : '团队成果已更新'); } catch (e: any) { setUncertainWrite({ action: 'save', value: item }); setError(collaborationFailure(e, `还不知道“${title.trim()}”是否已保存，修改内容还在。请点“检查保存结果”，先别再次保存。`, { domain: 'central', operation: '保存团队成果', outcome: 'unknown' })); } finally { setBusy(false); }
   };
   const remove = async (value: SharedContent) => {
+    if (uncertainWrite?.value.id === value.id) return;
     setBusy(true); setError('');
     try {
       await window.workbench.call('content.edit', { projectId: project.id, change: { id: value.id, revision: value.revision, action: 'delete', title: value.title, description: value.description, repoUrl: value.repoUrl || '', curate: admin, merge: [] } });
       if (selected === value.id) setSelected(''); setPendingDelete(undefined); await load(); notice(value.supersededBy || value.deletedAt ? '团队历史已删除；未再被引用的会话轨迹、提交文件和附件已清理' : '团队成果已删除；已保存的个人副本保留');
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setUncertainWrite({ action: 'delete', value }); setError(collaborationFailure(e, `还不知道“${displayTitle(value)}”是否已删除。请点“检查删除结果”，先别再次删除。`, { domain: 'central', operation: '删除团队成果', outcome: 'unknown' })); }
     finally { setBusy(false); }
   };
+  const checkWriteResult = async () => {
+    if (!uncertainWrite || busy) return;
+    const pending = uncertainWrite; setBusy(true);
+    try {
+      const [current, previous] = await Promise.all([
+        window.workbench.call<SharedContent[]>('content.list', { projectId: project.id }),
+        window.workbench.call<SharedContent[]>('content.history', { projectId: project.id }),
+      ]);
+      setItems(current); setHistory(previous);
+      const latest = [...current, ...previous].find(value => value.id === pending.value.id && !value.deletedAt);
+      if (pending.action === 'delete') {
+        setUncertainWrite(undefined);
+        if (!latest) { setPendingDelete(undefined); setSelected(''); setError(''); notice(`“${displayTitle(pending.value)}”已不在团队成果中，无需再次删除。`); }
+        else if (latest.revision === pending.value.revision) setError('这条成果仍在，版本没有变化。现在可以再次确认删除。');
+        else { setPendingDelete(undefined); setError('这条成果已有新版本。请先查看最新内容，再决定是否删除。'); }
+      } else if (latest && latest.revision > pending.value.revision && latest.title === title.trim() && latest.description === body && (latest.repoUrl || '') === repo) {
+        setUncertainWrite(undefined); setEditing(false); setError(''); notice('修改已保存，无需再次保存。');
+      } else if (latest?.revision === pending.value.revision) {
+        setUncertainWrite(undefined); setError('服务器上仍是修改前的版本，你的修改内容还在。现在可以再次点“保存修改”。');
+      } else setError('服务器上的成果已变化，你的修改内容还在。请先复制修改内容，再点“取消编辑”查看最新版本。');
+    } catch (reason) { setError(collaborationFailure(reason, `仍没读到这条成果的最新状态。恢复连接后，再点“检查${pending.action === 'save' ? '保存' : '删除'}结果”。`, { domain: 'central', operation: '检查成果修改结果' })); }
+    finally { setBusy(false); }
+  };
+  const checkWriteButton = uncertainWrite && <button className="text-button" disabled={busy} onClick={() => void checkWriteResult()}>检查{uncertainWrite.action === 'save' ? '保存' : '删除'}结果</button>;
   const reap = async () => {
     setBusy(true); setError('');
     try {
       const result = await window.workbench.call<{ removed: number }>('content.reap', { projectId: project.id });
       setPendingReap(false); await load(); notice(`已清理 ${result.removed} 个未引用文件`);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); }
     finally { setBusy(false); }
   };
   const startMerge = async () => {
     if (visibleMergeSelection.length < 2 || !mergeSessionId) return; setBusy(true); setError('');
     try { const draft = await window.workbench.call<Draft>('content.merge.prepare', { projectId: project.id, sessionId: mergeSessionId, sourceIds: visibleMergeSelection }); mergeStarted(draft); }
-    catch (e: any) { setError(e.message); }
+    catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); }
     finally { setBusy(false); }
   };
   const removeMany = async () => {
@@ -147,18 +178,19 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
       if (scope !== contentScope.current) return;
       setDeleteSelection(result.remaining.map(item => item.id)); setSelectingDelete(!!result.remaining.length);
       const summary = `已删除 ${result.deletedIds.length} 项，未完成 ${result.remaining.length} 项`;
-      if (result.error || !refreshed) setError(summary + '。' + (result.uncertainId ? '其中 1 项无法确认是否删除，请先刷新核对。' : '') + (result.error || '列表刷新失败，请重新刷新核对。'));
+      if (result.error || !refreshed) setError(summary + '。' + (result.uncertainId ? '其中 1 项无法确认是否删除，请先刷新核对。' : '') + (result.error ? uiErrorMessage(result.error, { domain: 'central', operation: '删除选中成果', outcome: result.uncertainId ? 'unknown' : 'partial' }) : '列表刷新失败，请重新刷新核对。'));
       notice(summary + '；个人副本和已发送的对话内容保留');
-    } catch (e: any) { if (scope === contentScope.current) setError(e.message); }
+    } catch (e: any) { if (scope === contentScope.current) setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); }
     finally { bulkDeleteRunning.current = false; if (scope === contentScope.current) setBusy(false); }
   };
+  const mergeBlockedReason = (value: SharedContent) => busy ? '成果列表或操作正在更新，请等待完成。' : value.files && (value.files.body !== 'ok' || Object.values(value.files.attachments).some(status => status !== 'ok')) ? '正文或附件暂不可读，请检查文件后再合并。' : value.linkedAssignments?.length ? `“${displayTitle(value)}”已用于项目任务，不能合并。请点左侧“项目任务”查看关联任务。` : mergeSelection.length && resultCategory(value) !== mergeCategory ? '只能选择与当前所选相同分类的成果。' : '';
   const toggleMerge = (id: string, checked: boolean) => { const value = items.find(item => item.id === id); if (checked && value && mergeSelection.length && resultCategory(value) !== mergeCategory) { setError('只能合并同一分类的成果'); return; } setMergeSelection(current => checked ? [...new Set([...current, id])] : current.filter(value => value !== id)); };
   const toggleAttach = (id: string, checked: boolean) => setAttachSelection(current => checked ? [...new Set([...current, id])] : current.filter(value => value !== id));
   const completeAttach = async () => {
     if (!attachItem || !currentAttachSelection.length) return;
     setAttachBusy(true); setError('');
     try { await attach(attachItem, currentAttachSelection); setAttachItem(undefined); setAttachSelection([]); }
-    catch (e: any) { setError(e.message); }
+    catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); }
     finally { setAttachBusy(false); }
   };
   const categoryLabel = (value: SharedContent) => (resultCategory(value) ? contributionCategoryInfo[resultCategory(value)!].label : '') || (value.kind === 'trajectory' ? '会话轨迹' : value.kind === 'file' ? '共享文件' : '未分类');
@@ -174,14 +206,14 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
   const visibleMergeSelection = mergeSelection.filter(id => filtered.some(value => value.id === id && value.kind === 'contribution'));
   const hasFilters = search || kind !== 'all' || filteringTodos && todoFilter !== 'all' || showHistory && historyFilter !== 'all';
   const deletion = sharedDeleteSelection(filtered, deleteSelection, username, admin);
-  const move = async (values: SharedContent[]) => { setBusy(true); setError(''); try { const folders = await destination.choose({ scope: 'team', title: '移动团队成果', items: values }); if (!folders) return; await moveResultDestinations(project.id, 'team', values.map(value => ({ id: value.id, version: value.revision, folderVersion: value.folderVersion })), folders); await directories.load(); await load(); notice('团队成果目录已更新'); } catch (reason: any) { await load(); setError(reason.message); } finally { setBusy(false); } };
+  const move = async (values: SharedContent[]) => { setBusy(true); setError(''); try { const folders = await destination.choose({ scope: 'team', title: '移动团队成果', items: values }); if (!folders) return; await moveResultDestinations(project.id, 'team', values.map(value => ({ id: value.id, title: value.title, version: value.revision, folderVersion: value.folderVersion })), folders, directories.directories); await directories.load(); await load(); notice('团队成果目录已更新'); } catch (reason: any) { await load(); setError(uiErrorMessage(reason, { domain: 'central', operation: '操作团队成果' })); } finally { setBusy(false); } };
   const updateMetadata = async (value: SharedContent, category?: ContributionCategory, status?: ResultStatus) => {
     setBusy(true); setError('');
     try { await window.workbench.call('content.edit', { projectId: project.id, change: { id: value.id, revision: value.revision, action: 'save', title: category && !status ? `【${contributionCategoryInfo[category].label}】 ${titleSubject(value.title)}` : value.title, description: value.description, repoUrl: value.repoUrl, category, resultStatus: status, curate: admin } }); setClassifying(undefined); await load(); notice(status ? '状态已更新' : '分类已修改，正文和来源保留'); }
-    catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
+    catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'central', operation: '操作团队成果' })); } finally { setBusy(false); }
   };
   const renderBody = (value: SharedContent, isEditing: boolean) => <>
-    <p className="muted small">成果 ID：<code>{value.id}</code> · v{value.revision} <button className="text-button" onClick={() => void window.workbench.call('copy', value.id).then(() => notice('成果 ID 已复制')).catch(error => setError(error.message))}>复制 ID</button>{value.supersededBy && <> · 已由 {value.supersededBy.id} 替代</>}</p>
+    <p className="muted small">成果 ID：<code>{value.id}</code> · v{value.revision} <button className="text-button" onClick={() => void window.workbench.call('copy', value.id).then(() => notice('成果 ID 已复制')).catch(error => setError(uiErrorMessage(error, { domain: 'central', operation: '操作团队成果' })))}>复制 ID</button>{value.supersededBy && <> · 已由 {value.supersededBy.id} 替代</>}</p>
 
     {teamHistoryReason(value) === 'merged' && <p className="team-history-note">已合并为“{titleSubject([...items, ...history].find(target => target.id === value.supersededBy?.id)?.title || '另一条团队成果')}”，此条作为合并来源保留。</p>}
     {alias(value) && <p className="muted small">本地别名，仅你可见 · 远端标题：{titleSubject(value.title) || value.title}</p>}
@@ -206,12 +238,12 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     if (history.includes(value)) {
       const writable = admin;
       if (!writable) return null;
-      return <button className="secondary compact danger" aria-label={`删除历史成果：${displayTitle(value)}`} disabled={busy || editing || selectingDelete} onClick={() => setPendingDelete(value)}>删除历史成果</button>;
+      return <button className="secondary compact danger" aria-label={`删除历史成果：${displayTitle(value)}`} disabled={busy || editing || selectingDelete} onClick={() => { setError(''); setPendingDelete(value); }}>删除历史成果</button>;
     }
     if (isEditing) return <>
       <button className="secondary compact" disabled={busy} onClick={() => open(value)}>取消编辑</button>
-      {value.kind !== 'contribution' && <button className="secondary compact" disabled={busy || !title.trim()} onClick={async () => { setBusy(true); try { const saved = await window.workbench.call('content.replace', { projectId: project.id, change: { id: editingSnapshot.current?.id, revision: editingSnapshot.current?.revision, action: 'save', title, description: body, curate: admin } }); if (saved) { setEditing(false); await load(); notice('文件已替换为新修订'); } } catch (e: any) { setError(e.message); } finally { setBusy(false); } }}>选择文件并保存替换</button>}
-      <button className="primary compact" disabled={busy || !title.trim()} onClick={() => void save('save')}>保存修改</button>
+      {value.kind !== 'contribution' && <button className="secondary compact" disabled={busy || !title.trim()} onClick={async () => { setBusy(true); try { const saved = await window.workbench.call('content.replace', { projectId: project.id, change: { id: editingSnapshot.current?.id, revision: editingSnapshot.current?.revision, action: 'save', title, description: body, curate: admin } }); if (saved) { setEditing(false); await load(); notice('文件已替换为新修订'); } } catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); } finally { setBusy(false); } }}>选择文件并保存替换</button>}
+      <button className="primary compact" disabled={busy || !title.trim() || uncertainWrite?.value.id === value.id} onClick={() => void save('save')}>保存修改</button>
     </>;
     const fileBlocked = !!value.files && value.files.body !== 'ok';
     const disabled = busy || editing || !!savingId || selectingMerge || selectingDelete;
@@ -222,13 +254,13 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
       {value.linkedAssignments?.length ? <span className="muted small">已关联项目任务 · {value.linkedAssignments.map(task => task.status === 'pending_review' ? '待验收' : task.status === 'completed' ? '已完成' : '按任务进度处理').join('、')}</span> : null}
       {!activity && difference && <button className={'primary compact' + (keepSaveAppearance ? ' result-save-refreshing' : '')} aria-label={resultId ? undefined : `存入个人成果库：${displayTitle(value)}`} title={contentFileNotice(value)} disabled={disabled || fileBlocked} onClick={() => void storePersonal(value)}>{savingId === value.id ? '正在存入…' : '存入个人成果库'}</button>}
       {!activity && !difference && resultId && <span className="muted small">个人库已有此版本</span>}
-      {writable && <button className="secondary compact danger" aria-label={resultId ? undefined : `删除团队成果：${displayTitle(value)}`} disabled={disabled} onClick={() => setPendingDelete(value)}>删除团队成果</button>}
+      {writable && <button className="secondary compact danger" aria-label={resultId ? undefined : `删除团队成果：${displayTitle(value)}`} disabled={disabled} onClick={() => { setError(''); setPendingDelete(value); }}>删除团队成果</button>}
       <ResultMoreMenu disabled={busy || selectingDelete || !!mergeSelection.length}>
         {admin && !value.deletedAt && !value.supersededBy && <button className="secondary compact" disabled={disabled} onClick={() => void move([value])}>移动到目录</button>}
         {writable && resultCategory(value) === 'todo' && !value.linkedAssignments?.length && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'todo', value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? 'pending' : 'completed')}>{value.resultStatus === 'completed' || value.resultStatus === 'cancelled' ? '重新打开' : '标记完成'}</button>}
         {writable && resultCategory(value) === 'project_goal' && value.resultStatus !== 'confirmed' && <button className="secondary compact" disabled={disabled} onClick={() => void updateMetadata(value, value.category || 'project_goal', 'confirmed')}>确认目标</button>}
         {!!history.filter(entry => entry.id === value.id && entry.revision < value.revision).length && <button className="secondary compact" disabled={disabled} onClick={() => setHistoryItem(value)}>历史版本 · {history.filter(entry => entry.id === value.id && entry.revision < value.revision).length}</button>}
-        {value.kind !== 'contribution' && <button className="secondary compact" disabled={disabled || fileBlocked} onClick={() => void window.workbench.call('remote.download', { projectId: project.id, path: value.path }).catch(e => setError(e.message))}>下载</button>}
+        {value.kind !== 'contribution' && <button className="secondary compact" disabled={disabled || fileBlocked} onClick={() => void window.workbench.call('remote.download', { projectId: project.id, path: value.path }).catch(e => setError(collaborationFailure(e, /中央节点未找到|REMOTE_FILE_MISSING|FILE_MISSING/.test(String(e?.failure?.code || e?.code || '') + ' ' + String(e?.message || '')) ? `服务器上没找到“${displayTitle(value)}”，暂时无法下载。点“刷新”后再试；仍没有时请联系项目管理员。` : `“${displayTitle(value)}”没下载下来。请再点“下载”试一次；仍失败时查看日志。`, { domain: 'central', operation: '下载团队文件' })))}>下载</button>}
         <button className="secondary compact" disabled={disabled} onClick={() => { setAliasItem(value); setAliasValue(alias(value)); }}>设置本地别名</button>
         <button className="secondary compact" disabled={disabled || fileBlocked || !attachSessions.length} title={attachSessions.length ? '选择一个或多个会话作为参考资料' : '请先创建或重新打开当前项目的工作会话'} onClick={() => { setAttachItem(value); setAttachSelection([]); }}>加入会话</button>
         {writable && value.kind === 'contribution' && <button className="secondary compact" disabled={disabled || !!value.linkedAssignments?.length} onClick={() => { setClassifying(value); setError(''); }}>修改分类</button>}
@@ -256,7 +288,8 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     </>}
     {!resultId && filteringTodos && <div className="row result-category-description"><span>已完成事项保留在下方，仍可查看和重新打开。</span><select aria-label="待办状态筛选" value={todoFilter} onChange={event => setTodoFilter(event.target.value)}><option value="all">全部状态</option><option value="active">未完成</option><option value="completed">已完成</option></select></div>}
     {backgroundRefreshing && hasCache && <p className="muted small" role="status">正在更新团队信息，当前内容可继续查看和操作。</p>}
-    {error && <div className="inline-error" role="alert">{error}</div>}
+    {refreshWarning && <p className="muted small" role="status">{refreshWarning}</p>}
+    {error && !pendingDelete && !pendingDeleteMany.length && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/>{checkWriteButton}</div>}
     {admin && !resultId && selectingMerge && <section className="semantic-merge-bar" aria-label="语义合并设置"><div><b>已选择 {visibleMergeSelection.length} 条文字成果</b><small>至少选择 2 条同类成果；待办只合并同一事项的重复记录。</small></div>{mergeSessions.length ? <label>使用模型环境<select aria-label="合并使用的模型环境" value={mergeSessionId} onChange={e => setMergeSessionId(e.target.value)}>{mergeSessions.map(session => <option value={session.id} key={session.id}>{session.title} · {session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor'}{session.model ? ' · ' + session.model : ''}</option>)}</select></label> : <p className="inline-error">请先为此项目创建一个工作会话，用于提供已登录的 AI 模型环境。</p>}<button className="primary" disabled={busy || visibleMergeSelection.length < 2 || !mergeSessionId} onClick={() => void startMerge()}>{busy ? '正在启动…' : `开始语义合并${visibleMergeSelection.length ? `（${visibleMergeSelection.length} 条）` : ''}`}</button></section>}
     {selectingDelete && !resultId && <section className="semantic-merge-bar" aria-label="团队成果批量删除设置"><label className="check-row"><input type="checkbox" aria-label="全选当前可删除的团队成果" disabled={busy || !deletion.eligible.length} checked={!!deletion.eligible.length && deletion.selected.length === Math.min(100, deletion.eligible.length)} onChange={event => setDeleteSelection(event.target.checked ? deletion.eligible.slice(0, 100).map(item => item.id) : [])}/><span>全选当前可删除项（最多 100 项）</span></label><span>已选择 {deletion.selected.length} 项；切换目录、筛选或刷新后会清空选择</span>{!showHistory && <button className="secondary" disabled={busy || !deletion.selected.length} onClick={() => void move(deletion.selected)}>移动到目录</button>}<button className="primary danger" disabled={busy || !deletion.selected.length} onClick={() => { setError(''); setPendingDeleteMany(structuredClone(deletion.selected)); }}>删除选中的 {deletion.selected.length} 项</button></section>}
     {resultId && activity && activityChanged && <ActivityResultActions event={activity} item={item && !history.includes(item) ? item : undefined} disabled={busy || editing || attachBusy} changed={async () => { await activityChanged(); await load(); }} notice={notice}/>}
@@ -273,7 +306,8 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
         preview={value.deletedAt ? '仅保留删除记录，正文不可用。' : resultPreview(value.description) || '共享文件'} expanded={value.id === selected}
         selected={mergeSelection.includes(value.id) || deleteSelection.includes(value.id)} disabled={editing}
         toggle={() => value.id === selected ? setSelected('') : open(value)}
-        selection={selectingDelete ? <label className="content-card-select check-row" title={canDeleteSharedContent(value, username, admin) ? '选择删除' : '无删除权限'}><input type="checkbox" aria-label={`选择删除团队成果：${displayTitle(value)}`} checked={deletion.selected.some(item => item.id === value.id)} disabled={busy || !canDeleteSharedContent(value, username, admin) || !deleteSelection.includes(value.id) && deletion.selected.length >= 100} onChange={event => setDeleteSelection(current => event.target.checked ? [...new Set([...current, value.id])] : current.filter(id => id !== value.id))}/></label> : selectingMerge && value.kind === 'contribution' ? <label className="content-card-select check-row" title="加入语义合并"><input type="checkbox" aria-label={`选择合并：${value.title}`} checked={mergeSelection.includes(value.id)} disabled={busy || !!value.files && (value.files.body !== 'ok' || Object.values(value.files.attachments).some(status => status !== 'ok')) || !!value.linkedAssignments?.length || !!mergeSelection.length && resultCategory(value) !== mergeCategory} onChange={event => toggleMerge(value.id, event.target.checked)}/></label> : undefined}
+        selection={selectingDelete ? <label className="content-card-select check-row" title={canDeleteSharedContent(value, username, admin) ? '选择删除' : '无删除权限'}><input type="checkbox" aria-label={`选择删除团队成果：${displayTitle(value)}`} checked={deletion.selected.some(item => item.id === value.id)} disabled={busy || !canDeleteSharedContent(value, username, admin) || !deleteSelection.includes(value.id) && deletion.selected.length >= 100} onChange={event => setDeleteSelection(current => event.target.checked ? [...new Set([...current, value.id])] : current.filter(id => id !== value.id))}/></label> : selectingMerge && value.kind === 'contribution' ? <label className="content-card-select check-row" title={mergeBlockedReason(value) || '加入语义合并'}><input type="checkbox" aria-label={`选择合并：${value.title}`} checked={mergeSelection.includes(value.id)} disabled={!!mergeBlockedReason(value)} onChange={event => toggleMerge(value.id, event.target.checked)}/></label> : undefined}
+        notice={selectingMerge && mergeBlockedReason(value) ? mergeBlockedReason(value) : undefined}
         actions={renderActions(value, editing && value.id === selected)}>
         {renderBody(value, editing && value.id === selected)}
       </ResultCard>; })}
@@ -284,9 +318,9 @@ export function SharedContentLibrary({ project, username, admin, aliases, aliasS
     {classifying && <ResultCategoryDialog category={resultCategory(classifying)!} busy={busy} error={error} close={() => setClassifying(undefined)} save={category => void updateMetadata(classifying, category)}/>}
     {historyItem && <ResultHistoryDrawer current={{ ...historyItem, version: historyItem.revision, content: historyItem.description }} versions={history.filter(entry => entry.id === historyItem.id).map(entry => ({ ...entry, version: entry.revision, content: entry.description }))} close={() => setHistoryItem(undefined)}/>}
     {attachItem && <div className="modal-backdrop"><section className="modal attach-session-modal" role="dialog" aria-modal="true" aria-labelledby="attach-session-title"><header><h2 id="attach-session-title">选择加入的会话</h2><button className="icon" aria-label="关闭窗口" onClick={() => setAttachItem(undefined)}>×</button></header><div className="modal-body"><p className="attach-source-title">{displayTitle(attachItem)}</p><div className="attach-session-options">{attachSessions.map(session => <label className="attach-session-option" key={session.id}><input type="checkbox" aria-label={`选择会话：${session.title}`} checked={attachSelection.includes(session.id)} disabled={attachBusy} onChange={event => toggleAttach(session.id, event.target.checked)}/><span><b>{session.title}</b><small>{session.provider === 'codex' ? 'Codex' : session.provider === 'claude' ? 'Claude Code' : 'Cursor'}{session.model ? ` · ${session.model}` : ''}</small></span></label>)}</div>{!attachSessions.length && <p className="muted">当前项目没有打开的工作会话，请创建或重新打开一个会话。</p>}</div><footer><button className="secondary" disabled={attachBusy} onClick={() => setAttachItem(undefined)}>取消</button><button className="primary" disabled={attachBusy || !currentAttachSelection.length} onClick={() => void completeAttach()}>{attachBusy ? '正在加入…' : `加入 ${currentAttachSelection.length} 个会话`}</button></footer></section></div>}
-    {aliasItem && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="content-alias-title"><header><h2 id="content-alias-title">设置本地别名</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setAliasItem(undefined)}>×</button></header><div className="modal-body"><p className="muted small">别名只作用于你的账号，可随账号同步；不修改共享标题，其他成员看不到。</p><label className="field">本地别名<input autoFocus aria-label="项目成果本地别名" maxLength={200} value={aliasValue} placeholder={titleSubject(aliasItem.title) || aliasItem.title} onChange={event => setAliasValue(event.target.value)}/></label><p className="muted small">远端标题：{titleSubject(aliasItem.title) || aliasItem.title}</p></div><footer>{alias(aliasItem) && <button className="secondary danger" disabled={busy} onClick={() => void (async () => { setBusy(true); try { await window.workbench.call('content.alias.save', { projectId: project.id, contentId: aliasItem.id, alias: '' }); await aliasSaved(); setAliasItem(undefined); notice('本地别名已清除'); } catch (e: any) { setError(e.message); } finally { setBusy(false); } })()}>清除别名</button>}<span className="spacer"/><button className="secondary" disabled={busy} onClick={() => setAliasItem(undefined)}>取消</button><button className="primary" disabled={busy || !aliasValue.trim()} onClick={() => void (async () => { setBusy(true); try { await window.workbench.call('content.alias.save', { projectId: project.id, contentId: aliasItem.id, alias: aliasValue }); await aliasSaved(); setAliasItem(undefined); notice('本地别名已保存，不会修改远端标题'); } catch (e: any) { setError(e.message); } finally { setBusy(false); } })()}>{busy ? '正在保存…' : '保存本地别名'}</button></footer></section></div>}
-    {pendingDelete && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-content-title"><header><h2 id="delete-project-content-title">{pendingDelete.supersededBy || pendingDelete.deletedAt ? '确认删除团队历史？' : '确认删除团队成果？'}</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setPendingDelete(undefined)}>×</button></header><div className="modal-body"><p>{pendingDelete.supersededBy || pendingDelete.deletedAt ? `将从团队历史移除“${displayTitle(pendingDelete)}”。` : `将删除团队成果“${displayTitle(pendingDelete)}”。同组成员将无法再从团队成果库查看或引用；正文和历史版本无法从库中恢复。`}</p><p className="muted small">{pendingDelete.supersededBy || pendingDelete.deletedAt ? '这条历史记录对应的正文、附件和会话轨迹，只要没有其他成果继续引用，会一起从共享空间删除。' : '已保存的个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留。这条成果自己的提交文件、会话轨迹和附件会一并删除；仍被其他成果引用的文件会保留。'}</p>{pendingDelete.provenance?.length ? <p className="merge-safety">删除这条合并成果，不会自动恢复被它替代的来源成果。</p> : !pendingDelete.supersededBy && !pendingDelete.deletedAt ? <p className="muted small">各成员可在删除动态中自行决定是否删除个人副本。</p> : null}</div><footer><button className="secondary" disabled={busy} onClick={() => setPendingDelete(undefined)}>取消</button><button className="primary danger" disabled={busy} onClick={() => void remove(pendingDelete)}>{busy ? '正在删除…' : pendingDelete.supersededBy || pendingDelete.deletedAt ? '确认删除历史成果' : '确认删除团队成果'}</button></footer></section></div>}
-    {pendingReap && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="reap-project-files-title"><header><h2 id="reap-project-files-title">清理未引用文件？</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setPendingReap(false)}>×</button></header><div className="modal-body"><p>只删除这个项目里已经没有任何当前成果或历史成果引用的成员提交、会话轨迹、团队整理文件和附件。</p><p className="muted small">项目说明、任务附件和其他直接放在项目目录中的文件会保留。清理不会删除历史记录本身；要去掉历史条目，请在团队历史里删除。</p>{error && <div className="inline-error" role="alert">{error}</div>}</div><footer><button className="secondary" disabled={busy} onClick={() => setPendingReap(false)}>取消</button><button className="primary danger" disabled={busy} onClick={() => void reap()}>{busy ? '正在清理…' : '确认清理'}</button></footer></section></div>}
+    {aliasItem && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="content-alias-title"><header><h2 id="content-alias-title">设置本地别名</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setAliasItem(undefined)}>×</button></header><div className="modal-body"><p className="muted small">别名只作用于你的账号，可随账号同步；不修改共享标题，其他成员看不到。</p><label className="field">本地别名<input autoFocus aria-label="项目成果本地别名" maxLength={200} value={aliasValue} placeholder={titleSubject(aliasItem.title) || aliasItem.title} onChange={event => setAliasValue(event.target.value)}/></label><p className="muted small">远端标题：{titleSubject(aliasItem.title) || aliasItem.title}</p></div><footer>{alias(aliasItem) && <button className="secondary danger" disabled={busy} onClick={() => void (async () => { setBusy(true); try { await window.workbench.call('content.alias.save', { projectId: project.id, contentId: aliasItem.id, alias: '' }); await aliasSaved(); setAliasItem(undefined); notice('本地别名已清除'); } catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); } finally { setBusy(false); } })()}>清除别名</button>}<span className="spacer"/><button className="secondary" disabled={busy} onClick={() => setAliasItem(undefined)}>取消</button><button className="primary" disabled={busy || !aliasValue.trim()} onClick={() => void (async () => { setBusy(true); try { await window.workbench.call('content.alias.save', { projectId: project.id, contentId: aliasItem.id, alias: aliasValue }); await aliasSaved(); setAliasItem(undefined); notice('本地别名已保存，不会修改远端标题'); } catch (e: any) { setError(uiErrorMessage(e, { domain: 'central', operation: '操作团队成果' })); } finally { setBusy(false); } })()}>{busy ? '正在保存…' : '保存本地别名'}</button></footer></section></div>}
+    {pendingDelete && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-content-title"><header><h2 id="delete-project-content-title">{pendingDelete.supersededBy || pendingDelete.deletedAt ? '确认删除团队历史？' : '确认删除团队成果？'}</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setPendingDelete(undefined)}>×</button></header><div className="modal-body"><p>{pendingDelete.supersededBy || pendingDelete.deletedAt ? `将从团队历史移除“${displayTitle(pendingDelete)}”。` : `将删除团队成果“${displayTitle(pendingDelete)}”。同组成员将无法再从团队成果库查看或引用；正文和历史版本无法从库中恢复。`}</p><p className="muted small">{pendingDelete.supersededBy || pendingDelete.deletedAt ? '这条历史记录对应的正文、附件和会话轨迹，只要没有其他成果继续引用，会一起从共享空间删除。' : '已保存的个人副本、本机整理记录、已发送的对话内容及任务和子会话的固定快照保留。这条成果自己的提交文件、会话轨迹和附件会一并删除；仍被其他成果引用的文件会保留。'}</p>{pendingDelete.provenance?.length ? <p className="merge-safety">删除这条合并成果，不会自动恢复被它替代的来源成果。</p> : !pendingDelete.supersededBy && !pendingDelete.deletedAt ? <p className="muted small">各成员可在删除动态中自行决定是否删除个人副本。</p> : null}{error && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/>{checkWriteButton}</div>}</div><footer><button className="secondary" disabled={busy} onClick={() => setPendingDelete(undefined)}>取消</button><button className="primary danger" disabled={busy || uncertainWrite?.value.id === pendingDelete.id} onClick={() => void remove(pendingDelete)}>{busy ? '正在删除…' : pendingDelete.supersededBy || pendingDelete.deletedAt ? '确认删除历史成果' : '确认删除团队成果'}</button></footer></section></div>}
+    {pendingReap && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="reap-project-files-title"><header><h2 id="reap-project-files-title">清理未引用文件？</h2><button className="icon" aria-label="关闭窗口" disabled={busy} onClick={() => setPendingReap(false)}>×</button></header><div className="modal-body"><p>只删除这个项目里已经没有任何当前成果或历史成果引用的成员提交、会话轨迹、团队整理文件和附件。</p><p className="muted small">项目说明、任务附件和其他直接放在项目目录中的文件会保留。清理不会删除历史记录本身；要去掉历史条目，请在团队历史里删除。</p>{error && !pendingDelete && !pendingDeleteMany.length && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/>{checkWriteButton}</div>}</div><footer><button className="secondary" disabled={busy} onClick={() => setPendingReap(false)}>取消</button><button className="primary danger" disabled={busy} onClick={() => void reap()}>{busy ? '正在清理…' : '确认清理'}</button></footer></section></div>}
     {!!pendingDeleteMany.length && <SharedContentDeleteDialog items={pendingDeleteMany} title={displayTitle} busy={busy} error={error} close={() => setPendingDeleteMany([])} confirm={() => void removeMany()}/>}
   </div>;
 }

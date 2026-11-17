@@ -1,3 +1,5 @@
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
 import { supportsSessionResults } from '../shared/session-results';
 import { usePopupDismiss } from './popup-dismiss';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -24,7 +26,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
   const refresh = async (kind: 'skill' | 'plugin', forceRefresh = false) => {
     const n = ++sequence.current; setLoading(true); setError('');
     try { const result = await window.workbench.call<AgentCapabilityCatalog>('session.capabilities', { id: session.id, kind, forceRefresh }); if (n === sequence.current) setCatalog(result); }
-    catch { if (n === sequence.current) setError(`${kind === 'skill' ? 'Skill' : '插件'}列表读取失败，可刷新重试。`); }
+    catch (error) { if (n === sequence.current) setError(uiErrorMessage(error, { domain: 'cli', operation: kind === 'skill' ? '读取 Skills 列表' : '读取插件列表', provider: session.provider })); }
     finally { if (n === sequence.current) setLoading(false); }
   };
   // Cursor discovers Skills by starting an ACP session. Built-in commands and
@@ -83,7 +85,7 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
     if (item.item) { pick(item.item); return; }
     if (item.mode) {
       try { await window.workbench.call('session.mode', { id: session.id, mode: item.mode === 'plan' && session.provider === 'codex' && session.mode === 'plan' ? 'default' : item.mode }); consume(); close(); }
-      catch (e: any) { setError(e.message || '模式切换失败，请重试。'); }
+      catch (error) { setError(uiErrorMessage(error, { domain: 'cli', operation: '切换对话模式', provider: session.provider })); }
     } else if (item.kind) command(item.kind);
   };
   const chooseActive = () => { if (menu === 'add') { const item = additions[active]; if (item && !item.disabled) item.run(); } else if (menu === 'command') { const item = commands[active]; if (item) void chooseCommand(item); } else { const item = options[active]; if (item) pick(item); } };
@@ -130,10 +132,10 @@ export function CodexComposerTools({ session, selected, change, text = '', chang
       <div className="composer-options">
         {menu === 'add' ? <div role="menu" aria-label="添加内容或工具">{additions.map((item, index) => <React.Fragment key={item.label}>{(index === 2 || index === 5) && <div className="composer-add-divider" role="separator"/>}<button type="button" role="menuitem" className="composer-add-row" disabled={item.disabled} title={item.title} onClick={item.run}><item.icon size={17} aria-hidden="true"/><span>{item.label}</span>{item.nested && <ChevronRight size={14} aria-hidden="true"/>}</button></React.Fragment>)}</div> :
         menu === 'command' ? <>
-          {error && <p role="alert" className="inline-error">{error}</p>}{trigger && loading && <p role="status" className="muted small">读取命令…</p>}
+          {error && <p role="alert" className="inline-error">{error} <ErrorLogLink message={error}/></p>}{trigger && loading && <p role="status" className="muted small">读取命令…</p>}
           <div role="listbox" aria-label="输入框命令">{commands.map((item, index) => <button className={'setting-option ' + (active === index ? 'keyboard-active' : '')} role="option" aria-selected={active === index} key={item.id + (item.item ? '-skill' : '')} onClick={() => void chooseCommand(item)}><span>{item.label}<small>{item.help}</small></span><code>/{item.id}</code></button>)}</div>
         </> : <>
-          {loading && <p className="muted small" role="status">读取中…</p>}{(error || (menu === 'skill' ? catalog?.skillError : catalog?.pluginError)) && <p className="inline-error" role="alert">{error || (menu === 'skill' ? catalog?.skillError : catalog?.pluginError)}</p>}
+          {loading && <p className="muted small" role="status">读取中…</p>}{(error || (menu === 'skill' ? catalog?.skillError : catalog?.pluginError)) && <p className="inline-error" role="alert">{error || uiErrorMessage(menu === 'skill' ? catalog?.skillError : catalog?.pluginError, { domain: 'cli', operation: '读取工具列表', provider: session.provider })} <ErrorLogLink message={error || (menu === 'skill' ? catalog?.skillError : catalog?.pluginError)}/></p>}
           {!loading && !options.length && <p className="muted small">{menu === 'skill' ? '没有匹配的 Skill。' : '没有匹配的插件。'}</p>}
           <div role="listbox" aria-label={menu === 'skill' ? '可用 Skills' : '可用插件'}>{options.map((item, index) => <button className={'setting-option ' + (active === index ? 'keyboard-active' : '')} key={item.id} role="option" aria-selected={active === index} disabled={!item.enabled} title={item.unavailableReason} onClick={() => pick(item)}><span>{item.name}<small>{[item.description, item.source].filter(Boolean).join(' · ')}</small></span>{selected.some(value => value.id === item.id) && <Check size={14}/>}</button>)}</div>
         </>}

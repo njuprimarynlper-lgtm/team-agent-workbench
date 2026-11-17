@@ -167,7 +167,7 @@ test('version changes reject adoption, partial success survives and retry never 
     x.wb.importContentConclusion = original;
     const retried = (await x.wb.applyActivity(s.id, [{ jobId: job.id, attach: true, save: true }]))[0]; assert(!retried.error); assert.equal(s.sources.length, 1);
     value.revision++;
-    const stale = (await x.wb.applyActivity(s.id, [{ jobId: job.id, attach: true, save: true }]))[0]; assert.match(stale.error!, /版本已变化/); assert.equal(s.sources.length, 1);
+    const stale = (await x.wb.applyActivity(s.id, [{ jobId: job.id, attach: true, save: true }]))[0]; assert.match(stale.error!, /版本已变化|已更新/); assert.match(stale.error!, /刷新/); assert.equal(s.sources.length, 1);
   } finally { await x.close(); }
 });
 

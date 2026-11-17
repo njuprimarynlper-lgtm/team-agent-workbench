@@ -8,6 +8,9 @@ import { resultCategory } from '../shared/result-model';
 import { ResultCategoryDialog } from './result-lifecycle';
 import { DraftAttachments } from './attachments';
 import { useAutosave } from './autosave';
+import { uiErrorMessage } from '../shared/user-failure';
+import { transferRecordError } from '../shared/transfer-failure';
+import { ErrorLogLink } from './error-notice';
 
 export interface PreparationReviewHandle { flush: () => Promise<void> }
 type Run = <T>(fn: () => Promise<T>) => Promise<T | undefined>;
@@ -17,17 +20,17 @@ export const PreparationReview = forwardRef<PreparationReviewHandle, { draft: Dr
   const pending = useRef(new Map<string, () => Promise<void>>());
   const flush = async () => { for (const save of pending.current.values()) await save(); };
   useImperativeHandle(ref, () => ({ flush }));
-  useEffect(() => { let active = true; if (draft.binding) void window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: draft.binding.project.id }).then(items => { if (active) setExisting(items); }, reason => { if (active) setError('读取已有能力失败：' + reason.message); }); return () => { active = false; }; }, [draft.id, draft.personalSavedIds?.join(':')]);
+  useEffect(() => { let active = true; if (draft.binding) void window.workbench.call<ProjectConclusion[]>('conclusion.list', { projectId: draft.binding.project.id }).then(items => { if (active) setExisting(items); }, reason => { if (active) setError(uiErrorMessage(reason, { domain: 'local', operation: '读取已有能力' })); }); return () => { active = false; }; }, [draft.id, draft.personalSavedIds?.join(':')]);
   const item = draft.artifacts?.find(item => item.id === selected) || draft.artifacts?.[0];
   const profile = isProjectOrganizationDraft(draft), projectName = draft.binding?.project.name || '当前项目';
   return <section className="preparation-review" aria-label="检查整理结果">
     <div className="preparation-review-layout"><aside className="preparation-review-list"><div className="muted small">选择要保存的内容 · {draft.artifacts?.length} 条</div>{draft.artifacts?.map(value => <div key={value.id} className={'preparation-review-choice' + (item?.id === value.id ? ' active' : '')}>
       <input type="checkbox" aria-label={`选择成果：${titleSubject(value.title)}`} checked={value.selected} disabled={locked || busy} onChange={event => void run(async () => { await flush(); await window.workbench.call('draft.artifactSelection', { id: draft.id, artifactId: value.id, selected: event.target.checked }); })}/>
-      <button type="button" disabled={busy} onClick={() => setSelected(value.id)}><span className="content-category-badge">{profile ? '项目整理' : contributionCategoryInfo[resultCategory(value)!].label}</span><b>{profile ? projectName : titleSubject(value.titleAlias || value.title)}</b>{profile && value.fields?.sentence && <small className="organization-choice-sentence">{value.fields.sentence}</small>}<small>{profile ? '本项目一条' : value.updateTarget ? '更新已有能力' : '新增一条记录'}{draft.personalSavedIds?.includes(value.id) ? ' · 已存个人' : ''}{value.submitted ? ' · 已提交团队' : ''}</small>{profile && <OrganizationTags technologies={value.fields?.technologies || ''} achievements={value.fields?.achievements || ''} />}</button>
+      <button type="button" disabled={busy} onClick={() => setSelected(value.id)}><span className="content-category-badge">{profile ? '项目整理' : contributionCategoryInfo[resultCategory(value)!].label}</span><b>{profile ? projectName : titleSubject(value.titleAlias || value.title)}</b>{profile && value.fields?.sentence && <small className="organization-choice-sentence">{value.fields.sentence}</small>}<small>{profile ? '本项目一条' : value.updateTarget ? '更新已有能力' : '新增一条记录'}{draft.personalSavedIds?.includes(value.id) ? ' · 已存个人' : ''}{value.submitted ? ' · 已生成上传记录' : ''}</small>{profile && <OrganizationTags technologies={value.fields?.technologies || ''} achievements={value.fields?.achievements || ''} />}</button>
     </div>)}</aside>
-    {item && <PreparationArtifactEditor key={item.id + ':' + (item.classificationVersion || 0) + ':' + draft.generationFinishedAt} item={item} draft={draft} existing={existing} locked={locked || busy} register={save => pending.current.set(item.id, save)} run={run} classify={async () => { try { await flush(); setError(''); setClassifying(item); } catch (reason: any) { setError(reason.message); } }} transfer={transfers.find(value => value.id === item.submitted)} viewShared={viewShared}/>}
-    </div>{error && <div className="inline-error" role="alert">{error}</div>}
-    {classifying && <ResultCategoryDialog category={resultCategory(classifying)!} busy={busy} error={error} close={() => setClassifying(undefined)} save={category => { setBusy(true); setError(''); void (async () => { try { await flush(); await window.workbench.call('draft.category', { id: draft.id, artifactId: classifying.id, category }); setClassifying(undefined); } catch (reason: any) { setError(reason.message); } finally { setBusy(false); } })(); }}/>}
+    {item && <PreparationArtifactEditor key={item.id + ':' + (item.classificationVersion || 0) + ':' + draft.generationFinishedAt} item={item} draft={draft} existing={existing} locked={locked || busy} register={save => pending.current.set(item.id, save)} run={run} classify={async () => { try { await flush(); setError(''); setClassifying(item); } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'local', operation: '保存整理成果' })); } }} transfer={transfers.find(value => value.id === item.submitted)} viewShared={viewShared}/>}
+    </div>{error && <div className="inline-error" role="alert">{error} <ErrorLogLink message={error}/></div>}
+    {classifying && <ResultCategoryDialog category={resultCategory(classifying)!} busy={busy} error={error} close={() => setClassifying(undefined)} save={category => { setBusy(true); setError(''); void (async () => { try { await flush(); await window.workbench.call('draft.category', { id: draft.id, artifactId: classifying.id, category }); setClassifying(undefined); } catch (reason: any) { setError(uiErrorMessage(reason, { domain: 'local', operation: '保存整理成果' })); } finally { setBusy(false); } })(); }}/>}
   </section>;
 });
 
@@ -50,8 +53,8 @@ function PreparationArtifactEditor({ item, draft, existing, locked, register, ru
     {editor.status !== '已保存' && <div className="row muted small" role="status">{editor.status}{editor.status.startsWith('保存失败') && <button className="text-button" onClick={editor.retry}>重试保存</button>}</div>}
     <details className="content-provenance"><summary>查看依据</summary><p>{draft.sourceSessionTitle || '本次冻结的对话与资料'}{draft.snapshot && ` · 截至 ${new Date(draft.snapshot.capturedAt).toLocaleString()}`}</p>{item.sourceDetails && <pre>{item.sourceDetails}</pre>}</details>
     <DraftAttachments draft={draft} artifact={item} locked={locked} run={run}/>
-    {transfer && <p className={'badge ' + transfer.status}>{{ queued: '等待上传', running: '上传中', done: '上传成功', error: '上传失败' }[transfer.status]}</p>}
-    {transfer?.status === 'error' && <div className="inline-error" role="alert">{transfer.error}<button className="secondary" onClick={() => void run(() => window.workbench.call('transfer.retry', { id: transfer.id }))}>重试上传</button></div>}
+    {transfer && <p className={'badge ' + transfer.status}>{{ queued: '等待上传', running: '上传中', done: '上传成功', error: '上传结果还没查到' }[transfer.status]}</p>}
+    {transfer?.status === 'error' && <div className="inline-error" role="alert">{transferRecordError(transfer)} <ErrorLogLink failure={(transfer as any).failure} message={transfer.error}/><details className="submission-details"><summary>查看详情</summary><p>服务器上的文件位置</p><code>{transfer.target}</code></details><button className="secondary" disabled={!!transfer.cacheCleared} onClick={() => void run(() => window.workbench.call('transfer.retry', { id: transfer.id }))}>{transfer.cacheCleared ? '无法重试上传' : transfer.phase === 'awaiting_receipt' ? '检查上传结果' : '重试上传'}</button></div>}
     {transfer?.status === 'done' && <button className="secondary" onClick={() => viewShared(transfer.binding.project.id, transfer.target)}>查看上传结果</button>}
   </div>;
 }

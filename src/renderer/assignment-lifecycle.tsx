@@ -1,8 +1,11 @@
+import { ErrorLogLink } from './error-notice';
+import { uiErrorMessage } from '../shared/user-failure';
+import { collaborationFailure } from './collaboration-failure';
 import { MarkdownEditor } from './markdown-editor';
 import React, { useState } from 'react';
 import ReactMarkdown from './math-markdown';
 import remarkGfm from 'remark-gfm';
-import { assignmentEventLabels, type AssignmentStatusChange, type AssignmentUpload, type ProjectAssignment } from '../shared/assignments';
+import { assignmentEventLabels, assignmentStatuses, type AssignmentStatusChange, type AssignmentUpload, type ProjectAssignment } from '../shared/assignments';
 import { projectResultTitle, type SharedContent } from '../shared/content';
 import { missingContentIndexMessage } from '../shared/content-index';
 
@@ -11,6 +14,7 @@ type Action = keyof typeof labels;
 type Props = { task: ProjectAssignment; admin: boolean; username: string; projectId: string; refresh: () => Promise<void>; start: () => void; hasSession: boolean; download: (fileId: string) => Promise<void> };
 
 export function AssignmentLifecycle({ task, admin, username, projectId, refresh, start, hasSession, download }: Props) {
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [action, setAction] = useState<Action>(), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [summary, setSummary] = useState(''), [reason, setReason] = useState(''), [confirmedTitle, setConfirmedTitle] = useState('');
   const [choices, setChoices] = useState<SharedContent[]>([]), [referenceIds, setReferenceIds] = useState<string[]>([]);
@@ -22,11 +26,12 @@ export function AssignmentLifecycle({ task, admin, username, projectId, refresh,
   const chosen = choices.filter(item => referenceIds.includes(item.id));
   const fileCount = new Set([...uploads.filter(file => uploadIds.includes(file.id)), ...chosen.flatMap(item => [...(item.kind === 'file' ? [{ name: item.path.split('/').at(-1), sha256: item.sha256 }] : []), ...(item.attachments || [])])].map(file => JSON.stringify([file.name, file.sha256]))).size;
   const begin = async (next: Action) => {
+    if (unconfirmed) return;
     setAction(next); setError(''); setSummary(''); setReason(''); setConfirmedTitle(''); setChoices([]); setReferenceIds([]); setUploads([]); setUploadIds([]); setSelectionId(crypto.randomUUID());
     if (next === 'pending_review' || next === 'completed' && task.status === 'in_progress') {
       setBusy(true);
       try { setChoices((await window.workbench.call<SharedContent[]>('content.list', { projectId })).filter(item => ['contribution', 'file'].includes(item.kind))); }
-      catch (e: any) { if (e?.message === missingContentIndexMessage) setChoices([]); else setError('关联成果暂未加载：' + e.message); }
+      catch (e: any) { if (e?.message === missingContentIndexMessage) setChoices([]); else setError('关联成果暂未加载：' + uiErrorMessage(e, { domain: 'central', operation: '读取验收关联成果' })); }
       finally { setBusy(false); }
     }
   };
@@ -35,16 +40,28 @@ export function AssignmentLifecycle({ task, admin, username, projectId, refresh,
     try {
       const files = await window.workbench.call<AssignmentUpload[]>('assignment.files.pick', { projectId, taskId: task.id, selectionId });
       setUploadIds(current => [...new Set([...current, ...files.filter(file => !uploads.some(previous => previous.id === file.id)).map(file => file.id)])]); setUploads(files);
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) { setError(collaborationFailure(e, '没能添加任务附件。请再点“选择本地文件”试一次。', { domain: 'central', operation: '添加任务附件' })); } finally { setBusy(false); }
   };
   const submit = async () => {
-    if (!action) return; setBusy(true); setError('');
+    if (!action || unconfirmed) return; setBusy(true); setError(''); let accepted = false;
     try {
       const change: AssignmentStatusChange = { id: task.id, revision: task.revision, status: action, reason, ...(submitting ? { selectionId, submission: { summary, references: chosen.map(({ id, revision }) => ({ id, revision })), uploadIds } } : {}) };
-      await window.workbench.call('assignment.status', { projectId, change });
+      await window.workbench.call('assignment.status', { projectId, change }); accepted = true;
       setAction(undefined); await refresh();
-    } catch (e: any) { setError(e.message); } finally { setBusy(false); }
+    } catch (e: any) { if (!accepted) setUnconfirmed(true); setError(collaborationFailure(e, accepted ? `“${task.title}”的${labels[action]}已完成，列表还没更新。请点页面上的“刷新任务”，不用再次操作。` : (action === 'completed' ? `还不知道“${task.title}”是否已标为完成。` : `没收到“${labels[action]}”的结果。`) + '请点“检查任务状态”，先别再次提交。', { domain: 'central', operation: labels[action], outcome: accepted ? 'accepted' : 'unknown' })); } finally { setBusy(false); }
   };
+  const checkStatus = async () => {
+    if (!unconfirmed || busy) return; setBusy(true);
+    try {
+      const values = await window.workbench.call<ProjectAssignment[]>('assignment.list', { projectId });
+      const latest = values.find(item => item.id === task.id);
+      if (!latest) { setError('任务列表里没有这条任务。请点“返回”，再刷新任务列表查看。'); return; }
+      if (latest.revision === task.revision) { setUnconfirmed(false); setError(`任务仍为“${assignmentStatuses[latest.status]}”，现在可以再次提交。`); }
+      else { setAction(undefined); setError(`任务状态已更新为“${assignmentStatuses[latest.status]}”。请刷新任务列表查看，不用再次提交。`); try { await refresh(); } catch { setError(`已读到任务最新状态“${assignmentStatuses[latest.status]}”，页面列表还没更新。请稍后刷新任务列表。`); } }
+    } catch (reason) { setError(collaborationFailure(reason, '任务状态没加载出来。恢复连接后请再点“检查任务状态”。', { domain: 'central', operation: '读取任务状态' })); }
+    finally { setBusy(false); }
+  };
+  const checkButton = unconfirmed && <button className="text-button" style={{marginLeft:10}} disabled={busy} onClick={() => void checkStatus()}>检查任务状态</button>;
   const lastEvent = task.history?.at(-1);
   return <>
     {lastEvent?.note && <p className="assignment-decision"><b>{assignmentEventLabels[lastEvent.action] || lastEvent.action}：</b>{lastEvent.note}</p>}
@@ -56,16 +73,16 @@ export function AssignmentLifecycle({ task, admin, username, projectId, refresh,
     </details>)}</section>}
     {!!task.history?.length && <details><summary>操作记录（{task.history.length}）</summary>{task.history.map((event, index) => <p key={index}>{assignmentEventLabels[event.action] || event.action} · {event.by} · {new Date(event.at).toLocaleString()}{event.note ? '：' + event.note : ''}</p>)}</details>}
     {task.deletedAt && <p className="muted small">已由 {task.deletedBy} 删除，恢复后仍为原来的结束状态。</p>}
-    {!action && error && <p className="inline-error" role="alert">{error}</p>}
+    {!action && error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/>{checkButton}</p>}
     <div className="row assignment-actions">
       {!task.deletedAt && <>
-        {own && ['assigned', 'in_progress'].includes(task.status) && <button className="primary" disabled={busy} onClick={start}>{hasSession ? '继续工作' : '开始工作'}</button>}
-        {own && task.status === 'in_progress' && <button className="secondary" disabled={busy} onClick={() => void begin(self ? 'completed' : 'pending_review')}>{self ? '确认完成' : '提交验收'}</button>}
-        {admin && task.status === 'pending_review' && <><button className="primary" disabled={busy} onClick={() => void begin('completed')}>验收通过</button><button className="secondary" disabled={busy} onClick={() => void begin('in_progress')}>退回继续工作</button></>}
-        {admin && !terminal && <button className="secondary danger" disabled={busy} onClick={() => void begin('cancelled')}>取消任务</button>}
-        {admin && terminal && <button className="secondary danger" disabled={busy} onClick={() => void begin('deleted')}>删除任务</button>}
+        {own && ['assigned', 'in_progress'].includes(task.status) && <button className="primary" disabled={busy || unconfirmed} onClick={start}>{hasSession ? '继续工作' : '开始工作'}</button>}
+        {own && task.status === 'in_progress' && <button className="secondary" disabled={busy || unconfirmed} onClick={() => void begin(self ? 'completed' : 'pending_review')}>{self ? '确认完成' : '提交验收'}</button>}
+        {admin && task.status === 'pending_review' && <><button className="primary" disabled={busy || unconfirmed} onClick={() => void begin('completed')}>验收通过</button><button className="secondary" disabled={busy || unconfirmed} onClick={() => void begin('in_progress')}>退回继续工作</button></>}
+        {admin && !terminal && <button className="secondary danger" disabled={busy || unconfirmed} onClick={() => void begin('cancelled')}>取消任务</button>}
+        {admin && terminal && <button className="secondary danger" disabled={busy || unconfirmed} onClick={() => void begin('deleted')}>删除任务</button>}
       </>}
-      {admin && task.deletedAt && <><button className="secondary" disabled={busy} onClick={() => void begin('restored')}>恢复任务</button><button className="secondary danger" disabled={busy} onClick={() => void begin('purged')}>彻底删除</button></>}
+      {admin && task.deletedAt && <><button className="secondary" disabled={busy || unconfirmed} onClick={() => void begin('restored')}>恢复任务</button><button className="secondary danger" disabled={busy || unconfirmed} onClick={() => void begin('purged')}>彻底删除</button></>}
     </div>
     {action && <div className="modal-backdrop"><section className="modal wide" role="dialog" aria-modal="true" aria-labelledby="assignment-action-title">
       <header><h2 id="assignment-action-title">{labels[action]}？</h2></header><div className="modal-body"><h3>{task.title}</h3>
@@ -85,8 +102,8 @@ export function AssignmentLifecycle({ task, admin, username, projectId, refresh,
         {action === 'restored' && <p>恢复任务记录和附件，保留原来的“已完成”或“已取消”状态，不重新开始工作。</p>}
         {action === 'purged' && <><p className="inline-error">任务记录和验收记录将永久删除，不能恢复。仅解除此任务的附件关联，仍被其他任务使用的文件会保留。</p><label className="field">输入任务标题确认<input aria-label="彻底删除任务标题" value={confirmedTitle} disabled={busy} onChange={e => setConfirmedTitle(e.target.value)}/></label></>}
         <p className="muted small">已有 Session、对话、项目成果和已带入会话的文件不受影响。</p>
-        {error && <p className="inline-error" role="alert">{error}</p>}
-      </div><footer><button className="secondary" disabled={busy} onClick={() => setAction(undefined)}>返回</button><button className={action === 'purged' ? 'primary danger' : 'primary'} disabled={busy || submitting && (!summary.trim() || fileCount > 30) || reasonRequired && !reason.trim() || action === 'purged' && confirmedTitle !== task.title} onClick={() => void submit()}>{busy ? '正在提交…' : labels[action]}</button></footer>
+        {error && <p className="inline-error" role="alert">{error} <ErrorLogLink message={error}/>{checkButton}</p>}
+      </div><footer><button className="secondary" disabled={busy} onClick={() => setAction(undefined)}>返回</button><button className={action === 'purged' ? 'primary danger' : 'primary'} disabled={busy || unconfirmed || submitting && (!summary.trim() || fileCount > 30) || reasonRequired && !reason.trim() || action === 'purged' && confirmedTitle !== task.title} onClick={() => void submit()}>{busy ? '正在提交…' : labels[action]}</button></footer>
     </section></div>}
   </>;
 }

@@ -1,3 +1,5 @@
+import { contextualError } from './contextual-error';
+import { ErrorLogLink } from './error-notice';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, FolderOpen } from 'lucide-react';
 import type { AgentSession, Project } from '../shared/types';
@@ -7,9 +9,11 @@ import { TeamGroupDialog } from './team-groups';
 import { RsiProjectSettings } from './rsi-project-settings';
 import { SyncConflictCard } from './account-sync';
 import type { Snapshot } from '../shared/types';
+import { uiErrorMessage, userFailure } from '../shared/user-failure';
 
 export function ProjectDirectoryForm({ projectId, projectName, contextKey, directory = '', initial = false, embedded = false, saved }: { projectId: string; projectName: string; contextKey: string; directory?: string; initial?: boolean; embedded?: boolean; saved: () => Promise<void> }) {
-  const [value, setValue] = useState(directory), [operation, setOperation] = useState<'saving' | 'choosing' | ''>(''), [error, setError] = useState('');
+  const [value, setValue] = useState(directory), [operation, setOperation] = useState<'saving' | 'choosing' | 'refreshing' | ''>(''), [error, setError] = useState('');
+  const [impactFailed, setImpactFailed] = useState(false), [settingsWriteDenied, setSettingsWriteDenied] = useState(false);
   const [confirmation, setConfirmation] = useState(''), pending = useRef(false);
   const [impact, setImpact] = useState<{ following: number; fixed: number; pending: number; failed: number }>();
   useEffect(() => { let active = true; window.workbench.call<typeof impact>('project.directory.impact', { projectId }).then(value => { if (active) setImpact(value); }).catch(() => {}); return () => { active = false; }; }, [projectId, contextKey]);
@@ -17,13 +21,16 @@ export function ProjectDirectoryForm({ projectId, projectName, contextKey, direc
   const edit = (next: string) => { setValue(next); setConfirmation(''); setError(''); };
   const save = async (next: string) => {
     if (pending.current) return;
-    pending.current = true; setOperation('saving'); setError(''); setConfirmation('');
+    pending.current = true; setOperation('saving'); setError(''); setSettingsWriteDenied(false); setConfirmation('');
     try {
       const canonical = await window.workbench.call<string>('project.directory.save', { projectId, directory: next, contextKey });
-      const state = await window.workbench.call<NonNullable<typeof impact>>('project.directory.impact', { projectId }); setImpact(state);
-      setValue(canonical); setConfirmation(canonical ? state.failed ? '目录已保存，部分会话迁移待处理' : state.pending ? '目录已保存，等待当前任务结束后切换' : '代码目录已保存，跟随会话已切换' : '已保存，新会话将自动创建独立目录');
+      setValue(canonical); setConfirmation(canonical ? '代码目录已保存' : '已保存，新会话将自动创建独立目录');
+      try {
+        const state = await window.workbench.call<NonNullable<typeof impact>>('project.directory.impact', { projectId }); setImpact(state);
+        setConfirmation(canonical ? state.failed ? '目录已保存，部分会话迁移待处理' : state.pending ? '目录已保存，等待当前任务结束后切换' : '代码目录已保存，跟随会话已切换' : '已保存，新会话将自动创建独立目录');
+      } catch { setImpact(undefined); setImpactFailed(true); setError('代码目录已保存，不用再保存一次。暂时看不到哪些会话已搬到新目录，请点“查看搬移进度”。'); }
       try { await saved(); } catch { setError('目录已保存，但界面未能刷新，请重新打开项目设置。'); }
-    } catch (reason: any) { setError(reason.message || '代码目录未保存，请重试'); }
+    } catch (reason) { setSettingsWriteDenied(userFailure(reason).code === 'FILE_ACCESS_DENIED'); setError(contextualError(reason, { domain: 'local', operation: '保存代码目录', outcome: 'not-started' }, { FILE_ACCESS_DENIED: '代码目录没有保存：Windows 不允许写入本机项目设置。输入还在。点“打开本机数据目录”，请管理员检查此目录的写入权限后，再点“保存代码目录”。' })); }
     finally { pending.current = false; setOperation(''); }
   };
   return <section className={(embedded ? '' : 'modal-body ') + 'project-directory-form'} aria-label="项目代码目录设置">
@@ -32,11 +39,12 @@ export function ProjectDirectoryForm({ projectId, projectName, contextKey, direc
     {impact && <p className="muted small" role="status">{impact.following} 个会话跟随项目 · {impact.fixed} 个会话保留独立目录{impact.pending > 0 ? ` · ${impact.pending} 个待切换` : ''}{impact.failed > 0 ? `（${impact.failed} 个迁移遇到问题，请在会话归属中查看）` : ''}</p>}
     <label className="field">代码目录（选填）<div className="row"><input aria-label="代码目录（选填）" disabled={busy} value={value} placeholder="留空用于调研，每次会话自动创建独立目录" onChange={event => edit(event.target.value)}/><button className="secondary" disabled={busy} title="选择项目代码目录" onClick={async () => {
       if (pending.current) return;
-      pending.current = true; setOperation('choosing'); setError('');
+      pending.current = true; setOperation('choosing'); setError(''); setSettingsWriteDenied(false);
       try { const chosen = await window.workbench.call<string>('choose.directory'); if (chosen && chosen !== value) edit(chosen); }
-      catch (reason: any) { setError(reason.message); } finally { pending.current = false; setOperation(''); }
+      catch (reason: any) { setError(contextualError(reason, { domain: 'local', operation: '选择本机代码目录' }, { FILE_ACCESS_DENIED: '目录选择窗口没能打开。你也可以直接在左边输入完整的代码目录，再点“保存代码目录”。' })); } finally { pending.current = false; setOperation(''); }
     }}><FolderOpen size={16}/>{operation === 'choosing' ? '正在选择…' : '选择目录'}</button></div></label>
-    {error && <div className="inline-error" role="alert">{error}</div>}
+    {error && <div className="inline-error" role="alert">{error} {settingsWriteDenied && <button className="text-button" onClick={() => void window.workbench.call('open.data').catch(reason => setError(uiErrorMessage(reason, { domain: 'local', operation: '打开本机数据目录' })))}>打开本机数据目录</button>} <ErrorLogLink message={error}/></div>}
+    {impactFailed && <button className="secondary" disabled={busy} onClick={async () => { setOperation('refreshing'); try { const state = await window.workbench.call<NonNullable<typeof impact>>('project.directory.impact', { projectId }); setImpact(state); setImpactFailed(false); setError(''); } catch { setError('目录还是已保存的。搬移进度这次也没读出来，稍后再点“查看搬移进度”。'); } finally { setOperation(''); } }}>{operation === 'refreshing' ? '正在查看搬移进度…' : '查看搬移进度'}</button>}
     <div className="row project-directory-actions">{initial && <button className="secondary" disabled={busy} onClick={() => void save('')}>暂不设置</button>}<button className="primary" disabled={busy} onClick={() => void save(value)}>{operation === 'saving' ? '正在保存…' : initial ? '保存并进入项目' : '保存代码目录'}</button>{confirmation && <span className="project-directory-confirmation" role="status"><Check size={15}/>{confirmation}</span>}</div>
   </section>;
 }

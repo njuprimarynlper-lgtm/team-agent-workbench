@@ -45,8 +45,8 @@ export async function exportLogs(logger: LogService, destination: string, input:
           if (input.from && row.at < input.from || input.to && row.at > input.to) continue;
           // Rebuild the export whitelist rather than copying unknown on-disk fields.
           const safe: LogRecord = { schema: 1, id: row.id, at: row.at, version: row.version, instance: row.instance, category: row.category, name: row.name, account: row.account, projectId: row.projectId, sessionId: row.sessionId, turnId: row.turnId, operationId: row.operationId, origin: row.origin, provider: row.provider, route: row.route, outcome: row.outcome, level: row.level, durationMs: row.durationMs, code: row.code, count: row.count, lastAt: row.lastAt, suppressed: row.suppressed,
-            entityId: row.entityId, relatedIds: row.relatedIds,
-            ...(input.kind === 'diagnostic' ? { detail: row.detail ? redactLogText(row.detail) : undefined, stack: row.stack ? redactLogText(row.stack, 8000) : undefined } : {}) };
+            entityId: row.entityId, relatedIds: row.relatedIds, centralId: row.centralId,
+            ...(input.kind === 'diagnostic' ? { detail: row.detail ? redactLogText(row.detail) : undefined, stack: row.stack ? redactLogText(row.stack, 8000) : undefined, cause: row.cause ? redactLogText(row.cause, 6000) : undefined } : {}) };
           coverage.emitted++; coverage.suppressed += row.suppressed || 0;
           const key = JSON.stringify([row.projectId, row.name, row.code, row.origin]), total = totals.get(key) || { projectId: row.projectId, operation: row.name, code: row.code, origin: row.origin, count: 0, requested: 0, succeeded: 0, failed: 0, canceled: 0, durationMs: 0, timedCount: 0 };
           if (['requested', 'started'].includes(row.outcome || '')) total.requested++; else total.count++;

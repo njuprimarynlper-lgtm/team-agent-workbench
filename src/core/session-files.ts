@@ -30,7 +30,7 @@ export function mentionedFiles(session: AgentSession) {
 
 export async function listSessionFiles(session: AgentSession): Promise<SessionFile[]> {
   const files = await Promise.all(mentionedFiles(session).slice(-300).map(async target => {
-    const stat = await fs.stat(target).catch(() => undefined);
+    const stat = await fs.stat(target).catch(error => { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined; throw error; });
     if (!stat?.isFile()) return undefined;
     return { path: target, name: path.basename(target), size: stat.size, modifiedAt: stat.mtime.toISOString() };
   }));
@@ -40,8 +40,8 @@ export async function listSessionFiles(session: AgentSession): Promise<SessionFi
 export async function checkedSessionFile(session: AgentSession, input: string) {
   const target = sessionFilePath(session, input), relative = path.relative(session.cwd, target);
   if ((relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) && !mentionedFiles(session).includes(target)) throw new Error('文件不属于此会话的工作目录，也未在会话中记录');
-  const stat = await fs.stat(target).catch(() => undefined);
-  if (!stat?.isFile()) throw new Error('文件不存在或已移动：' + target);
+  const stat = await fs.stat(target).catch(error => { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return undefined; throw error; });
+  if (!stat?.isFile()) throw Object.assign(new Error('本机未找到此文件，可能已移动或删除。请核对文件位置后重试。'), { code: 'LOCAL_FILE_MISSING' });
   return { target, stat };
 }
 
