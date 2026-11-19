@@ -45,6 +45,7 @@ await page.addInitScript(() => {
     if(action==='content.list')return structuredClone(window.fixture.items);
     if(action==='content.history')return [];
     if(action==='conclusion.list')return structuredClone(window.fixture.personal.filter(item=>item.projectId===p.projectId));
+    if(action==='result.directory.list')return [];
     if(action==='conclusion.publish'){window.fixture.personal[0].uploadState={status:'queued',transferId:'upload'};window.refresh();return {id:'upload'};}
     if(action==='conclusion.alias.save'){const item=window.fixture.personal.find(value=>value.id===p.id);item.titleAlias=p.alias;const result=structuredClone(item);delete result.uploadState;return result;}
     if(action==='conclusion.archive'){const item=window.fixture.personal.find(value=>value.id===p.id);item.archived=p.archived;return structuredClone(item);}
@@ -228,7 +229,9 @@ try {
   await expect(range).toHaveValue('current');
   checks.push('从外部定位历史成果会自动显示并展开；切换项目恢复当前范围，空历史列表提示准确');
   await range.selectOption('history');
-  await page.getByRole('button',{name:'新建成果',exact:true}).click();
+  await page.locator('.result-directory-sidebar .result-directory-name').filter({hasText:'探索记录'}).click();
+  await page.locator('.result-directory-sidebar .result-directory-add').click();
+  await page.getByRole('menuitem',{name:'新建成果',exact:true}).click();
   await expect(range).toHaveValue('current');
   await expect(range).toBeDisabled();
   await page.getByRole('combobox',{name:'成果类别',exact:true}).selectOption('exploration');

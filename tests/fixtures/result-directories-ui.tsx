@@ -18,6 +18,7 @@ const personal: ProjectConclusion[] = [
   { id: '33333333-3333-4333-8333-333333333334', projectId: project.id, title: '低频实体分析', content: '独有证据样本', folderId: personalChild, category: 'exploration', version: 1, updatedAt: now, sources: [] },
   { id: '33333333-3333-4333-8333-333333333335', projectId: project.id, title: '待补充样本', content: '补充新的验证数据', category: 'todo', resultStatus: 'pending', version: 1, updatedAt: now, sources: [] },
   { id: '33333333-3333-4333-8333-333333333336', projectId: project.id, title: '已完成评测', content: '完成基础回归', category: 'todo', resultStatus: 'completed', version: 1, updatedAt: now, sources: [] },
+  { id: '33333333-3333-4333-8333-333333333337', projectId: project.id, title: '旧版批处理能力', content: '保留的历史能力记录', category: 'capability', archived: true, version: 1, updatedAt: now, sources: [] },
 ];
 const team: SharedContent[] = [{ id: '44444444-4444-4444-8444-444444444444', title: '团队评测结论', description: '评测发现需要增加低频样本。', category: 'exploration', folderId: teamFolder, revision: 2, kind: 'contribution', author: 'alice', updatedBy: 'alice', state: 'submitted', path: '/fixture/shared.md', sha256: 'a'.repeat(64), size: 50, createdAt: now, updatedAt: now }];
 const draft: Draft = { id: '55555555-5555-4555-8555-555555555555', sessionId: '66666666-6666-4666-8666-666666666666', binding: { project, username: 'bob' } as any, title: '阶段整理', body: '已整理', generation: 'ready', files: [], inputDir: '', outputPath: '', createdAt: now, resultRules: { contract: 4, categories: ['capability', 'exploration'] }, artifacts: [
@@ -32,6 +33,7 @@ window.workbench.call = (async (action: string, payload: any = {}) => {
   if (action === 'result.directory.change') { directories[payload.scope] = changeResultDirectory(directories[payload.scope], payload.command); return structuredClone(directories[payload.scope]); }
   if (action === 'result.directory.move') { const items = payload.scope === 'personal' ? personal : team; for (const ref of payload.change.items) Object.assign(items.find(item => item.id === ref.id)!, { folderId: payload.change.folderId, folderVersion: ref.folderVersion + 1 }); return []; }
   if (action === 'conclusion.list') return structuredClone(personal);
+  if (action === 'conclusion.create') { const item: ProjectConclusion = { ...payload, id: crypto.randomUUID(), version: 1, updatedAt: now, sources: [] }; personal.push(item); return structuredClone(item); }
   if (action === 'content.list') return structuredClone(team);
   if (action === 'content.history') return [];
   if (action === 'conclusion.import') { const item = team.find(item => item.id === payload.contentId)!; const copy: ProjectConclusion = { id: crypto.randomUUID(), projectId: project.id, title: item.title, category: item.category, content: item.description, folderId: payload.folderId, version: 1, updatedAt: now, automatic: true, sources: [{ kind: 'remote', id: item.id, title: item.title, content: item.description, revision: item.revision, updatedAt: now }] }; personal.push(copy); return { action: 'created', conclusion: copy }; }

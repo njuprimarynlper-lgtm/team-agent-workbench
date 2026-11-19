@@ -122,7 +122,7 @@ try {
   assert((await fs.readFile(reference.localPath, 'utf8')).includes('Alice 统一整理'));
   assert(snapshot.inputs[snapshot.sessions[0].id].sourceIds.includes(reference.id));
   await bp.getByTitle('项目成果库', { exact: true }).click(); await bp.getByRole('tab', { name: '个人', exact: true }).click(); await expect(bp.getByRole('heading', { name: `项目成果库 · ${project.name}`, exact: true })).toBeVisible(); await expect(bp.locator('.conclusion-library')).toContainText('Alice 统一整理的结论');
-  await bp.getByRole('button', { name: '新建成果', exact: true }).click(); await bp.getByLabel('项目成果标题').fill('手工发布检查'); await bp.getByLabel('项目成果内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存成果', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
+  await bp.locator('.result-directory-sidebar .result-directory-name').filter({ hasText: '探索记录' }).click(); await bp.locator('.result-directory-sidebar .result-directory-add').click(); await bp.getByRole('menuitem', { name: '新建成果', exact: true }).click(); await bp.getByLabel('项目成果标题').fill('手工发布检查'); await bp.getByLabel('项目成果内容').fill('这条内容由用户手工填写，不调用 AI。'); await bp.getByRole('button', { name: '保存成果', exact: true }).click(); await expect(bp.locator('.conclusion-library')).toContainText('手工发布检查');
   const extraSession = await call(bp, 'session.create', { provider: 'codex', cwd: data, projectId: project.id });
   await call(bp, 'session.rename', { id: extraSession.id, title: '另一个验证会话' });
   await bp.locator('.result-card.is-expanded').getByRole('button', { name: '加入会话', exact: true }).click();
