@@ -1,0 +1,51 @@
+name: Linux server environment
+
+on:
+  push:
+    branches: [main, codex/verify-issue-5-env]
+    paths:
+      - server/**
+      - tests/test_*.py
+      - tests/integration/non-systemd/**
+      - .github/workflows/server-environment.yml
+  pull_request:
+    paths:
+      - server/**
+      - tests/test_*.py
+      - tests/integration/non-systemd/**
+      - .github/workflows/server-environment.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-container-without-systemd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build disposable Ubuntu 22.04 container
+        run: docker build -t workbench-issue5 -f tests/integration/non-systemd/Dockerfile .
+      - name: Start with bash as PID 1 and Supervisor managing SSH
+        run: docker run -d --name workbench-issue5-verification --tmpfs /run workbench-issue5
+      - name: Run Linux server regressions
+        run: docker exec workbench-issue5-verification python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Verify creation, SSH, SFTP, worker operations and failure recovery
+        run: docker exec workbench-issue5-verification python3 tests/integration/non-systemd/probe.py --phase create
+      - name: Verify automatic service recovery after full container restart
+        run: |
+          docker restart --time 10 workbench-issue5-verification
+          docker exec workbench-issue5-verification python3 tests/integration/non-systemd/probe.py --phase restart
+      - name: Container diagnostics
+        if: always()
+        continue-on-error: true
+        run: |
+          docker logs workbench-issue5-verification
+          docker exec workbench-issue5-verification supervisorctl status
+          docker exec workbench-issue5-verification cat /var/log/issue5-sshd.log
+      - name: Remove disposable container
+        if: always()
+        run: docker rm -f workbench-issue5-verification
