@@ -12,6 +12,7 @@ import os
 import pathlib
 import pwd
 import re
+import shutil
 import subprocess
 import time
 import uuid
@@ -37,7 +38,7 @@ def wait(check, timeout=30):
             value = check()
             if value:
                 return value
-        except (OSError, paramiko.SSHException):
+        except (OSError, ValueError, paramiko.SSHException, subprocess.CalledProcessError):
             pass
         time.sleep(0.2)
     raise AssertionError('Container service did not become ready')
@@ -89,13 +90,13 @@ def request(sftp, login, body):
 def worker_status(admin, root=ROOT):
     state = admin.load(root)
     name = 'team-agent-storage-' + state['teamId']
-    status = run('supervisorctl', '-c', '/etc/supervisor/supervisord.conf', 'status', name)
-    assert re.search(r'\bRUNNING\b', status), status
+    wait(lambda: re.search(r'\bRUNNING\b', run('supervisorctl', '-c', '/etc/supervisor/supervisord.conf', 'status', name)))
     return state, name
 
 
 def environment(admin):
     assert pathlib.Path('/proc/1/comm').read_text().strip() == 'bash'
+    assert shutil.which('systemctl'), 'Reproduce installed systemctl without systemd as PID 1'
     assert not admin.systemd_running()
     backend = wait(lambda: admin.service_backend())
     assert backend['kind'] == 'supervisor'
@@ -195,7 +196,7 @@ def create(admin):
         worker_status(admin, bad_root)
 
         user = admin.load(ROOT)['users']['issue5_member']
-        report = dict(phase='create', passed=True, pid1='bash', serviceManager='supervisor',
+        report = dict(phase='create', passed=True, pid1='bash', systemctlPresent=True, serviceManager='supervisor',
                       uid=user['uid'], login=login, worker=name, starts=int((EVIDENCE / 'start-count').read_text()),
                       checks=['first member creation', 'sshd validation and safe reload', 'existing SSH connection retained',
                               'real member SFTP', 'password change through worker', 'controlled account write',

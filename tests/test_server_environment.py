@@ -83,14 +83,14 @@ class EnvironmentTests(unittest.TestCase):
         self.assertIn('当前仅确认本次运行可用', probe['setupNotes'][0])
 
     def test_acl_is_reported_at_probe_with_distribution_install_command(self):
-        with patch.object(admin.shutil, 'which', side_effect=lambda name: None if name == 'setfacl' else name), patch.object(admin, 'service_backend', return_value={'kind': 'systemd'}), patch.object(pathlib.Path, 'read_text', return_value='ID=ubuntu\nID_LIKE=debian\n'):
+        with patch.object(admin, 'acl_backend', return_value=None), patch.object(admin.shutil, 'which', side_effect=lambda name: None if name == 'setfacl' else name), patch.object(admin, 'service_backend', return_value={'kind': 'systemd'}), patch.object(pathlib.Path, 'read_text', return_value='ID=ubuntu\nID_LIKE=debian\n'):
             result = admin.environment_probe()
         self.assertEqual(result['missingCommands'], ['setfacl'])
         self.assertIn('apt-get install -y acl', result['setupIssues'][0])
         self.assertEqual(result['serviceManager'], 'systemd')
 
     def test_missing_acl_blocks_before_initialization_or_group_mutation(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(admin.sys, 'platform', 'linux'), patch.object(admin.os, 'geteuid', return_value=0, create=True), patch.object(admin.shutil, 'which', side_effect=lambda name: None if name == 'setfacl' else name), patch.object(admin, 'root_directory', return_value=pathlib.Path(directory)), patch.object(admin, 'initialize') as initialize, patch.object(admin, 'start_operation') as operation:
+        with tempfile.TemporaryDirectory() as directory, patch.object(admin.sys, 'platform', 'linux'), patch.object(admin.os, 'geteuid', return_value=0, create=True), patch.object(admin, 'acl_backend', return_value=None), patch.object(admin.shutil, 'which', side_effect=lambda name: None if name == 'setfacl' else name), patch.object(admin, 'root_directory', return_value=pathlib.Path(directory)), patch.object(admin, 'initialize') as initialize, patch.object(admin, 'start_operation') as operation:
             for op in ('initialize', 'group_create'):
                 with self.assertRaisesRegex(ValueError, 'setfacl.*ACL'):
                     admin._execute({'op': op, 'root': '/srv/test', 'label': 'ocr'})
@@ -101,7 +101,7 @@ class EnvironmentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory); (root / '.workbench/admin').mkdir(parents=True); (root / '.workbench/admin/state.json').write_text('{}')
             state = {'initialized': True, 'users': {}, 'groups': {}}
-            with patch.object(admin.sys, 'platform', 'linux'), patch.object(admin.os, 'geteuid', return_value=0, create=True), patch.object(admin.shutil, 'which', side_effect=lambda name: None if name == 'setfacl' else name), patch.object(admin, 'root_directory', return_value=root), patch.object(admin, 'load', return_value=state), patch.object(admin, 'actual_state', return_value=state), patch.object(admin, 'member_access_ready', return_value=False), patch.object(admin, 'write_roles') as write:
+            with patch.object(admin.sys, 'platform', 'linux'), patch.object(admin.os, 'geteuid', return_value=0, create=True), patch.object(admin, 'acl_backend', return_value=None), patch.object(admin.shutil, 'which', side_effect=lambda name: None if name == 'setfacl' else name), patch.object(admin, 'root_directory', return_value=root), patch.object(admin, 'load', return_value=state), patch.object(admin, 'actual_state', return_value=state), patch.object(admin, 'member_access_ready', return_value=False), patch.object(admin, 'write_roles') as write:
                 self.assertTrue(admin._execute({'op': 'status', 'root': '/srv/test'})['initialized'])
                 write.assert_not_called()
 
