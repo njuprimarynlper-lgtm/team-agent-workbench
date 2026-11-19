@@ -52,9 +52,9 @@ test('bulk shared deletion respects roles and revisions, creates removal activit
     assert(x.bob.store.sessions.some(item => item.id === session.id));
     assert(x.alice.contentUpdates().some(event => event.id === a.id && event.change === 'deleted'));
     const curated = await x.publish(x.bob, '已整理');
-    await x.alice.editSharedContent(x.project.id, { ...selection([curated])[0], action: 'save', title: curated.title, description: curated.description, curate: true, merge: [] });
-    await assert.rejects(x.bob.deleteSharedContents(x.project.id, [{ id: curated.id, revision: 2 }]), /无权删除/);
-    assert((await x.list()).some(item => item.id === curated.id));
+    await x.bob.editSharedContent(x.project.id, { ...selection([curated])[0], action: 'save', title: curated.title, description: curated.description, curate: false, merge: [] });
+    assert.deepEqual((await x.bob.deleteSharedContents(x.project.id, [{ id: curated.id, revision: 2 }])).deletedIds, [curated.id]);
+    assert(!(await x.list()).some(item => item.id === curated.id));
     const file = await x.publish(x.bob, '共享文件', 'file'), history = await x.publish(x.bob, '上传轨迹', 'trajectory');
     const stored = path.join(x.root, 'share', ...history.path.split('/').filter(Boolean));
     const orphan = path.join(path.dirname(stored), 'left-behind.txt');
@@ -127,7 +127,7 @@ test('duplicate bulk requests are blocked and role revocation is rechecked by th
       return edit(binding, change);
     };
     const result = await x.alice.deleteSharedContents(x.project.id, selection([revoked]));
-    assert.deepEqual(result.deletedIds, []); assert.deepEqual(result.remaining, selection([revoked])); assert.match(result.error!, /成员不能直接修改/);
+    assert.deepEqual(result.deletedIds, []); assert.deepEqual(result.remaining, selection([revoked])); assert.match(result.error!, /只能删除自己/);
     assert((await x.list()).some(item => item.id === revoked.id));
   } finally { await x.close(); }
 });
@@ -135,7 +135,7 @@ test('duplicate bulk requests are blocked and role revocation is rechecked by th
 test('bulk selection excludes hidden and unauthorized entries; confirmation names exact revisions and cannot delete on cancel', () => {
   const a = { id: randomUUID(), title: '自己的成果', author: 'bob', state: 'submitted', revision: 1 } as SharedContent;
   const b = { ...a, id: randomUUID(), title: '他人成果', author: 'alice' }, c = { ...a, id: randomUUID(), title: '已整理', state: 'curated' as const };
-  assert.deepEqual(sharedDeleteSelection([a, b, c], [a.id, b.id, c.id], 'bob', false).selected, [a]);
+  assert.deepEqual(sharedDeleteSelection([a, b, c], [a.id, b.id, c.id], 'bob', false).selected, [a, c]);
   assert.deepEqual(sharedDeleteSelection([a], [a.id, b.id], 'alice', true).selected, [a]);
   assert.deepEqual(sharedDeleteSelection([a, b, c], [a.id, b.id, c.id], 'alice', true).selected, [a, b, c]);
   assert.throws(() => contentDeleteSelectionsSchema.parse([])); assert.throws(() => contentDeleteSelectionsSchema.parse(selection([a, a])));

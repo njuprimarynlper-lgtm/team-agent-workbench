@@ -61,14 +61,18 @@ export async function moveResultDestinations(projectId: string, scope: Scope, it
   }
 }
 
-export function DirectoryTree({ directories, value, change, all, counts = {}, disabled = false, actions }: { directories: ResultDirectory[]; value: string; change: (id: string) => void; all?: boolean; counts?: Record<string, number>; disabled?: boolean; actions?: (id: string) => React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState<string[]>([]);
-  useEffect(() => { const ancestors = resultDirectoryPath(value, directories).map(item => item.id); setCollapsed(current => current.filter(id => !ancestors.includes(id))); }, [value, directories]);
+export function DirectoryTree({ directories, value, change, all, counts = {}, disabled = false, actions, reveal }: { directories: ResultDirectory[]; value: string; change: (id: string) => void; all?: boolean; counts?: Record<string, number>; disabled?: boolean; actions?: (id: string) => React.ReactNode; reveal?: string }) {
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
+  useEffect(() => { if (reveal) setExpandedIds(current => [...new Set([...current, ...resultDirectoryPath(reveal, directories).slice(0, -1).map(node => node.id)])]); }, [reveal]);
   const nodes = resultDirectoryNodes(directories);
+  const toggle = (id: string) => setExpandedIds(current => {
+    if (!current.includes(id)) return [...current, id];
+    return current.filter(candidate => !resultDirectoryPath(candidate, directories).some(node => node.id === id));
+  });
   const branch = (parent: string | null, depth = 0, seen = new Set<string>()): React.ReactNode => depth < 32 && nodes.filter(node => node.parentId === parent && !seen.has(node.id)).map(node => {
-    const children = nodes.some(child => child.parentId === node.id), expanded = !collapsed.includes(node.id);
+    const children = nodes.some(child => child.parentId === node.id), expanded = expandedIds.includes(node.id);
     return <li key={node.id}><div className={'result-directory-row' + (value === node.id ? ' is-selected' : '')} style={{ paddingLeft: 8 + depth * 14 }}>
-      {children ? <button type="button" className="result-directory-chevron" aria-label={`${expanded ? '收起' : '展开'}目录：${node.name}`} aria-expanded={expanded} onClick={() => setCollapsed(current => expanded ? [...current, node.id] : current.filter(id => id !== node.id))}>{expanded ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}</button> : <span className="result-directory-chevron"/>}
+      {children ? <button type="button" className="result-directory-chevron" aria-label={`${expanded ? '收起' : '展开'}目录：${node.name}`} aria-expanded={expanded} onClick={() => toggle(node.id)}>{expanded ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}</button> : <span className="result-directory-chevron"/>}
       <button type="button" className="result-directory-name" title={resultDirectoryLabel(node.id, directories)} aria-current={value === node.id ? 'page' : undefined} disabled={disabled} onClick={() => change(node.id)}><Folder size={14}/><span>{node.name}</span>{counts[node.id] !== undefined && <small>{counts[node.id]}</small>}</button>
       {value === node.id && actions?.(node.id)}
     </div>{children && expanded && <ul>{branch(node.id, depth + 1, new Set([...seen, node.id]))}</ul>}</li>;
@@ -79,6 +83,7 @@ export function DirectoryTree({ directories, value, change, all, counts = {}, di
 function DirectoryManagement({ state, value, select, manage = true, disabled = false, all, counts, createResult, resultDisabled = false }: { state: DirectoryState; value: string; select: (id: string) => void; manage?: boolean; disabled?: boolean; all?: boolean; counts?: Record<string, number>; createResult?: (folderId: string) => void; resultDisabled?: boolean }) {
   const [action, setAction] = useState<'create' | 'rename' | 'delete'>(), [name, setName] = useState(''), [parentId, setParentId] = useState('exploration'), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [target, setTarget] = useState<ResultDirectory>();
+  const [reveal, setReveal] = useState('');
   const [open, setOpen] = useState(false), [position, setPosition] = useState({ left: 0, top: 0 });
   const trigger = useRef<HTMLButtonElement>(null), popup = useRef<HTMLDivElement>(null), createId = useRef('');
   const directory = state.directories.find(item => item.id === value && !item.deletedAt);
@@ -101,10 +106,10 @@ function DirectoryManagement({ state, value, select, manage = true, disabled = f
     try {
       const id = action === 'create' ? createId.current : target!.id;
       const command: ResultDirectoryCommand = action === 'create' ? { action, id, parentId, name } : action === 'rename' ? { action, id, revision: target!.revision, name } : { action: 'delete', id, revision: target!.revision };
-      const next = await state.change(command); select(action === 'delete' ? resolveResultFolder(id, next) : id); setAction(undefined);
+      const next = await state.change(command); select(action === 'delete' ? resolveResultFolder(id, next) : id); if (action === 'create') setReveal(id); setAction(undefined);
     } catch (reason: any) { setError(reason.message); } finally { setBusy(false); }
   };
-  return <><DirectoryTree directories={state.directories} value={value} change={select} all={all} counts={counts} disabled={disabled} actions={id => <button ref={trigger} type="button" className="result-directory-add icon" aria-label={`在“${resultDirectoryLabel(id, state.directories)}”中新建`} title="在此文件夹中新建" aria-haspopup="menu" aria-expanded={open} disabled={disabled || !state.loaded} onClick={() => setOpen(current => !current)}><Plus size={15}/></button>}/>
+  return <><DirectoryTree directories={state.directories} value={value} change={select} all={all} counts={counts} disabled={disabled} reveal={reveal} actions={id => <button ref={trigger} type="button" className="result-directory-add icon" aria-label={`在“${resultDirectoryLabel(id, state.directories)}”中新建`} title="在此文件夹中新建" aria-haspopup="menu" aria-expanded={open} disabled={disabled || !state.loaded} onClick={() => setOpen(current => !current)}><Plus size={15}/></button>}/>
     {manage && directory && <div className="result-directory-management"><button type="button" className="text-button" disabled={disabled} onClick={() => { setTarget({ ...directory }); setName(directory.name); setError(''); setAction('rename'); }}>重命名</button><button type="button" className="text-button danger" disabled={disabled} onClick={() => { setTarget({ ...directory }); setError(''); setAction('delete'); }}>删除目录</button></div>}
     {open && createPortal(<div ref={popup} className="result-directory-add-menu" role="menu" aria-label="在此文件夹中新建" style={position}>
       <div className="result-directory-menu-location">{location(value)}</div>
@@ -126,10 +131,14 @@ export function ResultDirectorySidebar({ state, value, change, items, manage = t
 }
 
 interface DestinationItem { id: string; title: string; category?: string; folderId?: string; kind?: string }
-interface DestinationRequest { scope: Scope; title?: string; items: DestinationItem[]; details?: React.ReactNode; confirmLabel?: string }
+interface DestinationRequest { scope: Scope; title?: string; items: DestinationItem[]; details?: React.ReactNode; confirmLabel?: string; updateContent?: { label: string; confirmLabel: string; change: (checked: boolean) => void } }
+export function ResultDirectoryBreadcrumb({ id, directories }: { id: string; directories: ResultDirectory[] }) {
+  return <span className="result-path-crumbs">{resultDirectoryPath(id, directories).map((node, index) => <React.Fragment key={node.id}>{index > 0 && <ChevronRight size={12} aria-hidden="true"/>}<span>{node.name}</span></React.Fragment>)}</span>;
+}
 function DestinationDialog({ projectId, request, finish }: { projectId: string; request: DestinationRequest; finish: (value?: Record<string, string>) => void }) {
   const state = useResultDirectories(projectId, request.scope);
   const [folders, setFolders] = useState<Record<string, string>>({}), [selected, setSelected] = useState(request.items[0].id);
+  const [updateContent, setUpdateContent] = useState(false);
   const selectedItem = request.items.find(item => item.id === selected)!;
   const folder = (item: DestinationItem) => folders[item.id] || resultItemFolder(item, state.directories);
   // Resolve original locations only once the directory snapshot has arrived.
@@ -137,12 +146,12 @@ function DestinationDialog({ projectId, request, finish }: { projectId: string; 
   useEffect(() => { const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !document.querySelector('.result-directory-modal, .result-directory-add-menu')) { event.stopImmediatePropagation(); finish(); } }; document.addEventListener('keydown', escape, true); return () => document.removeEventListener('keydown', escape, true); }, []);
   return <div className="modal-backdrop result-destination-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) finish(); }}><section className="modal result-destination-modal" role="dialog" aria-modal="true" aria-label="选择成果保存目录">
     <header><h2>{request.title || `选择${request.scope === 'personal' ? '个人' : '团队'}目录`}</h2><button type="button" className="icon" aria-label="取消选择目录" onClick={() => finish()}>×</button></header>
-    <div className="modal-body"><p className="muted small">{request.scope === 'personal' ? '保存到个人成果库' : '提交到团队成果库'}{request.items.length > 1 ? '，每条成果可选择不同目录。' : '，原成果的位置保持不变。'}</p>
+    <div className="modal-body"><p className="result-destination-subject">{selectedItem.title}</p><div className="result-destination-current"><span>当前位置</span><ResultDirectoryBreadcrumb id={resultItemFolder(selectedItem, state.directories)} directories={state.directories}/></div>
       {state.error && <div className="inline-error" role="alert">{state.error}<button type="button" className="text-button" onClick={() => void state.load()}>刷新目录</button></div>}
-      <div className="result-destination-grid"><div className="result-destination-items" aria-label="选择需要指定目录的成果">{request.items.map(item => <button type="button" key={item.id} className={selected === item.id ? 'is-selected' : ''} onClick={() => setSelected(item.id)}><b>{item.title}</b><small>{state.loaded ? resultDirectoryLabel(folder(item), state.directories) : '正在读取目录…'}</small></button>)}</div>
+      <div className={'result-destination-grid' + (request.items.length === 1 ? ' is-single' : '')}>{request.items.length > 1 && <div className="result-destination-items" aria-label="选择需要指定目录的成果">{request.items.map(item => <button type="button" key={item.id} className={selected === item.id ? 'is-selected' : ''} onClick={() => setSelected(item.id)}><b>{item.title}</b><small>{state.loaded ? resultDirectoryPath(folder(item), state.directories).at(-1)?.name : '正在读取目录…'}</small></button>)}</div>}
         <div><DirectoryManagement state={state} value={current} select={id => setFolders(previous => ({ ...previous, [selected]: id }))} disabled={!state.loaded} manage={false}/></div>
-      </div>{request.items.length > 1 && <button type="button" className="text-button" disabled={!state.loaded} onClick={() => setFolders(Object.fromEntries(request.items.map(item => [item.id, current])))}>全部保存到当前选中的目录</button>}{request.details}
-    </div><footer><button type="button" className="secondary" onClick={() => finish()}>取消</button><button type="button" className="primary" disabled={!state.loaded} onClick={() => finish(Object.fromEntries(request.items.map(item => [item.id, folder(item)])))}>{request.confirmLabel || '确认目录并继续'}</button></footer>
+      </div><div className="result-destination-selected" role="status"><span>目标{request.scope === 'personal' ? '个人' : '团队'}目录</span><ResultDirectoryBreadcrumb id={current} directories={state.directories}/></div>{request.items.length > 1 && <button type="button" className="text-button" disabled={!state.loaded} onClick={() => setFolders(Object.fromEntries(request.items.map(item => [item.id, current])))}>全部保存到当前选中的目录</button>}{request.updateContent && <label className="check-row result-destination-update"><input type="checkbox" checked={updateContent} onChange={event => { setUpdateContent(event.target.checked); request.updateContent!.change(event.target.checked); }}/>{request.updateContent.label}</label>}{request.details}
+    </div><footer><button type="button" className="secondary" onClick={() => finish()}>取消</button><button type="button" className="primary" disabled={!state.loaded} onClick={() => finish(Object.fromEntries(request.items.map(item => [item.id, folder(item)])))}>{updateContent ? request.updateContent!.confirmLabel : request.confirmLabel || '确认目录并继续'}</button></footer>
   </section></div>;
 }
 

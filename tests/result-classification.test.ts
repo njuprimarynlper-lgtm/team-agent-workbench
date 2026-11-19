@@ -154,13 +154,15 @@ test('disk storage enforces same-category merges, version races, author permissi
     await assert.rejects(files.merge(binding, merge), /已更新/);
     const combined = await files.merge(binding, { ...merge, sources: [a, edited].map(item => ({ id: item.id, revision: item.revision })), replaceIds: [a.id, edited.id], category: 'capability' });
     assert.equal(combined.category, 'capability'); assert.equal((await files.list(binding)).length, 1); assert.equal(combined.derivedFrom!.length, 2);
-    actor = { username: 'alice', admin: false };
-    await assert.rejects(files.edit(binding, { id: combined.id, revision: 1, action: 'save', title: 'bad', description: 'bad', curate: false, merge: [] }), /成员不能直接修改/);
-    actor.admin = true; const todo = await publish('todo', 'todo');
+    actor = { username: 'bob', admin: true };
+    await assert.rejects(files.edit(binding, { id: combined.id, revision: 1, action: 'save', title: 'bad', description: 'bad', curate: false, merge: [] }), /只有提交者/);
+    actor = { username: 'alice', admin: true }; const todo = await publish('todo', 'todo');
     const duplicate = await publish('todo', 'duplicate');
     await assert.rejects(files.merge(binding, { sources: [todo, duplicate].map(item => ({ id: item.id, revision: 1 })), replaceIds: [], title: '合并待办', description: '同一事项' }), /独立事项/);
     const taskIndex = path.join(root, '.workbench-local', 'assignments', offlineProjectId + '.json'); await fs.mkdir(path.dirname(taskIndex), { recursive: true }); await fs.writeFile(taskIndex, JSON.stringify([{ id: randomUUID(), title: '验证任务', status: 'pending_review', assignee: 'alice', references: [{ id: todo.id }] }]));
     await assert.rejects(files.edit(binding, { id: todo.id, revision: 1, action: 'save', title: todo.title, description: todo.description, resultStatus: 'completed', curate: true, merge: [] }), /项目任务/);
+    await assert.rejects(files.moveResults(binding, { folderId: 'exploration', items: [duplicate, todo].map(item => ({ id: item.id, version: item.revision, folderVersion: 0 })) }), /关联项目任务/);
+    assert.equal((await files.list(binding)).find(item => item.id === duplicate.id)!.category, 'todo', 'a blocked linked todo must not partially move the rest of a batch');
     assert.equal((await files.list(binding)).find(item => item.id === todo.id)!.linkedAssignments!.length, 1);
     const tasks = JSON.parse(await fs.readFile(taskIndex, 'utf8')); tasks[0].references.push({ id: combined.id }); await fs.writeFile(taskIndex, JSON.stringify(tasks));
     assert.equal((await files.list(binding)).find(item => item.id === combined.id)!.linkedAssignments!.length, 0, 'a task reference must not impose todo lifecycle on a capability');

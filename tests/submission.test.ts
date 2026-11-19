@@ -207,7 +207,7 @@ test('an unpersisted success record blocks another personal upload and persists 
   } finally { x.bob.store.save = original; await x.close(); }
 });
 
-test('server authority rejects identity/target mismatches, retains original submitter on curation, and derives exact public merge versions', async () => {
+test('server authority rejects identity/target mismatches, retains original submitter on owner edits, and derives exact public merge versions', async () => {
   const x = await fixture();
   try {
     const binding = x.bob.remote.binding(x.first.id), file = path.join(x.root, 'source.md'); await fs.writeFile(file, 'source');
@@ -218,12 +218,13 @@ test('server authority rejects identity/target mismatches, retains original subm
     const sources = [];
     for (const name of ['a', 'b']) sources.push(await x.bob.remote.upload(binding, file, binding.project.uploadPath + `/${name}.md`, () => {}, { kind: 'contribution', title: name, description: 'text', submission: record }));
     const a = sources[0], adminBinding = x.alice.remote.binding(x.first.id);
-    const curated = await x.alice.editSharedContent(x.first.id, { id: a.id, revision: 1, action: 'save', title: '管理员更新标题', description: '整理内容', curate: true, merge: [] });
-    assert.deepEqual(curated!.submission, a.submission); assert.equal(curated!.updatedBy, 'alice');
+    await assert.rejects(x.alice.editSharedContent(x.first.id, { id: a.id, revision: 1, action: 'save', title: '管理员接管', description: '不可写', curate: true, merge: [] }), /只有提交者/);
+    const curated = await x.bob.editSharedContent(x.first.id, { id: a.id, revision: 1, action: 'save', title: '提交者更新标题', description: '整理内容', curate: false, merge: [] });
+    assert.deepEqual(curated!.submission, a.submission); assert.equal(curated!.updatedBy, 'bob');
     await x.bob.syncContentUpdates();
     const merged = await x.alice.remote.contentMerge(adminBinding, { sources: [{ id: a.id, revision: 2 }, { id: sources[1].id, revision: 1 }], replaceIds: [a.id], title: '统一发现', description: '合并证据' });
     assert.equal(merged.submission!.submittedBy, 'alice');
-    assert.deepEqual(merged.submission!.sources.map(source => [source.kind, source.title, source.version, source.author]), [['team_result', '管理员更新标题', 2, 'bob'], ['team_result', 'b', 1, 'bob']]);
+    assert.deepEqual(merged.submission!.sources.map(source => [source.kind, source.title, source.version, source.author]), [['team_result', '提交者更新标题', 2, 'bob'], ['team_result', 'b', 1, 'bob']]);
     await x.bob.syncContentUpdates();
     const superseded = x.bob.contentUpdates().find(item => item.id === a.id && item.change === 'superseded');
     assert(superseded); await x.bob.store.save(); const restored = new Store(x.bob.store.root); await restored.init(); assert.deepEqual(restored.settings.contentUpdates!.find(item => item.eventId === superseded.eventId), JSON.parse(JSON.stringify(superseded)));

@@ -73,8 +73,10 @@ export type ContentMerge = z.input<typeof contentMergeSchema>;
 export interface ContentProvenance { id: string; revision: number; title: string; author: string; updatedAt: string }
 export interface SharedContent extends ContentMetadata { folderVersion?: number; files?: import('./content-files-state').ContentFilesState; linkedAssignments?: { id: string; title: string; status: string; assignee: string }[]; id: string; path: string; author: string; revision: number; state: 'submitted' | 'curated'; createdAt: string; updatedAt: string; updatedBy: string; sha256: string; size: number; sources?: string[]; provenance?: ContentProvenance[]; derivedFrom?: ResultReference[]; replaces?: ResultReference[]; supersededBy?: ResultReference; supersededAt?: string; deletedAt?: string; deletedBy?: string; mergeRequestId?: string; }
 export function canDeleteSharedContent(item: Pick<SharedContent, 'author' | 'state'>, username: string, admin: boolean) {
-  return admin || item.author === username && item.state === 'submitted';
+  return admin || item.author === username;
 }
+export const canEditSharedContent = (item: Pick<SharedContent, 'author'>, username: string) => item.author === username;
+export const canMoveSharedContent = canDeleteSharedContent;
 export const contentDeleteSelectionsSchema = z.array(z.object({ id: z.string().uuid(), revision: z.number().int().positive() })).min(1).max(100).refine(items => new Set(items.map(item => item.id)).size === items.length, '不能重复选择同一成果');
 export type ContentDeleteSelection = z.infer<typeof contentDeleteSelectionsSchema>[number];
 export interface ContentDeleteResult { deletedIds: string[]; remaining: ContentDeleteSelection[]; error?: string; uncertainId?: string }

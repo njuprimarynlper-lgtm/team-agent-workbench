@@ -13,7 +13,7 @@ import type { RemoteBinding } from '../shared/types';
 import { inspectContentFiles } from './content-files-state';
 import { assertContentReadable } from '../shared/content-files-state';
 import { missingContentIndexMessage } from '../shared/content-index';
-import { assertResultFolder, changeResultDirectory, resultDirectorySchema, resultDirectoryMoveSchema, type ResultDirectory, type ResultDirectoryCommand, type ResultDirectoryMove } from '../shared/result-directories';
+import { assertResultFolder, changeResultDirectory, resultFolderCategory, resultFolderMetadata, resultDirectorySchema, resultDirectoryMoveSchema, type ResultDirectory, type ResultDirectoryCommand, type ResultDirectoryMove } from '../shared/result-directories';
 
 // Local permission stub. The Linux equivalent is enforced by the root-owned file worker.
 export class ContentFiles {
@@ -39,16 +39,28 @@ export class ContentFiles {
     const change = resultDirectoryMoveSchema.parse(raw);
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding);
-      if (!actor.admin) throw new Error('只有本组组管理员可以移动团队成果');
-      assertResultFolder(change.folderId, await this.readDirectories(binding));
+      const directories = await this.readDirectories(binding);
+      assertResultFolder(change.folderId, directories);
       const items = await this.read(binding);
       const selected = change.items.map(ref => {
         const item = items.find(value => value.id === ref.id);
         if (!item || item.revision !== ref.version || (item.folderVersion || 0) !== ref.folderVersion) throw new Error('成果或目录位置已更新，请刷新后再移动');
+        if (!actor.admin && item.author !== actor.username) throw new Error('只能更改自己提交的成果路径，或由本组组管理员操作');
         return item;
       });
-      for (const item of selected) { item.folderId = change.folderId; item.folderVersion = (item.folderVersion || 0) + 1; }
-      await this.authorize(binding); await atomicJson(await this.index(binding), items); return selected;
+      for (const item of selected) if (item.kind === 'contribution' && resultCategory(item) === 'todo' && resultFolderCategory(change.folderId, directories) !== 'todo' && (await this.linked(binding, item.id)).length) throw new Error('已关联项目任务的待办不能移出待办事项，请先处理关联任务');
+      const history = await this.historyRead(binding), previous: SharedContent[] = [];
+      for (const item of selected) {
+        if (item.kind === 'contribution') {
+          const metadata = resultFolderMetadata(item, change.folderId, directories);
+          if (metadata.category !== resultCategory(item)) { previous.push(structuredClone(item)); Object.assign(item, metadata, { fields: {}, revision: item.revision + 1, updatedAt: new Date().toISOString(), updatedBy: actor.username }); }
+        }
+        if (item.folderId !== change.folderId) { item.folderId = change.folderId; item.folderVersion = (item.folderVersion || 0) + 1; }
+      }
+      await this.authorize(binding);
+      if (previous.length) await atomicJson(await this.historyIndex(binding), [...previous, ...history]);
+      try { await atomicJson(await this.index(binding), items); } catch (error) { if (previous.length) await atomicJson(await this.historyIndex(binding), history); throw error; }
+      return selected;
     });
   }
   private async read(binding: RemoteBinding): Promise<SharedContent[]> { try { return JSON.parse(await fs.readFile(await this.index(binding), 'utf8')); } catch (e: any) { if (e.code === 'ENOENT') return []; throw e; } }
@@ -112,6 +124,7 @@ export class ContentFiles {
       const replacedSources = sources.filter(source => change.replaceIds.includes(source.id));
       const submission = acceptedSubmission(undefined, binding, actor.username, actor.destination, sources.map(source => ({ kind: 'team_result' as const, id: source.id, title: source.title, version: source.revision, projectId: binding.project.id, author: source.author })));
       const result: SharedContent = { folderId: change.folderId, submission, id, title: change.title, description: change.description, kind: 'contribution', category, resultStatus: resultDefaultStatus(category), sourceDetails: change.sourceDetails, sourceSessionTitle: change.sourceSessionTitle, mergeRequestId: change.requestId, path: target, author: actor.username, revision: 1, state: 'curated', createdAt: now, updatedAt: now, updatedBy: actor.username, sha256: createHash('sha256').update(body).digest('hex'), size: Buffer.byteLength(body), attachments, derivedFrom: refs, replaces: refs.filter(ref => change.replaceIds.includes(ref.id)), sources: sources.map(source => source.id), provenance: sources.map(source => ({ id: source.id, revision: source.revision, title: source.title, author: source.author, updatedAt: source.updatedAt })) };
+      if (change.folderId) Object.assign(result, resultFolderMetadata(result, change.folderId, await this.readDirectories(binding)));
       const archived = replacedSources.map(source => ({ ...structuredClone(source), supersededBy: { scope: 'team' as const, projectId: binding.project.id, id, version: 1 }, supersededAt: now }));
       await this.authorize(binding);
       await fs.mkdir(path.dirname(file), { recursive: true });
@@ -180,9 +193,15 @@ export class ContentFiles {
         throw new Error('目标已有内容，请从团队项目成果库中修改，并核对最新版本');
       }
       const replacing = metadata.publicationTarget && items.find(item => item.id === metadata.publicationTarget!.id);
+      const destination = metadata.folderId || replacing?.folderId;
+      if (metadata.kind === 'contribution' && destination) {
+        const placement = resultFolderMetadata(metadata, destination, await this.readDirectories(binding));
+        if (placement.category !== resultCategory(metadata)) metadata.fields = {};
+        Object.assign(metadata, placement);
+      }
       if (metadata.publicationTarget) {
         if (!replacing) throw new Error('团队中的原成果已不存在；本次未新增或覆盖成果');
-        if (replacing.author !== actor.username || replacing.state !== 'submitted' || replacing.kind !== 'contribution' || metadata.kind !== 'contribution') throw new Error('只能从本地更新自己发布且尚未被管理员整理的文字成果');
+        if (replacing.author !== actor.username || replacing.kind !== 'contribution' || metadata.kind !== 'contribution') throw new Error('只能从本地更新自己发布的文字成果');
         if (replacing.revision !== metadata.publicationTarget.revision) throw new Error('团队成果已有新版本，本次未覆盖；请查看团队最新版本后处理');
         if (resultCategory(replacing) === 'todo' && (await this.linked(binding, replacing.id)).length && (resultCategory(metadata) !== resultCategory(replacing) || metadata.resultStatus !== replacing.resultStatus)) throw new Error('已关联项目任务，请在项目任务中调整状态');
       }
@@ -215,14 +234,15 @@ export class ContentFiles {
     const change = contentEditSchema.parse(input);
     return registryLock(this.root, async () => {
       const actor = await this.authorize(binding), items = await this.read(binding), history = await this.historyRead(binding);
-      if (!actor.admin && (change.action === 'save' || !change.fromPersonal)) throw new Error('成员不能直接修改团队成果，请在个人成果库修改后分享或同步删除');
       const current = items.find(i => i.id === change.id);
       if (!current && change.action === 'delete') return this.purgeHistory(binding, actor, items, history, change);
       const item = current;
       if (!item || item.revision !== change.revision) throw new Error('内容已更新或删除，请刷新后再操作；本地编辑仍保留');
-      if (!actor.admin && (item.author !== actor.username || item.state === 'curated')) throw new Error('只能修改自己尚未被组管理员整理的提交；可另提补充');
+      if (change.action === 'save' && item.author !== actor.username) throw new Error('只有提交者可以编辑成果内容；管理员可以更改路径或删除');
+      if (change.action === 'delete' && !actor.admin && item.author !== actor.username) throw new Error('只能删除自己提交的成果，或由本组组管理员操作');
       if (!actor.admin && (change.curate || change.merge.length)) throw new Error('只有本组组管理员可以整理或合并内容');
       const category = change.category || item.category;
+      if (change.action === 'save' && item.folderId && change.category && canonicalCategory(change.category) !== resultFolderCategory(item.folderId, await this.readDirectories(binding))) throw new Error('分类由一级目录决定，请通过更改团队路径调整分类');
       validateResultStatus(category, change.resultStatus);
       if (resultCategory(item) === 'todo' && (change.resultStatus !== undefined || change.category && canonicalCategory(change.category) !== resultCategory(item)) && (await this.linked(binding, item.id)).length) throw new Error('已关联项目任务，请在项目任务中提交验收或调整状态');
       if (change.merge.length) throw new Error('旧版合并入口已停用，请更新客户端后重新整理；原成果保持不变');
@@ -298,7 +318,7 @@ export class ContentFiles {
     const selected = history.find(entry => entry.id === change.id && entry.revision === change.revision && (!!entry.supersededBy || !!entry.deletedAt));
     if (!selected) throw new Error('历史成果已更新或删除，请刷新后再操作');
     if (items.some(item => item.id === selected.id)) throw new Error('当前成果仍在团队库中，请从当前成果删除');
-    if (!actor.admin && (selected.author !== actor.username || selected.state === 'curated')) throw new Error('只能删除自己尚未被整理的历史提交');
+    if (!actor.admin && selected.author !== actor.username) throw new Error('只能删除自己提交的历史成果，或由本组组管理员操作');
     await this.authorize(binding);
     const nextHistory = history.filter(entry => entry.id !== selected.id);
     await atomicJson(await this.historyIndex(binding), nextHistory);

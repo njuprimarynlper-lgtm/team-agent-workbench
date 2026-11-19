@@ -17,8 +17,8 @@ class ResultClassification(unittest.TestCase):
 
     def test_reclassification_keeps_identity_content_and_historical_category(self):
         item = self.publish('exploration', '探索')
-        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
-            self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], category='todo'))
+        with self.assertRaisesRegex(PermissionError, '只有提交者'):
+            self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], category='todo'))
         updated = self.republish(item, 'todo')
         self.assertEqual(updated['id'], item['id'])
         self.assertEqual(updated['description'], item['description'])
@@ -40,7 +40,7 @@ class ResultClassification(unittest.TestCase):
             self.call('alice', op='merge_content', change=change)
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 2)
         self.assertEqual(self.call('alice', op='content_history'), [])
-        self.call('alice', op='edit_content', change=dict(id=b['id'], revision=1, action='save', title=b['title'], description=b['description'], category='capability'))
+        self.call('bob', op='edit_content', change=dict(id=b['id'], revision=1, action='save', title=b['title'], description=b['description'], category='capability'))
         with self.assertRaises(ValueError):
             self.call('alice', op='merge_content', change=change)
         change['sources'][1]['revision'] = 2
@@ -63,13 +63,15 @@ class ResultClassification(unittest.TestCase):
         base = dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'])
         for change in [dict(base, resultStatus='completed'), dict(base, category='exploration')]:
             with self.assertRaisesRegex(ValueError, '项目任务'):
-                self.call('alice', op='edit_content', change=change)
+                self.call('bob', op='edit_content', change=change)
+        with self.assertRaisesRegex(ValueError, '关联项目任务'):
+            self.call('alice', op='move_results', change=dict(folderId='exploration', items=[dict(id=item['id'], version=1, folderVersion=0)]))
         self.assertEqual(content.read_json(self.directory / '.workbench-content.json')[0]['revision'], 1)
 
     def test_status_is_validated_even_when_bypassing_client(self):
         item = self.publish('capability', '能力')
         with self.assertRaises(ValueError):
-            self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], resultStatus='completed'))
+            self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], resultStatus='completed'))
         with self.assertRaises(ValueError):
             self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/bob/todos/invalid.zip', sha256=content.digest(self.incoming), metadata=dict(title='invalid', kind='contribution', category='todo', resultStatus='confirmed'))
 
@@ -88,7 +90,7 @@ class ResultClassification(unittest.TestCase):
         item = self.publish('project_material', '协作文档')
         self.assertIn('/project-materials/', item['path'])
         self.assertIsNone(item.get('resultStatus'))
-        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
+        with self.assertRaisesRegex(ValueError, '状态不适用'):
             self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title=item['title'], description=item['description'], resultStatus='confirmed'))
         with self.assertRaises(ValueError):
             self.republish(item, 'project_material', resultStatus='confirmed')

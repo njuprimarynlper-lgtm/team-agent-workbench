@@ -36,7 +36,8 @@ test('members create groups, scoped roles govern content and membership; creator
     await alice.refreshGroups(); await alice.connectProject(project.id); const binding=alice.remote.binding(project.id);
     const item=await alice.remote.upload(binding,source,binding.project.uploadPath+'/result.md',()=>{},{kind:'contribution',title:'结果',description:'验证结果'});
     const published=(await bob.remote.contentList(bob.remote.binding(project.id)))[0];
-    await bob.remote.contentEdit(bob.remote.binding(project.id),{id:published.id,revision:published.revision,action:'save',title:'整理结果',description:'整理后的内容',curate:true,merge:[]});
+    await assert.rejects(bob.remote.contentEdit(bob.remote.binding(project.id),{id:published.id,revision:published.revision,action:'save',title:'整理结果',description:'整理后的内容',curate:true,merge:[]}), /只有提交者/);
+    await alice.remote.contentEdit(binding,{id:published.id,revision:published.revision,action:'save',title:'整理结果',description:'整理后的内容',curate:true,merge:[]});
     let current=await details(alice,group.id);
     await assert.rejects(act(alice,{action:'member',group:group.id,revision:current.revision,username:'alice',role:'remove'}),/移交/);
     await assert.rejects(admin.operation({op:'group_member',username:'alice',group:group.id,role:'member'}),/移交/);

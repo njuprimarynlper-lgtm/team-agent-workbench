@@ -18,7 +18,8 @@ try {
   await expect(page.getByRole('heading', { name: '项目成果库 · 实体抽取优化' })).toBeVisible();
   await expect(page.locator('.result-category-tabs')).toHaveCount(0);
   await expect(page.getByLabel('团队成果数量')).toHaveCount(1);
-  await expect(page.locator('.result-directory-sidebar .result-directory-name')).toHaveCount(6);
+  await expect(page.locator('.result-directory-sidebar .result-directory-name')).toHaveCount(5);
+  await page.getByRole('button', { name: '展开目录：探索记录', exact: true }).click();
   await expect(page.getByRole('button', { name: '新建成果', exact: true })).toHaveCount(0);
   await page.locator('.result-directory-sidebar').getByRole('button', { name: /联合验证/ }).click();
   await expect(page.getByRole('button', { name: '删除目录', exact: true })).toHaveCount(0);
@@ -44,6 +45,8 @@ try {
   await page.getByRole('button', { name: /存入个人成果库：/ }).click();
   await expect(picker()).toBeVisible();
   await expect(picker().getByRole('button', { name: '联合验证', exact: true })).toHaveCount(0);
+  await expect(picker().getByRole('button', { name: '我的验证', exact: true })).toHaveCount(0);
+  await picker().getByRole('button', { name: '展开目录：探索记录', exact: true }).click();
   await picker().getByRole('button', { name: '我的验证', exact: true }).click();
   await picker().getByRole('button', { name: '确认目录并继续' }).click();
   await expect(page.locator('output')).toContainText('已存入');
@@ -94,6 +97,7 @@ try {
   await expect(page.locator('.result-card')).toHaveCount(1);
   await expect(page.locator('.result-card')).toContainText('低频实体分析');
   await expect(page.locator('.result-directory-all')).toHaveClass(/is-selected/);
+  await page.locator('.result-directory-sidebar').getByRole('button', { name: '展开目录：探索记录', exact: true }).click();
   await page.locator('.result-directory-sidebar .result-directory-name').filter({ hasText: '我的验证' }).click();
   await expect(page.locator('.result-card')).toHaveCount(2);
   await expect(page.locator('.result-directory-main .content-category-badge').first()).toHaveCSS('background-color', 'rgb(245, 246, 247)');
@@ -119,7 +123,7 @@ try {
   await expect(page.locator('.result-directory-path')).toHaveText('探索记录 / 我的验证 / 低频样本');
   await page.getByRole('textbox', { name: '搜索个人成果' }).fill('');
   const current = page.locator('.result-card').filter({ hasText: '当前层结论' });
-  await moreAction(current, '移动到目录');
+  await moreAction(current, '更改个人目录');
   await picker().getByRole('button', { name: '已有能力', exact: true }).click();
   await picker().getByRole('button', { name: '确认目录并继续' }).click();
   await expect(current).toHaveCount(0);
@@ -155,6 +159,7 @@ try {
   const save = await page.evaluate(() => window.fixtureCalls.find(call => call.action === 'draft.personal.save').payload);
   if (save.folders['draft-1'] !== 'project_material' || !save.folders['draft-2'] || save.folders['draft-1'] === save.folders['draft-2']) throw Error('per-result destinations lost');
   await page.getByRole('button', { name: /^提交到/ }).click();
+  await picker().getByRole('button', { name: '展开目录：探索记录', exact: true }).click();
   await picker().getByRole('button', { name: '联合验证', exact: true }).click();
   await picker().getByRole('button', { name: '全部保存到当前选中的目录' }).click();
   await picker().getByRole('button', { name: '确认目录并继续' }).click();

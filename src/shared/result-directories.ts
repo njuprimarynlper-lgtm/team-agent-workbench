@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { contributionCategoryInfo } from './content';
-import { resultCategories, resultCategory } from './result-model';
+import { resultCategories, resultCategory, resultDefaultStatus, type ResultCategory, type ResultStatus } from './result-model';
 
 export const resultFolderIdSchema = z.union([z.enum(resultCategories), z.string().uuid()]);
 export const resultDirectorySchema = z.object({
@@ -52,6 +52,14 @@ export function resultDirectoryPath(id: string, directories: ResultDirectory[]):
   return path;
 }
 export const resultDirectoryLabel = (id: string, directories: ResultDirectory[]) => resultDirectoryPath(id, directories).map(value => value.name).join(' / ');
+export function resultFolderCategory(id: string, directories: ResultDirectory[]): ResultCategory {
+  return resultDirectoryPath(id, directories)[0]?.id as ResultCategory || 'exploration';
+}
+// The first directory is the classification; subdirectories only organize it.
+export function resultFolderMetadata(item: { title: string; category?: string; kind?: string; resultStatus?: ResultStatus }, id: string, directories: ResultDirectory[]) {
+  const category = resultFolderCategory(id, directories);
+  return { category, resultStatus: resultCategory(item) === category ? item.resultStatus ?? resultDefaultStatus(category) : resultDefaultStatus(category) };
+}
 export function resultItemFolder(item: { folderId?: string; category?: string; title: string; kind?: string }, directories: ResultDirectory[]) {
   return resolveResultFolder(item.folderId, directories, resultCategory(item) || 'project_material');
 }

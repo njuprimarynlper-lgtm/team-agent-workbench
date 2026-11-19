@@ -21,6 +21,25 @@ spec.loader.exec_module(content)
 BRIEF = dict(background='项目背景', objectives='提升质量', acceptance='指标验收')
 
 class ContentRules(unittest.TestCase):
+    def test_owner_and_admin_directory_policy_versions_category_without_changing_body(self):
+        item = self.publish()
+        current = content.read_json(self.directory / '.workbench-content.json')
+        current[0]['state'] = 'curated'
+        content.atom(self.directory / '.workbench-content.json', current, 100)
+        with self.assertRaisesRegex(PermissionError, '只有提交者'):
+            self.edit('alice', item)
+        moved = self.call('alice', op='move_results', change=dict(folderId='capability', items=[dict(id=item['id'], version=1, folderVersion=0)]))[0]
+        self.assertEqual(moved['category'], 'capability')
+        self.assertEqual(moved['resultStatus'], 'limited')
+        self.assertEqual(moved['revision'], 2)
+        self.assertEqual(moved['author'], 'bob')
+        self.assertEqual(moved['sha256'], item['sha256'])
+        self.assertEqual(moved['description'], item['description'])
+        self.assertNotEqual(self.call('bob', op='content_history', id=item['id'], revision=1)[0].get('category'), 'capability')
+        updated = self.edit('bob', moved)
+        self.assertEqual(updated['revision'], 3)
+        self.assertIsNone(self.edit('bob', updated, action='delete'))
+
     def test_result_directories_permissions_promotions_and_atomic_moves(self):
         parent, child = str(uuid.uuid4()), str(uuid.uuid4())
         create = dict(action='create', id=parent, parentId='exploration', name='团队试验')
@@ -34,7 +53,7 @@ class ContentRules(unittest.TestCase):
         a, b = self.publish(name='folder-a.zip'), self.publish(name='folder-b.zip')
         refs = [dict(id=item['id'], version=item['revision'], folderVersion=0) for item in (a, b)]
         with self.assertRaises(PermissionError):
-            self.call('bob', op='move_results', change=dict(folderId=parent, items=refs))
+            self.call('carol', op='move_results', change=dict(folderId=parent, items=refs))
         with self.assertRaises(ValueError):
             self.call('alice', op='move_results', change=dict(folderId=parent, items=[refs[0], dict(refs[1], version=42)]))
         self.assertTrue(all('folderId' not in item for item in content.read_json(self.directory / '.workbench-content.json', [])))
@@ -257,7 +276,7 @@ class ContentRules(unittest.TestCase):
         self.assertNotEqual(record['submittedAt'], meta['submission']['submittedAt'])
         self.assertEqual(record['sources'], meta['submission']['sources'])
 
-    def test_submission_receipt_keeps_first_snapshot_on_retry_and_admin_edit(self):
+    def test_submission_receipt_keeps_first_snapshot_on_retry_and_owner_edit(self):
         target = '/projects/relation/实体抽取/submissions/bob/origin.md'
         meta = dict(kind='contribution', title='误差评估', description='对照评测', submission=self.origin())
         item = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata=meta)
@@ -266,10 +285,10 @@ class ContentRules(unittest.TestCase):
         self.state['groups']['relation']['label'] = '新组名'
         again = self.call('bob', op='publish', target=target, sha256=content.digest(self.incoming), metadata=meta)
         self.assertEqual(again['submission'], first)
-        updated = self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='管理员整理', description='补充证据', sourceSessionTitle='维护会话'))
+        updated = self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='提交者更新', description='补充证据', sourceSessionTitle='维护会话'))
         self.assertEqual(updated['submission'], first)
         self.assertEqual(updated['author'], 'bob')
-        self.assertEqual(updated['updatedBy'], 'alice')
+        self.assertEqual(updated['updatedBy'], 'bob')
         self.call('alice', op='edit_content', change=dict(id=item['id'], revision=2, action='delete'))
         tombstone = content.read_json(self.directory / '.workbench-content-history.json')[0]
         self.assertEqual(tombstone['submission'], first)
@@ -288,7 +307,7 @@ class ContentRules(unittest.TestCase):
         items = content.read_json(self.directory / '.workbench-content.json')
         del items[0]['submission']
         content.atom(self.directory / '.workbench-content.json', items, 100)
-        updated = self.call('alice', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='旧记录补充', description='只更新正文'))
+        updated = self.call('bob', op='edit_content', change=dict(id=item['id'], revision=1, action='save', title='旧记录补充', description='只更新正文'))
         self.assertNotIn('submission', updated)
 
     def test_team_merge_creates_new_identity_and_readable_history(self):
@@ -360,7 +379,7 @@ class ContentRules(unittest.TestCase):
 
     def test_explicit_delete_leaves_only_a_tombstone_not_historical_body(self):
         item = self.publish()
-        edited = self.edit('alice', item, title='新版', description='后来需要移除的内容')
+        edited = self.edit('bob', item, title='新版', description='后来需要移除的内容')
         self.assertEqual(edited['id'], item['id'])
         self.assertEqual(edited['revision'], 2)
         self.assertEqual(self.call('alice', op='content_history', id=item['id'], revision=1)[0]['description'], item['description'])
@@ -431,7 +450,7 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(PermissionError): self.call('alice', op='publish', target=target + '2', sha256=sha, metadata=metadata)
         with self.assertRaises(ValueError): self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, attachments=[dict(attachment, size=999)]))
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
-        edited = self.edit('alice', item)
+        edited = self.edit('bob', item)
         self.assertEqual(edited['attachments'], [attachment])
         blob_file = content.safe(self.root, attachment['path'])
         second = self.call('bob', op='publish', target=target + '2', sha256=sha, metadata=dict(metadata, title='second'))
@@ -448,7 +467,7 @@ class ContentRules(unittest.TestCase):
         base = '/projects/relation/实体抽取/submissions/bob/'
         owner = self.call('bob', op='publish', target=base + 'owner.md', sha256=sha, metadata=metadata)
         other = self.call('bob', op='publish', target=base + 'other.md', sha256=sha, metadata=metadata)
-        edited = self.edit('alice', other)
+        edited = self.edit('bob', other)
         index = self.directory / '.workbench-content.json'
         items = content.read_json(index)
         next(item for item in items if item['id'] == other['id'])['attachments'] = []
@@ -626,16 +645,22 @@ class ContentRules(unittest.TestCase):
         self.assertEqual(content.read_json(self.directory / '.workbench-content.json'), [first])
         self.assertEqual(self.call('bob', op='content_history', id=first['id']), [])
 
-    def test_owner_updates_then_admin_locks(self):
+    def test_owner_keeps_control_and_admin_only_manages_others(self):
         original = self.publish()
-        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
-            self.edit('bob', original)
-        item = self.republish(original)
+        item = self.edit('bob', original)
         self.assertEqual(item['revision'], 2)
-        curated = self.edit('alice', item, curate=True)
-        self.assertEqual(curated['author'], 'bob'); self.assertEqual(curated['state'], 'curated')
-        for action in ['save', 'delete']:
-            with self.assertRaises(PermissionError): self.edit('bob', curated, action=action)
+        with self.assertRaisesRegex(PermissionError, '只有提交者'):
+            self.edit('alice', item, curate=True)
+        # Simulate a record curated by an older client. Ownership survives it.
+        records = content.read_json(self.directory / '.workbench-content.json')
+        records[0]['state'] = 'curated'
+        content.atom(self.directory / '.workbench-content.json', records, 100)
+        updated = self.republish(item)
+        self.assertEqual(updated['author'], 'bob')
+        own = self.edit('bob', updated)
+        with self.assertRaises(PermissionError):
+            self.edit('alice', own, description='admin takeover')
+        self.assertIsNone(self.edit('bob', own, action='delete'))
 
     def test_group_scope_and_distinct_roles(self):
         with self.assertRaises(PermissionError): self.publish('carol')
@@ -651,7 +676,7 @@ class ContentRules(unittest.TestCase):
         with self.assertRaises(PermissionError): self.call('bob', op='publish', target='/projects/relation/实体抽取/submissions/alice/injected', sha256=content.digest(self.incoming))
 
     def test_retry_does_not_duplicate_or_restore_curated_item(self):
-        original = self.publish(); curated = self.edit('alice', original)
+        original = self.publish(); curated = self.edit('bob', original)
         retry = self.publish()
         self.assertEqual(retry['id'], original['id'])
         items = content.read_json(self.directory / '.workbench-content.json')
@@ -662,8 +687,8 @@ class ContentRules(unittest.TestCase):
         one = self.publish(); two = self.publish(name='second.zip')
         updated = self.republish(one)
         with self.assertRaises(ValueError): self.edit('alice', one)
-        with self.assertRaisesRegex(ValueError, '旧版合并入口'):
-            self.edit('alice', updated, merge=[{'id': two['id'], 'revision': two['revision']}])
+        with self.assertRaises(PermissionError):
+            self.edit('bob', updated, merge=[{'id': two['id'], 'revision': two['revision']}])
         result = self.call('alice', op='merge_content', change=dict(requestId=str(uuid.uuid4()), sources=[{'id': updated['id'], 'revision': updated['revision']}, {'id': two['id'], 'revision': two['revision']}], replaceIds=[updated['id'], two['id']], title='合并结论', description='已合并', sourceSessionTitle='统一口径复核'))
         self.assertNotIn(result['id'], {updated['id'], two['id']})
         self.assertEqual(set(result['sources']), {updated['id'], two['id']})
@@ -673,22 +698,23 @@ class ContentRules(unittest.TestCase):
         self.assertEqual(self.call('alice', op='content_history', id=two['id'], revision=two['revision'])[0]['description'], two['description'])
         self.assertEqual(len(content.read_json(self.directory / '.workbench-content.json')), 1)
 
-    def test_author_can_delete_only_pending(self):
+    def test_author_can_delete_directly(self):
         item = self.publish()
-        with self.assertRaisesRegex(PermissionError, '成员不能直接'):
-            self.edit('bob', item, action='delete')
-        self.assertIsNone(self.edit('bob', item, action='delete', fromPersonal=True))
+        self.assertIsNone(self.edit('bob', item, action='delete'))
         self.assertEqual(content.read_json(self.directory / '.workbench-content.json'), [])
 
-    def test_replacement_creates_new_revision_and_locks_for_admin(self):
+    def test_replacement_is_owner_only_including_administrators(self):
         item = self.publish(kind='file'); self.incoming.write_bytes(b'replacement')
         request = dict(op='edit_content', change={'id': item['id'], 'revision': 1, 'action': 'save', 'title': '文件', 'description': '已替换'}, replacement={'extension': '.bin', 'sha256': content.digest(self.incoming)})
-        result = self.call('alice', **request)
+        with self.assertRaisesRegex(PermissionError, '只有提交者'):
+            self.call('alice', **request)
+        result = self.call('bob', **request)
         self.assertEqual(content.safe(self.root, result['path']).read_bytes(), b'replacement')
-        self.assertEqual(result['state'], 'curated')
+        self.assertEqual(result['author'], 'bob')
         self.assertFalse(content.safe(self.root, item['path']).exists())
         request['change']['revision'] = 2
-        with self.assertRaises(PermissionError): self.call('bob', **request)
+        with self.assertRaises(PermissionError): self.call('alice', **request)
+        self.assertEqual(self.call('bob', **request)['revision'], 3)
 
     def test_project_lifecycle_uses_marker_not_empty_directory(self):
         (self.root / 'projects/relation/.keep').write_text('keep')
@@ -749,9 +775,9 @@ class ContentRules(unittest.TestCase):
             started = self.call('alice', op='assignment_status', change=dict(id=task['id'], revision=1, status='in_progress'))
             self.assertEqual(started['status'], 'in_progress')
             self.assertEqual(self.call('alice', op='assignment_status', change=dict(id=task['id'], revision=2, status='completed', submission=dict(summary='自派任务已验证')))['status'], 'completed')
-            with self.assertRaises(ValueError): self.edit('alice', item, category='invented')
+            with self.assertRaises(ValueError): self.edit('bob', item, category='invented')
             self.assertEqual(next(row for row in content.read_json(self.directory / '.workbench-content.json') if row['id'] == item['id'])['revision'], 1)
-            edited = self.edit('alice', item, category='verification', sourceDetails='验证来源。')
+            edited = self.edit('bob', item, category='verification', sourceDetails='验证来源。')
             self.assertEqual(edited['category'], 'verification'); self.assertEqual(edited['fields'], metadata['fields'] if category == 'verification' else {}); self.assertEqual(edited['sourceDetails'], '验证来源。')
 
     def test_task_files_snapshot_shared_attachments_and_deduplicate_only_equal_permissions(self):

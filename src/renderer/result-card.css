@@ -54,6 +54,15 @@
 @media (max-width: 850px) { .preparation-review-layout { grid-template-columns: 1fr; } .preparation-review-list { max-height: 235px; border-right: none; border-bottom: 1px solid #dfe9e2; } .result-category-tabs { gap: 8px; overflow-x: auto; } }
 .result-card.selected { border-color: #8eb49a; background: #fff; }
 .result-card-top { display: flex; align-items: center; min-width: 0; }
+.result-card-summary{flex:1;min-width:0}
+.result-card-title-toggle.result-card-toggle{flex:0 1 auto;min-width:0;max-width:100%;padding:0;border:0;background:transparent;text-align:left;color:inherit}
+.result-card-title-toggle b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:1.5;color:var(--result-text,#30363b)}
+.is-expanded .result-card-title-toggle b{white-space:normal;overflow-wrap:anywhere}
+.result-card-overview.result-card-overview-toggle{padding:0;border:0;background:transparent;text-align:left;color:inherit;justify-content:flex-start}
+.result-card-expand{margin-left:auto;flex-shrink:0}.is-expanded .result-card-expand svg{transform:rotate(180deg)}
+.result-alias-control{display:inline-flex;align-items:center;gap:4px;min-width:0}.result-alias-pencil.icon{width:24px;height:24px;min-width:24px;background:transparent;border:0;color:var(--result-muted,#737a80)}
+.result-alias-inline{display:flex;align-items:center;flex-wrap:wrap;gap:4px;max-width:300px}.result-alias-inline input{width:170px;max-width:100%;min-width:90px;padding:5px 7px;font-size:12px}.result-alias-inline .icon{width:24px;height:26px}.result-alias-inline>small,.result-alias-inline>.inline-error{flex-basis:100%;font-size:11px;line-height:1.5;color:var(--result-muted,#737a80)}
+.result-library .result-card.result-completed .result-card-title-toggle b{color:var(--result-muted,#737a80);text-decoration:line-through}
 .result-card-selection { flex: none; align-self: flex-start; padding: 15px 0 0 14px; }
 .result-card-selection .content-card-select { padding: 0; margin: 0; border: 0; background: none; }
 .result-card-selection input { width: 15px; height: 15px; margin: 0; accent-color: #287a58; }

@@ -27,15 +27,14 @@ async function fixture() {
 async function settled(wb: Workbench) { const end = Date.now() + 15000; while (wb.store.transfers.some(item => ['queued', 'running'].includes(item.status))) { if (Date.now() > end) throw new Error('queue timeout'); await new Promise(resolve => setTimeout(resolve, 20)); } const failed = wb.store.transfers.find(item => item.status === 'error'); assert(!failed, failed?.error || 'upload failed'); }
 const selected = (item: ProjectConclusion) => [{ id: item.id, version: item.version }];
 
-test('member edits locally and republishes same team ID with history; direct edits/deletes are denied', async () => {
+test('member republishes same team ID with history; foreign administrators cannot edit content', async () => {
   const x = await fixture();
   try {
     const item = await x.bob.createConclusion(x.project.id, '初版', '原正文', 'exploration');
     await x.bob.publishConclusion(item.id); await settled(x.bob);
     const first = (await x.list())[0]; assert.equal(item.publication?.contentId, first.id); assert.equal(item.publication?.revision, 1);
-    await assert.rejects(x.bob.editSharedContent(x.project.id, { id: first.id, revision: 1, action: 'save', title: '绕过', description: '无效', curate: false, merge: [] }), /成员不能直接/);
-    await assert.rejects(x.bob.remote.contentEdit(x.bob.remote.binding(x.project.id), { id: first.id, revision: 1, action: 'save', title: '绕过', description: '无效', curate: false, merge: [] }), /成员不能直接/);
-    await assert.rejects(x.bob.remote.contentEdit(x.bob.remote.binding(x.project.id), { id: first.id, revision: 1, action: 'delete', curate: false, merge: [] }), /成员不能直接/);
+    await assert.rejects(x.alice.editSharedContent(x.project.id, { id: first.id, revision: 1, action: 'save', title: '绕过', description: '无效', curate: false, merge: [] }), /只有提交者/);
+    await assert.rejects(x.alice.remote.contentEdit(x.alice.remote.binding(x.project.id), { id: first.id, revision: 1, action: 'save', title: '绕过', description: '无效', curate: false, merge: [] }), /只有提交者/);
     await x.bob.saveConclusion(item.id, '新版标题', '新正文', 'capability', undefined, item.version);
     await x.bob.publishConclusion(item.id); await settled(x.bob);
     const all = await x.list(); assert.equal(all.length, 1); assert.equal(all[0].id, first.id); assert.equal(all[0].revision, 2); assert.equal(all[0].description, '新正文'); assert.equal(item.publication?.revision, 2);
@@ -80,6 +79,12 @@ test('publication baseline does not adopt a newer team revision; old server bloc
     assert.equal((await x.bob.previewConclusionDeletion(selected(item)))[0].status, 'error');
     const legacy = structuredClone(item); legacy.publication = { ...legacy.publication! }; delete legacy.publication.contentId; delete legacy.publication.revision;
     const resolved = resolveConclusionPublication(legacy, binding.username, await x.list(), await x.bob.remote.contentHistory(binding)); assert.equal(resolved?.status, 'linked'); assert.equal(resolved && 'revision' in resolved ? resolved.revision : 0, 1);
+    await x.bob.publishConclusion(item.id, [], item.version, undefined, 2); await settled(x.bob);
+    assert.equal((await x.list())[0].id, origin.id); assert.equal((await x.list())[0].revision, 3); assert.equal((await x.list())[0].description, '本地修订');
+    await assert.rejects(x.bob.publishConclusion(item.id, [], item.version, undefined, 2), /已有新版本/, 'an explicit update still requires the exact revision reviewed in the dialog');
+    await x.bob.editSharedContent(x.project.id, { id: origin.id, revision: 3, action: 'save', title: '团队直接修改', description: '团队新正文', curate: false, merge: [] });
+    await x.bob.publishConclusion(item.id, [], item.version, undefined, 4); await settled(x.bob);
+    assert.equal((await x.list())[0].revision, 5); assert.equal((await x.list())[0].description, '本地修订', 'an explicit reviewed update can reuse an already published personal snapshot');
   } finally { await x.close(); }
 });
 

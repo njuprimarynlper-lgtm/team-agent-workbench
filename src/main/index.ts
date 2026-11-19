@@ -399,7 +399,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     }
     case 'content.list': { const p = z.object({ projectId: z.string() }).parse(raw); return refreshTeamCache(workbench, { action, ...p }, () => workbench.remote.contentList(workbench.remote.binding(p.projectId))); }
     case 'content.history': { const p = z.object({ projectId: z.string(), id: z.string().uuid().optional(), revision: z.number().int().positive().optional() }).parse(raw); return p.id ? workbench.remote.contentHistory(workbench.remote.binding(p.projectId), p.id, p.revision) : refreshTeamCache(workbench, { action, projectId: p.projectId }, () => workbench.remote.contentHistory(workbench.remote.binding(p.projectId))); }
-    case 'conclusion.publish': { const p = z.object({ folderId: resultFolderIdSchema.optional(), id: z.string().uuid(), version: z.number().int().positive().optional(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose, p.version, p.folderId); }
+    case 'conclusion.publish': { const p = z.object({ folderId: resultFolderIdSchema.optional(), id: z.string().uuid(), version: z.number().int().positive().optional(), expectedTeamRevision: z.number().int().positive().optional(), disclose: z.array(resultReferenceSchema).max(30).default([]) }).parse(raw); return workbench.publishConclusion(p.id, p.disclose, p.version, p.folderId, p.expectedTeamRevision); }
     case 'content.alias.save': { const p = z.object({ projectId: z.string(), contentId: id, alias: z.string().trim().max(200) }).parse(raw); return workbench.saveContentAlias(p.projectId, p.contentId, p.alias); }
     case 'rsi.settings': { const p = z.object({ projectId: text }).parse(raw); return { ...await workbench.rsi.settings(p.projectId), cwd: workbench.store.root }; }
     case 'rsi.shadow.configure': { const p = z.object({ projectId: text, config: z.unknown() }).parse(raw); return workbench.rsi.configureShadow(p.projectId, p.config); }
@@ -499,7 +499,9 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     case 'content.reap': { const p = z.object({ projectId: z.string() }).parse(raw); return workbench.reapProjectFiles(p.projectId); }
     case 'content.replace': {
       const p = z.object({ projectId: z.string(), change: contentEditSchema }).parse(raw), binding = workbench.remote.binding(p.projectId);
-      if (!workbench.remote.workspaces.find(group => group.groupName === binding.project.groupName)?.canCreateProject) throw new Error('成员不能直接修改团队成果，请在个人成果库修改后分享');
+      const current = (await workbench.remote.contentList(binding)).find(item => item.id === p.change.id);
+      if (!current || current.revision !== p.change.revision) throw new Error('成果已更新或删除，请刷新后重新选择替换文件');
+      if (current.author !== binding.username) throw new Error('只有提交者可以替换成果文件；管理员可以更改路径或删除');
       const file = (await dialog.showOpenDialog(owner, { title: '选择替换文件（保存为新修订）', properties: ['openFile'] })).filePaths[0];
       if (!file) return false;
       const snapshot = await freezeFile(file, path.join(workbench.store.root, 'uploads', 'replacements'));

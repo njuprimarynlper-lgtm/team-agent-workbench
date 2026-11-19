@@ -22,7 +22,6 @@ export function resolveConclusionPublication(item: ProjectConclusion, username: 
   const entry = id ? current.find(value => value.id === id) : undefined;
   if ((entry || recorded)?.author !== username && (entry || recorded)) return { status: 'reference' as const, entry, recorded };
   if (!entry) return { status: 'missing' as const, id, revision: origin.revision || recorded?.revision };
-  if (entry.state !== 'submitted') return { status: 'reference' as const, entry, recorded };
   const revision = origin.revision || recorded?.revision;
   if (!revision || !recorded || recorded.sha256 !== origin.sha256) throw new Error('无法核验原成果的发布版本，请先查看团队版本；本次未覆盖');
   return { status: 'linked' as const, id: entry.id, revision, entry };

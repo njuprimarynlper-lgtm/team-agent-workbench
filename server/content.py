@@ -105,6 +105,22 @@ def resolve_result_folder(value, directories):
         value = item['parentId']
     return 'exploration'
 
+def result_folder_category(value, directories):
+    value, seen = resolve_result_folder(value, directories), set()
+    while value not in RESULT_CATEGORIES and value not in seen:
+        seen.add(value)
+        item = next((entry for entry in directories if entry['id'] == value), None)
+        value = resolve_result_folder(item['parentId'], directories) if item else 'exploration'
+    return value if value in RESULT_CATEGORIES else 'exploration'
+
+def apply_result_folder(item, folder, directories):
+    if item.get('kind', 'contribution') == 'contribution':
+        category = result_folder_category(folder, directories)
+        if category != result_category(item):
+            item.update(category=category, resultStatus=RESULT_DEFAULTS.get(category), fields={})
+        else:
+            item['category'] = category
+
 def result_directories_operation(directory, command, admin, gid):
     file = directory / '.workbench-result-directories.json'
     directories = read_json(file, [])
@@ -1054,10 +1070,9 @@ def handle(root, state, username, request, incoming=None):
     items = read_json(index, [])
     history_index = directory / '.workbench-content-history.json'
     if op == 'move_results':
-        if not admin:
-            raise PermissionError('只有本组组管理员可以移动团队成果')
         change = request.get('change') or {}
-        folder = assert_result_folder(change.get('folderId'), read_json(directory / '.workbench-result-directories.json', []))
+        directories = read_json(directory / '.workbench-result-directories.json', [])
+        folder = assert_result_folder(change.get('folderId'), directories)
         refs = change.get('items')
         if not isinstance(refs, list) or not 1 <= len(refs) <= 100 or any(not isinstance(ref, dict) for ref in refs) or len({ref.get('id') for ref in refs}) != len(refs):
             raise ValueError('请选择不重复的成果')
@@ -1066,11 +1081,29 @@ def handle(root, state, username, request, incoming=None):
             item = next((entry for entry in items if entry['id'] == ref.get('id')), None)
             if not item or type(ref.get('version')) is not int or item['revision'] != ref['version'] or type(ref.get('folderVersion', 0)) is not int or item.get('folderVersion', 0) != ref.get('folderVersion', 0):
                 raise ValueError('成果或目录位置已更新，请刷新后再移动')
+            if not admin and item['author'] != username:
+                raise PermissionError('只能更改自己提交的成果路径，或由本组组管理员操作')
+            if item.get('kind') == 'contribution' and result_category(item) == 'todo' and result_folder_category(folder, directories) != 'todo' and linked_result_tasks(root, project['id'], item['id']):
+                raise ValueError('已关联项目任务的待办不能移出待办事项，请先处理关联任务')
             selected.append(item)
+        import copy
+        history, previous = read_json(history_index, []), []
         for item in selected:
-            item['folderId'] = folder
-            item['folderVersion'] = item.get('folderVersion', 0) + 1
-        atom(index, items, gid)
+            if item.get('kind') == 'contribution' and result_folder_category(folder, directories) != result_category(item):
+                previous.append(copy.deepcopy(item))
+                apply_result_folder(item, folder, directories)
+                item.update(revision=item['revision'] + 1, updatedAt=now(), updatedBy=username)
+            if item.get('folderId') != folder:
+                item['folderId'] = folder
+                item['folderVersion'] = item.get('folderVersion', 0) + 1
+        if previous:
+            atom(history_index, previous + history, gid)
+        try:
+            atom(index, items, gid)
+        except Exception:
+            if previous:
+                atom(history_index, history, gid)
+            raise
         return selected
     if op == 'content_task_links':
         # Expose only the existence of another member's private task.
@@ -1177,6 +1210,8 @@ def handle(root, state, username, request, incoming=None):
         if category is not None:
             result['category'] = category
             result['resultStatus'] = RESULT_DEFAULTS.get(category)
+        if folder_id is not None:
+            apply_result_folder(result, folder_id, read_json(directory / '.workbench-result-directories.json', []))
         if 'sourceDetails' in change:
             result['sourceDetails'] = text(change['sourceDetails'], 8000)
         if 'sourceSessionTitle' in change:
@@ -1280,10 +1315,14 @@ def handle(root, state, username, request, incoming=None):
             replacing = next((entry for entry in items if entry['id'] == publication_target['id']), None)
             if not replacing:
                 raise ValueError('团队中的原成果已不存在；本次未新增或覆盖成果')
-            if replacing['author'] != username or replacing['state'] != 'submitted' or replacing['kind'] != 'contribution' or meta.get('kind') != 'contribution':
-                raise PermissionError('只能从本地更新自己发布且尚未被管理员整理的文字成果')
+            if replacing['author'] != username or replacing['kind'] != 'contribution' or meta.get('kind') != 'contribution':
+                raise PermissionError('只能从本地更新自己发布的文字成果')
             if replacing['revision'] != publication_target['revision']:
                 raise ValueError('团队成果已有新版本，本次未覆盖；请查看团队最新版本后处理')
+            if meta.get('kind') == 'contribution' and (folder_id or replacing.get('folderId')):
+                meta = dict(meta)
+                apply_result_folder(meta, folder_id or replacing['folderId'], read_json(directory / '.workbench-result-directories.json', []))
+                category = meta.get('category')
             if result_category(replacing) == 'todo' and linked_result_tasks(root, project['id'], replacing['id']) and (result_category(meta) != result_category(replacing) or meta.get('resultStatus') != replacing.get('resultStatus')):
                 raise ValueError('已关联项目任务，请在项目任务中调整状态')
         file = safe(root, target)
@@ -1322,6 +1361,7 @@ def handle(root, state, username, request, incoming=None):
             atom(history_index, [replacing] + history, gid)
         if folder_id is not None:
             item['folderId'] = folder_id
+            apply_result_folder(item, folder_id, read_json(directory / '.workbench-result-directories.json', []))
         items.insert(0, item)
         try:
             atom(index, items, gid)
@@ -1339,18 +1379,20 @@ def handle(root, state, username, request, incoming=None):
     if op != 'edit_content':
         raise ValueError('不支持的内容操作')
     change = request.get('change', {})
-    if not admin and (change.get('action') == 'save' or not change.get('fromPersonal')):
-        raise PermissionError('成员不能直接修改团队成果，请在个人成果库修改后分享或同步删除')
     item = next((i for i in items if i['id'] == change.get('id')), None)
     if not item and change.get('action') == 'delete':
         return purge_history_content(root, directory, history_index, items, change, username, admin, gid)
     if not item or item['revision'] != change.get('revision'):
         raise ValueError('内容已更新或删除，请刷新后再操作')
-    if not admin and (item['author'] != username or item['state'] == 'curated'):
-        raise PermissionError('只能修改自己尚未被整理的提交；可另提补充')
+    if change.get('action') == 'save' and item['author'] != username:
+        raise PermissionError('只有提交者可以编辑成果内容；管理员可以更改路径或删除')
+    if change.get('action') == 'delete' and not admin and item['author'] != username:
+        raise PermissionError('只能删除自己提交的成果，或由本组组管理员操作')
     if not admin and (change.get('curate') or change.get('merge')):
         raise PermissionError('只有组管理员可以整理或合并')
     next_category = change.get('category') or item.get('category')
+    if change.get('action') == 'save' and item.get('folderId') and change.get('category') and result_category({'category': change['category']}) != result_folder_category(item['folderId'], read_json(directory / '.workbench-result-directories.json', [])):
+        raise ValueError('分类由一级目录决定，请通过更改团队路径调整分类')
     validate_result_status(next_category, change.get('resultStatus'))
     if result_category(item) == 'todo' and ('resultStatus' in change or change.get('category') and result_category({'category': change['category']}) != result_category(item)) and linked_result_tasks(root, project['id'], item['id']):
         raise ValueError('已关联项目任务，请在项目任务中提交验收或调整状态')
@@ -1508,8 +1550,8 @@ def purge_history_content(root, directory, history_index, items, change, usernam
         raise ValueError('历史成果已更新或删除，请刷新后再操作')
     if any(item.get('id') == selected.get('id') for item in items):
         raise ValueError('当前成果仍在团队库中，请从当前成果删除')
-    if not admin and (selected.get('author') != username or selected.get('state') == 'curated'):
-        raise PermissionError('只能删除自己尚未被整理的历史提交')
+    if not admin and selected.get('author') != username:
+        raise PermissionError('只能删除自己提交的历史成果，或由本组组管理员操作')
     next_history = [entry for entry in history if entry.get('id') != selected.get('id')]
     atom(history_index, next_history, gid)
     release_unreferenced_files(root, directory, retained_paths(items, next_history))

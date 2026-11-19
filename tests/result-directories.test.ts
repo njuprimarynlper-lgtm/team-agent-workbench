@@ -41,6 +41,34 @@ test('delete rejects promoted sibling name collisions without mutating its input
   assert.equal(dirs[0].deletedAt, undefined);
 });
 
+test('owners retain content control after curation; admins manage paths without editing another author', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-result-owners-'));
+  let actor = { username: 'alice', admin: true };
+  const files = new ContentFiles(root, async () => actor), binding = { username: 'alice', project: { id: 'p', name: '权限', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } } as RemoteBinding;
+  try {
+    const source = path.join(root, 'source.md'); await fs.writeFile(source, 'original');
+    const first = await files.publish(binding, source, '/p/submissions/alice/explorations/first.md', { title: '发现', description: '原文', kind: 'contribution', category: 'exploration' });
+    const curated = (await files.edit(binding, { id: first.id, revision: 1, action: 'save', title: '发现', description: '提交者修订', curate: true, merge: [] }))!;
+    assert.equal(curated.state, 'curated');
+    actor = { username: 'bob', admin: true };
+    await assert.rejects(files.edit(binding, { id: first.id, revision: 2, action: 'save', title: '接管', description: '不可写', curate: true, merge: [] }), /只有提交者/);
+    const moved = (await files.moveResults(binding, { folderId: 'capability', items: [{ id: first.id, version: 2, folderVersion: 0 }] }))[0];
+    assert.equal(moved.author, 'alice'); assert.equal(moved.category, 'capability'); assert.equal(moved.resultStatus, 'limited'); assert.equal(moved.description, '提交者修订');
+    assert.equal((await files.history(binding, first.id, 2))[0].category, 'exploration');
+    actor.admin = false;
+    await assert.rejects(files.moveResults(binding, { folderId: 'todo', items: [{ id: first.id, version: 3, folderVersion: 1 }] }), /自己提交/);
+    await assert.rejects(files.edit(binding, { id: first.id, revision: 3, action: 'delete', curate: false, merge: [] }), /只能删除自己/);
+    actor = { username: 'alice', admin: false };
+    const updated = (await files.edit(binding, { id: first.id, revision: 3, action: 'save', title: '我的能力', description: '仍由提交者维护', curate: false, merge: [] }))!;
+    assert.equal(updated.author, 'alice'); assert.equal(updated.revision, 4);
+    const folder = randomUUID(); await files.directories(binding, { action: 'create', id: folder, parentId: 'capability', name: '子目录' });
+    const placed = (await files.moveResults(binding, { folderId: folder, items: [{ id: first.id, version: 4, folderVersion: 1 }] }))[0];
+    assert.equal(placed.revision, 4); assert.equal(placed.folderVersion, 2); assert.equal(placed.description, updated.description); assert.equal(placed.sha256, updated.sha256);
+    await files.edit(binding, { id: first.id, revision: 4, action: 'delete', curate: false, merge: [] });
+    assert.equal((await files.list(binding)).length, 0);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
 test('team directory permissions, publication destinations, stale atomic moves and path redirects', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-result-dirs-')); let actor = { username: 'alice', admin: false };
   const files = new ContentFiles(root, async () => actor), binding = { username: 'alice', project: { id: 'p', name: 'Fixture', remoteRoot: '/p', uploadPath: '/p/submissions/alice', historyPath: '/p/trajectories/alice' } } as RemoteBinding;
@@ -52,16 +80,17 @@ test('team directory permissions, publication destinations, stale atomic moves a
     const a = await files.publish(binding, file, '/p/submissions/alice/a.md', meta);
     const b = await files.publish(binding, file, '/p/submissions/alice/b.md', meta);
     const refs = [a, b].map(value => ({ id: value.id, version: 1, folderVersion: 0 }));
-    await assert.rejects(files.moveResults(binding, { folderId: 'todo', items: refs }), /管理员/);
+    actor = { username: 'bob', admin: false };
+    await assert.rejects(files.moveResults(binding, { folderId: 'todo', items: refs }), /自己提交/);
     actor.admin = true;
     await assert.rejects(files.moveResults(binding, { folderId: 'todo', items: [refs[0], { ...refs[1], version: 4 }] }), /已更新/);
     assert.ok((await files.list(binding)).every(value => value.folderId === id));
     const moved = await files.moveResults(binding, { folderId: 'todo', items: refs });
-    assert.ok(moved.every(value => value.revision === 1 && value.folderVersion === 1 && value.folderId === 'todo'));
+    assert.ok(moved.every(value => value.revision === 2 && value.category === 'todo' && value.resultStatus === 'pending' && value.folderVersion === 1 && value.folderId === 'todo'));
     await assert.rejects(files.moveResults(binding, { folderId: id, items: refs }), /已更新/);
-    actor.admin = false;
-    const revised = await files.publish(binding, file, '/p/submissions/alice/a2.md', { ...meta, folderId: undefined, publicationTarget: { id: a.id, revision: 1 } });
-    assert.equal(revised.folderId, 'todo'); assert.equal(revised.folderVersion, 1); assert.equal(revised.revision, 2);
+    actor = { username: 'alice', admin: false };
+    const revised = await files.publish(binding, file, '/p/submissions/alice/a2.md', { ...meta, folderId: undefined, publicationTarget: { id: a.id, revision: 2 } });
+    assert.equal(revised.folderId, 'todo'); assert.equal(revised.folderVersion, 1); assert.equal(revised.revision, 3); assert.equal(revised.category, 'todo');
     await assert.rejects(files.publish(binding, file, '/p/submissions/alice/invalid.md', { ...meta, folderId: randomUUID() }), /不存在/);
     actor.admin = true; await files.directories(binding, { action: 'delete', id, revision: 1 });
     await assert.rejects(files.publish(binding, file, '/p/submissions/alice/deleted.md', meta), /删除/);
@@ -69,7 +98,7 @@ test('team directory permissions, publication destinations, stale atomic moves a
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });
 
-test('offline personal folders persist, keep content versions, validate batch moves and sync by account', async () => {
+test('offline personal folders persist, version category changes, validate batch moves and sync by account', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-personal-dirs-')), wb = new Workbench(path.join(root, 'data'), () => {}, () => {});
   try {
     await wb.store.init(); grantTestWorkspace(wb, root);
@@ -79,7 +108,12 @@ test('offline personal folders persist, keep content versions, validate batch mo
     await assert.rejects(wb.movePersonalResults(offlineProjectId, { folderId: folder, items: [{ id: b.id, version: 1, folderVersion: 0 }, { id: a.id, version: 2, folderVersion: 0 }] }), /已更新/);
     assert.equal(b.folderId, undefined);
     await wb.movePersonalResults(offlineProjectId, { folderId: folder, items: [{ id: b.id, version: 1, folderVersion: 0 }] });
-    assert.equal(b.version, 1); assert.equal(b.folderVersion, 1);
+    assert.equal(b.version, 2); assert.equal(b.folderVersion, 1); assert.equal(b.category, 'capability'); assert.equal(b.resultStatus, 'limited'); assert.equal(b.versions?.[0].category, 'todo'); assert.equal(b.versions?.[0].content, 'body');
+    const previous = structuredClone(b), save = wb.store.save.bind(wb.store);
+    wb.store.save = async () => { throw new Error('disk failure'); };
+    try { await assert.rejects(wb.movePersonalResults(offlineProjectId, { folderId: 'exploration', items: [{ id: b.id, version: 2, folderVersion: 1 }] }), /disk failure/); }
+    finally { wb.store.save = save; }
+    assert.deepEqual(b, previous, 'failed persistence restores the folder, category, status and historical versions together');
     const profile = wb.store.settings.workspaceSnapshot!.profile, owner = accountIdentity(profile);
     const snapshot = wb.snapshot();
     snapshot.settings.resultDirectories = [...wb.personalResultDirectories(offlineProjectId), { ...wb.personalResultDirectories(offlineProjectId)[0], id: randomUUID(), accountOwner: 'foreign-owner' }];
@@ -130,7 +164,7 @@ test('organization saves each conclusion to its chosen folder and team imports k
     await assert.rejects(wb.saveDraftPersonal(id, ids, { [ids[1]]: randomUUID() }), /不存在/);
     assert.equal(wb.conclusions(offlineProjectId).length, 0);
     const saved = await wb.saveDraftPersonal(id, ids, { [ids[0]]: folder, [ids[1]]: 'project_goal' });
-    assert.deepEqual(saved.map(item => item.folderId), [folder, 'project_goal']);
+    assert.deepEqual(saved.map(item => item.folderId), [folder, 'project_goal']); assert.deepEqual(saved.map(item => item.category), ['exploration', 'project_goal']);
     await wb.saveDraftPersonal(id, ids, {}); assert.equal(wb.conclusions(offlineProjectId).length, 2);
     const shared = { id: randomUUID(), title: '团队发现', description: '团队原文', category: 'exploration', kind: 'contribution', folderId: randomUUID(), revision: 1, path: '/p/result.md', author: 'alice', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString() };
     wb.remote.contentList = async () => [shared] as any;
