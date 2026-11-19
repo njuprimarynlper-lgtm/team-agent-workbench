@@ -81,7 +81,7 @@ test('topbar node entry exposes login and never presents cached projects as an a
 test('project entry labels describe project synchronization, not node authentication', () => {
   for (const connected of [false, true]) {
     const html = renderToStaticMarkup(createElement(ProjectConnectionEntry, { connected, open() {} }));
-    assert.match(html, new RegExp('项目同步：' + (connected ? '同步已开启' : '未开启同步')));
+    assert.match(html, new RegExp('项目同步：' + (connected ? '同步中' : '未同步')));
     assert.doesNotMatch(html, /中央节点：|>已连接<|>未连接</);
   }
   const local = renderToStaticMarkup(createElement(ProjectConnectionEntry, { connected: false, local: true, open() {} }));
@@ -94,7 +94,7 @@ test('project settings show the actual server and account with the shared connec
   assert.match(html, /role="tab"[^>]*>中央节点/);
   assert.match(html, /node-a:22/); assert.match(html, /成员账号：alice/); assert.match(html, />连接<\/button>/);
   const connected = renderToStaticMarkup(createElement(ProjectCentralConnection, { profile, connected: true, configure() {} }));
-  assert.match(connected, /已连接/); assert.match(connected, /断开本项目/);
+  assert.match(connected, /同步中/); assert.match(connected, /暂停本项目同步/);
   assert.doesNotMatch(connected, /type="password"/);
 });
 

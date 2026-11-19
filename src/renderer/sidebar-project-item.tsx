@@ -24,8 +24,9 @@ export function SidebarProjectItem({ project, selected, select, settings, call, 
       </button>
       <span className="project-session-count" title="未关闭的工作会话（含子会话）" aria-label={`${count} 个未关闭会话`}>{count}</span>
       {role && role !== 'member' && <span className="badge">{groupRoleLabels[role]}</span>}
+      {connection}
       <button className="icon project-settings-action" title={'项目设置：' + project.name} aria-label={'项目设置：' + project.name} onClick={settings}>{conflict ? <span className="inline-error" title="项目资料有分歧，点击处理">●</span> : <Settings size={14}/>}</button>
     </div>
-    {selected && <div className="workgroup-project-details" id={detailsId}><div className="workgroup-project-controls">{connection}<RsiRecommendationToggle projectId={project.id} projectName={project.name} call={call} open={recommendations} pending={pending}/></div></div>}
+    {selected && <div className="workgroup-project-details" id={detailsId}><div className="workgroup-project-controls"><RsiRecommendationToggle projectId={project.id} projectName={project.name} call={call} open={recommendations} pending={pending}/></div></div>}
   </div>;
 }

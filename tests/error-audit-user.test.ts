@@ -160,7 +160,7 @@ test('retrying an accepted conversation save only persists the record and never 
 
 test('failed background settlement after project disconnect keeps the confirmed disconnected outcome', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wb-disconnect-'));
-  const host: any = { store: { root }, connectedProjects: new Set(['p']), disconnectingProjects: new Set(), assertAccountReady() {}, broadcast() {}, accountSync: { connectionChanged() {}, settle: async () => {} }, projectSync: { settle: async () => {} }, remote: { settleProject: async () => { throw Error('EIO: settle'); } } };
+  const host: any = { store: { root }, connectedProjects: new Set(['p']), pausedProjects: new Set(), disconnectingProjects: new Set(), assertAccountReady() {}, broadcast() {}, accountSync: { connectionChanged() {}, settle: async () => {} }, projectSync: { settle: async () => {} }, remote: { settleProject: async () => { throw Error('EIO: settle'); } } };
   try {
     await assert.rejects(Workbench.prototype.disconnectProject.call(host, 'p'), (e: any) => { assert.equal(e.code, 'PROJECT_DISCONNECTED_WITH_PENDING_SYNC'); assert.equal(e.failure.outcome, 'accepted'); assert.match(e.message, /本项目已经断开/); return true; });
     assert.equal(host.connectedProjects.has('p'), false); assert.equal(host.disconnectingProjects.has('p'), false);

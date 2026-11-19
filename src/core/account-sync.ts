@@ -85,7 +85,7 @@ export class AccountSync {
     store.saved = () => this.schedule();
     this.conflicts = new SyncConflicts(store.root, () => { this.state.conflicts = this.state.conflicts?.map(value => this.conflicts.view(value)); this.changed(); }, runConflict);
   }
-  connectionChanged() { this.generation++; clearTimeout(this.timer); this.state = { status: this.hasConnectedProject() ? 'pending' : 'offline' }; this.changed(); this.schedule(); }
+  connectionChanged() { this.generation++; clearTimeout(this.timer); if (this.state.failure?.code === 'ACCOUNT_SYNC_CACHE_UNREADABLE') return; this.state = { status: this.hasConnectedProject() ? 'pending' : 'offline' }; this.changed(); this.schedule(); }
   async settle() { await this.running; }
   private hasConnectedProject() { return !this.projectEnabled || !!this.remote.profile?.projects.some(p => this.projectEnabled!(p.id)); }
   private scope(versions: AccountRecords[]) {
@@ -222,6 +222,7 @@ export class AccountSync {
     this.polling = setInterval(() => void this.sync(), 60000); this.polling.unref();
   }
   schedule() {
+    if (this.state.failure?.code === 'ACCOUNT_SYNC_CACHE_UNREADABLE') return;
     if (this.applying || this.resolving || this.stopped || !this.profile) return;
     if (this.remote.profile && accountIdentity(this.remote.profile) === accountIdentity(this.profile)) this.profile = structuredClone(this.remote.profile);
     for (const item of this.store.conclusions) (item as any).accountOwner ||= accountIdentity(this.profile);
@@ -272,6 +273,7 @@ export class AccountSync {
     this.apply(records, this.profile!, true); await this.store.save(); this.changed();
   }
   sync(): Promise<void> {
+    if (this.state.failure?.code === 'ACCOUNT_SYNC_CACHE_UNREADABLE') return Promise.resolve();
     if (this.running) return this.running;
     if (!this.profile || this.resolving || this.stopped || !this.remote.connected || !this.hasConnectedProject()) return Promise.resolve();
     if (this.remote.profile && accountIdentity(this.remote.profile) === accountIdentity(this.profile)) this.profile = structuredClone(this.remote.profile);

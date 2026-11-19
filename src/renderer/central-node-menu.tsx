@@ -55,7 +55,7 @@ export function CentralNodeMenu({ connection, busy = false, loginRequest = 0, re
           <div className="central-node-address">{profile.host}:{profile.port}</div>
           <div className="central-node-member"><span className="central-node-avatar" aria-hidden="true">{Array.from(profile.username)[0]?.toUpperCase()}</span><span>{profile.username}</span><span className="central-node-current-tag">当前窗口</span></div>
           <div className="central-node-permissions"><span>可访问项目</span><strong>{profile.projects.length} 个</strong></div>
-          <p className="central-node-hint">{profile.projects.length ? '项目已列在左侧，资料同步按项目单独开启。' : '暂未发现可访问项目，可联系管理员核对授权后刷新。'}</p>
+          <p className="central-node-hint">{profile.projects.length ? '项目会在后台自动同步，可在各项目中查看状态或暂停。' : '暂未发现可访问项目，可联系管理员核对授权后刷新。'}</p>
           {connection?.workspaces.some(workspace => workspace.accessError) && <p className="inline-error" role="status">部分项目读取失败，请刷新列表后重试。</p>}
         </div>
         <footer className="central-node-panel-footer"><button type="button" className="central-node-add" disabled={blocked} onClick={() => { setFresh(true); setLogin(true); }}><Plus size={14}/>连接其他中央节点</button><span>不同节点或账号在独立窗口打开</span></footer>

@@ -192,6 +192,60 @@ export class Workbench {
   }
   private connectedProjects = new Set<string>();
   private disconnectingProjects = new Set<string>();
+  private pausedProjects = new Set<string>();
+  private projectContentSync = new Map<string, { syncedAt?: string; failure?: UserFailure }>();
+  private projectBackgroundSync?: Promise<void>;
+  private projectSyncRequest = 0;
+  private startProjectBackgroundSync() {
+    if (!this.contentWatch) {
+      this.contentWatch = setInterval(() => { void this.syncProjectsInBackground(); }, 15000);
+      this.contentWatch.unref();
+    }
+    void this.syncProjectsInBackground();
+  }
+  // One authenticated transport, independent project gates. A manual pause lasts
+  // until the next login or an explicit resume; refreshing the catalog respects it.
+  private connectDiscoveredProjects() {
+    if (this.configuring || this.closing || !this.remote.connected || this.personal) return;
+    let added = false;
+    for (const project of this.connectableProjects()) {
+      if (!this.connectedProjects.has(project.id) && !this.pausedProjects.has(project.id) && !this.disconnectingProjects.has(project.id)) { this.connectedProjects.add(project.id); added = true; }
+    }
+    if (added) { this.projectSyncRequest++; this.accountSync.connectionChanged(); }
+    this.queue.resume(); this.broadcast();
+    this.startProjectBackgroundSync();
+  }
+  async syncProjectsInBackground() {
+    if (this.projectBackgroundSync) return this.projectBackgroundSync;
+    if (this.configuring || this.closing || !this.remote.connected || this.personal) return;
+    const epoch = this.accountEpoch;
+    const current = () => epoch === this.accountEpoch && !this.configuring && !this.closing && this.remote.connected;
+    const job = (async () => {
+      while (current()) {
+        const request = this.projectSyncRequest;
+        // Drain work that used an earlier project gate before starting a new pass.
+        await Promise.allSettled([this.contentSyncJob, this.accountSync.settle(), this.projectSync.settle()]);
+        if (!current()) return;
+        await Promise.allSettled([this.projectSync.sync(), this.accountSync.sync(), this.questions.sync(), this.syncContentUpdates()]);
+        if (current()) this.broadcast();
+        if (request === this.projectSyncRequest) return;
+      }
+    })();
+    this.projectBackgroundSync = job;
+    try { await job; } finally { if (this.projectBackgroundSync === job) this.projectBackgroundSync = undefined; }
+  }
+  private projectConnectionState(id: string): import('../shared/project-connection').ProjectConnectionState {
+    const connected = this.projectConnected(id), content = this.projectContentSync.get(id), project = this.projectSync.states()[id];
+    const account = this.accountSync.state;
+    const failure = content?.failure || (project?.error ? userFailure(project.error, { domain: 'central', operation: '同步项目说明' }) : undefined)
+      || (account.status === 'error' ? account.failure || userFailure(account.detail, { domain: 'central', operation: '同步账号资料' }) : undefined)
+      || (account.status === 'conflict' ? { version: 1 as const, code: 'ACCOUNT_SYNC_CONFLICT', message: '账号资料存在不同版本，部分内容尚未同步。请打开左下角的同步状态处理。' } : undefined)
+      || this.questions.projectSyncFailure(id);
+    const syncStatus = !connected ? this.pausedProjects.has(id) ? 'paused' : 'unsynced'
+      : project?.conflict || failure?.code === 'ACCOUNT_SYNC_CONFLICT' ? 'conflict' : failure ? 'unsynced'
+      : content?.syncedAt && project?.syncedAt && this.questions.projectSyncedAt(id) && account.status === 'synced' && !project?.pending ? 'synced' : 'syncing';
+    return { connected, disconnecting: this.disconnectingProjects.has(id), syncStatus, syncedAt: content?.syncedAt, ...(failure ? { failure } : {}) };
+  }
   projectConnected(id: string) { return !this.configuring && this.remote.projectConnected(id); }
   connectableProjects() {
     const known = new Set(this.remote.profile?.projects.map(p => p.id)), states = this.projectSync.states();
@@ -201,17 +255,21 @@ export class Workbench {
     this.assertAccountReady();
     if (this.disconnectingProjects.has(id)) throw new Error('此项目正在断开，请稍后连接');
     if (!this.remote.connected || !this.connectableProjects().some(project => project.id === id)) throw new Error('此连接中没有该项目，请刷新项目列表后重试');
+    this.pausedProjects.delete(id);
+    this.projectSyncRequest++;
     this.connectedProjects.add(id); this.accountSync.connectionChanged();
     this.projectSync.schedule(); this.queue.resume(); this.activity.connectionRecovered(); this.broadcast();
-    void this.accountSync.settle().then(() => this.accountSync.sync()); void this.questions.sync().catch(() => {});
+    this.startProjectBackgroundSync();
   }
   async disconnectProject(id: string) {
     this.assertAccountReady();
+    this.pausedProjects.add(id);
+    this.projectSyncRequest++;
     this.disconnectingProjects.add(id); this.connectedProjects.delete(id); this.accountSync.connectionChanged(); this.broadcast();
     try { await Promise.all([this.remote.settleProject(id), this.accountSync.settle(), this.projectSync.settle()]); }
     catch (error) {
       const logRef = logsFor(this.store.root).record('diagnostic', 'project.disconnect.settle_failed', accountLogScope(this.store.root, { projectId: id }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
-      throw failureError({ version: 1, code: 'PROJECT_DISCONNECTED_WITH_PENDING_SYNC', outcome: 'accepted', phase: 'disconnect-settle', logRef, message: '本项目已经断开，但后台同步还没收尾。本机资料仍保留，可以继续工作；需要同步时点“连接”。' });
+      throw failureError({ version: 1, code: 'PROJECT_DISCONNECTED_WITH_PENDING_SYNC', outcome: 'accepted', phase: 'disconnect-settle', logRef, message: '本项目已经断开，但后台同步还没收尾。本机资料仍保留，可以继续工作；需要同步时点“恢复同步”。' });
     }
     finally { this.disconnectingProjects.delete(id); this.broadcast(); }
   }
@@ -471,7 +529,7 @@ export class Workbench {
     for (const id of this.connectedProjects) if (!accessible.has(id)) { this.connectedProjects.delete(id); this.accountSync.connectionChanged(); }
     this.store.settings.workspaceSnapshot = makeWorkspaceSnapshot(profile, this.remote.workspaces);
     this.store.settings.connections = this.store.settings.connections.map(p => p.id === profile.id ? structuredClone(profile) : p);
-    this.workspaceReady = !!this.remote.workspaces.length; await this.store.save(); this.broadcast(); return projects;
+    this.workspaceReady = !!this.remote.workspaces.length; await this.store.save(); this.connectDiscoveredProjects(); this.broadcast(); return projects;
   }
   contentUpdates() { return [...(this.store.settings.contentUpdates || [])].sort((a, b) => Date.parse(b.detectedAt) - Date.parse(a.detectedAt)); }
   private localContentTitle(projectId: string, item: Pick<SharedContent, 'id' | 'title'>) { return this.store.settings.contentAliases?.[contentAliasKey(projectId, item.id)] || titleSubject(item.title) || item.title; }
@@ -1027,7 +1085,7 @@ export class Workbench {
     if (projectId) { const profile = this.remote.profile || this.store.settings.workspaceSnapshot?.profile; if (!profile?.projects.some(p => p.id === projectId)) throw new Error('项目不可访问'); }
     this.activity.setProject(windowId, projectId);
     if (projectId) void this.rsi.activate(projectId).catch(() => {});
-    if (!this.contentWatch) { this.contentWatch = setInterval(() => { if (!this.configuring && !this.closing) void this.syncContentUpdates().catch(() => {}); }, 15000); this.contentWatch.unref(); }
+    this.startProjectBackgroundSync();
     await this.syncContentUpdates();
   }
   async syncContentUpdates(): Promise<ContentUpdate[]> {
@@ -1036,8 +1094,9 @@ export class Workbench {
     try { return await job; } finally { if (this.contentSyncJob === job) this.contentSyncJob = undefined; }
   }
   private async scanContentUpdates(): Promise<ContentUpdate[]> {
-    if (!this.remote.connected || !this.remote.profile) return this.contentUpdates();
-    const profile = this.remote.profile;
+    if (this.configuring || this.closing || !this.remote.connected || !this.remote.profile) return this.contentUpdates();
+    const profile = this.remote.profile, epoch = this.accountEpoch;
+    const currentAccount = () => !this.configuring && !this.closing && this.remote.connected && this.accountEpoch === epoch && this.remote.profile === profile;
     const beforeActivity = JSON.stringify(this.store.activity);
     let changed = false;
     for (const project of profile.projects) {
@@ -1114,10 +1173,25 @@ export class Workbench {
         }
         if (JSON.stringify(priorRaw || {}) !== JSON.stringify(current)) { seen[key] = current; changed = true; }
         this.activity.observe(project.id, accountIdentity(profile), additions);
+        if (currentAccount() && this.projectConnected(project.id)) this.projectContentSync.set(project.id, { syncedAt: new Date().toISOString() });
         if (additions.length) void this.rsi.completed(project.id).catch(() => {});
-      } catch { /* One inaccessible project must not suppress updates from the others. */ }
+      } catch (error) {
+        // A failed project remains enabled for retry and never suppresses its peers.
+        if (currentAccount() && this.projectConnected(project.id)) {
+          const logRef = logsFor(this.store.root).record('diagnostic', 'project.sync.content', accountLogScope(this.store.root, { projectId: project.id, origin: 'background' }), { level: 'warning', detail: error instanceof Error ? error.message : String(error) });
+          this.projectContentSync.set(project.id, { ...this.projectContentSync.get(project.id), failure: userFailure(error, { domain: 'central', operation: '读取项目共享成果', logRef }) });
+        }
+      }
     }
-    if (changed || beforeActivity !== JSON.stringify(this.store.activity)) { await this.store.save(); this.broadcast(); }
+    if (currentAccount() && (changed || beforeActivity !== JSON.stringify(this.store.activity))) {
+      try { await this.store.save(); }
+      catch (error) {
+        const logRef = logsFor(this.store.root).record('diagnostic', 'project.sync.records', accountLogScope(this.store.root, { origin: 'background' }), { level: 'error', detail: error instanceof Error ? error.message : String(error) });
+        if (currentAccount()) for (const project of profile.projects) if (this.projectConnected(project.id)) this.projectContentSync.set(project.id, { ...this.projectContentSync.get(project.id), failure: userFailure(error, { domain: 'local', operation: '保存项目同步记录', logRef }) });
+        throw error;
+      }
+    }
+    if (currentAccount()) this.broadcast();
     return this.contentUpdates();
   }
   saveInput(id: string, input: SessionInput) {
@@ -1165,7 +1239,7 @@ export class Workbench {
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ localRecordSaveFailure: this.backgroundRecordSaveState(), projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, { connected: this.projectConnected(p.id), disconnecting: this.disconnectingProjects.has(p.id) }])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ localRecordSaveFailure: this.backgroundRecordSaveState(), projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, this.projectConnectionState(p.id)])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { const profile = !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile && { ...profile, projects: this.projectSync?.projects() || profile.projects }; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -1606,7 +1680,7 @@ export class Workbench {
       const remembered = { ...profile, projects: [], workPath: '', manifestPath: '' };
       this.store.settings.connections = [structuredClone(remembered)];
       await this.store.save(); this.broadcast();
-      this.connectedProjects.clear(); this.accountSync.connectionChanged();
+      this.connectedProjects.clear(); this.pausedProjects.clear(); this.projectContentSync.clear(); this.projectBackgroundSync = undefined; this.accountSync.connectionChanged();
       const result = verified ? this.remote.adoptConnection(verified) : await this.remote.connect({ ...profile, workPath: '', manifestPath: '', projects: [] }, password, trust);
       await this.remote.loadManifest();
       await this.accountSync.activate(result, previous);
@@ -1621,7 +1695,7 @@ export class Workbench {
       await this.store.save(); this.workspaceReady = !!this.remote.workspaces.length;
       await this.startCursorNativeSessions(); this.broadcast(); return result;
     } catch (error) { this.remote.disconnect(); throw error; }
-    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); await this.resultApi.restore(); await this.restoreRecommendationReferences(); } this.broadcast(); }
+    finally { this.configuring = false; if (this.remote.connected) { this.activity.connectionRecovered(); this.projectSync.schedule(); await this.resultReferences.restore(); await this.resultApi.restore(); await this.restoreRecommendationReferences(); this.connectDiscoveredProjects(); } this.broadcast(); }
   }
   async initializeProject(name: string, groupName: string, brief: ProjectBrief, contextKey: string) {
     this.assertWorkspace();
@@ -4430,5 +4504,5 @@ export class Workbench {
     }
     return this.closeTask;
   }
-  private async closeOnce() { this.closing = true; await this.resultApi.close(); await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await this.traceMigration; await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
+  private async closeOnce() { this.closing = true; await this.resultApi.close(); await this.resultReferences.close(); await this.scheduled.close(); clearInterval(this.directoryTimer); await this.directoryJob; clearInterval(this.inputQueueTimer); await this.clearSideChats(); clearInterval(this.codexSyncTimer); await this.codexSyncJob; await this.rsi.close(); await this.questions.close(); this.stopNativeTranscriptSync(); clearInterval(this.contentWatch); await this.activity.close(); await this.contentSyncJob; await this.projectBackgroundSync; for (const timer of this.trajectoryTimers.values()) clearTimeout(timer); this.trajectoryTimers.clear(); clearTimeout(this.deltaTimer); this.deltaTimer = undefined; await Promise.allSettled(this.archiving.values()); clearTimeout(this.timer); this.timer = undefined; try { await this.flushEdits(); } catch (error) { this.closing = false; this.changed(); throw error; } this.closing = true; for (const job of this.catalogJobs.values()) job.controller.abort(); await Promise.allSettled([...this.catalogJobs.values()].map(job => job.promise)); await this.projectSync.close(); await this.accounts.close(); await this.accountSync.close(); const interrupted = this.store.sessions.filter(s => { const runtime = this.runtimes.get(s.id); return !(runtime instanceof AgentRuntime && runtime.sharedDesktop) && s.purpose === 'work' && !s.closedAt && ['starting', 'running', 'approval'].includes(s.status) && !s.stoppedAt; }); await Promise.all([...this.runtimes.values()].map(runtime => runtime.close())); this.remote.disconnect(); for (const s of interrupted) { s.status = 'error'; s.error = '应用关闭时任务尚未完成，已中断；可检查已有结果后继续发送。'; } await this.traceMigration; await Promise.all(this.eventWrites.values()); await this.store.save(); await this.journal.close(); await this.cursorDesktop.close(); }
 }

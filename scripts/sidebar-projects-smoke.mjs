@@ -37,7 +37,7 @@ try {
   await expect(page.getByRole('button', { name: '新建会话', exact: true })).toBeVisible();
   await team.click();
   await expect(page.locator('.project-session-panel [data-session-id]')).toHaveCount(2);
-  await page.getByRole('button', { name: '项目同步：同步已开启', exact: true }).click();
+  await page.getByRole('button', { name: '项目同步：同步中', exact: true }).click();
   await expect(page.locator('#fixture-notice')).toHaveText('中央节点：团队工作台');
   await page.getByRole('button', { name: '查看AI推荐：团队工作台', exact: true }).click();
   await expect(page.locator('#fixture-notice')).toHaveText('AI推荐：团队工作台');
@@ -76,11 +76,11 @@ try {
       const bounds = await page.evaluate(() => {
         const list = document.querySelector('.workgroup-list'), personal = document.querySelector('.personal-section');
         const rows = [...document.querySelectorAll('.workgroup-project-row')].map(node => node.getBoundingClientRect().height);
-        const detail = document.querySelector('.workgroup-project-details'), connection = detail.querySelector('.project-connection-entry'), ai = detail.querySelector('.project-ai-row');
-        const a = connection.getBoundingClientRect(), b = ai.getBoundingClientRect();
+        const detail = document.querySelector('.workgroup-project-details'), row = document.querySelector('.is-selected .workgroup-project-row'), connection = row.querySelector('.project-connection-entry'), ai = detail.querySelector('.project-ai-row');
+        const a = connection.getBoundingClientRect(), b = ai.getBoundingClientRect(), r = row.getBoundingClientRect();
         const title = document.querySelector('.is-selected .workgroup-project>span');
         return { rows, widths: [...document.querySelectorAll('.project-card')].map(node => node.getBoundingClientRect().width), personal: personal.getBoundingClientRect().width,
-          overflow: list.scrollWidth > list.clientWidth, horizontalOverlap: a.right > b.left + 1, sameRow: Math.abs(a.top - b.top) < 1,
+          overflow: list.scrollWidth > list.clientWidth, horizontalOverlap: b.top < r.bottom - 1, sameRow: a.top >= r.top - 1 && a.bottom <= r.bottom + 1,
           titleHeight: title.getBoundingClientRect().height, ellipsis: getComputedStyle(title).textOverflow };
       });
       assert(bounds.rows.every(height => height === 32), 'Project rows must be 32px');

@@ -15,7 +15,7 @@ export class SharedFiles {
   private operations = new Map<string, Set<Promise<unknown>>>();
   setProjectAccess(check: (id: string) => boolean) { this.projectAccess = check; }
   projectConnected(id: string) { return this.connected && (this.projectAccess?.(id) ?? true); }
-  private assertProject(id: string) { if (!this.projectConnected(id)) throw new Error('此项目尚未连接中央节点，请在项目内连接；可复用已登录的连接'); }
+  private assertProject(id: string) { if (!this.projectConnected(id)) throw new Error('此项目尚未连接中央节点。请打开项目同步状态，恢复同步；若节点已断开，请重新登录。'); }
   private async access<T>(binding: RemoteBinding, action: () => Promise<T>): Promise<T> {
     this.assertProject(binding.project.id);
     const jobs = this.operations.get(binding.project.id) || new Set<Promise<unknown>>();

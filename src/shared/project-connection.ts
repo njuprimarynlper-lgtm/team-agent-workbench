@@ -4,6 +4,23 @@ import { errorMessage } from './errors';
 import type { ConnectionProfile, WorkspaceAccess } from './types';
 import { projectBriefSchema } from './project-brief';
 import { groupLabelMessage, groupLabelPattern } from './groups';
+import type { UserFailure } from './user-failure';
+
+export interface ProjectConnectionState {
+  connected: boolean;
+  disconnecting?: boolean;
+  syncStatus?: 'syncing' | 'synced' | 'unsynced' | 'paused' | 'conflict';
+  syncedAt?: string;
+  failure?: UserFailure;
+}
+
+export function projectSyncLabel(state: ProjectConnectionState) {
+  if (state.disconnecting) return '正在暂停';
+  if (state.syncStatus === 'paused') return '已暂停';
+  if (state.syncStatus === 'conflict') return '待处理';
+  if (!state.connected || state.syncStatus === 'unsynced') return '未同步';
+  return state.syncStatus === 'synced' ? '已同步' : '同步中';
+}
 
 // A window-local continuation, never a saved project or an SSH credential.
 const projectDisplayNameSchema = z.string().trim().transform(value => value.normalize('NFC')).refine(value => groupLabelPattern.test(value), groupLabelMessage);

@@ -145,7 +145,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
   const { workbench, egress, broadcast, notice } = context;
   if (context === personalContext && active) await alignPersonalRelay(active, action, raw);
   if (!['snapshot', 'remote.connect', 'project.connection.open'].includes(action)) workbench.assertAccountReady();
-  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'settings.agent.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
+  const setupActions = new Set(['project.create', 'project.connection.setup.dismiss', 'project.connection.disconnect', 'project.connection.retry', 'snapshot', 'workspace.select', 'local.move', 'project.creation.dismiss', 'group.control', 'team.cache.read', 'content.updates', 'content.updates.read', 'content.updates.clear', 'content.updates.dismiss', 'settings.save', 'settings.agent.save', 'layout.sidebar', 'providers.detect', 'provider.auth', 'provider.login.cancel', 'choose.directory', 'choose.executable', 'choose.certificate', 'guard.connection.test', 'server.identity.forget', 'remote.connect', 'project.connection.open', 'remote.disconnect', 'provider.login', 'open.data', 'open.link', 'copy', 'session.stop', 'session.completion.read', 'remote.manifest', 'session.history', 'handoff.read', 'egress.configure', 'egress.test']);
   if (!setupActions.has(action)) workbench.assertWorkspace();
   switch (action) {
     case 'workspace.select': {
@@ -208,6 +208,7 @@ async function dispatch(action: string, raw: unknown, owner: BrowserWindow, pref
     }
     case 'localRecord.retrySave': return workbench.retryBackgroundRecordSave();
     case 'project.connection.open': { const p = z.object({ localProjectId: z.string().optional(), key: z.string().min(1), projectId: z.string().optional(), createProject: projectCreationInputSchema.optional() }).parse(raw); return openProjectConnection(owner, p.key, p.projectId, p.createProject, p.localProjectId); }
+    case 'project.connection.retry': { const p = z.object({ projectId: z.string().min(1) }).parse(raw); await workbench.connectProject(p.projectId); return true; }
     case 'project.connection.disconnect': { const p = z.object({ projectId: z.string().min(1) }).parse(raw); await workbench.disconnectProject(p.projectId); return true; }
     case 'project.connection.setup.dismiss': { active!.projectLinkTarget = undefined; return true; }
     case 'project.creation.dismiss': { const p = z.object({ id: z.string() }).parse(raw); if (active!.projectCreation?.id === p.id) { active!.projectCreation = undefined; broadcast(); } return true; }

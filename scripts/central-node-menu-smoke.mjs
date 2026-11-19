@@ -57,49 +57,48 @@ try {
   cases.push('explicit topbar login, disabled offline refresh, Escape/outside close and password clearing');
 
   await nodeEntry().click(); await fillNode(profileA, 'wrong-password'); await submit().click();
-  await expect(panel().getByRole('alert')).toContainText('账号或密码');
+  await expect(panel().getByRole('alert')).toContainText('中央节点登录没通过');
   assert.equal((await snapshot()).connection, undefined);
   await panel().getByLabel('登录密码', { exact: true }).fill('test-password');
   await panel().getByLabel('登录密码', { exact: true }).press('Enter');
   await expect.poll(async () => !!(await snapshot()).connection?.connected).toBe(true);
   await expect(panel()).toHaveCount(0); await expect(refresh).toBeEnabled();
-  assert(Object.values((await snapshot()).projectConnections).every(project => !project.connected));
+  assert(Object.values((await snapshot()).projectConnections).every(project => project.connected));
   await nodeEntry().click(); await expect(panel().getByText('已登录', { exact: true })).toBeVisible();
   await expect(panel().locator('.central-node-permissions')).toContainText('2 个');
   await expect(panel().locator('.central-node-member')).toContainText('taowen');
   await page.screenshot({ path: path.join(data, 'topbar-menu.png') });
   await page.keyboard.press('Escape');
-  cases.push('real SSH wrong-password recovery and Enter login without activating any project');
+  cases.push('real SSH wrong-password recovery and Enter login with automatic project activation');
 
   const added = { id: 'project_' + 'd'.repeat(32), name: '新授权项目' }; seed(serverA, added);
   await refresh.click();
   await expect(page.locator(`[data-project-id="${added.id}"]`)).toBeVisible();
   await expect(panel()).toHaveCount(0);
   await nodeEntry().click(); await expect(panel().locator('.central-node-permissions')).toContainText('3 个'); await page.keyboard.press('Escape');
-  // Project synchronization still uses its own project-scoped form.
-  await page.locator(`[data-project-id="${projects[1].id}"]`).click();
-  await page.getByRole('button', { name: '暂不设置', exact: true }).click();
-  await page.getByRole('button', { name: '项目同步：未开启同步', exact: true }).click();
-  await page.getByLabel('项目中央节点', { exact: true }).getByRole('button', { name: '连接', exact: true }).click();
-  await page.getByRole('dialog', { name: '项目中央节点', exact: true }).getByRole('button', { name: '使用此连接', exact: true }).click();
+  // New authorizations synchronize automatically; a pause still affects just one project.
+  await expect.poll(async () => !!(await snapshot()).projectConnections[added.id]?.connected).toBe(true);
+  await call('project.connection.disconnect', { projectId: projects[1].id });
+  await refresh.click();
+  assert.equal((await snapshot()).projectConnections[projects[1].id].syncStatus, 'paused');
+  assert.equal((await snapshot()).projectConnections[projects[0].id].connected, true);
+  await call('project.connection.retry', { projectId: projects[1].id });
   await expect.poll(async () => !!(await snapshot()).projectConnections[projects[1].id]?.connected).toBe(true);
-  const directoryDialog = page.getByRole('button', { name: '暂不设置', exact: true });
-  if (await directoryDialog.isVisible()) await directoryDialog.click();
   const beforeReuse = await snapshot();
   await nodeEntry().click(); await panel().getByRole('button', { name: '连接其他中央节点', exact: true }).click();
   await panel().getByLabel('选择中央节点连接').selectOption(beforeReuse.reusableConnections[0].key);
   await expect(panel().getByLabel('连接目标项目')).toHaveCount(0);
   await panel().getByRole('button', { name: '使用此连接', exact: true }).click();
   await expect(panel()).toHaveCount(0);
-  assert.deepEqual((await snapshot()).projectConnections, beforeReuse.projectConnections);
+  assert.deepEqual(Object.fromEntries(Object.entries((await snapshot()).projectConnections).map(([id,value])=>[id,value.connected])), Object.fromEntries(Object.entries(beforeReuse.projectConnections).map(([id,value])=>[id,value.connected])));
   assert.equal((await snapshot()).selectedProjectId, beforeReuse.selectedProjectId);
-  cases.push('refresh discovers new authorization; project sync remains independent; global reuse preserves current selection and sync');
+  cases.push('refresh activates new authorization; manual pauses remain independent; global reuse preserves current selection and activation');
 
   await nodeEntry().click(); await panel().getByRole('button', { name: '连接其他中央节点', exact: true }).click();
   await fillNode(profileB, 'wrong-password'); await submit().click();
-  await expect(panel().getByRole('alert')).toContainText('账号或密码');
+  await expect(panel().getByRole('alert')).toContainText('中央节点登录没通过');
   assert.equal((await snapshot()).connection.profile.port, profileA.port);
-  assert.deepEqual((await snapshot()).projectConnections, beforeReuse.projectConnections);
+  assert.deepEqual(Object.fromEntries(Object.entries((await snapshot()).projectConnections).map(([id,value])=>[id,value.connected])), Object.fromEntries(Object.entries(beforeReuse.projectConnections).map(([id,value])=>[id,value.connected])));
   await panel().getByLabel('登录密码', { exact: true }).fill('test-password');
   const nextWindow = app.waitForEvent('window'); await submit().click(); const second = await nextWindow;
   second.on('pageerror', error => errors.push(error.message));
@@ -108,9 +107,9 @@ try {
   const secondState = await call('snapshot', undefined, second);
   assert.equal(secondState.connection.profile.username, 'taowen');
   assert.equal(secondState.connection.profile.projects.length, 1);
-  assert(Object.values(secondState.projectConnections).every(project => !project.connected));
+  assert(Object.values(secondState.projectConnections).every(project => project.connected));
   assert.equal((await snapshot()).connection.profile.port, profileA.port);
-  assert.deepEqual((await snapshot()).projectConnections, beforeReuse.projectConnections);
+  assert.deepEqual(Object.fromEntries(Object.entries((await snapshot()).projectConnections).map(([id,value])=>[id,value.connected])), Object.fromEntries(Object.entries(beforeReuse.projectConnections).map(([id,value])=>[id,value.connected])));
   cases.push('same username on another Linux node opens an isolated window; failed or successful login leaves original sync intact');
 
   await call('remote.disconnect'); await expect(nodeEntry()).toHaveText('连接中央节点'); await expect(refresh).toBeDisabled();
@@ -120,8 +119,8 @@ try {
   await fillNode(profileA, 'test-password'); await submit().click();
   await expect.poll(async () => !!(await snapshot()).connection?.connected).toBe(true);
   await expect(panel()).toHaveCount(0);
-  assert(Object.values((await snapshot()).projectConnections).every(project => !project.connected));
-  cases.push('disconnection shows login rather than cached authorization; reconnect does not resume project sync implicitly');
+  assert(Object.values((await snapshot()).projectConnections).every(project => project.connected));
+  cases.push('disconnection shows login rather than cached authorization; reconnect automatically resumes accessible project synchronization');
 
   await page.setViewportSize({ width: 1100, height: 720 }); await nodeEntry().click();
   const bounds = await panel().boundingBox(); assert(bounds.x >= 0 && bounds.x + bounds.width <= 1100 && bounds.y + bounds.height <= 720);

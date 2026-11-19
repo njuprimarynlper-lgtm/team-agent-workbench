@@ -5,6 +5,8 @@ const operations: Record<string, string> = {
   'session.send': '发送消息', 'session.answer': '提交回答或批准', 'session.model': '切换模型', 'session.permissions': '修改执行权限',
   'settings.agent.save': '保存程序设置', 'settings.save': '保存设置', 'project.directory.save': '保存代码目录',
   'content.list': '读取团队成果', 'content.edit': '保存团队成果', 'content.download': '下载团队文件',
+  'project.sync.content': '读取项目共享成果', 'project.sync.questions': '读取项目提问',
+  'project.sync.records': '保存项目同步记录',
   'remote.download': '下载文件', 'content.attachment.download': '下载附件',
   'assignment.create': '派发任务', 'assignment.list': '读取任务列表', 'question.sync': '更新求助记录',
   'draft.retry': '重新整理成果', 'draft.prepare': '整理成果', 'draft.deleteMany': '删除整理记录',

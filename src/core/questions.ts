@@ -13,6 +13,8 @@ import { safeFilename } from './paths';
 import { sessionFilePath } from './session-files';
 import type { SourceFile } from '../shared/types';
 import { z } from 'zod';
+import { userFailure, type UserFailure } from '../shared/user-failure';
+import { logsFor, accountLogScope } from './logging';
 
 type SavedInbox = QuestionInbox & { notified: Record<string, number>; followSeen?: Record<string, number>; suggestSeen?: Record<string, boolean> };
 export class Questions {
@@ -26,6 +28,10 @@ export class Questions {
   private staged = new Map<string, SourceFile>();
   private autoRunning = false;
   private stopped = false;
+  private syncFailures = new Map<string, Map<string, UserFailure>>();
+  private syncedProjects = new Map<string, { profile: ConnectionProfile; projects: Map<string, string> }>();
+  projectSyncedAt(projectId: string) { const owner = this.owner(), state = owner && this.syncedProjects.get(owner); return state && state.profile === this.remote.profile ? state.projects.get(projectId) : undefined; }
+  projectSyncFailure(projectId: string) { const owner = this.owner(); return owner && this.syncedProjects.get(owner)?.profile === this.remote.profile ? this.syncFailures.get(owner)?.get(projectId) : undefined; }
   constructor(private store: Store, private remote: SharedFiles, private hooks: {
     profile: () => ConnectionProfile | undefined; session: (id: string) => AgentSession;
     send: (sessionId: string, text: string, runId: string, agentNotice: string, draft?: boolean) => Promise<boolean>;
@@ -353,20 +359,35 @@ export class Questions {
     const profile = this.remote.profile, inbox = this.inbox(), owner = this.owner();
     if (this.stopped || !this.remote.connected || !profile || !inbox || !owner || accountIdentity(profile) !== owner) return;
     try {
+      const failures = this.syncFailures.get(owner) || new Map<string, UserFailure>();
+      this.syncFailures.set(owner, failures);
+      let synced = this.syncedProjects.get(owner);
+      if (synced?.profile !== profile) { synced = { profile, projects: new Map() }; this.syncedProjects.set(owner, synced); failures.clear(); }
+      const failedProjects = new Set<string>();
       for (const project of profile.projects) {
         if (!this.remote.projectConnected(project.id)) continue;
         const before = new Map(inbox.items.filter(q => q.projectId === project.id).map(q => [q.id, q]));
-        const questions = await this.remote.questionRequest(this.remote.binding(project.id)) as TeamQuestion[];
-        if (owner !== this.owner() || this.stopped) return;
+        let questions: TeamQuestion[];
+        try { questions = await this.remote.questionRequest(this.remote.binding(project.id)) as TeamQuestion[]; }
+        catch (error) {
+          if (owner !== this.owner() || this.stopped || this.remote.profile !== profile) return;
+          if (!this.remote.projectConnected(project.id)) continue;
+          const logRef = logsFor(this.store.root).record('diagnostic', 'project.sync.questions', accountLogScope(this.store.root, { projectId: project.id, origin: 'background' }), { level: 'warning', detail: error instanceof Error ? error.message : String(error) });
+          failures.set(project.id, userFailure(error, { domain: 'central', operation: '读取项目提问', logRef }));
+          failedProjects.add(project.id); continue;
+        }
+        if (owner !== this.owner() || this.stopped || this.remote.profile !== profile) return;
         if (!this.remote.projectConnected(project.id)) continue;
+        failures.delete(project.id);
+        synced.projects.set(project.id, new Date().toISOString());
         // Remove records the server no longer permits this account to read.
         inbox.items = inbox.items.filter(q => q.projectId !== project.id || before.get(q.id) !== q || questions.some(n => n.id === q.id));
         for (const q of questions) this.merge(inbox, q);
       }
       inbox.items = inbox.items.filter(q => profile.projects.some(p => p.id === q.projectId));
-      inbox.error = undefined;
+      inbox.error = [...failedProjects].map(id => failures.get(id)!.message).join('；') || undefined;
       for (const q of inbox.items) {
-        if (!this.remote.projectConnected(q.projectId)) continue;
+        if (!this.remote.projectConnected(q.projectId) || failedProjects.has(q.projectId)) continue;
         if (owner !== this.owner() || this.stopped) return;
         if (q.closedAt) inbox.dialogues = inbox.dialogues?.filter(item => item.questionId !== q.id);
         const self = q.recipients.find(recipient => recipient.username === profile.username);
@@ -416,7 +437,15 @@ export class Questions {
         }
       }
       await this.save(); this.hooks.changed();
-    } catch (e: any) { if (owner === this.owner()) { inbox.error = e.message; this.hooks.changed(); } }
+    } catch (e: any) {
+      if (owner === this.owner() && this.remote.profile === profile && !this.stopped) {
+        const logRef = logsFor(this.store.root).record('diagnostic', 'project.sync.questions', accountLogScope(this.store.root, { origin: 'background' }), { level: 'error', detail: e.message });
+        const failures = this.syncFailures.get(owner) || new Map<string, UserFailure>();
+        this.syncFailures.set(owner, failures);
+        for (const project of profile.projects) if (this.remote.projectConnected(project.id)) failures.set(project.id, userFailure(e, { domain: 'local', operation: '保存项目提问记录', logRef }));
+        inbox.error = e.message; this.hooks.changed();
+      }
+    }
   }
   private cover(job: QuestionJob, ids: string[]) {
     job.covered = [...new Set([...(job.covered || []), ...(job.sourceId ? [job.sourceId] : []), ...ids])];

@@ -13,7 +13,7 @@ data.profile.projects.push(b);
 for (const [key,value] of Object.entries(data.snapshot.settings.projectDirectories)) data.snapshot.settings.projectDirectories[key.replace(a.id,b.id)] = value;
 data.snapshot.connection.profile.projects = data.profile.projects;
 data.snapshot.settings.workspaceSnapshot.profile.projects = data.profile.projects;
-data.snapshot.projectConnections = { [a.id]: { connected: true }, [b.id]: { connected: false } };
+data.snapshot.projectConnections = { [a.id]: { connected: true, syncStatus: 'synced' }, [b.id]: { connected: true, syncStatus: 'unsynced', failure: { version: 1, code: 'CENTRAL_CONNECTION_RESET', message: '读取项目共享成果没有返回结果。后台会重试，也可以点“立即重试”。' } } };
 data.snapshot.selectedProjectId = a.id;
 let browser;
 try {
@@ -25,16 +25,16 @@ try {
     installFixture(data);
     const original=window.workbench,listeners=[],calls=[];
     const fixture=window.centralFixture={data,calls,fail:false,emit:()=>listeners.forEach(fn=>fn({type:'state'})),
-      offline(){data.snapshot.connection.connected=false;data.snapshot.reusableConnections=[];Object.values(data.snapshot.projectConnections).forEach(s=>s.connected=false);this.emit();}};
+      offline(){data.snapshot.connection.connected=false;data.snapshot.reusableConnections=[];Object.values(data.snapshot.projectConnections).forEach(s=>{s.connected=false;s.syncStatus='unsynced';delete s.failure;});this.emit();}};
     window.workbench={subscribe(fn){listeners.push(fn);const off=original.subscribe(fn);return()=>{listeners.splice(listeners.indexOf(fn),1);off();};},async call(action,p){
       calls.push({action,p});
-      if(action==='project.connection.open'||action==='remote.connect'){
+      if(action==='project.connection.open'||action==='remote.connect'||action==='project.connection.retry'){
         if(fixture.fail)throw new Error(action==='remote.connect'?'Authentication failed':'中央节点连接已断开，请重新连接');
-        data.snapshot.connection.connected=true;data.snapshot.projectConnections[p.projectId]={connected:true};
+        data.snapshot.connection.connected=true; if(action==='remote.connect'){Object.keys(data.snapshot.projectConnections).forEach(id=>data.snapshot.projectConnections[id]={connected:true,syncStatus:'synced'});} else data.snapshot.projectConnections[p.projectId]={connected:true,syncStatus:'synced'};
         data.snapshot.reusableConnections=[{key:accountIdentity(data.profile),profile:data.profile}];fixture.emit();
         return action==='remote.connect'?{...data.profile,selectedProjectId:p.projectId}:{newWindow:false,projectId:p.projectId};
       }
-      if(action==='project.connection.disconnect'){data.snapshot.projectConnections[p.projectId]={connected:false};fixture.emit();return true;}
+      if(action==='project.connection.disconnect'){data.snapshot.projectConnections[p.projectId]={connected:false,syncStatus:'paused'};fixture.emit();return true;}
       if(action==='project.directory.impact')return {following:0,fixed:0,pending:0,failed:0};
       return original.call(action,p);
     }};
@@ -50,46 +50,37 @@ try {
   const row=id=>page.locator('.workgroup-project-item').filter({has:page.locator('[data-project-id="'+id+'"]')});
   const settings=page.getByRole('dialog',{name:/项目设置/});
   await expect(page.locator('.topbar').getByRole('button',{name:/中央节点/})).toHaveCount(1);
-  await expect(row(a.id).locator('.project-connection-entry')).toContainText('同步已开启');
-  await expect(row(b.id).locator('.project-connection-entry')).toHaveCount(0);
-  await page.locator('[data-project-id="'+b.id+'"]').click();
-  await expect(row(b.id).locator('.project-connection-entry')).toContainText('未开启同步');
+  await expect(row(a.id).locator('.project-connection-entry')).toHaveText('已同步');
+  await expect(row(b.id).locator('.project-connection-entry')).toHaveText('未同步');
+  await page.screenshot({path:path.join(out,'automatic-sync-status.png')});
+  // Status is visible even when a different project is selected.
   await row(b.id).locator('.project-connection-entry').click();
   const central=page.getByLabel('项目中央节点',{exact:true});
-  await expect(central).toContainText('未连接');
-  await central.getByRole('button',{name:'连接',exact:true}).click();
-  const modal=page.locator('.modal').filter({has:page.getByRole('heading',{name:'项目中央节点',exact:true})});
-  await expect(modal.getByLabel('选择中央节点连接')).toBeVisible();
-  await expect(modal.getByLabel('登录密码',{exact:true})).toHaveCount(0);
+  await expect(central).toContainText('未同步');
+  await expect(central.getByRole('alert')).toContainText('读取项目共享成果');
+  await page.screenshot({path:path.join(out,'automatic-sync-failure.png')});
   await page.evaluate(()=>window.centralFixture.fail=true);
-  await modal.getByRole('button',{name:'使用此连接',exact:true}).click();
-  await expect(modal.getByRole('alert')).toContainText('连接已断开');
+  await central.getByRole('button',{name:'立即重试',exact:true}).click();
+  await expect(central.getByRole('alert').last()).toContainText('连接已断开');
   await page.evaluate(()=>window.centralFixture.fail=false);
-  await modal.getByRole('button',{name:'使用此连接',exact:true}).click();
-  await expect(modal).toHaveCount(0); await expect(row(b.id).locator('.project-connection-entry')).toContainText('同步已开启');
-  await page.locator('[data-project-id="'+a.id+'"]').click();await row(a.id).locator('.project-connection-entry').click();
-  await central.getByRole('button',{name:'断开本项目',exact:true}).click();
-  await expect(central).toContainText('未连接');
-  assert.equal(await page.evaluate(id=>window.centralFixture.data.snapshot.projectConnections[id].connected,b.id),true);
-  assert.equal(await page.evaluate(()=>window.centralFixture.data.snapshot.connection.connected),true);
+  await central.getByRole('button',{name:'立即重试',exact:true}).click();
+  await expect(row(b.id).locator('.project-connection-entry')).toHaveText('已同步');
+  await expect(central.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('dialog',{name:'项目中央节点',exact:true})).toHaveCount(0);
+  await central.getByRole('button',{name:'暂停本项目同步',exact:true}).click();
+  await expect(central).toContainText('已暂停');
+  await expect(row(a.id).locator('.project-connection-entry')).toHaveText('已同步');
+  await central.getByRole('button',{name:'恢复同步',exact:true}).click();
+  await expect(row(b.id).locator('.project-connection-entry')).toHaveText('已同步');
   await settings.getByRole('button',{name:'关闭窗口',exact:true}).click();
-  await expect(page.locator('[data-session-id="'+data.session.id+'"]').first()).toBeVisible();
+  await page.screenshot({path:path.join(out,'automatic-sync-recovered.png')});
   await page.evaluate(()=>window.centralFixture.offline());
-  await row(a.id).locator('.project-connection-entry').click();await central.getByRole('button',{name:'连接',exact:true}).click();
-  await expect(modal.getByLabel('中央节点地址',{exact:true})).toHaveValue(data.profile.host);
-  await expect(modal.getByLabel('成员账号',{exact:true})).toHaveValue(data.profile.username);
-  await expect(modal.getByLabel('登录密码',{exact:true})).toHaveValue('');
-  await modal.getByLabel('登录密码',{exact:true}).fill('fixture-password');
-  await page.evaluate(()=>window.centralFixture.fail=true);
-  await modal.getByRole('button',{name:'连接',exact:true}).click();await expect(modal.getByRole('alert')).toContainText('账号或密码');
-  await page.evaluate(()=>window.centralFixture.fail=false);
-  await modal.getByRole('button',{name:'连接',exact:true}).click();await expect(modal).toHaveCount(0);
+  await expect(row(a.id).locator('.project-connection-entry')).toHaveText('未同步');
+  await expect(row(b.id).locator('.project-connection-entry')).toHaveText('未同步');
   const calls=await page.evaluate(()=>window.centralFixture.calls);
   assert.equal(calls.filter(c=>c.action==='remote.disconnect').length,0);
-  for(const c of calls.filter(c=>c.action==='project.connection.open'))assert.equal(c.p.projectId,b.id);
-  for(const c of calls.filter(c=>c.action==='remote.connect'))assert.equal(c.p.projectId,a.id);
-  assert.equal(await page.evaluate(id=>window.centralFixture.data.snapshot.projectConnections[id].connected,b.id),false);
-  await page.screenshot({path:path.join(out,'project-connection.png')});
+  assert.equal(calls.filter(c=>c.action==='project.connection.open').length,0);
+  assert.equal(calls.filter(c=>c.action==='project.connection.retry').length,3);
   assert.deepEqual(errors,[]);assert.deepEqual(requests,[]);
-  console.log('PASS: per-project entry, reuse without password, independent disconnect, preserved local session, scoped reconnection and failure feedback. '+out);
+  console.log('PASS: all project status badges remain visible; failed synchronization retries on the current authenticated connection, recovers without a login dialog, and pauses independently. '+out);
 } finally { await browser?.close(); }

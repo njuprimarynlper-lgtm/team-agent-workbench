@@ -28,11 +28,12 @@ test('two projects reuse one authenticated filesystem connection and disconnect 
     const session = await workbench.createSession('codex', root, a.id);
     session.messages.push({ id: 'local', role: 'user', text: '未联网也要保留的对话', createdAt: session.createdAt });
     await workbench.store.save();
-    // Authentication and project activation are separate, including after restart/relogin.
+    // Login enables every accessible project in the background; explicit pauses remain independent.
     await workbench.configureWorkspace(profile, '123', root, async () => false);
     assert.equal(workbench.remote.profile!.projects.length, 2);
-    assert.equal(workbench.projectConnected(a.id), false); assert.equal(workbench.projectConnected(b.id), false);
-    await assert.rejects(workbench.remote.contentList(workbench.remote.binding(a.id)), /此项目尚未连接/);
+    assert.equal(workbench.projectConnected(a.id), true); assert.equal(workbench.projectConnected(b.id), true);
+    await workbench.syncProjectsInBackground();
+    await workbench.disconnectProject(b.id);
     const transport = (workbench.remote as any).backend;
     const reads: string[] = [], read = workbench.remote.contentList.bind(workbench.remote);
     workbench.remote.contentList = binding => { reads.push(binding.project.id); return read(binding); };
