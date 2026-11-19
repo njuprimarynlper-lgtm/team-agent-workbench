@@ -108,10 +108,16 @@ test('catalog refresh activates new projects, respects a manual pause, and revok
     await f.admin.operation({ op: 'group_member', group: 'local_beta', username: 'alice', role: 'remove', handoffs: { local_beta: null } });
     await f.client.refreshGroups();
     assert.equal(f.client.projectConnected(b.id), false); assert.equal(f.client.snapshot().projectConnections![b.id].syncStatus, 'unsynced');
+    assert.equal(f.client.snapshot().projectSync![b.id].historyOnly, true);
     assert.deepEqual(f.client.session(session.id).binding, binding);
     await assert.rejects(f.client.connectProject(b.id), /没有该项目/);
     await f.client.connectProject(a.id); await f.client.syncProjectsInBackground();
     assert.equal(f.client.snapshot().projectConnections![a.id].syncStatus, 'synced');
+    await f.admin.operation({ op: 'group_member', group: 'local_beta', username: 'alice', role: 'admin' });
+    await f.client.refreshGroups(); await f.client.syncProjectsInBackground();
+    assert.equal(f.client.snapshot().projectSync![b.id].historyOnly, false);
+    assert.equal(f.client.snapshot().projectConnections![b.id].syncStatus, 'synced', 'the same project ID automatically resumes synchronization after access returns');
+    assert.deepEqual(f.client.session(session.id).binding, binding);
   } finally { await f.close(); }
 });
 

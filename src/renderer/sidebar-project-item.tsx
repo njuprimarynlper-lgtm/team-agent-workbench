@@ -10,11 +10,11 @@ export function LocalWorkspaceNote({ project, groupId, groups, openResults }: { 
   return <div className="personal-side-note"><b>{title}</b>会话和整理成果保存在本机。<button className="text-button" onClick={openResults}>查看个人成果库</button></div>;
 }
 
-export function SidebarProjectItem({ project, selected, select, settings, call, recommendations, pending, conflict, connection, role, count = 0 }: {
+export function SidebarProjectItem({ project, selected, select, settings, call, recommendations, pending, conflict, connection, role, count = 0, historical = false }: {
   project: { id: string; name: string }; selected: boolean;
   select: () => void; settings: () => void; call: WorkbenchAPI['call'];
   connection?: React.ReactNode; recommendations?: () => void; pending?: number; conflict?: boolean; role?: GroupRole;
-  count?: number;
+  count?: number; historical?: boolean;
 }) {
   const detailsId = 'project-controls-' + project.id;
   return <div className={'workgroup-project-item' + (selected ? ' is-selected' : '')}>
@@ -27,6 +27,6 @@ export function SidebarProjectItem({ project, selected, select, settings, call, 
       {connection}
       <button className="icon project-settings-action" title={'项目设置：' + project.name} aria-label={'项目设置：' + project.name} onClick={settings}>{conflict ? <span className="inline-error" title="项目资料有分歧，点击处理">●</span> : <Settings size={14}/>}</button>
     </div>
-    {selected && <div className="workgroup-project-details" id={detailsId}><div className="workgroup-project-controls"><RsiRecommendationToggle projectId={project.id} projectName={project.name} call={call} open={recommendations} pending={pending}/></div></div>}
+    {selected && <div className="workgroup-project-details" id={detailsId}><div className="workgroup-project-controls">{historical ? <span className="muted small">本地对话和草稿仍可使用</span> : <RsiRecommendationToggle projectId={project.id} projectName={project.name} call={call} open={recommendations} pending={pending}/>}</div></div>}
   </div>;
 }

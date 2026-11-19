@@ -76,7 +76,7 @@ import { attachmentList, freezeDraftAttachments } from './draft-attachments';
 import { attachmentPath } from '../shared/attachments';
 import { AccountSync } from './account-sync';
 import { accountIdentity } from '../shared/account-data';
-import { ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
+import { ownedLocalProjects, ownsBinding, scopeAccountSnapshot } from '../shared/account-scope';
 import { canFollowProjectDirectory, followsProjectDirectory, projectDirectory, projectDirectoryKey } from '../shared/project-directory';
 import { applyWorkspacePaths, relocateWorkspace, remapWorkspacePath, workspaceRelocationFailure } from './workspace-relocation';
 import { normalizedResultBody, teamResultDifference } from '../shared/team-result-difference';
@@ -234,8 +234,8 @@ export class Workbench {
     this.projectBackgroundSync = job;
     try { await job; } finally { if (this.projectBackgroundSync === job) this.projectBackgroundSync = undefined; }
   }
-  private projectConnectionState(id: string): import('../shared/project-connection').ProjectConnectionState {
-    const connected = this.projectConnected(id), content = this.projectContentSync.get(id), project = this.projectSync.states()[id];
+  private projectConnectionState(id: string, project: NonNullable<Snapshot['projectSync']>[string] | undefined): import('../shared/project-connection').ProjectConnectionState {
+    const connected = this.projectConnected(id), content = this.projectContentSync.get(id);
     const account = this.accountSync.state;
     const failure = content?.failure || (project?.error ? userFailure(project.error, { domain: 'central', operation: '同步项目说明' }) : undefined)
       || (account.status === 'error' ? account.failure || userFailure(account.detail, { domain: 'central', operation: '同步账号资料' }) : undefined)
@@ -385,6 +385,7 @@ export class Workbench {
     this.projectSync = new ProjectSync(root, {
       owner: () => { const profile = this.personal ? personalWorkspace().profile : this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile ? accountIdentity(profile) : 'unlinked'; },
       projects: () => (this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile)?.projects || [],
+      retainedProjects: () => ownedLocalProjects(this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile, [...this.store.sessions, ...this.store.drafts]),
       projectConnected: id => this.projectConnected(id), binding: id => this.remote.binding(id), connected: () => !this.configuring && !this.personal && this.remote.connected,
       create: async (name, group, brief, id) => {
         const result = await this.remote.createProject(name, group, brief, id);
@@ -1236,10 +1237,11 @@ export class Workbench {
   }
   async detect() { this.providers = await Promise.all((['codex', 'cursor', 'claude'] as Provider[]).map(p => inspectProvider(p, this.store.settings.providerPaths[p]))); this.broadcast(); return this.providers; }
   snapshot(): Snapshot {
+    const projectStates = this.projectSync.states();
     const sessions = this.store.sessions.map(session => sessionWithAvailableReferences(session, this.store.conclusions));
     const allowed = new Map(sessions.map(session => [session.id, new Set(session.sources.map(source => source.id))]));
     const inputs = Object.fromEntries(Object.entries(this.store.inputs).map(([id, input]) => [id, { ...input, sourceIds: input.sourceIds.filter(sourceId => allowed.get(id)?.has(sourceId)) }]));
-    return scopeAccountSnapshot({ localRecordSaveFailure: this.backgroundRecordSaveState(), projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, this.projectConnectionState(p.id)])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: this.projectSync.states(), accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
+    return scopeAccountSnapshot({ localRecordSaveFailure: this.backgroundRecordSaveState(), projectConnections: Object.fromEntries((this.localProfile()?.projects || []).map(p => [p.id, this.projectConnectionState(p.id, projectStates[p.id])])), sideChats: [...this.sideChats.values()].map(entry => entry.view), questions: this.questions.view(), activity: this.activityView(), publishingConclusions: [...this.publishingConclusions], accountChanging: this.configuring, activeTurns: Object.fromEntries([...this.runtimes, ...[...this.sideChats.values()].map(entry => [entry.view.session.id, entry.runtime] as const)].flatMap(([id, runtime]) => runtime.activeTurnId ? [[id, runtime.activeTurnId]] : [])), projectSync: projectStates, accountSync: this.accountSync.state, settings: { ...this.store.settings, workspaceSnapshot: this.store.settings.workspaceSnapshot && { ...this.store.settings.workspaceSnapshot, profile: this.localProfile()! } }, sessions, inputs, drafts: this.store.drafts, transfers: this.store.transfers, providers: this.providers, auth: this.accounts.states, workspaceReady: this.workspaceReady, connection: !this.configuring && this.remote.connected && this.remote.profile ? { profile: this.localProfile()!, connected: true, workspace: this.remote.workspace, workspaces: this.remote.workspaces } : undefined });
   }
   private localProfile() { const profile = !this.configuring && this.remote.connected ? this.remote.profile : this.store.settings.workspaceSnapshot?.profile; return profile && { ...profile, projects: this.projectSync?.projects() || profile.projects }; }
   betaFeatureEnabled(feature: BetaFeature) {
@@ -3972,6 +3974,10 @@ export class Workbench {
   }
   private async createTrajectory(id: string, automatic: boolean) {
     const s = this.session(id); if (this.personal) throw new Error('请先将会话迁移到团队项目，再上传轨迹'); if (!s.binding) throw new Error('会话没有绑定远端项目'); this.assertCanWork(s.binding);
+    if (this.projectSync.isHistoryOnly(s.binding.project.id)) {
+      if (automatic) return;
+      throw new Error('此项目当前仅保留本地历史，恢复原项目访问后才能上传轨迹');
+    }
     if (automatic && s.sources.some(isPersonalHandoffSource)) {
       s.autoUpload = false; clearTimeout(this.trajectoryTimers.get(id)); this.trajectoryTimers.delete(id);
       await this.store.save(); this.broadcast(); return;

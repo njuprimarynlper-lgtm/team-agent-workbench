@@ -10,8 +10,10 @@ export function inProjectWorkgroup(saved: Project | undefined, selected: Project
   return !!selected.groupName && !!current && current.groupName === selected.groupName;
 }
 
-export function projectWorkSessions(sessions: AgentSession[], project: Project | undefined, projects: Project[], personal: boolean, personalGroup = '*') {
+export function projectWorkSessions(sessions: AgentSession[], project: Project | undefined, projects: Project[], personal: boolean, personalGroup = '*', historicalIds: ReadonlySet<string> = new Set()) {
   return sessions.filter(session => session.purpose === 'work' && !session.scheduledRun?.managed && (personal
     ? isPersonalBinding(session.binding) && session.binding?.project.id === project?.id && (project?.id !== PERSONAL_PROJECT_ID || personalGroup === '*' || (session.personalGroupId || '') === personalGroup)
-    : !isPersonalBinding(session.binding) && inProjectWorkgroup(session.binding?.project, project, projects)));
+    : !isPersonalBinding(session.binding) && (historicalIds.has(project?.id || '')
+      ? session.binding?.project.id === project?.id
+      : !historicalIds.has(session.binding?.project.id || '') && inProjectWorkgroup(session.binding?.project, project, projects))));
 }
