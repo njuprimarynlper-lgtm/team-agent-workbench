@@ -45,6 +45,8 @@ jobs:
         run: |
           docker logs workbench-issue5-verification
           docker exec workbench-issue5-verification supervisorctl status
+          docker exec workbench-issue5-verification supervisorctl pid
+          docker exec workbench-issue5-verification cat /etc/supervisor/supervisord.conf
           docker exec workbench-issue5-verification cat /var/log/issue5-sshd.log
       - name: Remove disposable container
         if: always()

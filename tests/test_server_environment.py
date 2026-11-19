@@ -156,6 +156,24 @@ class EnvironmentTests(unittest.TestCase):
                 with self.assertRaises(ValueError): admin.service_backend()
                 run.assert_not_called()
 
+    def test_supervisor_accepts_standard_inline_comments_without_accepting_remote_control(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory); (root / 'conf.d').mkdir()
+            socket = root / 'supervisor.sock'; socket.touch()
+            config = root / 'supervisord.conf'
+            config.write_text('[supervisorctl]\nserverurl=unix://' + str(socket) + ' ; local control socket\n[include]\nfiles=conf.d/*.conf ; managed programs\n', encoding='utf-8')
+            original_stat = pathlib.Path.stat
+            def stats(file, *args, **kwargs):
+                return types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o700) if file == socket else original_stat(file, *args, **kwargs)
+            with patch.object(admin, 'systemd_running', return_value=False), patch.object(admin, 'SUPERVISOR_CONFIGS', [config]), patch.object(admin, 'trusted_service_path'), patch.object(admin.shutil, 'which', return_value='/usr/bin/supervisorctl'), patch.object(admin.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0, stdout='123\n')) as run, patch.object(pathlib.Path, 'stat', stats):
+                backend = admin.service_backend()
+                self.assertEqual(backend['kind'], 'supervisor')
+                self.assertEqual(backend['directory'], str(root / 'conf.d'))
+                config.write_text('[supervisorctl]\nserverurl=http://remote:9001 ; remote endpoint\n[include]\nfiles=conf.d/*.conf\n', encoding='utf-8')
+                run.reset_mock()
+                with self.assertRaises(ValueError): admin.service_backend()
+                run.assert_not_called()
+
     def test_non_systemd_ssh_reload_uses_existing_service_script(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory); (root / 'ssh').write_text('fixture')

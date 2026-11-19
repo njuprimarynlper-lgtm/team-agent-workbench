@@ -80,7 +80,9 @@ def service_backend():
             if not config.is_file():
                 continue
             trusted_service_path(config)
-            parser = configparser.RawConfigParser()
+            # Supervisor's shipped configuration uses whitespace + ';' comments
+            # after serverurl and include patterns. Do not treat them as paths.
+            parser = configparser.RawConfigParser(inline_comment_prefixes=(';',))
             parser.read(config, encoding='utf-8')
             # Never send root service-management commands to a remote Supervisor endpoint.
             url = parser.get('supervisorctl', 'serverurl', fallback='')
