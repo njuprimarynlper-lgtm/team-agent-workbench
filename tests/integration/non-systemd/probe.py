@@ -33,15 +33,16 @@ def run(*command):
 
 def wait(check, timeout=30):
     deadline = time.monotonic() + timeout
+    last_error = None
     while time.monotonic() < deadline:
         try:
             value = check()
             if value:
                 return value
-        except (OSError, ValueError, paramiko.SSHException, subprocess.CalledProcessError):
-            pass
+        except (OSError, ValueError, paramiko.SSHException, subprocess.CalledProcessError) as error:
+            last_error = error
         time.sleep(0.2)
-    raise AssertionError('Container service did not become ready')
+    raise AssertionError('Container service did not become ready' + (': ' + str(last_error) if last_error else ''))
 
 
 def load_admin():

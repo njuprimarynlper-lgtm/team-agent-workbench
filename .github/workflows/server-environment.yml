@@ -30,7 +30,7 @@ jobs:
       - name: Build disposable Ubuntu 22.04 container
         run: docker build -t workbench-issue5 -f tests/integration/non-systemd/Dockerfile .
       - name: Start with bash as PID 1 and Supervisor managing SSH
-        run: docker run -d --name workbench-issue5-verification --tmpfs /run workbench-issue5
+        run: docker run -d --name workbench-issue5-verification --tmpfs /run:mode=755 workbench-issue5
       - name: Run Linux server regressions
         run: docker exec workbench-issue5-verification python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Verify creation, SSH, SFTP, worker operations and failure recovery
